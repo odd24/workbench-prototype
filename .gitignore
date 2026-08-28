@@ -1,0 +1,18 @@
+# Local workbench content and machine-specific settings
+workbench-data/
+.workbench-location.json
+.workbench-export.json
+
+# Python caches and local test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local UI review captures
+preview*.png
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

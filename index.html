@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <title>本地工作台 · 交互原型</title>
+  <link rel="stylesheet" href="styles.css?v=20260828-11">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-mark">工</div>
+        <div class="brand-copy"><strong>本地工作台</strong><span>Markdown 本地存储</span></div>
+        <button class="icon-button sidebar-toggle" id="sidebarToggle" aria-label="折叠侧栏">‹</button>
+      </div>
+
+      <nav class="nav" aria-label="主导航">
+        <button class="nav-item active" data-page="home"><span>⌂</span><b>首页</b></button>
+        <div class="nav-label"><span>项目</span><div class="nav-label-actions"><button type="button" id="projectSortButton" aria-label="项目排序" title="项目排序">↕</button><button type="button" data-create-type="项目" aria-label="新建项目" title="新建项目">＋</button></div></div>
+        <div id="projectLinks">
+          <button class="nav-item" data-page="project"><span class="project-dot blue"></span><b>网站重构</b><em>7</em></button>
+          <button class="nav-item" data-page="project"><span class="project-dot violet"></span><b>客户交付平台</b><em>3</em></button>
+        </div>
+        <button class="nav-item muted" data-page="archive"><span>◫</span><b>已归档项目</b></button>
+        <div class="nav-label"><span>工作区</span></div>
+        <button class="nav-item" data-page="ideas"><span>✦</span><b>想法收件箱</b><em class="accent-badge">6</em></button>
+        <button class="nav-item" data-page="timeline"><span>☷</span><b>全部记录</b></button>
+        <button class="nav-item" data-page="reminders"><span>◷</span><b>提醒中心</b><em>3</em></button>
+        <button class="nav-item" data-page="tags"><span>⌗</span><b>标签管理</b></button>
+        <button class="nav-item" data-page="status_templates"><span>◉</span><b>状态模板</b></button>
+        <button class="nav-item" data-page="trash"><span>♲</span><b>回收站</b></button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="storage-line"><span>本地数据</span><strong>Markdown 持久化</strong></div>
+        <div class="storage-path">D:\WorkBench\data</div>
+        <button class="nav-item" data-page="settings"><span>⚙</span><b>设置</b></button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="mobile-menu icon-button" id="mobileMenu" aria-label="打开菜单">☰</button>
+        <button class="search-trigger" id="searchTrigger"><span>⌕</span><span>搜索问题、待办和想法…</span><kbd>Ctrl K</kbd></button>
+        <div class="top-actions">
+          <button class="icon-button" id="themeToggle" aria-label="切换主题">☾</button>
+          <button class="icon-button notification-button" aria-label="提醒">♢<i>3</i></button>
+          <button class="primary-button" id="quickCreate">＋ 快速新建</button>
+        </div>
+      </header>
+
+      <section class="page active" id="homePage">
+        <div class="page-heading">
+          <div><p class="eyebrow">2026年8月27日 · 星期四</p><h1>早上好，今天从哪里开始？</h1><p>3 项工作需要留意，其中 2 项已经逾期。</p></div>
+          <div class="heading-actions"><button class="secondary-button">管理首页</button></div>
+        </div>
+
+        <div class="quick-actions">
+          <button data-create-type="问题"><span class="quick-icon coral">!</span><strong>记录问题</strong><small>捕捉并跟进工作问题</small></button>
+          <button data-create-type="待办"><span class="quick-icon blue-bg">✓</span><strong>新建待办</strong><small>安排下一步行动</small></button>
+          <button data-create-type="想法"><span class="quick-icon violet-bg">✦</span><strong>记录想法</strong><small>先收集，稍后再整理</small></button>
+          <button data-create-type="项目"><span class="quick-icon green-bg">□</span><strong>新建项目</strong><small>创建独立工作空间</small></button>
+        </div>
+
+        <div class="dashboard-grid">
+          <section class="panel span-2">
+            <div class="panel-header"><div><h2>今日待办</h2><span class="count-badge">5</span></div><button data-page-link="project">查看全部 →</button></div>
+            <div class="todo-list" id="todayTodoList">
+              <label class="todo-row"><input type="checkbox"><span class="checkmark"></span><span class="todo-content"><strong>完成搜索接口检查</strong><small><i class="project-dot blue"></i>网站重构</small></span><time>10:30</time><span class="priority high">高</span></label>
+              <label class="todo-row"><input type="checkbox"><span class="checkmark"></span><span class="todo-content"><strong>更新项目说明文档</strong><small><i class="project-dot violet"></i>客户交付平台</small></span><time>14:00</time><span class="priority normal">普通</span></label>
+              <label class="todo-row"><input type="checkbox"><span class="checkmark"></span><span class="todo-content"><strong>回复登录问题的客户反馈</strong><small><i class="project-dot blue"></i>网站重构</small></span><time>今天</time><span class="priority urgent">紧急</span></label>
+            </div>
+          </section>
+
+          <section class="panel attention-panel">
+            <div class="panel-header"><div><h2>需要关注</h2></div></div>
+            <button class="attention-item"><span class="attention-icon red">!</span><span><strong>2 项已逾期</strong><small>最早逾期 2 天</small></span><b>→</b></button>
+            <button class="attention-item"><span class="attention-icon orange">◆</span><span><strong>3 个紧急问题</strong><small>1 个今天更新</small></span><b>→</b></button>
+            <button class="attention-item"><span class="attention-icon purple">✦</span><span><strong>6 条未整理想法</strong><small>收件箱等待处理</small></span><b>→</b></button>
+          </section>
+
+          <section class="panel span-2">
+            <div class="panel-header"><div><h2>最近更新</h2></div><button>查看全部 →</button></div>
+            <div class="activity-list" id="recentList">
+              <button class="activity-row open-detail"><span class="type-icon issue">!</span><span><strong>登录页面偶尔请求失败</strong><small>网站重构 · 问题</small></span><em class="status-pill orange-pill">处理中</em><time>10分钟前</time></button>
+              <button class="activity-row"><span class="type-icon todo">✓</span><span><strong>检查 Markdown 导入格式</strong><small>客户交付平台 · 待办</small></span><em class="status-pill blue-pill">进行中</em><time>1小时前</time></button>
+              <button class="activity-row"><span class="type-icon idea">✦</span><span><strong>给搜索结果增加快捷预览</strong><small>未归属 · 想法</small></span><em class="status-pill purple-pill">待评估</em><time>昨天</time></button>
+            </div>
+          </section>
+
+          <section class="panel" id="activeProjectsPanel">
+            <div class="panel-header"><div><h2>活跃项目</h2></div><button data-page-link="project">全部项目 →</button></div>
+            <button class="project-card" data-page-link="project"><span class="project-avatar blue-bg">网</span><span><strong>网站重构</strong><small>12 个问题 · 5 个待办</small><i><b style="width:68%"></b></i></span><em>68%</em></button>
+            <button class="project-card"><span class="project-avatar violet-bg">客</span><span><strong>客户交付平台</strong><small>4 个问题 · 2 个待办</small><i><b style="width:42%"></b></i></span><em>42%</em></button>
+          </section>
+        </div>
+      </section>
+
+      <section class="page" id="projectPage" data-project-id="">
+        <div class="project-heading">
+          <div class="breadcrumb"><button data-page-link="home">项目</button><span>/</span><span>网站重构</span></div>
+          <div class="project-title-row"><div><div class="title-with-avatar"><span class="project-avatar blue-bg">网</span><h1>网站重构</h1><span class="status-pill green-pill">进行中</span></div><p>重构官网核心流程，提升访问速度和内容维护效率。</p></div><div class="heading-actions"><button class="secondary-button" id="editProject">编辑资料</button><button class="secondary-button" id="exportProject">导出项目</button><button class="secondary-button" id="archiveProject">归档项目</button><button class="secondary-button danger-button" id="deleteProject">删除项目</button></div></div>
+        </div>
+
+        <div class="tabs" role="tablist">
+          <button data-project-tab="overview">概览</button><button class="active" data-project-tab="issues">问题 <span>12</span></button><button data-project-tab="todos">待办 <span>5</span></button><button data-project-tab="ideas">想法 <span>3</span></button><button data-project-tab="infos">信息 <span>0</span></button><button data-project-tab="mixed">混合看板</button><button data-project-tab="assets">附件</button>
+        </div>
+
+        <div class="board-toolbar">
+          <div class="view-switch"><button class="active" data-view-mode="board">▦ 看板</button><button data-view-mode="list">☷ 列表</button></div>
+          <select class="filter-button" id="filterStatus"><option value="">状态：全部</option></select><select class="filter-button" id="filterTag"><option value="">标签：全部</option></select><select class="filter-button" id="filterPriority"><option value="">优先级：全部</option><option>低</option><option>普通</option><option>高</option><option>紧急</option></select>
+          <span class="toolbar-spacer"></span><button class="icon-button" id="recordSortButton" aria-label="记录排序" title="记录排序">↕</button><button class="primary-button" data-create-type="问题">＋ 新建问题</button>
+        </div>
+
+        <div class="kanban" id="kanban">
+          <section class="kanban-column" data-status="待处理"><header><span class="column-dot gray"></span><strong>待处理</strong><em>4</em><button>•••</button></header><div class="card-stack">
+            <article class="kanban-card open-detail" draggable="true"><div class="card-top"><span class="priority urgent">紧急</span><button>•••</button></div><h3>登录页面偶尔请求失败</h3><p>用户提交登录表单后，偶尔出现接口请求超时。</p><div class="tag-row"><span>登录</span><span>前端</span></div><footer><span class="overdue">◷ 明天</span><span>▱ 3　⌕ 2</span></footer></article>
+            <article class="kanban-card" draggable="true"><div class="card-top"><span class="priority normal">普通</span><button>•••</button></div><h3>移动端导航菜单遮挡内容</h3><div class="tag-row"><span>移动端</span></div><footer><span>◷ 9月2日</span><span>▱ 1</span></footer></article>
+          </div><button class="add-card" data-create-type="问题">＋ 添加问题</button></section>
+
+          <section class="kanban-column" data-status="分析中"><header><span class="column-dot blue"></span><strong>分析中</strong><em>2</em><button>•••</button></header><div class="card-stack">
+            <article class="kanban-card" draggable="true"><div class="card-top"><span class="priority high">高</span><button>•••</button></div><h3>Markdown 表格导入后格式错乱</h3><p>包含合并单元格时解析结果不符合预期。</p><div class="tag-row"><span>Markdown</span><span>导入</span></div><footer><span class="overdue">◷ 今天</span><span>▱ 2　⌕ 4</span></footer></article>
+          </div><button class="add-card" data-create-type="问题">＋ 添加问题</button></section>
+
+          <section class="kanban-column" data-status="处理中"><header><span class="column-dot orange"></span><strong>处理中</strong><em>3</em><button>•••</button></header><div class="card-stack">
+            <article class="kanban-card" draggable="true"><div class="card-top"><span class="priority high">高</span><button>•••</button></div><h3>全局搜索结果缺少高亮</h3><div class="tag-row"><span>搜索</span><span>体验</span></div><footer><span>◷ 8月30日</span><span>▱ 1</span></footer></article>
+            <article class="kanban-card" draggable="true"><div class="card-top"><span class="priority normal">普通</span><button>•••</button></div><h3>附件重名时需要自动处理</h3><div class="tag-row"><span>附件</span></div><footer><span>无截止日期</span><span>▱ 2</span></footer></article>
+          </div><button class="add-card" data-create-type="问题">＋ 添加问题</button></section>
+
+          <section class="kanban-column" data-status="已解决"><header><span class="column-dot green"></span><strong>已解决</strong><em>5</em><button>•••</button></header><div class="card-stack">
+            <article class="kanban-card completed-card" draggable="true"><div class="card-top"><span class="priority normal">普通</span><button>•••</button></div><h3>首页项目统计刷新延迟</h3><div class="tag-row"><span>首页</span></div><footer><span>✓ 昨天解决</span><span>▱ 2</span></footer></article>
+          </div><button class="add-card" data-create-type="问题">＋ 添加问题</button></section>
+        </div>
+      </section>
+
+      <section class="page" id="managePage">
+        <div class="page-heading"><div><p class="eyebrow" id="manageEyebrow">工作区管理</p><h1 id="manageTitle">提醒中心</h1><p id="manageDescription">查看即将到期和已经逾期的工作。</p></div><div class="heading-actions" id="manageActions"></div></div>
+        <div id="manageContent"></div>
+      </section>
+
+      <section class="page placeholder-page" id="placeholderPage"><div><span>◫</span><h1 id="placeholderTitle">页面原型</h1><p>该页面将在后续原型中继续完善。</p><button class="primary-button" data-page-link="home">返回首页</button></div></section>
+    </main>
+  </div>
+
+  <div class="overlay" id="modalOverlay"></div>
+  <dialog class="create-dialog" id="createDialog">
+    <form method="dialog">
+      <header><div><p class="eyebrow">快速捕捉</p><h2>新建记录</h2></div><button value="cancel" class="icon-button dialog-close" aria-label="关闭" title="关闭">✕</button></header>
+      <div class="type-picker"><button type="button" class="active" data-type="问题"><span class="type-icon issue">!</span>问题</button><button type="button" data-type="待办"><span class="type-icon todo">✓</span>待办</button><button type="button" data-type="想法"><span class="type-icon idea">✦</span>想法</button><button type="button" data-type="信息"><span class="type-icon info">i</span>信息</button></div>
+      <label><span>标题</span><input id="createTitle" autocomplete="off" placeholder="用一句话描述这条记录"></label>
+      <div class="form-grid create-context-grid"><label><span>所属项目</span><select id="projectSelect"><option>网站重构</option><option>客户交付平台</option></select></label><label id="createStatusField"><span>初始状态</span><select id="createStatus"></select></label><label id="createPriorityField"><span>优先级</span><select id="createPriority"><option>普通</option><option>高</option><option>紧急</option><option>低</option></select></label></div>
+      <section class="create-info-fields" id="createInfoFields"><header><div><strong>信息字段</strong><small>使用字段名称和内容结构化记录项目信息</small></div><button type="button" id="addCreateInfoField">＋ 添加字段</button></header><div id="createInfoFieldList"></div></section>
+      <label id="createBodyField"><span>补充说明（可选）</span><textarea placeholder="输入 / 可以插入格式和内容块"></textarea></label>
+      <footer><small>创建后立即生成 Markdown 文件</small><div><button value="cancel" class="secondary-button">取消</button><button type="button" class="primary-button" id="createSubmit">立即创建</button></div></footer>
+    </form>
+  </dialog>
+
+  <div class="search-panel" id="searchPanel" aria-hidden="true">
+    <div class="search-box"><span>⌕</span><input id="searchInput" placeholder="搜索问题、待办、想法和 Markdown 正文…"><kbd>Esc</kbd></div>
+    <div class="search-body"><aside><strong>记录类型</strong><button class="active" data-search-type="">全部记录 <span>0</span></button><button data-search-type="issue">问题 <span>0</span></button><button data-search-type="todo">待办 <span>0</span></button><button data-search-type="idea">想法 <span>0</span></button><button data-search-type="info">信息 <span>0</span></button><hr><strong>组合筛选</strong><label class="search-filter-label">项目<select id="searchProjectFilter"><option value="">全部项目</option></select></label><label class="search-filter-label">标签<select id="searchTagFilter"><option value="">全部标签</option></select></label><label class="search-filter-label">状态<select id="searchStatusFilter"><option value="">全部状态</option></select></label><label class="search-filter-label">优先级<select id="searchPriorityFilter"><option value="">全部优先级</option><option>低</option><option>普通</option><option>高</option><option>紧急</option></select></label></aside><section><div class="search-caption">输入关键词开始搜索</div></section></div>
+  </div>
+
+  <aside class="detail-drawer" id="detailDrawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle" aria-hidden="true">
+      <header><div><button class="icon-button record-back" id="recordBack" aria-label="返回上一条记录" title="返回上一条记录">←</button><span class="type-icon issue">!</span><button class="record-id" id="drawerRecordId" title="点击复制记录 ID">ISSUE-0001</button></div><div><span class="record-id-help">在其他记录中输入 [[ID]] 即可引用</span><button class="icon-button" id="copyRecordId" aria-label="复制记录 ID" title="复制记录 ID">⧉</button><button class="icon-button dialog-close" id="closeDrawer" aria-label="关闭" title="关闭">✕</button></div></header>
+    <div class="drawer-content">
+      <input class="drawer-title" id="drawerTitle" value="登录页面偶尔请求失败" aria-label="标题" spellcheck="false">
+      <div class="meta-grid"><span class="non-info-meta">状态</span><select class="non-info-meta" id="drawerStatus"></select><span class="non-info-meta">优先级</span><select class="non-info-meta" id="drawerPriority"><option>低</option><option>普通</option><option>高</option><option>紧急</option></select><span>所属项目</span><button id="drawerProject">网站重构</button><span class="non-info-meta">截止日期</span><input class="non-info-meta" type="date" id="drawerDue"><span class="non-info-meta">提醒时间</span><input class="non-info-meta" type="datetime-local" id="drawerReminder"><span>标签</span><div class="tag-row" id="drawerTags"><button>＋ 添加标签</button></div></div>
+      <section class="info-fields-panel" id="infoFieldsPanel"><header><div><strong>信息字段</strong><small>拖动字段调整顺序，可补充说明或插入正文</small></div><div class="info-fields-actions"><span class="info-color-label">色条</span><div id="infoColorPicker"></div><button type="button" id="addDrawerInfoField">＋ 添加字段</button></div></header><div id="drawerInfoFieldList"></div></section>
+      <div class="editor-tabs"><button class="active" data-editor-mode="wysiwyg">所见即所得</button><button data-editor-mode="markdown">Markdown</button><button data-editor-mode="split">分栏</button><button id="toggleEditorExpand" class="editor-expand-button" aria-pressed="false" title="展开编辑区域">⛶ 展开编辑</button></div>
+      <div class="editor-toolbar" role="toolbar" aria-label="正文格式工具栏">
+        <button data-editor-command="bold" title="加粗（Ctrl+B）"><b>B</b></button><button data-editor-command="italic" title="斜体（Ctrl+I）"><i>I</i></button><span></span>
+        <label class="editor-toolbar-select" title="设置正文或标题级别"><span>标题</span><select id="editorHeadingLevel" aria-label="标题级别"><option value="p">正文</option><option value="h1">一级标题</option><option value="h2">二级标题</option><option value="h3">三级标题</option><option value="h4">四级标题</option></select></label><button data-editor-command="insertUnorderedList" title="项目列表（Ctrl+Shift+8）">• 列表</button><button data-editor-command="insertOrderedList" title="编号列表（Ctrl+Shift+7）">1. 列表</button><button id="insertChecklist" title="插入待办项">☐ 待办项</button><button data-editor-block="blockquote" title="引用块（Ctrl+Shift+Q）；空引用行回车退出">❝ 引用</button><span></span>
+        <label class="editor-toolbar-select code-language-select" title="选择新代码块或当前代码块的语言"><span>语言</span><select id="codeLanguage" aria-label="代码语言"><option value="txt">TXT 文本</option><option value="javascript">JavaScript</option><option value="typescript">TypeScript</option><option value="python">Python</option><option value="java">Java</option><option value="c">C</option><option value="cpp">C++</option><option value="csharp">C#</option><option value="go">Go</option><option value="rust">Rust</option><option value="html">HTML</option><option value="css">CSS</option><option value="json">JSON</option><option value="sql">SQL</option><option value="shell">Shell</option><option value="markdown">Markdown</option><option value="yaml">YAML</option></select></label><button id="insertCodeBlock" title="使用所选语言插入代码块；连续三次回车退出，Ctrl+Enter 立即退出">&lt;/&gt; 代码块</button><button id="insertEditorLink" title="添加网页链接">🔗 链接</button><button id="insertRecordReference" title="引用另一条记录">⌗ 引用记录</button><button data-editor-command="removeFormat" title="清除格式">清除格式</button>
+      </div>
+      <div class="editor-area"><article class="editor" contenteditable="true" aria-label="记录正文" data-placeholder="输入正文，支持 Markdown 格式与快捷键" spellcheck="false" autocorrect="off" autocapitalize="off"></article><textarea class="markdown-source" aria-label="Markdown 源码" spellcheck="false" autocorrect="off" autocapitalize="off"></textarea><article class="markdown-preview"></article><button type="button" class="editor-auto-expand">内容较长，点击编辑框展开全部⌄</button></div>
+      <section class="relation-box"><header><strong>关联记录</strong><button id="addRelation">＋ 添加关联</button></header><div id="relationList"><div class="empty-state">暂无关联记录</div></div></section>
+      <section class="relation-box"><header><strong>附件</strong><button id="addAttachment">＋ 添加附件</button></header><input type="file" id="attachmentInput" hidden><div id="attachmentList"><div class="empty-state">暂无附件</div></div></section>
+    </div>
+    <footer><div class="editor-save-status"><span class="save-indicator">✓ 已保存</span><label class="save-on-leave-option"><input type="checkbox" id="saveOnLeave"> 离开编辑时自动保存</label></div><div><button class="secondary-button" id="convertRecord">转换为待办</button><button class="secondary-button" id="showHistory">查看历史</button><button class="secondary-button danger-button" id="deleteRecord">删除</button><button class="primary-button" id="saveRecord" disabled>保存</button></div></footer>
+  </aside>
+
+  <dialog class="history-dialog" id="historyDialog">
+    <header><div><p class="eyebrow">自动版本</p><h2>修改历史</h2></div><button class="icon-button dialog-close" id="closeHistory" aria-label="关闭" title="关闭">✕</button></header>
+    <div id="historyList"><div class="empty-state">暂无历史版本</div></div>
+  </dialog>
+
+  <dialog class="history-dialog conflict-dialog" id="conflictDialog">
+    <header><div><p class="eyebrow">检测到外部修改</p><h2>选择要保留的版本</h2></div></header>
+    <p class="conflict-help">这条记录在你编辑时被其他程序修改。工作台不会自动覆盖任何一方。</p>
+    <div class="conflict-grid"><label><span>工作台中的编辑</span><textarea id="localConflictContent" readonly></textarea></label><label><span>磁盘上的最新内容</span><textarea id="externalConflictContent" readonly></textarea></label></div>
+    <div class="diff-section"><strong>逐行差异</strong><div class="diff-view" id="conflictDiff"></div><label><span>可编辑的合并结果</span><textarea id="mergedConflictContent"></textarea></label></div>
+    <footer><button class="secondary-button" id="conflictCopy">两者都保留</button><div><button class="secondary-button" id="conflictExternal">使用磁盘版本</button><button class="secondary-button" id="conflictLocal">保留工作台版本</button><button class="primary-button" id="conflictMerged">保存合并结果</button></div></footer>
+  </dialog>
+
+  <dialog class="create-dialog import-dialog" id="importPreviewDialog">
+    <form method="dialog"><header><div><p class="eyebrow">导入预览</p><h2>确认 Markdown 识别结果</h2></div><button value="cancel" class="icon-button dialog-close" aria-label="关闭" title="关闭">✕</button></header><div class="form-grid"><label><span>记录类型</span><select id="importType"><option value="issue">问题</option><option value="todo">待办</option><option value="idea">想法</option><option value="info">信息</option></select></label><label><span>所属项目</span><select id="importProject"></select></label></div><label><span>标题</span><input id="importTitle"></label><label><span>正文预览</span><textarea id="importContentPreview" readonly></textarea></label><footer><small id="importSourceName"></small><div><button value="cancel" class="secondary-button">取消</button><button type="button" class="primary-button" id="confirmImport">确认导入</button></div></footer></form>
+  </dialog>
+
+  <dialog class="history-dialog relation-dialog" id="relationDialog">
+    <header><div><p class="eyebrow">内部链接</p><h2>关联其他记录</h2></div><button class="icon-button dialog-close" id="closeRelation" aria-label="关闭" title="关闭">✕</button></header><div class="relation-search"><input id="relationSearch" placeholder="搜索标题或记录编号"></div><div id="relationResults"></div>
+  </dialog>
+
+  <dialog class="create-dialog" id="projectEditDialog">
+    <form method="dialog"><header><div><p class="eyebrow">项目资料</p><h2>编辑项目</h2></div><button value="cancel" class="icon-button dialog-close" aria-label="关闭" title="关闭">✕</button></header><label><span>项目名称</span><input id="projectEditName"></label><label><span>项目描述</span><textarea id="projectEditDescription"></textarea></label><label><span>状态工作流</span><select id="projectWorkflow"></select></label><footer><small>项目编号和目录名称保持不变</small><div><button value="cancel" class="secondary-button">取消</button><button type="button" class="primary-button" id="saveProjectEdit">保存修改</button></div></footer></form>
+  </dialog>
+
+  <dialog class="create-dialog unsaved-dialog" id="unsavedChangesDialog">
+    <form method="dialog"><header><div><p class="eyebrow">未保存的修改</p><h2>离开前保存修改？</h2></div><button value="cancel" class="icon-button dialog-close" aria-label="继续编辑" title="继续编辑">✕</button></header><p id="unsavedChangesMessage">当前页面还有尚未保存的内容。</p><footer><small>选择“继续编辑”可返回当前页面检查内容</small><div><button value="discard" class="secondary-button danger-button">放弃修改</button><button value="cancel" class="secondary-button">继续编辑</button><button value="save" class="primary-button">保存并离开</button></div></footer></form>
+  </dialog>
+
+  <dialog class="history-dialog usage-dialog" id="usageDialog">
+    <header><div class="usage-dialog-heading"><button class="icon-button usage-dialog-back" id="usageDialogBack" aria-label="返回使用统计" title="返回使用统计">←</button><div><p class="eyebrow" id="usageDialogEyebrow">使用统计</p><h2 id="usageDialogTitle">使用情况</h2></div></div><button class="icon-button dialog-close" id="closeUsageDialog" aria-label="关闭" title="关闭">✕</button></header>
+    <div class="usage-dialog-summary" id="usageDialogSummary"></div>
+    <div class="usage-dialog-content" id="usageDialogContent"></div>
+  </dialog>
+
+  <dialog class="app-dialog" id="appDialog" aria-labelledby="appDialogTitle">
+    <form method="dialog">
+      <div class="app-dialog-heading"><span class="app-dialog-icon" aria-hidden="true">?</span><div><p class="eyebrow" id="appDialogEyebrow">请确认操作</p><h2 id="appDialogTitle">确认操作</h2></div><button value="cancel" class="icon-button dialog-close" aria-label="关闭" title="关闭">✕</button></div>
+      <div class="app-dialog-body"><p id="appDialogMessage"></p><small id="appDialogDetail"></small><label id="appDialogInputField"><span id="appDialogInputLabel">请输入内容</span><input id="appDialogInput" autocomplete="off" spellcheck="false"></label></div>
+      <footer><button value="cancel" class="secondary-button">取消</button><button value="confirm" class="primary-button" id="appDialogConfirm">确认</button></footer>
+    </form>
+  </dialog>
+
+  <dialog class="app-dialog export-dialog" id="exportDialog" aria-labelledby="exportDialogTitle">
+    <form method="dialog">
+      <div class="app-dialog-heading"><span class="app-dialog-icon export-dialog-icon" aria-hidden="true">⇩</span><div><p class="eyebrow">导出 ZIP</p><h2 id="exportDialogTitle">导出数据</h2></div><button value="cancel" class="icon-button dialog-close" aria-label="关闭" title="关闭">✕</button></div>
+      <div class="app-dialog-body export-dialog-body">
+        <p id="exportDialogMessage"></p>
+        <section class="export-location-card" id="exportLocationCard" aria-live="polite">
+          <span class="export-location-icon" aria-hidden="true">▰</span>
+          <div><small>导出位置</small><strong id="exportLocationName">尚未选择位置</strong><span id="exportLocationHint">选择一次后会记住，下次可直接导出</span></div>
+          <button type="button" class="secondary-button" id="chooseExportLocation">选择位置</button>
+        </section>
+        <div class="export-file-row"><span>文件名</span><strong id="exportFilename"></strong></div>
+        <small class="export-browser-note">工作台会直接写入此目录，不经过浏览器下载列表。</small>
+      </div>
+      <footer><button value="cancel" class="secondary-button">取消</button><button value="confirm" class="primary-button" id="confirmExport" disabled>确认导出</button></footer>
+    </form>
+  </dialog>
+
+  <dialog class="app-dialog export-location-dialog" id="exportLocationDialog" aria-labelledby="exportLocationDialogTitle">
+    <form method="dialog">
+      <div class="app-dialog-heading"><span class="app-dialog-icon" aria-hidden="true">⌂</span><div><p class="eyebrow">本地目录</p><h2 id="exportLocationDialogTitle">选择导出位置</h2></div><button value="cancel" class="icon-button dialog-close" aria-label="关闭" title="关闭">✕</button></div>
+      <div class="app-dialog-body export-location-dialog-body">
+        <p>点击文件夹进入下一级，找到目标位置后直接选择当前目录。</p>
+        <div class="export-location-choices" id="exportLocationChoices"></div>
+        <label><span>当前位置</span><div class="export-path-picker"><input id="exportLocationPath" spellcheck="false" autocomplete="off" placeholder="例如 C:\Users\用户名\Downloads"><button type="button" class="secondary-button" id="browseExportLocation">打开路径</button></div></label>
+        <section class="export-directory-browser"><header><button type="button" class="icon-button" id="exportDirectoryUp" title="返回上一级" aria-label="返回上一级">↑</button><strong id="exportDirectoryCurrent">正在读取…</strong></header><div class="export-directory-list" id="exportDirectoryList"></div></section>
+        <small>列表只显示文件夹。也可以点击上方“下载、桌面、文档”快速跳转。</small>
+      </div>
+      <footer><button value="cancel" class="secondary-button">取消</button><button type="button" class="primary-button" id="saveExportLocation">选择此目录并导出</button></footer>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast"><span>✓</span><div><strong>已创建记录</strong><small>Markdown 文件已保存到项目目录</small></div></div>
+  <div class="context-menu" id="kanbanContextMenu" aria-hidden="true"></div>
+  <div class="timeline-filter-popover" id="timelineFilterPopover" role="dialog" aria-label="记录筛选" aria-hidden="true"></div>
+  <script src="app.js?v=20260828-20"></script>
+</body>
+</html>

@@ -6,8 +6,9 @@ import json
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import patch
 
-from server import Repository, directory_browser_payload, export_to_saved_location, load_markdown, relocate_repository, save_export_location
+from server import Repository, directory_browser_payload, export_to_saved_location, external_editor_payload, load_markdown, relocate_repository, save_export_location, save_external_editor
 
 
 class RepositoryTests(unittest.TestCase):
@@ -119,6 +120,34 @@ class RepositoryTests(unittest.TestCase):
         self.assertNotIn("status", updated)
         self.assertTrue(any(item["id"] == record["id"] for item in self.repo.search("v2")))
 
+    def test_record_can_open_in_external_markdown_editor(self):
+        project = self.repo.create_project({"name": "外部编辑项目"})
+        record = self.repo.create_record({"type": "issue", "title": "Typora 测试", "project_id": project["id"]})
+        with patch("server.open_markdown_external", return_value="Typora") as opener:
+            result = self.repo.open_record_external(record["id"])
+        self.assertEqual(result["editor"], "Typora")
+        self.assertEqual(result["record_id"], record["id"])
+        opener.assert_called_once()
+        self.assertEqual(opener.call_args.args[0], Path(record["file_path"]))
+
+    def test_external_editor_selection_is_persisted(self):
+        config_file = Path(self.temp.name) / "editor.json"
+        detected = [{"id": "vscode", "name": "Visual Studio Code", "path": "C:/Code.exe", "kind": "detected"}, {"id": "system", "name": "系统默认 Markdown 编辑器", "path": "", "kind": "system"}]
+        with patch("server.detected_external_editors", return_value=detected):
+            saved = save_external_editor("vscode", config_file=config_file)
+            loaded = external_editor_payload(config_file)
+        self.assertEqual(saved["selected"], "vscode")
+        self.assertEqual(loaded["selected_name"], "Visual Studio Code")
+        self.assertEqual(json.loads(config_file.read_text(encoding="utf-8"))["id"], "vscode")
+
+    def test_custom_external_editor_path_is_supported(self):
+        config_file = Path(self.temp.name) / "editor.json"
+        executable = Path(self.temp.name) / "MyEditor.exe"
+        executable.write_bytes(b"")
+        saved = save_external_editor("custom", str(executable), config_file)
+        self.assertEqual(saved["selected"], "custom")
+        self.assertEqual(saved["selected_name"], "MyEditor")
+
     def test_record_ids_stay_unique_during_concurrent_creation(self):
         with ThreadPoolExecutor(max_workers=8) as pool:
             created = list(pool.map(
@@ -222,6 +251,55 @@ class RepositoryTests(unittest.TestCase):
         with zipfile.ZipFile(io.BytesIO(self.repo.export_zip())) as archive:
             self.assertTrue(any(name.endswith("README.md") for name in archive.namelist()))
             self.assertTrue(any(name.endswith(".md") and "导入的灵感" in name for name in archive.namelist()))
+
+    def test_project_independent_assets_can_be_uploaded_and_categorized(self):
+        project = self.repo.create_project({"name": "附件库项目"})
+        asset = self.repo.add_project_asset(
+            project["id"], "需求说明.txt", base64.b64encode("项目附件内容".encode()).decode(), "需求文档",
+        )
+        self.assertEqual(asset["category"], "需求文档")
+        self.assertEqual(len(self.repo.project_assets(project["id"])), 1)
+        path = self.repo.project_asset_path(project["id"], asset["id"])
+        self.assertEqual(path.read_text(encoding="utf-8"), "项目附件内容")
+        updated = self.repo.update_project_asset(project["id"], asset["id"], {"category": "交付资料"})
+        self.assertEqual(updated["category"], "交付资料")
+        categories = self.repo.save_project_asset_categories(project["id"], [{"name": "交付资料", "tag": "交付"}])
+        self.assertEqual(categories, [{"name": "交付资料", "tag": "交付"}])
+        self.assertNotIn(path.resolve(), {Path(item["path"]).resolve() for item in self.repo.orphan_assets()})
+        with zipfile.ZipFile(io.BytesIO(self.repo.export_zip(project["id"]))) as archive:
+            self.assertIn("assets/library/需求说明.txt", archive.namelist())
+            self.assertIn("assets/index.json", archive.namelist())
+
+    def test_assets_support_unlimited_stream_batch_category_and_confirmable_delete_backend(self):
+        project = self.repo.create_project({"name": "批量附件项目"})
+        record = self.repo.create_record({"type": "issue", "title": "包含记录附件", "project_id": project["id"]})
+        large_size = 10 * 1024 * 1024 + 1
+        project_asset = self.repo.add_project_asset_stream(project["id"], "large.bin", io.BytesIO(b"x" * large_size), large_size, "大文件")
+        self.assertEqual(project_asset["size"], large_size)
+        record_asset = self.repo.add_record_attachment_stream(record["id"], "record.txt", io.BytesIO(b"record"), 6)
+        selections = [
+            {"source": "project", "id": project_asset["id"]},
+            {"source": "record", "record_id": record["id"], "name": record_asset["name"]},
+        ]
+        changed = self.repo.batch_update_assets(project["id"], selections, "统一资料")
+        self.assertEqual(changed["updated"], 2)
+        self.assertEqual(self.repo.project_assets(project["id"])[0]["category"], "统一资料")
+        parsed_record_attachment = self.repo.get_record(record["id"])[0]["attachments"][0]
+        if isinstance(parsed_record_attachment, str):
+            parsed_record_attachment = json.loads(parsed_record_attachment)
+        self.assertEqual(parsed_record_attachment["category"], "统一资料")
+        self.repo.save_project_asset_categories(project["id"], [])
+        self.assertEqual(self.repo.project_assets(project["id"])[0]["category"], "")
+        cleared_record_attachment = self.repo.get_record(record["id"])[0]["attachments"][0]
+        if isinstance(cleared_record_attachment, str):
+            cleared_record_attachment = json.loads(cleared_record_attachment)
+        self.assertEqual(cleared_record_attachment["category"], "")
+        removed = self.repo.batch_delete_assets(project["id"], selections)
+        self.assertEqual(removed["deleted"], 2)
+        self.assertEqual(self.repo.project_assets(project["id"]), [])
+        refreshed_record = self.repo.get_record(record["id"])[0]
+        self.assertEqual(refreshed_record["attachments"], [])
+        self.assertNotIn("record.txt", refreshed_record["body"])
 
     def test_export_location_is_validated_persisted_and_written(self):
         self.repo.create_record({"type": "idea", "title": "导出位置测试"})

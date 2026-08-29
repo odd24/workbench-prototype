@@ -23,16 +23,87 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_DATA_DIR = APP_DIR / "workbench-data"
 LOCATION_FILE = APP_DIR / ".workbench-location.json"
 EXPORT_LOCATION_FILE = APP_DIR / ".workbench-export.json"
-APP_VERSION = "2026.08.28.11"
+EXTERNAL_EDITOR_FILE = APP_DIR / ".workbench-editor.json"
+APP_VERSION = "2026.08.29.4"
 TYPE_DIRS = {"issue": "issues", "todo": "todos", "idea": "ideas", "info": "infos"}
 TYPE_PREFIXES = {"issue": "ISSUE", "todo": "TODO", "idea": "IDEA", "info": "INFO"}
+
+
+def _environment_path(variable: str, *parts: str) -> str | None:
+    root = os.environ.get(variable)
+    return str(Path(root, *parts)) if root else None
+
+
+def detected_external_editors() -> list[dict]:
+    definitions = [
+        ("typora", "Typora", [os.environ.get("TYPORA_PATH"), shutil.which("Typora.exe"), shutil.which("Typora"), _environment_path("LOCALAPPDATA", "Programs", "Typora", "Typora.exe"), _environment_path("LOCALAPPDATA", "Typora", "Typora.exe"), _environment_path("PROGRAMFILES", "Typora", "Typora.exe"), _environment_path("PROGRAMFILES(X86)", "Typora", "Typora.exe")]),
+        ("vscode", "Visual Studio Code", [shutil.which("Code.exe"), _environment_path("LOCALAPPDATA", "Programs", "Microsoft VS Code", "Code.exe"), _environment_path("PROGRAMFILES", "Microsoft VS Code", "Code.exe"), shutil.which("code")]),
+        ("obsidian", "Obsidian", [shutil.which("Obsidian.exe"), shutil.which("obsidian"), _environment_path("LOCALAPPDATA", "Obsidian", "Obsidian.exe"), _environment_path("LOCALAPPDATA", "Programs", "Obsidian", "Obsidian.exe")]),
+        ("notepadpp", "Notepad++", [shutil.which("notepad++.exe"), _environment_path("PROGRAMFILES", "Notepad++", "notepad++.exe"), _environment_path("PROGRAMFILES(X86)", "Notepad++", "notepad++.exe")]),
+        ("sublime", "Sublime Text", [shutil.which("sublime_text.exe"), shutil.which("subl"), _environment_path("PROGRAMFILES", "Sublime Text", "sublime_text.exe")]),
+        ("marktext", "MarkText", [shutil.which("MarkText.exe"), shutil.which("marktext"), _environment_path("LOCALAPPDATA", "Programs", "MarkText", "MarkText.exe")]),
+        ("zettlr", "Zettlr", [shutil.which("Zettlr.exe"), shutil.which("zettlr"), _environment_path("LOCALAPPDATA", "Programs", "Zettlr", "Zettlr.exe")]),
+    ]
+    editors = []
+    for editor_id, name, candidates in definitions:
+        executable = next((Path(candidate).resolve() for candidate in candidates if candidate and Path(candidate).is_file()), None)
+        if executable:
+            editors.append({"id": editor_id, "name": name, "path": str(executable), "kind": "detected"})
+    editors.append({"id": "system", "name": "系统默认 Markdown 编辑器", "path": "", "kind": "system"})
+    return editors
+
+
+def external_editor_payload(config_file: Path = EXTERNAL_EDITOR_FILE) -> dict:
+    try:
+        selected = json.loads(config_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        selected = {}
+    editors = detected_external_editors()
+    custom_path = str(selected.get("path", "")).strip()
+    if selected.get("id") == "custom" and custom_path and Path(custom_path).is_file():
+        editors.insert(0, {"id": "custom", "name": selected.get("name") or Path(custom_path).stem, "path": str(Path(custom_path).resolve()), "kind": "custom"})
+    available_ids = {editor["id"] for editor in editors}
+    selected_id = selected.get("id") if selected.get("id") in available_ids else ("typora" if "typora" in available_ids else "system")
+    selected_editor = next(editor for editor in editors if editor["id"] == selected_id)
+    return {"selected": selected_id, "selected_name": selected_editor["name"], "editors": editors}
+
+
+def save_external_editor(editor_id: str, custom_path: str = "", config_file: Path = EXTERNAL_EDITOR_FILE) -> dict:
+    editor_id = str(editor_id or "").strip()
+    if editor_id == "custom":
+        executable = Path(str(custom_path or "").strip()).expanduser()
+        if not executable.is_file():
+            raise ValueError("自定义编辑器程序不存在，请填写可执行程序的完整路径")
+        config = {"id": "custom", "name": executable.stem, "path": str(executable.resolve())}
+    else:
+        editor = next((item for item in detected_external_editors() if item["id"] == editor_id), None)
+        if not editor:
+            raise ValueError("所选编辑器当前不可用")
+        config = {"id": editor["id"], "name": editor["name"], "path": editor["path"]}
+    config_file.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+    return external_editor_payload(config_file)
+
+
+def open_markdown_external(path: Path, config_file: Path = EXTERNAL_EDITOR_FILE) -> str:
+    payload = external_editor_payload(config_file)
+    editor = next(item for item in payload["editors"] if item["id"] == payload["selected"])
+    if editor["kind"] != "system":
+        subprocess.Popen([editor["path"], str(path)], cwd=str(path.parent), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return editor["name"]
+    if sys.platform == "win32":
+        os.startfile(str(path))
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        subprocess.Popen(["xdg-open", str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return editor["name"]
 
 
 def now_iso() -> str:
@@ -638,6 +709,13 @@ class Repository:
         path.write_text(dump_markdown(updated, body), encoding="utf-8")
         return {**updated, "body": body, "file_path": str(path), "file_mtime": path.stat().st_mtime_ns}
 
+    def open_record_external(self, record_id: str) -> dict:
+        record, path = self.get_record(record_id)
+        if not record or not path:
+            raise FileNotFoundError(record_id)
+        editor = open_markdown_external(path)
+        return {"ok": True, "editor": editor, "record_id": record_id, "file": path.name}
+
     def _save_history(self, record_id: str, source: Path):
         directory = self.history_dir / record_id
         directory.mkdir(parents=True, exist_ok=True)
@@ -680,8 +758,11 @@ class Repository:
             content = base64.b64decode(encoded_content, validate=True)
         except ValueError as exc:
             raise ValueError("附件内容无效") from exc
-        if len(content) > 10 * 1024 * 1024:
-            raise ValueError("单个附件不能超过10MB")
+        candidate = self._record_attachment_target(record, filename)
+        candidate.write_bytes(content)
+        return self._register_record_attachment(record, record_path, candidate, len(content))
+
+    def _record_attachment_target(self, record: dict, filename: str) -> Path:
         image = (mimetypes.guess_type(filename)[0] or "").startswith("image/")
         if record.get("project_id"):
             asset_root = self.projects_dir / record["project_id"] / "assets" / ("images" if image else "files")
@@ -692,15 +773,39 @@ class Repository:
         while candidate.exists():
             candidate = asset_root / f"{stem}-{counter}{suffix}"
             counter += 1
-        candidate.write_bytes(content)
+        return candidate
+
+    def _register_record_attachment(self, record: dict, record_path: Path, candidate: Path, size: int) -> dict:
         relative = Path(os.path.relpath(candidate, record_path.parent)).as_posix()
         attachments = list(record.get("attachments") or [])
-        attachment = {"name": candidate.name, "path": relative, "size": len(content), "mime": mimetypes.guess_type(candidate.name)[0] or "application/octet-stream"}
+        attachment = {"name": candidate.name, "path": relative, "size": size, "mime": mimetypes.guess_type(candidate.name)[0] or "application/octet-stream", "category": ""}
         attachments.append(json.dumps(attachment, ensure_ascii=False, separators=(",", ":")))
+        image = attachment["mime"].startswith("image/")
         label = f"![{candidate.name}]({relative})" if image else f"[{candidate.name}]({relative})"
         body = record["body"].rstrip() + f"\n\n{label}\n"
-        self.update_record(record_id, {"attachments": attachments, "body": body})
+        self.update_record(record["id"], {"attachments": attachments, "body": body})
         return attachment
+
+    def add_record_attachment_stream(self, record_id: str, filename: str, stream, length: int) -> dict:
+        record, record_path = self.get_record(record_id)
+        if not record:
+            raise FileNotFoundError(record_id)
+        filename = Path(filename).name
+        if not filename or filename in {".", ".."}:
+            raise ValueError("附件文件名无效")
+        candidate = self._record_attachment_target(record, filename)
+        remaining, written = length, 0
+        try:
+            with candidate.open("wb") as output:
+                while remaining:
+                    chunk = stream.read(min(1024 * 1024, remaining))
+                    if not chunk:
+                        raise ValueError("附件上传不完整")
+                    output.write(chunk); written += len(chunk); remaining -= len(chunk)
+            return self._register_record_attachment(record, record_path, candidate, written)
+        except Exception:
+            candidate.unlink(missing_ok=True)
+            raise
 
     def attachment_path(self, record_id: str, filename: str) -> Path | None:
         record, record_path = self.get_record(record_id)
@@ -716,6 +821,284 @@ class Repository:
                 if candidate.is_relative_to(self.root) and candidate.is_file():
                     return candidate
         return None
+
+    def _project_asset_index(self, project_id: str) -> Path:
+        if not self.project(project_id):
+            raise FileNotFoundError(project_id)
+        path = self.projects_dir / project_id / "assets" / "index.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def project_assets(self, project_id: str) -> list[dict]:
+        index = self._project_asset_index(project_id)
+        try:
+            items = json.loads(index.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            items = []
+        if not isinstance(items, list):
+            items = []
+        valid = []
+        project_root = self.projects_dir / project_id
+        for item in items:
+            if not isinstance(item, dict) or not item.get("id") or not item.get("path"):
+                continue
+            candidate = (project_root / item["path"]).resolve()
+            if candidate.is_relative_to(project_root) and candidate.is_file():
+                valid.append({**item, "size": candidate.stat().st_size})
+        return sorted(valid, key=lambda item: item.get("created", ""), reverse=True)
+
+    def project_asset_categories(self, project_id: str) -> list[dict]:
+        self._project_asset_index(project_id)
+        path = self.projects_dir / project_id / "assets" / "categories.json"
+        try:
+            configured = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            configured = []
+        categories, known = [], set()
+        for item in configured if isinstance(configured, list) else []:
+            if not isinstance(item, dict):
+                continue
+            name = self._asset_category(item.get("name", ""), allow_empty=True)
+            if name and name not in known:
+                categories.append({"name": name, "tag": str(item.get("tag", "")).strip()})
+                known.add(name)
+        for asset in self.project_assets(project_id):
+            name = self._asset_category(asset.get("category", ""), allow_empty=True)
+            if name and name not in known:
+                categories.append({"name": name, "tag": ""})
+                known.add(name)
+        return categories
+
+    def save_project_asset_categories(self, project_id: str, categories: list[dict]) -> list[dict]:
+        if not isinstance(categories, list):
+            raise ValueError("附件分类格式无效")
+        previous_names = {item["name"] for item in self.project_asset_categories(project_id)}
+        cleaned, known = [], set()
+        for item in categories:
+            if not isinstance(item, dict):
+                raise ValueError("附件分类格式无效")
+            name = self._asset_category(item.get("name", ""), allow_empty=True)
+            if not name or name in known:
+                continue
+            cleaned.append({"name": name, "tag": str(item.get("tag", "")).strip()[:80]})
+            known.add(name)
+        assets = self.project_assets(project_id)
+        changed = False
+        for asset in assets:
+            if asset.get("category") and asset["category"] not in known:
+                asset["category"] = ""
+                changed = True
+        if changed:
+            self._save_project_assets(project_id, assets)
+        removed = previous_names - known
+        if removed:
+            for record in self.list_records(project_id=project_id):
+                for raw in list(record.get("attachments") or []):
+                    try:
+                        attachment = json.loads(raw) if isinstance(raw, str) else raw
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                    if attachment.get("category") in removed:
+                        self.update_record_attachment_category(record["id"], attachment.get("name", ""), "")
+        path = self.projects_dir / project_id / "assets" / "categories.json"
+        temporary = path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(cleaned, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.replace(path)
+        return cleaned
+
+    def ensure_project_asset_category(self, project_id: str, category: str) -> str:
+        name = self._asset_category(category, allow_empty=True)
+        if not name:
+            return ""
+        categories = self.project_asset_categories(project_id)
+        if name not in {item["name"] for item in categories}:
+            categories.append({"name": name, "tag": ""})
+            self.save_project_asset_categories(project_id, categories)
+        return name
+
+    def _save_project_assets(self, project_id: str, items: list[dict]):
+        index = self._project_asset_index(project_id)
+        temporary = index.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.replace(index)
+
+    @staticmethod
+    def _asset_category(value: str, allow_empty: bool = False) -> str:
+        category = re.sub(r"[\\/:*?\"<>|]+", "-", str(value or "").strip())[:40].strip(". ")
+        return category if category or allow_empty else "未分类"
+
+    def _new_project_asset_target(self, project_id: str, filename: str) -> tuple[Path, str]:
+        if not self.project(project_id):
+            raise FileNotFoundError(project_id)
+        filename = Path(filename).name
+        if not filename or filename in {".", ".."}:
+            raise ValueError("附件文件名无效")
+        asset_root = self.projects_dir / project_id / "assets" / "library"
+        asset_root.mkdir(parents=True, exist_ok=True)
+        stem, suffix, candidate, counter = Path(filename).stem, Path(filename).suffix, asset_root / filename, 2
+        while candidate.exists():
+            candidate = asset_root / f"{stem}-{counter}{suffix}"
+            counter += 1
+        return candidate, filename
+
+    def _register_project_asset(self, project_id: str, candidate: Path, size: int, category: str) -> dict:
+        known_ids = {item.get("id") for item in self.project_assets(project_id)}
+        asset_id, counter = f"ASSET-{int(time.time() * 1000)}", 2
+        while asset_id in known_ids:
+            asset_id = f"ASSET-{int(time.time() * 1000)}-{counter}"
+            counter += 1
+        item = {
+            "id": asset_id, "name": candidate.name,
+            "path": candidate.relative_to(self.projects_dir / project_id).as_posix(),
+            "size": size, "mime": mimetypes.guess_type(candidate.name)[0] or "application/octet-stream",
+            "category": self.ensure_project_asset_category(project_id, category), "created": now_iso(),
+        }
+        items = self.project_assets(project_id)
+        items.append(item)
+        self._save_project_assets(project_id, items)
+        return item
+
+    def add_project_asset(self, project_id: str, filename: str, encoded_content: str, category: str = "未分类") -> dict:
+        project = self.project(project_id)
+        if not project:
+            raise FileNotFoundError(project_id)
+        filename = Path(filename).name
+        if not filename or filename in {".", ".."}:
+            raise ValueError("附件文件名无效")
+        try:
+            content = base64.b64decode(encoded_content, validate=True)
+        except ValueError as exc:
+            raise ValueError("附件内容无效") from exc
+        candidate, _ = self._new_project_asset_target(project_id, filename)
+        candidate.write_bytes(content)
+        return self._register_project_asset(project_id, candidate, len(content), category)
+
+    def add_project_asset_stream(self, project_id: str, filename: str, stream, length: int, category: str = "") -> dict:
+        if length < 0:
+            raise ValueError("附件大小无效")
+        candidate, _ = self._new_project_asset_target(project_id, filename)
+        remaining, written = length, 0
+        try:
+            with candidate.open("wb") as output:
+                while remaining:
+                    chunk = stream.read(min(1024 * 1024, remaining))
+                    if not chunk:
+                        raise ValueError("附件上传不完整")
+                    output.write(chunk)
+                    written += len(chunk)
+                    remaining -= len(chunk)
+            return self._register_project_asset(project_id, candidate, written, category)
+        except Exception:
+            candidate.unlink(missing_ok=True)
+            raise
+
+    def update_project_asset(self, project_id: str, asset_id: str, payload: dict) -> dict:
+        items = self.project_assets(project_id)
+        item = next((entry for entry in items if entry.get("id") == asset_id), None)
+        if not item:
+            raise FileNotFoundError(asset_id)
+        if "category" in payload:
+            item["category"] = self.ensure_project_asset_category(project_id, payload["category"])
+        self._save_project_assets(project_id, items)
+        return item
+
+    def delete_project_asset(self, project_id: str, asset_id: str) -> dict:
+        items = self.project_assets(project_id)
+        item = next((entry for entry in items if entry.get("id") == asset_id), None)
+        if not item:
+            raise FileNotFoundError(asset_id)
+        path = self.project_asset_path(project_id, asset_id)
+        if path:
+            path.unlink()
+        self._save_project_assets(project_id, [entry for entry in items if entry.get("id") != asset_id])
+        return {"deleted": True, "id": asset_id, "name": item.get("name", asset_id)}
+
+    def project_asset_path(self, project_id: str, asset_id: str) -> Path | None:
+        try:
+            item = next((entry for entry in self.project_assets(project_id) if entry.get("id") == asset_id), None)
+        except FileNotFoundError:
+            return None
+        if not item:
+            return None
+        project_root = self.projects_dir / project_id
+        candidate = (project_root / item["path"]).resolve()
+        return candidate if candidate.is_relative_to(project_root) and candidate.is_file() else None
+
+    def update_record_attachment_category(self, record_id: str, filename: str, category: str) -> dict:
+        record, _ = self.get_record(record_id)
+        if not record:
+            raise FileNotFoundError(record_id)
+        updated_attachments, matched = [], None
+        normalized = self.ensure_project_asset_category(record["project_id"], category) if record.get("project_id") else self._asset_category(category, allow_empty=True)
+        for raw in record.get("attachments") or []:
+            try:
+                item = json.loads(raw) if isinstance(raw, str) else dict(raw)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                updated_attachments.append(raw)
+                continue
+            if item.get("name") == filename:
+                item["category"] = normalized
+                matched = item
+            updated_attachments.append(json.dumps(item, ensure_ascii=False, separators=(",", ":")))
+        if not matched:
+            raise FileNotFoundError(filename)
+        self.update_record(record_id, {"attachments": updated_attachments})
+        return matched
+
+    def delete_record_attachment(self, record_id: str, filename: str) -> dict:
+        record, record_path = self.get_record(record_id)
+        if not record:
+            raise FileNotFoundError(record_id)
+        kept, removed = [], None
+        for raw in record.get("attachments") or []:
+            try:
+                item = json.loads(raw) if isinstance(raw, str) else dict(raw)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                kept.append(raw)
+                continue
+            if item.get("name") == filename and removed is None:
+                removed = item
+            else:
+                kept.append(json.dumps(item, ensure_ascii=False, separators=(",", ":")))
+        if not removed:
+            raise FileNotFoundError(filename)
+        candidate = (record_path.parent / removed.get("path", "")).resolve()
+        if candidate.is_relative_to(self.root) and candidate.is_file():
+            candidate.unlink()
+        relative = removed.get("path", "")
+        body = record.get("body", "")
+        for label in (f"![{filename}]({relative})", f"[{filename}]({relative})"):
+            body = body.replace(label, "")
+        body = re.sub(r"\n{3,}", "\n\n", body).strip()
+        self.update_record(record_id, {"attachments": kept, "body": body})
+        return {"deleted": True, "record_id": record_id, "name": filename}
+
+    def batch_update_assets(self, project_id: str, selections: list[dict], category: str) -> dict:
+        if not isinstance(selections, list) or not selections:
+            raise ValueError("请选择附件")
+        normalized = self.ensure_project_asset_category(project_id, category)
+        updated = 0
+        for selection in selections:
+            if selection.get("source") == "project":
+                self.update_project_asset(project_id, str(selection.get("id", "")), {"category": normalized})
+                updated += 1
+            elif selection.get("source") == "record":
+                self.update_record_attachment_category(str(selection.get("record_id", "")), str(selection.get("name", "")), normalized)
+                updated += 1
+        return {"updated": updated, "category": normalized}
+
+    def batch_delete_assets(self, project_id: str, selections: list[dict]) -> dict:
+        if not isinstance(selections, list) or not selections:
+            raise ValueError("请选择附件")
+        deleted = 0
+        for selection in selections:
+            if selection.get("source") == "project":
+                self.delete_project_asset(project_id, str(selection.get("id", "")))
+                deleted += 1
+            elif selection.get("source") == "record":
+                self.delete_record_attachment(str(selection.get("record_id", "")), str(selection.get("name", "")))
+                deleted += 1
+        return {"deleted": deleted}
 
     def reminders(self) -> list[dict]:
         items = []
@@ -735,6 +1118,13 @@ class Repository:
                     referenced.add((record_path.parent / attachment["path"]).resolve())
                 except (json.JSONDecodeError, KeyError, TypeError):
                     continue
+        for project in self.list_projects():
+            index = self.projects_dir / project["id"] / "assets" / "index.json"
+            categories = self.projects_dir / project["id"] / "assets" / "categories.json"
+            referenced.add(index.resolve())
+            referenced.add(categories.resolve())
+            for item in self.project_assets(project["id"]):
+                referenced.add((self.projects_dir / project["id"] / item["path"]).resolve())
         roots = [self.global_assets_dir, *self.projects_dir.glob("*/assets")]
         orphaned = []
         for root in roots:
@@ -1011,6 +1401,8 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                 return self._json(self.repository.config())
             if path == "/api/export-location":
                 return self._json(export_location_payload())
+            if path == "/api/external-editors":
+                return self._json(external_editor_payload())
             if path == "/api/directories":
                 return self._json(directory_browser_payload((query.get("path") or [""])[0]))
             if path == "/api/tags":
@@ -1026,6 +1418,26 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                 return self._json(self.repository.orphan_assets())
             if path == "/api/projects":
                 return self._json(self.repository.list_projects())
+            if path.startswith("/api/projects/") and path.endswith("/assets"):
+                project_id = path.strip("/").split("/")[2]
+                return self._json(self.repository.project_assets(project_id))
+            if path.startswith("/api/projects/") and path.endswith("/asset-categories"):
+                project_id = path.strip("/").split("/")[2]
+                return self._json(self.repository.project_asset_categories(project_id))
+            if path.startswith("/api/project-assets/"):
+                parts = path.strip("/").split("/")
+                if len(parts) != 4:
+                    return self._json({"error": "项目附件路径无效"}, HTTPStatus.BAD_REQUEST)
+                file_path = self.repository.project_asset_path(parts[2], parts[3])
+                if not file_path:
+                    return self._json({"error": "项目附件不存在"}, HTTPStatus.NOT_FOUND)
+                content = file_path.read_bytes()
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", mimetypes.guess_type(file_path.name)[0] or "application/octet-stream")
+                self.send_header("Content-Length", str(len(content)))
+                self.send_header("Content-Disposition", f"inline; filename*=UTF-8''{quote(file_path.name)}")
+                self.end_headers()
+                return self.wfile.write(content)
             if path == "/api/records":
                 return self._json(self.repository.list_records((query.get("project") or [None])[0], (query.get("type") or [None])[0]))
             if path.startswith("/api/records/"):
@@ -1045,7 +1457,7 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                 self.send_response(HTTPStatus.OK)
                 self.send_header("Content-Type", mimetypes.guess_type(file_path.name)[0] or "application/octet-stream")
                 self.send_header("Content-Length", str(len(content)))
-                self.send_header("Content-Disposition", f"inline; filename*=UTF-8''{file_path.name}")
+                self.send_header("Content-Disposition", f"inline; filename*=UTF-8''{quote(file_path.name)}")
                 self.end_headers()
                 return self.wfile.write(content)
             if path == "/api/search":
@@ -1057,10 +1469,20 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             return self._json({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def do_POST(self):
-        path, _ = self._route()
+        path, query = self._route()
         try:
             if path == "/api/projects":
                 return self._json(self.repository.create_project(self._body()), HTTPStatus.CREATED)
+            if path.startswith("/api/projects/") and path.endswith("/assets/upload"):
+                project_id = path.strip("/").split("/")[2]
+                length = int(self.headers.get("Content-Length", "0"))
+                filename = (query.get("name") or [""])[0]
+                category = (query.get("category") or [""])[0]
+                return self._json(self.repository.add_project_asset_stream(project_id, filename, self.rfile, length, category), HTTPStatus.CREATED)
+            if path.startswith("/api/projects/") and path.endswith("/assets"):
+                project_id = path.strip("/").split("/")[2]
+                payload = self._body()
+                return self._json(self.repository.add_project_asset(project_id, payload.get("name", ""), payload.get("content", ""), payload.get("category", "未分类")), HTTPStatus.CREATED)
             if path == "/api/records":
                 return self._json(self.repository.create_record(self._body()), HTTPStatus.CREATED)
             if path == "/api/import":
@@ -1073,6 +1495,12 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                 return self._json(self.repository.restore_trash(token))
             if path.startswith("/api/records/"):
                 parts = path.strip("/").split("/")
+                if len(parts) == 4 and parts[-1] == "open-external":
+                    return self._json(self.repository.open_record_external(parts[-2]))
+                if len(parts) == 5 and parts[-2:] == ["attachments", "upload"]:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    filename = (query.get("name") or [""])[0]
+                    return self._json(self.repository.add_record_attachment_stream(parts[2], filename, self.rfile, length), HTTPStatus.CREATED)
                 if len(parts) == 4 and parts[-1] == "attachments":
                     payload = self._body()
                     return self._json(self.repository.add_attachment(parts[-2], payload.get("name", ""), payload.get("content", "")), HTTPStatus.CREATED)
@@ -1101,6 +1529,12 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                 return self._json(repository.config())
             if path == "/api/export-location":
                 return self._json(save_export_location(str(self._body().get("path", ""))))
+            if path == "/api/external-editor":
+                payload = self._body()
+                return self._json(save_external_editor(str(payload.get("id", "")), str(payload.get("path", ""))))
+            if path.startswith("/api/projects/") and path.endswith("/asset-categories"):
+                project_id = path.strip("/").split("/")[2]
+                return self._json(self.repository.save_project_asset_categories(project_id, self._body().get("categories", [])))
             if path == "/api/project-sort":
                 return self._json(self.repository.save_project_sort(self._body()))
             if path == "/api/status-templates":
@@ -1118,6 +1552,14 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
     def do_PATCH(self):
         path, _ = self._route()
         try:
+            if path == "/api/assets/batch":
+                payload = self._body()
+                return self._json(self.repository.batch_update_assets(str(payload.get("project_id", "")), payload.get("selections", []), str(payload.get("category", ""))))
+            if path.startswith("/api/projects/") and "/assets/" in path:
+                parts = path.strip("/").split("/")
+                if len(parts) != 5:
+                    raise ValueError("项目附件路径无效")
+                return self._json(self.repository.update_project_asset(parts[2], parts[4], self._body()))
             if path.startswith("/api/records/"):
                 return self._json(self.repository.update_record(path.rsplit("/", 1)[-1], self._body()))
             if path.startswith("/api/projects/"):
@@ -1131,6 +1573,9 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
     def do_DELETE(self):
         path, _ = self._route()
         try:
+            if path == "/api/assets/batch":
+                payload = self._body()
+                return self._json(self.repository.batch_delete_assets(str(payload.get("project_id", "")), payload.get("selections", [])))
             if path.startswith("/api/records/"):
                 return self._json(self.repository.delete_record(path.rsplit("/", 1)[-1]))
             if path.startswith("/api/projects/"):
@@ -1142,6 +1587,10 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             return self._json({"error": "接口不存在"}, HTTPStatus.NOT_FOUND)
         except FileNotFoundError:
             return self._json({"error": "记录不存在"}, HTTPStatus.NOT_FOUND)
+        except (ValueError, json.JSONDecodeError) as exc:
+            return self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+        except OSError as exc:
+            return self._json({"error": f"附件删除失败：{exc}"}, HTTPStatus.BAD_REQUEST)
 
 
 def windows_listener_pids(port: int) -> set[int]:

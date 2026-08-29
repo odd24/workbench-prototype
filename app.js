@@ -31,9 +31,16 @@ let timelineSort = {field:'updated', direction:'desc'};
 let editorMode = 'wysiwyg';
 let projects = [];
 let records = [];
+let projectAssetLibrary = [];
+let projectAssetCategories = [];
+let projectAssetProjectId = '';
+let projectAssetCategoryFilter = '';
+let projectAssetSearch = '';
+let projectAssetSearchTimer = null;
 let currentRecord = null;
 let configData = null;
 let apiAvailable = false;
+let externalEditorData = null;
 let draggedCard = null;
 let draggedInfoCard = null;
 let draggedInfoField = null;
@@ -1040,6 +1047,157 @@ function sortProjectRecords(items, project) {
   return keys ? sortRecordsByMode(items, project[keys.sort] || 'manual', Array.isArray(project[keys.order]) ? project[keys.order] : []) : items;
 }
 
+function formatFileSize(bytes = 0) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+}
+
+function assetIcon(mime = '', name = '') {
+  if (mime.startsWith('image/')) return '▧';
+  if (mime.startsWith('audio/') || mime.startsWith('video/')) return '▶';
+  if (/zip|rar|7z|tar|gzip/i.test(`${mime} ${name}`)) return '▦';
+  if (/pdf|word|text|sheet|excel|presentation/i.test(mime)) return '▤';
+  return '◇';
+}
+
+function recordAttachmentItems(projectRecords) {
+  return projectRecords.flatMap(record => (record.attachments || []).map(raw => {
+    try { const item = typeof raw === 'string' ? JSON.parse(raw) : raw; return {source:'record', record, item, category:item.category || ''}; }
+    catch { return null; }
+  }).filter(Boolean));
+}
+
+async function loadProjectAssets(projectId, {force = false} = {}) {
+  if (!force && projectAssetProjectId === projectId) return projectAssetLibrary;
+  projectAssetProjectId = projectId;
+  try {
+    [projectAssetLibrary, projectAssetCategories] = await Promise.all([
+      api(`/projects/${encodeURIComponent(projectId)}/assets`),
+      api(`/projects/${encodeURIComponent(projectId)}/asset-categories`),
+    ]);
+  }
+  catch (error) { projectAssetLibrary = []; projectAssetCategories = []; notify('无法读取项目附件', error.message, true); }
+  return projectAssetLibrary;
+}
+
+function assetCategoryMeta(name) {
+  return projectAssetCategories.find(item => item.name === name) || {name:name || '无分类', tag:''};
+}
+
+function assetCategoryColor(name) {
+  const linkedTag = assetCategoryMeta(name).tag;
+  return safeColor((configData?.tags || []).find(tag => tag.name === linkedTag)?.color, '#64748b');
+}
+
+function assetSelectionAttributes(entry) {
+  if (entry.source === 'project') return `data-asset-source="project" data-asset-id="${escapeHtml(entry.item.id)}"`;
+  return `data-asset-source="record" data-record-id="${escapeHtml(entry.record.id)}" data-asset-name="${escapeHtml(entry.item.name)}"`;
+}
+
+function assetCategoryRowHtml(category = null) {
+  const tagOptions = [`<option value="">不关联标签</option>`, ...(configData?.tags || []).map(tag => `<option value="${escapeHtml(tag.name)}" ${tag.name === category?.tag ? 'selected' : ''}>${escapeHtml(tag.name)}</option>`)].join('');
+  return `<div class="asset-category-editor-row" data-asset-category-row ${category ? `data-category-name="${escapeHtml(category.name)}"` : 'data-new-category="true"'}><span class="asset-category-color" style="--asset-category-color:${category ? assetCategoryColor(category.name) : '#64748b'}"></span>${category ? `<strong>${escapeHtml(category.name)}</strong>` : '<input class="asset-new-category-name" placeholder="输入分类名称" maxlength="40">'}<label><span>关联标签</span><select class="asset-category-tag">${tagOptions}</select></label><button type="button" class="icon-button remove-asset-category" aria-label="删除分类" title="删除分类">×</button></div>`;
+}
+
+function openAssetCategoryManager() {
+  $('#assetCategoryEditor').innerHTML = projectAssetCategories.length ? projectAssetCategories.map(assetCategoryRowHtml).join('') : '<div class="empty-state asset-category-empty">还没有分类，可以创建第一个分类。</div>';
+  $('#assetCategoryDialog').showModal();
+}
+
+async function saveAssetCategories() {
+  const categories = $$('[data-asset-category-row]', $('#assetCategoryEditor')).map(row => ({
+    name:row.dataset.categoryName || $('.asset-new-category-name', row)?.value.trim() || '',
+    tag:$('.asset-category-tag', row)?.value || '',
+  })).filter(item => item.name);
+  const button = $('#saveAssetCategories'); button.disabled = true; button.textContent = '正在保存…';
+  try {
+    projectAssetCategories = await api(`/projects/${encodeURIComponent(selectedProjectId)}/asset-categories`, {method:'PUT', body:JSON.stringify({categories})});
+    $('#assetCategoryDialog').close();
+    await refreshData(); await loadProjectAssets(selectedProjectId, {force:true}); renderProjectPage();
+    notify('附件分类已保存', `当前共有 ${projectAssetCategories.length} 个分类`);
+    return true;
+  } catch (error) { notify('分类保存失败', error.message, true); return false; }
+  finally { button.disabled = false; button.textContent = '保存分类'; }
+}
+
+function updateAssetBatchToolbar() {
+  const selected = selectedAssetPayloads();
+  const count = selected.length;
+  const label = $('#assetSelectionCount'); if (label) label.textContent = count ? `已选择 ${count} 个附件` : '尚未选择附件';
+  ['#batchAssetCategory','#applyBatchAssetCategory','#deleteSelectedAssets'].forEach(selector => { const element = $(selector); if (element) element.disabled = !count; });
+  const all = $$('.project-asset-select');
+  const selectAll = $('#selectAllProjectAssets');
+  if (selectAll) { selectAll.checked = Boolean(all.length) && all.every(input => input.checked); selectAll.indeterminate = count > 0 && count < all.length; }
+}
+
+async function reloadProjectAssetPage() {
+  await refreshData();
+  await loadProjectAssets(selectedProjectId, {force:true});
+  if (projectTab === 'assets') renderProjectPage();
+}
+
+async function applyAssetCategory(selections, category) {
+  const normalized = category === '__uncategorized__' ? '' : category;
+  const result = await api('/assets/batch', {method:'PATCH', body:JSON.stringify({project_id:selectedProjectId, selections, category:normalized})});
+  await reloadProjectAssetPage();
+  notify('附件分类已更新', `${result.updated} 个附件 → ${normalized || '无分类'}`);
+}
+
+async function deleteAssetsWithConfirmation(selections) {
+  if (!selections.length) return false;
+  const confirmed = await appConfirm({title:selections.length > 1 ? `删除所选 ${selections.length} 个附件？` : '删除这个附件？', message:'附件文件将从项目目录中永久删除。', detail:'记录附件对应的 Markdown 引用也会同步移除，此操作无法从回收站恢复。', confirmText:'确认删除', danger:true});
+  if (!confirmed) return false;
+  try {
+    const result = await api('/assets/batch', {method:'DELETE', body:JSON.stringify({project_id:selectedProjectId, selections})});
+    await reloadProjectAssetPage(); notify(`已删除 ${result.deleted} 个附件`, '附件文件和关联信息已同步更新'); return true;
+  } catch (error) { notify('附件删除失败', error.message, true); return false; }
+}
+
+function selectedAssetPayloads() {
+  return $$('.project-asset-select:checked').map(assetPayloadFromInput);
+}
+
+function assetPayloadFromInput(input) {
+  return input.dataset.assetSource === 'project'
+    ? {source:'project', id:input.dataset.assetId}
+    : {source:'record', record_id:input.dataset.recordId, name:input.dataset.assetName};
+}
+
+function projectAssetCardHtml(entry, categories) {
+  const item = entry.item;
+  const category = entry.category || '';
+  const color = assetCategoryColor(category);
+  const options = [`<option value="" ${!category ? 'selected' : ''}>无分类</option>`, ...categories.map(meta => `<option value="${escapeHtml(meta.name)}" ${meta.name === category ? 'selected' : ''}>${escapeHtml(meta.name)}</option>`)].join('');
+  const checkbox = `<input type="checkbox" class="project-asset-select" ${assetSelectionAttributes(entry)} aria-label="选择附件 ${escapeHtml(item.name)}">`;
+  if (entry.source === 'project') {
+    return `<article class="project-asset-card" data-project-asset-id="${escapeHtml(item.id)}" style="--asset-category-color:${color}">${checkbox}<div class="project-asset-icon">${assetIcon(item.mime, item.name)}</div><div class="project-asset-main"><strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong><div class="project-asset-meta"><span>项目附件</span><span>${formatFileSize(item.size)}</span><span title="${escapeHtml(item.mime || '未知类型')}">${escapeHtml(item.mime || '未知类型')}</span></div></div><select class="asset-category-select" data-project-asset-category="${escapeHtml(item.id)}" aria-label="附件分类">${options}<option value="__custom__">＋ 新建分类…</option></select><div class="asset-card-actions"><button type="button" class="secondary-button asset-open-button" data-open-project-asset="${escapeHtml(item.id)}">打开</button><button type="button" class="icon-button asset-delete-button" data-delete-single-asset aria-label="删除附件" title="删除附件">×</button></div></article>`;
+  }
+  return `<article class="project-asset-card record-source" data-record-id="${escapeHtml(entry.record.id)}" style="--asset-category-color:${color}">${checkbox}<div class="project-asset-icon">${assetIcon(item.mime, item.name)}</div><div class="project-asset-main"><strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong><div class="project-asset-meta"><span>记录附件</span><span>${formatFileSize(item.size)}</span><span title="${escapeHtml(entry.record.title)}">来自：${escapeHtml(entry.record.title)}</span></div></div><select class="asset-category-select" data-record-asset-category="${escapeHtml(entry.record.id)}" data-record-asset-name="${escapeHtml(item.name)}" aria-label="附件分类">${options}<option value="__custom__">＋ 新建分类…</option></select><div class="asset-card-actions"><button type="button" class="secondary-button asset-open-button" data-open-record-asset="${escapeHtml(entry.record.id)}" data-record-asset-name="${escapeHtml(item.name)}">打开</button><button type="button" class="icon-button asset-delete-button" data-delete-single-asset aria-label="删除附件" title="删除附件">×</button></div></article>`;
+}
+
+function renderProjectAssets(project, projectRecords) {
+  const content = $('#kanban');
+  const independent = projectAssetLibrary.map(item => ({source:'project', item, category:item.category || ''}));
+  const recordItems = recordAttachmentItems(projectRecords);
+  const allItems = [...independent, ...recordItems];
+  const categories = projectAssetCategories;
+  const query = projectAssetSearch.trim().toLocaleLowerCase('zh-CN');
+  const visible = allItems.filter(entry => ((!projectAssetCategoryFilter || entry.category === projectAssetCategoryFilter) || (projectAssetCategoryFilter === '__uncategorized__' && !entry.category)) && (!query || `${entry.item.name} ${entry.category} ${entry.record?.title || ''}`.toLocaleLowerCase('zh-CN').includes(query)));
+  const totalSize = allItems.reduce((sum, entry) => sum + Number(entry.item.size || 0), 0);
+  const categoryOptions = categories.map(meta => `<option value="${escapeHtml(meta.name)}">${escapeHtml(meta.name)}</option>`).join('');
+  const grouped = new Map();
+  visible.forEach(entry => { const name = entry.category || ''; if (!grouped.has(name)) grouped.set(name, []); grouped.get(name).push(entry); });
+  const groups = [...grouped.entries()].map(([name, items]) => {
+    const label = name || '无分类';
+    const meta = assetCategoryMeta(name);
+    const color = assetCategoryColor(name);
+    const size = items.reduce((sum, entry) => sum + Number(entry.item.size || 0), 0);
+    return `<details class="project-asset-group" open style="--asset-category-color:${color}"><summary><span class="asset-group-chevron">›</span><i></i><strong>${escapeHtml(label)}</strong>${meta.tag ? `<em>关联标签：${escapeHtml(meta.tag)}</em>` : ''}<small>${items.length} 个 · ${formatFileSize(size)}</small></summary><div class="project-assets-list">${items.map(entry => projectAssetCardHtml(entry, categories)).join('')}</div></details>`;
+  }).join('');
+  content.innerHTML = `<section class="project-assets-page"><header class="project-assets-summary"><div><p class="eyebrow">项目文件库</p><h2>附件与资料</h2><p>附件按分类集中收纳，分类可以关联工作台标签。</p></div><div class="project-assets-stats"><span><strong>${allItems.length}</strong>全部附件</span><span><strong>${independent.length}</strong>项目附件</span><span><strong>${recordItems.length}</strong>记录附件</span><span><strong>${formatFileSize(totalSize)}</strong>总大小</span></div></header><div class="project-assets-toolbar"><label class="asset-search"><span>⌕</span><input id="projectAssetSearch" value="${escapeHtml(projectAssetSearch)}" placeholder="搜索附件名称或所属记录"></label><select id="projectAssetCategoryFilter"><option value="">全部分类</option><option value="" disabled>────────</option>${categories.map(meta => `<option value="${escapeHtml(meta.name)}" ${meta.name === projectAssetCategoryFilter ? 'selected' : ''}>${escapeHtml(meta.name)}</option>`).join('')}<option value="__uncategorized__" ${projectAssetCategoryFilter === '__uncategorized__' ? 'selected' : ''}>无分类</option></select><button type="button" class="secondary-button" id="manageAssetCategories">管理分类</button><span class="toolbar-spacer"></span><label class="asset-upload-category"><span>上传到</span><input id="projectAssetUploadCategory" value="" list="projectAssetCategorySuggestions" placeholder="可不分类"><datalist id="projectAssetCategorySuggestions">${categoryOptions}</datalist></label><button type="button" class="primary-button" id="uploadProjectAsset">＋ 上传附件</button><input type="file" id="projectAssetInput" multiple hidden></div><div class="asset-batch-toolbar"><label><input type="checkbox" id="selectAllProjectAssets"> 全选当前结果</label><span id="assetSelectionCount">尚未选择附件</span><select id="batchAssetCategory" disabled><option value="">批量设置分类</option>${categoryOptions}<option value="__uncategorized__">设为无分类</option></select><button type="button" class="secondary-button" id="applyBatchAssetCategory" disabled>应用分类</button><button type="button" class="secondary-button danger-button" id="deleteSelectedAssets" disabled>删除所选</button></div><div class="project-assets-result"><span>显示 ${visible.length} / ${allItems.length} 个附件</span>${projectAssetCategoryFilter || projectAssetSearch ? '<button type="button" id="clearProjectAssetFilters">清除筛选</button>' : ''}</div><div class="project-asset-groups">${groups || '<div class="empty-state asset-empty-state">没有符合条件的附件。可以上传附件，或清除当前筛选。</div>'}</div></section>`;
+}
+
 function renderProjectPage() {
   const firstActive = projects.find(item => item.status !== 'archived') || projects[0];
   if (!selectedProjectId && firstActive) selectedProjectId = firstActive.id;
@@ -1092,8 +1250,12 @@ function renderProjectPage() {
     return;
   }
   if (projectTab === 'assets') {
-    const assets = allProjectRecords.flatMap(record => (record.attachments || []).map(raw => { try { return {record, item:typeof raw === 'string' ? JSON.parse(raw) : raw}; } catch { return null; } }).filter(Boolean));
-    content.innerHTML = assets.length ? `<table class="data-table"><thead><tr><th>附件</th><th>所属记录</th><th>类型</th><th>大小</th></tr></thead><tbody>${assets.map(({record,item}) => `<tr data-record-id="${record.id}"><td>${escapeHtml(item.name)}</td><td>${escapeHtml(record.title)}</td><td>${escapeHtml(item.mime)}</td><td>${Math.max(1,Math.round(item.size/1024))} KB</td></tr>`).join('')}</tbody></table>` : '<div class="empty-state">这个项目还没有附件</div>';
+    if (projectAssetProjectId !== project.id) {
+      content.innerHTML = '<div class="empty-state">正在读取项目附件…</div>';
+      loadProjectAssets(project.id).then(() => { if (selectedProjectId === project.id && projectTab === 'assets') renderProjectPage(); });
+      return;
+    }
+    renderProjectAssets(project, allProjectRecords);
     return;
   }
   if (projectTab === 'infos') {
@@ -1194,7 +1356,41 @@ function closeSearch() {
   searchPanel.setAttribute('aria-hidden', 'true');
   hideOverlayIfClear();
 }
-function openSearch() { showOverlay(); searchPanel.classList.add('visible'); searchPanel.setAttribute('aria-hidden', 'false'); if (apiAvailable) api(`/search?q=${encodeURIComponent($('#searchInput').value)}`).then(renderSearchResults); setTimeout(() => $('#searchInput').focus(), 50); }
+function updateSearchClearButton() {
+  $('#clearSearchInput').hidden = !$('#searchInput').value;
+}
+function openSearch() { showOverlay(); searchPanel.classList.add('visible'); searchPanel.setAttribute('aria-hidden', 'false'); updateSearchClearButton(); if (apiAvailable) api(`/search?q=${encodeURIComponent($('#searchInput').value)}`).then(renderSearchResults); setTimeout(() => $('#searchInput').focus(), 50); }
+
+function updateExternalEditorButton() {
+  const name = externalEditorData?.selected_name || '外部编辑器';
+  $('#externalEditorButtonLabel').textContent = `${name} 打开`;
+  $('#openExternalEditor').title = `使用 ${name} 打开当前 Markdown`;
+}
+
+async function loadExternalEditors() {
+  externalEditorData = await api('/external-editors');
+  updateExternalEditorButton();
+  return externalEditorData;
+}
+
+function renderExternalEditorOptions() {
+  const editors = [...(externalEditorData?.editors || [])];
+  if (!editors.some(editor => editor.id === 'custom')) editors.push({id:'custom', name:'自定义编辑器', path:'', kind:'custom'});
+  const selected = externalEditorData?.selected || 'system';
+  $('#externalEditorOptions').innerHTML = editors.map(editor => `<label class="external-editor-option ${editor.id === selected ? 'selected' : ''}"><input type="radio" name="externalEditor" value="${escapeHtml(editor.id)}" ${editor.id === selected ? 'checked' : ''}><span class="external-editor-icon">${editor.kind === 'system' ? 'OS' : editor.id === 'custom' ? '＋' : escapeHtml(editor.name.slice(0, 1).toUpperCase())}</span><span><strong>${escapeHtml(editor.name)}</strong><small>${escapeHtml(editor.path || '使用操作系统中的 Markdown 默认程序')}</small></span></label>`).join('');
+  const custom = editors.find(editor => editor.id === 'custom');
+  $('#customEditorPath').value = custom?.path || '';
+  $('#customEditorPathField').classList.toggle('visible', selected === 'custom');
+}
+
+async function openExternalEditorDialog() {
+  try {
+    try { await loadExternalEditors(); }
+    catch { externalEditorData = {selected:'system', selected_name:'外部编辑器', editors:[]}; updateExternalEditorButton(); }
+    renderExternalEditorOptions();
+    $('#externalEditorDialog').showModal();
+  } catch (error) { notify('无法读取外部编辑器', error.message, true); }
+}
 
 async function openDrawer(recordId, options = {}) {
   if (!recordId || !apiAvailable) return;
@@ -1449,14 +1645,12 @@ async function renderManagePage(page) {
     return;
   }
   if (page === 'tags') {
-    $('#manageEyebrow').textContent = '全局分类'; $('#manageTitle').textContent = '标签管理'; $('#manageDescription').textContent = '标签全局统一；正在被记录使用的标签需要先解除引用，才能删除。'; $('#manageActions').innerHTML = '<button class="secondary-button" id="tagUsageOverview">使用统计</button><button class="secondary-button" id="addGlobalTag">＋ 新建标签</button><button class="primary-button" id="saveTags">保存标签</button>';
+    $('#manageEyebrow').textContent = '全局分类'; $('#manageTitle').textContent = '标签管理'; $('#manageDescription').textContent = '标签全局统一；正在被记录使用的标签需要先解除引用，才能删除。'; $('#manageActions').innerHTML = '<button class="secondary-button" id="tagUsageOverview">使用统计</button><button class="primary-button" id="saveTags">保存标签</button>';
     $('#manageContent').innerHTML = '<div class="empty-state">正在加载标签…</div>';
     const tags = await api('/tags');
     if (activeManagePage !== page) return;
     configData.tags = tags;
-    $('#manageContent').innerHTML = tags.length
-      ? `<div class="tag-manager">${tags.map(tag => tagEditorHtml(tag)).join('')}</div>`
-      : '<div class="tag-manager"></div><div class="empty-state">还没有标签，点击“新建标签”开始创建。</div>';
+    $('#manageContent').innerHTML = `<div class="tag-manager">${tags.map(tag => tagEditorHtml(tag)).join('')}<button type="button" class="add-config-card" id="addGlobalTag"><span>＋</span><strong>新建标签</strong></button></div>`;
     captureManageSnapshot(page);
     return;
   }
@@ -1562,7 +1756,10 @@ function closeUsageDialog() {
 function tagEditorHtml(tag) {
   const usageName = tag.original_name ?? tag.name ?? '';
   const count = usageName ? tagUsageRecords(usageName).length : 0;
-  return `<div class="tag-edit" data-original-name="${escapeHtml(usageName)}">${colorPickerHtml(tag.color || '#64748b', '标签颜色')}<input type="text" value="${escapeHtml(tag.name)}" aria-label="标签名称"><button type="button" class="usage-button tag-usage-button ${count ? 'in-use' : ''}" title="查看使用此标签的记录">${count} 条</button><button class="remove-global-tag" aria-label="删除标签" title="删除标签">✕</button></div>`;
+  const action = usageName
+    ? `<button type="button" class="usage-button tag-usage-button ${count ? 'in-use' : ''}" title="查看使用此标签的记录">${count} 条</button>`
+    : '<button type="button" class="inline-config-save" data-save-manage="tags" title="立即保存这个新标签">保存</button>';
+  return `<div class="tag-edit" data-original-name="${escapeHtml(usageName)}">${colorPickerHtml(tag.color || '#64748b', '标签颜色')}<input type="text" value="${escapeHtml(tag.name)}" aria-label="标签名称">${action}<button class="remove-global-tag" aria-label="删除标签" title="删除标签">✕</button></div>`;
 }
 
 async function saveTags() {
@@ -1575,9 +1772,12 @@ async function saveTags() {
   catch (error) { notify('标签保存失败', error.message, true); return false; }
 }
 
-function statusEditorHtml(status, recordType = '') {
+function statusEditorHtml(status, recordType = '', options = {}) {
   const count = recordType ? statusUsageRecords(recordType, status.name, status.id).length : 0;
-  return `<div class="status-edit-row" data-status-id="${escapeHtml(status.id)}">${colorPickerHtml(status.color || '#64748b', '状态颜色')}<input type="text" value="${escapeHtml(status.name)}" aria-label="状态名称"><label title="完成状态"><input class="status-completed" type="checkbox" ${status.completed ? 'checked' : ''}></label><button type="button" class="usage-button status-usage-button ${count ? 'in-use' : ''}" title="查看使用此状态的记录">${count} 条</button><button class="remove-status" aria-label="删除状态" title="删除状态">✕</button></div>`;
+  const action = options.newItem
+    ? '<button type="button" class="inline-config-save" data-save-manage="status_templates" title="立即保存这个新状态">保存</button>'
+    : `<button type="button" class="usage-button status-usage-button ${count ? 'in-use' : ''}" title="查看使用此状态的记录">${count} 条</button>`;
+  return `<div class="status-edit-row" data-status-id="${escapeHtml(status.id)}">${colorPickerHtml(status.color || '#64748b', '状态颜色')}<input type="text" value="${escapeHtml(status.name)}" aria-label="状态名称"><label title="完成状态"><input class="status-completed" type="checkbox" ${status.completed ? 'checked' : ''}></label>${action}<button class="remove-status" aria-label="删除状态" title="删除状态">✕</button></div>`;
 }
 
 function colorPickerHtml(color, label) {
@@ -1648,15 +1848,46 @@ async function showHistory() {
 
 async function uploadAttachment(file) {
   if (!currentRecord || !file) return;
-  if (file.size > 10 * 1024 * 1024) return notify('附件过大', '单个附件不能超过10MB', true);
-  const dataUrl = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); });
   try {
-    await api(`/records/${currentRecord.id}/attachments`, {method:'POST', body:JSON.stringify({name:file.name, content:String(dataUrl).split(',')[1]})});
+    const response = await fetch(`/api/records/${encodeURIComponent(currentRecord.id)}/attachments/upload?name=${encodeURIComponent(file.name)}`, {method:'POST', headers:{'Content-Type':file.type || 'application/octet-stream'}, body:file});
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || `上传失败 (${response.status})`);
     currentRecord = await api(`/records/${currentRecord.id}`);
     $('.editor').innerHTML = markdownToHtml(currentRecord.body, true);
     renderAttachments();
     notify(`附件已保存：${file.name}`, 'Markdown 正文已加入相对路径引用');
   } catch (error) { notify('附件上传失败', error.message, true); }
+}
+
+async function uploadProjectAssets(files) {
+  const project = projects.find(item => item.id === selectedProjectId);
+  if (!project || !files?.length) return false;
+  const category = ($('#projectAssetUploadCategory')?.value || '').trim();
+  const validFiles = [...files];
+  if (!validFiles.length) return false;
+  const uploadButton = $('#uploadProjectAsset');
+  if (uploadButton) { uploadButton.disabled = true; uploadButton.textContent = `上传中 0/${validFiles.length}`; }
+  let completed = 0;
+  try {
+    for (const file of validFiles) {
+      const response = await fetch(`/api/projects/${encodeURIComponent(project.id)}/assets/upload?name=${encodeURIComponent(file.name)}&category=${encodeURIComponent(category)}`, {method:'POST', headers:{'Content-Type':file.type || 'application/octet-stream'}, body:file});
+      const item = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(item.error || `上传失败 (${response.status})`);
+      projectAssetLibrary.unshift(item);
+      completed += 1;
+      if (uploadButton) uploadButton.textContent = `上传中 ${completed}/${validFiles.length}`;
+    }
+    await loadProjectAssets(project.id, {force:true}); renderProjectPage();
+    notify(`已上传 ${completed} 个项目附件`, category ? `分类：${category}` : '未设置分类');
+    return true;
+  } catch (error) {
+    await loadProjectAssets(project.id, {force:true});
+    renderProjectPage();
+    notify('项目附件上传失败', `${completed ? `已完成 ${completed} 个；` : ''}${error.message}`, true);
+    return false;
+  } finally {
+    if (uploadButton?.isConnected) { uploadButton.disabled = false; uploadButton.textContent = '＋ 上传附件'; }
+  }
 }
 
 async function checkReminders() {
@@ -2108,6 +2339,69 @@ function bindDragAndDrop() {
 }
 
 document.addEventListener('click', async event => {
+  const manageSave = event.target.closest('[data-save-manage]');
+  if (manageSave) {
+    if (manageSave.disabled) return;
+    const originalText = manageSave.textContent;
+    manageSave.disabled = true;
+    manageSave.textContent = '保存中…';
+    let saved = false;
+    if (manageSave.dataset.saveManage === 'tags') saved = await saveTags();
+    else if (manageSave.dataset.saveManage === 'status_templates') saved = await saveTemplates();
+    if (!saved && manageSave.isConnected) {
+      manageSave.disabled = false;
+      manageSave.textContent = originalText;
+    }
+    return;
+  }
+  if (event.target.closest('#uploadProjectAsset')) { $('#projectAssetInput')?.click(); return; }
+  if (event.target.closest('#manageAssetCategories')) { openAssetCategoryManager(); return; }
+  if (event.target.closest('#addAssetCategory')) {
+    const editor = $('#assetCategoryEditor');
+    $('.asset-category-empty', editor)?.remove();
+    editor.insertAdjacentHTML('beforeend', assetCategoryRowHtml());
+    $('.asset-new-category-name', editor.lastElementChild)?.focus();
+    return;
+  }
+  const removeAssetCategory = event.target.closest('.remove-asset-category');
+  if (removeAssetCategory) {
+    const row = removeAssetCategory.closest('[data-asset-category-row]');
+    const name = row.dataset.categoryName;
+    if (name && !await appConfirm({title:`删除分类「${name}」？`, message:'分类中的附件不会被删除，将自动变为“无分类”。', confirmText:'删除分类', danger:true})) return;
+    row.remove();
+    if (!$('#assetCategoryEditor').children.length) $('#assetCategoryEditor').innerHTML = '<div class="empty-state asset-category-empty">还没有分类，可以创建第一个分类。</div>';
+    return;
+  }
+  if (event.target.closest('#saveAssetCategories')) { await saveAssetCategories(); return; }
+  if (event.target.closest('#applyBatchAssetCategory')) {
+    const selections = selectedAssetPayloads(), category = $('#batchAssetCategory').value;
+    if (!category && category !== '__uncategorized__') { notify('请选择目标分类', '也可以选择“设为无分类”', true); return; }
+    try { await applyAssetCategory(selections, category); } catch (error) { notify('批量分类失败', error.message, true); }
+    return;
+  }
+  if (event.target.closest('#deleteSelectedAssets')) { await deleteAssetsWithConfirmation(selectedAssetPayloads()); return; }
+  const deleteSingleAsset = event.target.closest('[data-delete-single-asset]');
+  if (deleteSingleAsset) {
+    event.preventDefault(); event.stopPropagation();
+    const input = $('.project-asset-select', deleteSingleAsset.closest('.project-asset-card'));
+    if (input) await deleteAssetsWithConfirmation([assetPayloadFromInput(input)]);
+    return;
+  }
+  if (event.target.closest('#clearProjectAssetFilters')) {
+    projectAssetCategoryFilter = ''; projectAssetSearch = ''; renderProjectPage(); return;
+  }
+  const openProjectAsset = event.target.closest('[data-open-project-asset]');
+  if (openProjectAsset) {
+    event.preventDefault(); event.stopPropagation();
+    window.open(`/api/project-assets/${encodeURIComponent(selectedProjectId)}/${encodeURIComponent(openProjectAsset.dataset.openProjectAsset)}`, '_blank');
+    return;
+  }
+  const openRecordAsset = event.target.closest('[data-open-record-asset]');
+  if (openRecordAsset) {
+    event.preventDefault(); event.stopPropagation();
+    window.open(`/api/attachments/${encodeURIComponent(openRecordAsset.dataset.openRecordAsset)}/${encodeURIComponent(openRecordAsset.dataset.recordAssetName)}`, '_blank');
+    return;
+  }
   const timelineFilterTrigger = event.target.closest('[data-timeline-filter]');
   if (timelineFilterTrigger) {
     event.preventDefault();
@@ -2337,7 +2631,12 @@ document.addEventListener('click', async event => {
   const addStatus = event.target.closest('[data-add-status]');
   if (addStatus) {
     const list = $('.status-edit-list', addStatus.closest('.template-panel'));
-    list.insertAdjacentHTML('beforeend', statusEditorHtml({id:`${addStatus.dataset.addStatus}_${Date.now()}`, name:'新状态', color:'#87919e'}, addStatus.dataset.addStatus));
+    list.insertAdjacentHTML('beforeend', statusEditorHtml({id:`${addStatus.dataset.addStatus}_${Date.now()}`, name:'新状态', color:'#87919e'}, addStatus.dataset.addStatus, {newItem:true}));
+    const row = list.lastElementChild;
+    row.classList.add('new-config-row');
+    $('input[type="text"]', row)?.select();
+    row.scrollIntoView({block:'center', behavior:'smooth'});
+    return;
   }
   const statusUsageButton = event.target.closest('.status-usage-button');
   if (statusUsageButton) {
@@ -2464,7 +2763,15 @@ document.addEventListener('click', async event => {
   if (restoreTrash) api(`/trash/${encodeURIComponent(restoreTrash.dataset.restoreTrash)}/restore`, {method:'POST'}).then(async () => { await refreshData(); renderManagePage('trash'); notify('已从回收站恢复'); }).catch(error => notify('恢复失败', error.message, true));
   const purgeTrash = event.target.closest('[data-purge-trash]');
   if (purgeTrash && await appConfirm({title:'永久删除这条内容？', message:'此操作无法撤销，删除后不能从回收站恢复。', confirmText:'永久删除', danger:true})) api(`/trash/${encodeURIComponent(purgeTrash.dataset.purgeTrash)}`, {method:'DELETE'}).then(() => { renderManagePage('trash'); notify('已永久删除'); }).catch(error => notify('删除失败', error.message, true));
-  if (event.target.closest('#addGlobalTag')) $('.tag-manager').insertAdjacentHTML('beforeend', tagEditorHtml({name:'新标签', color:'#60748a', original_name:''}));
+  if (event.target.closest('#addGlobalTag')) {
+    const manager = $('.tag-manager');
+    $('#addGlobalTag').insertAdjacentHTML('beforebegin', tagEditorHtml({name:'新标签', color:'#60748a', original_name:''}));
+    const row = $('#addGlobalTag').previousElementSibling;
+    row.classList.add('new-config-row');
+    $('input[type="text"]', row)?.select();
+    row.scrollIntoView({block:'center', behavior:'smooth'});
+    return;
+  }
   const tagUsageButton = event.target.closest('.tag-usage-button');
   if (tagUsageButton) {
     const row = tagUsageButton.closest('.tag-edit');
@@ -2650,6 +2957,42 @@ $('#closeDrawer').addEventListener('click', closeRecordView);
 $('#saveRecord').addEventListener('click', async () => {
   if (await saveEditorNow()) notify('记录内容已保存', '标题和正文已写入 Markdown 文件');
 });
+$('#openExternalEditor').addEventListener('click', async () => {
+  if (!currentRecord) return;
+  if (editorDirty && !await saveEditorNow()) return;
+  const button = $('#openExternalEditor');
+  const label = $('#externalEditorButtonLabel');
+  button.disabled = true;
+  const originalText = label.textContent;
+  label.textContent = '正在打开…';
+  try {
+    const result = await api(`/records/${encodeURIComponent(currentRecord.id)}/open-external`, {method:'POST'});
+    notify(`已使用${result.editor}打开`, `${result.file} · 保存后工作台会自动同步修改`);
+  } catch (error) { notify('无法打开外部编辑器', error.message, true); }
+  finally { button.disabled = false; label.textContent = originalText; }
+});
+$('#chooseExternalEditor').addEventListener('click', openExternalEditorDialog);
+$('#closeExternalEditorDialog').addEventListener('click', () => $('#externalEditorDialog').close());
+$('#cancelExternalEditor').addEventListener('click', () => $('#externalEditorDialog').close());
+$('#externalEditorOptions').addEventListener('change', event => {
+  if (!event.target.matches('input[name="externalEditor"]')) return;
+  $$('.external-editor-option', $('#externalEditorOptions')).forEach(option => option.classList.toggle('selected', Boolean($('input', option)?.checked)));
+  $('#customEditorPathField').classList.toggle('visible', event.target.value === 'custom');
+  if (event.target.value === 'custom') $('#customEditorPath').focus();
+});
+$('#saveExternalEditor').addEventListener('click', async () => {
+  const selected = $('input[name="externalEditor"]:checked', $('#externalEditorOptions'))?.value;
+  if (!selected) return;
+  const button = $('#saveExternalEditor');
+  button.disabled = true;
+  try {
+    externalEditorData = await api('/external-editor', {method:'PUT', body:JSON.stringify({id:selected, path:$('#customEditorPath').value.trim()})});
+    updateExternalEditorButton();
+    $('#externalEditorDialog').close();
+    notify(`默认编辑器已设为 ${externalEditorData.selected_name}`);
+  } catch (error) { notify('外部编辑器设置失败', error.message, true); }
+  finally { button.disabled = false; }
+});
 $('#saveOnLeave').addEventListener('change', event => {
   localStorage.setItem('workbench-save-on-leave', String(event.target.checked));
   notify(event.target.checked ? '已开启离开时自动保存' : '已关闭离开时自动保存', event.target.checked ? '关闭记录或切换记录时会自动保存修改' : '未保存修改离开前会询问你');
@@ -2764,6 +3107,14 @@ overlay.addEventListener('click', async () => {
 });
 
 document.addEventListener('keydown', event => {
+  if (event.key === 'Enter' && !event.isComposing && event.target.matches('.new-config-row input[type="text"]')) {
+    const saveButton = event.target.closest('.new-config-row')?.querySelector('[data-save-manage]');
+    if (saveButton && !saveButton.disabled) {
+      event.preventDefault();
+      saveButton.click();
+      return;
+    }
+  }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); openSearch(); }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'n') { event.preventDefault(); openCreate(); }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's' && detailDrawer.classList.contains('visible')) { event.preventDefault(); saveEditorNow().then(saved => { if (saved) notify('记录内容已保存', '标题和正文已写入 Markdown 文件'); }); }
@@ -2777,12 +3128,23 @@ $('#todayTodoList').addEventListener('change', async event => {
 
 let searchTimer;
 $('#searchInput').addEventListener('input', event => {
+  updateSearchClearButton();
   clearTimeout(searchTimer);
   searchTimer = setTimeout(async () => {
     if (!apiAvailable) return;
     try { renderSearchResults(await api(`/search?q=${encodeURIComponent(event.target.value)}`)); }
     catch (error) { notify('搜索失败', error.message, true); }
   }, 180);
+});
+$('#clearSearchInput').addEventListener('click', async () => {
+  clearTimeout(searchTimer);
+  const input = $('#searchInput');
+  input.value = '';
+  updateSearchClearButton();
+  input.focus();
+  if (!apiAvailable) return;
+  try { renderSearchResults(await api('/search?q=')); }
+  catch (error) { notify('搜索失败', error.message, true); }
 });
 
 $('.drawer-title').addEventListener('input', markEditorChanged);
@@ -2873,6 +3235,37 @@ document.addEventListener('selectionchange', () => {
   updateEditorToolbarState();
 });
 document.addEventListener('change', async event => {
+  if (event.target.id === 'projectAssetInput') {
+    const files = [...event.target.files]; event.target.value = '';
+    await uploadProjectAssets(files); return;
+  }
+  if (event.target.id === 'projectAssetCategoryFilter') {
+    projectAssetCategoryFilter = event.target.value; renderProjectPage(); return;
+  }
+  if (event.target.id === 'selectAllProjectAssets') {
+    $$('.project-asset-select').forEach(input => { input.checked = event.target.checked; }); updateAssetBatchToolbar(); return;
+  }
+  if (event.target.matches('.project-asset-select')) { updateAssetBatchToolbar(); return; }
+  if (event.target.matches('[data-project-asset-category],[data-record-asset-category]')) {
+    const select = event.target;
+    const isProjectAsset = Boolean(select.dataset.projectAssetCategory);
+    const asset = isProjectAsset
+      ? projectAssetLibrary.find(item => item.id === select.dataset.projectAssetCategory)
+      : {name:select.dataset.recordAssetName};
+    if (!asset?.name) return;
+    let category = select.value;
+    if (category === '__custom__') {
+      category = await appPrompt({title:'新建附件分类', message:`为「${asset.name}」设置新的分类。`, confirmText:'保存分类', input:{label:'分类名称', placeholder:'例如：会议纪要'}});
+      if (!category?.trim()) { renderProjectPage(); return; }
+    }
+    try {
+      const selection = isProjectAsset
+        ? {source:'project', id:asset.id}
+        : {source:'record', record_id:select.dataset.recordAssetCategory, name:select.dataset.recordAssetName};
+      await applyAssetCategory([selection], category);
+    } catch (error) { renderProjectPage(); notify('分类更新失败', error.message, true); }
+    return;
+  }
   if (event.target.id === 'timelineFilterSelectAll') {
     $$('.timeline-filter-values input[type="checkbox"]', $('#timelineFilterPopover')).forEach(input => { input.checked = event.target.checked; });
     return;
@@ -2914,6 +3307,7 @@ async function initialize() {
     configData = config;
     window.workbenchDataDir = config.data_dir;
     await refreshData();
+    await loadExternalEditors();
     const requestedPage = location.hash.replace('#', '');
     if (requestedPage.startsWith('record/')) { setPage('home'); openDrawer(requestedPage.slice(7)); }
     else if (requestedPage) setPage(requestedPage);
@@ -2943,6 +3337,12 @@ async function initialize() {
 }
 
 document.addEventListener('input', event => {
+  if (event.target.id === 'projectAssetSearch') {
+    projectAssetSearch = event.target.value;
+    clearTimeout(projectAssetSearchTimer);
+    projectAssetSearchTimer = setTimeout(() => { if (projectTab === 'assets') renderProjectPage(); }, 120);
+    return;
+  }
   if (event.target.matches('[data-info-field-value]')) autoSizeInfoFieldTextareas(event.target.closest('[data-info-field-row]'));
   if (event.target.matches('[data-color-picker] input[type="color"]')) {
     syncColorPicker(event.target.closest('[data-color-picker]'), event.target.value);

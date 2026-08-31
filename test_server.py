@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
-from server import Repository, directory_browser_payload, export_to_saved_location, external_editor_payload, load_markdown, relocate_repository, save_export_location, save_external_editor
+from server import Repository, directory_browser_payload, dump_markdown, export_to_saved_location, external_editor_payload, load_markdown, relocate_repository, save_export_location, save_external_editor
 
 
 class RepositoryTests(unittest.TestCase):
@@ -92,6 +92,41 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(self.repo.cleanup_orphan_assets()["removed"], 1)
         self.assertFalse(orphan.exists())
 
+    def test_record_cache_reuses_parse_and_detects_external_edits(self):
+        project = self.repo.create_project({"name": "缓存测试"})
+        record = self.repo.create_record({"type": "issue", "title": "初始标题", "project_id": project["id"]})
+        path = Path(record["file_path"])
+        self.repo._record_cache.clear()
+
+        with patch("server.load_markdown", wraps=load_markdown) as loader:
+            self.assertEqual(self.repo.list_records()[0]["title"], "初始标题")
+            first_count = loader.call_count
+            self.repo.list_records()
+            self.repo.record_signatures()
+            self.assertEqual(loader.call_count, first_count)
+
+            metadata, body = load_markdown(path)
+            metadata["title"] = "外部修改"
+            path.write_text(dump_markdown(metadata, body), encoding="utf-8")
+            self.assertEqual(self.repo.list_records()[0]["title"], "外部修改")
+            self.assertEqual(loader.call_count, first_count + 1)
+
+    def test_record_summaries_omit_heavy_detail_fields(self):
+        project = self.repo.create_project({"name": "摘要测试"})
+        record = self.repo.create_record({
+            "type": "issue", "title": "按需加载", "project_id": project["id"],
+            "body": "# 按需加载\n\n" + "正文" * 500,
+            "attachments": [{"name": "large.bin", "path": "assets/large.bin"}],
+        })
+
+        summary = self.repo.list_record_summaries()[0]
+        self.assertEqual(summary["id"], record["id"])
+        self.assertNotIn("body", summary)
+        self.assertNotIn("attachments", summary)
+        self.assertNotIn("file_path", summary)
+        self.assertLessEqual(len(summary["body_preview"]), 600)
+        self.assertIn("正文", summary["body_preview"])
+
     def test_information_record_uses_structured_fields_without_status(self):
         project = self.repo.create_project({"name": "信息记录项目"})
         record = self.repo.create_record({
@@ -129,6 +164,14 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(result["record_id"], record["id"])
         opener.assert_called_once()
         self.assertEqual(opener.call_args.args[0], Path(record["file_path"]))
+
+    def test_document_can_open_in_external_markdown_editor(self):
+        document = self.repo.create_document({"title": "外部编辑文档", "body": "# 外部编辑文档"})
+        with patch("server.open_markdown_external", return_value="Visual Studio Code") as opener:
+            result = self.repo.open_document_external(document["id"])
+        self.assertEqual(result["editor"], "Visual Studio Code")
+        self.assertEqual(result["document_id"], document["id"])
+        opener.assert_called_once_with(Path(document["file_path"]))
 
     def test_external_editor_selection_is_persisted(self):
         config_file = Path(self.temp.name) / "editor.json"
@@ -169,7 +212,7 @@ class RepositoryTests(unittest.TestCase):
             self.assertEqual(json.loads(location_file.read_text(encoding="utf-8"))["data_dir"], str(target.resolve()))
             self.assertTrue(Path(created["file_path"]).exists(), "原目录应保留为备份")
 
-    def test_status_templates_and_reminders(self):
+    def test_status_templates_and_workflows(self):
         templates = self.repo.config()["status_templates"]
         templates["issue"].append({"id": "verify", "name": "待验证", "color": "#7856c8"})
         saved = self.repo.save_status_templates(templates)
@@ -177,10 +220,8 @@ class RepositoryTests(unittest.TestCase):
         workflows = self.repo.config()["workflow_templates"]
         workflows.append({"id": "simple", "name": "简单流程", "statuses": templates})
         self.assertEqual(len(self.repo.save_workflow_templates(workflows)), 2)
-        project = self.repo.create_project({"name": "提醒项目"})
+        project = self.repo.create_project({"name": "工作流项目"})
         self.assertEqual(self.repo.update_project(project["id"], {"workflow_template": "simple"})["workflow_template"], "simple")
-        self.repo.create_record({"type": "todo", "title": "今天处理", "project_id": project["id"], "due": "2026-08-27"})
-        self.assertEqual(len(self.repo.reminders()), 1)
 
     def test_used_workflow_status_cannot_be_removed_and_rename_migrates_status(self):
         project = self.repo.create_project({"name": "工作流安全项目"})
@@ -344,6 +385,114 @@ class RepositoryTests(unittest.TestCase):
         purged = self.repo.purge_trash(trashed_again["token"])
         self.assertTrue(purged["purged"])
         self.assertEqual(self.repo.list_trash(), [])
+
+    def test_trash_batch_restore_and_permanent_delete(self):
+        project = self.repo.create_project({"name": "批量回收站"})
+        first = self.repo.create_record({"type": "issue", "title": "恢复一", "project_id": project["id"]})
+        second = self.repo.create_record({"type": "todo", "title": "恢复二", "project_id": project["id"]})
+        first_trash = self.repo.delete_record(first["id"])
+        second_trash = self.repo.delete_record(second["id"])
+
+        restored = self.repo.batch_restore_trash({"tokens": [first_trash["token"], second_trash["token"]]})
+        self.assertEqual(restored["count"], 2)
+        self.assertEqual({item["id"] for item in self.repo.list_records()}, {first["id"], second["id"]})
+
+        first_trash = self.repo.delete_record(first["id"])
+        second_trash = self.repo.delete_record(second["id"])
+        purged = self.repo.batch_purge_trash({"tokens": [first_trash["token"], second_trash["token"]]})
+        self.assertEqual(purged["count"], 2)
+        self.assertEqual(self.repo.list_trash(), [])
+
+    def test_documents_support_categories_editing_and_trash(self):
+        self.repo.save_tags([{"name": "后端", "color": "#123456"}])
+        document = self.repo.create_document({"title": "接口规范", "document_type": "技术文档", "category": "后端", "tags": ["后端"], "body": "# 接口规范\n\n正文"})
+        self.assertEqual(document["id"], "DOC-0001")
+        self.assertEqual(document["category"], "后端")
+        self.assertNotIn("document_type", document)
+        self.assertEqual(document["tags"], ["后端"])
+        self.repo.save_tags({"tags": [{"name": "服务端", "color": "#123456"}], "renames": {"后端": "服务端"}, "removed": []})
+        self.assertEqual(self.repo.get_document(document["id"])[0]["tags"], ["服务端"])
+        updated = self.repo.update_document(document["id"], {"title": "接口说明", "document_type": "说明文档", "category": "公共", "tags": ["服务端"], "body": "新正文"})
+        self.assertNotIn("document_type", updated)
+        self.assertEqual(updated["category"], "公共")
+        self.assertEqual(self.repo.get_document(document["id"])[0]["body"], "新正文")
+        trashed = self.repo.delete_document(document["id"])
+        self.assertEqual(trashed["kind"], "document")
+        self.assertEqual(self.repo.list_documents(), [])
+        self.repo.restore_trash(trashed["token"])
+        self.assertEqual(len(self.repo.list_documents()), 1)
+
+    def test_knowledge_base_import_and_export(self):
+        imported = self.repo.import_document({"name": "部署手册.md", "content": "---\ndocument_type: \"说明文档\"\ncategory: \"运维\"\n---\n# 部署手册\n\n部署步骤"})
+        self.assertEqual(imported["title"], "部署手册")
+        self.assertNotIn("document_type", imported)
+        self.assertEqual(imported["category"], "运维")
+        content, filename = self.repo.export_document(imported["id"])
+        self.assertEqual(filename, "DOC-0001.md")
+        self.assertIn("部署步骤", content.decode("utf-8"))
+        self.assertNotIn("document_type", content.decode("utf-8"))
+        with zipfile.ZipFile(io.BytesIO(self.repo.export_documents_zip())) as archive:
+            self.assertEqual(len(archive.namelist()), 1)
+            exported = archive.read(archive.namelist()[0]).decode("utf-8")
+            self.assertIn("部署步骤", exported)
+            self.assertNotIn("document_type", exported)
+        second = self.repo.create_document({"title": "第二篇", "body": "不应导出"})
+        with zipfile.ZipFile(io.BytesIO(self.repo.export_documents_zip([imported["id"]]))) as archive:
+            self.assertEqual(len(archive.namelist()), 1)
+            self.assertNotIn(second["id"], archive.namelist()[0])
+
+    def test_document_sort_supports_separate_category_and_file_orders(self):
+        first = self.repo.create_document({"title": "乙文档", "category": "技术"})
+        second = self.repo.create_document({"title": "甲文档", "category": "技术"})
+        third = self.repo.create_document({"title": "部署文档", "category": "运维"})
+        manual = self.repo.save_document_sort({
+            "category_mode": "manual", "category_order": ["运维", "技术"],
+            "file_mode": "manual", "file_orders": {"技术": [second["id"], first["id"]], "运维": [third["id"]]},
+        })
+        self.assertEqual(manual["category_order"], ["运维", "技术"])
+        self.assertEqual(manual["file_orders"]["技术"], [second["id"], first["id"]])
+        configured = self.repo.config()["document_sort"]
+        self.assertEqual(configured["category_mode"], "manual")
+        self.assertEqual(configured["file_mode"], "manual")
+        per_category = self.repo.save_document_sort({"file_modes": {"技术": "title", "运维": "created"}})
+        self.assertEqual(per_category["file_modes"], {"技术": "title", "运维": "created"})
+        automatic = self.repo.save_document_sort({"category_mode": "count", "file_mode": "title"})
+        self.assertEqual(automatic["category_mode"], "count")
+        self.assertEqual(automatic["file_mode"], "title")
+        with self.assertRaises(ValueError):
+            self.repo.save_document_sort({"category_mode": "unknown"})
+        with self.assertRaises(ValueError):
+            self.repo.save_document_sort({"file_mode": "unknown"})
+        with self.assertRaises(ValueError):
+            self.repo.save_document_sort({"file_modes": {"技术": "unknown"}})
+
+    def test_empty_document_categories_can_be_created_and_persisted(self):
+        categories = self.repo.save_document_categories(["产品设计", "技术资料"])
+        self.assertEqual(categories, ["产品设计", "技术资料"])
+        self.assertEqual(self.repo.config()["document_categories"], categories)
+        sorting = self.repo.save_document_sort({"category_mode": "manual", "category_order": ["技术资料", "产品设计"]})
+        self.assertEqual(sorting["category_order"], ["技术资料", "产品设计"])
+        document = self.repo.create_document({"title": "部署说明", "category": "运维文档"})
+        self.assertEqual(document["category"], "运维文档")
+        self.assertEqual(self.repo.document_categories(), ["产品设计", "技术资料", "运维文档"])
+
+    def test_document_category_rename_migrates_documents_and_sorting(self):
+        self.repo.save_document_categories(["技术资料", "空分类"])
+        first = self.repo.create_document({"title": "接口规范", "category": "技术资料"})
+        second = self.repo.create_document({"title": "代码约定", "category": "技术资料"})
+        self.repo.save_document_sort({
+            "category_mode": "manual", "category_order": ["空分类", "技术资料"],
+            "file_modes": {"技术资料": "manual"}, "file_orders": {"技术资料": [second["id"], first["id"]]},
+        })
+        renamed = self.repo.rename_document_category("技术资料", "研发资料")
+        self.assertEqual(renamed["updated_documents"], 2)
+        self.assertEqual(renamed["categories"], ["研发资料", "空分类"])
+        self.assertEqual(renamed["document_sort"]["category_order"], ["空分类", "研发资料"])
+        self.assertEqual(renamed["document_sort"]["file_modes"]["研发资料"], "manual")
+        self.assertEqual(renamed["document_sort"]["file_orders"]["研发资料"], [second["id"], first["id"]])
+        self.assertTrue(all(document["category"] == "研发资料" for document in self.repo.list_documents()))
+        with self.assertRaises(ValueError):
+            self.repo.rename_document_category("研发资料", "空分类")
 
 
 if __name__ == "__main__":

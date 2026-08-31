@@ -31,7 +31,7 @@ DEFAULT_DATA_DIR = APP_DIR / "workbench-data"
 LOCATION_FILE = APP_DIR / ".workbench-location.json"
 EXPORT_LOCATION_FILE = APP_DIR / ".workbench-export.json"
 EXTERNAL_EDITOR_FILE = APP_DIR / ".workbench-editor.json"
-APP_VERSION = "2026.08.29.4"
+APP_VERSION = "2026.08.31.3"
 TYPE_DIRS = {"issue": "issues", "todo": "todos", "idea": "ideas", "info": "infos"}
 TYPE_PREFIXES = {"issue": "ISSUE", "todo": "TODO", "idea": "IDEA", "info": "INFO"}
 
@@ -212,13 +212,20 @@ class Repository:
     def __init__(self, data_dir: Path):
         self.root = data_dir.resolve()
         self._record_id_lock = threading.Lock()
+        # Markdown remains the source of truth.  Cache parsed records by the
+        # filesystem signature so normal reads only stat files; externally
+        # edited files are picked up automatically on the next access.
+        self._record_cache_lock = threading.RLock()
+        self._record_cache: dict[Path, tuple[int, int, dict]] = {}
+        self._record_paths_by_id: dict[str, Path] = {}
         self.projects_dir = self.root / "projects"
         self.global_ideas_dir = self.root / "ideas"
         self.global_assets_dir = self.root / "assets"
+        self.documents_dir = self.root / "documents"
         self.trash_dir = self.root / ".trash"
         self.history_dir = self.root / "history"
         self.config_dir = self.root / "config"
-        for directory in (self.projects_dir, self.global_ideas_dir, self.global_assets_dir, self.trash_dir, self.history_dir, self.config_dir):
+        for directory in (self.projects_dir, self.global_ideas_dir, self.global_assets_dir, self.documents_dir, self.trash_dir, self.history_dir, self.config_dir):
             directory.mkdir(parents=True, exist_ok=True)
         self._ensure_config()
         self.cleanup_trash()
@@ -257,6 +264,12 @@ class Repository:
         project_sort = self.config_dir / "project-sort.json"
         if not project_sort.exists():
             project_sort.write_text(json.dumps({"mode": "custom", "order": []}, ensure_ascii=False, indent=2), encoding="utf-8")
+        document_sort = self.config_dir / "document-sort.json"
+        if not document_sort.exists():
+            document_sort.write_text(json.dumps({"category_mode": "manual", "category_order": [], "file_mode": "updated", "file_modes": {}, "file_orders": {}}, ensure_ascii=False, indent=2), encoding="utf-8")
+        document_categories = self.config_dir / "document-categories.json"
+        if not document_categories.exists():
+            document_categories.write_text("[]", encoding="utf-8")
         trash_index = self.trash_dir / "index.json"
         if not trash_index.exists():
             trash_index.write_text("{}", encoding="utf-8")
@@ -268,6 +281,8 @@ class Repository:
             "workflow_templates": json.loads((self.config_dir / "workflow-templates.json").read_text(encoding="utf-8")),
             "tags": self.list_tags(),
             "project_sort": self.project_sort(),
+            "document_sort": self.document_sort(),
+            "document_categories": self.document_categories(),
         }
 
     def project_sort(self) -> dict:
@@ -293,6 +308,151 @@ class Repository:
         value = {"mode": mode, "order": cleaned}
         (self.config_dir / "project-sort.json").write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
         return value
+
+    def document_sort(self) -> dict:
+        path = self.config_dir / "document-sort.json"
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            value = {}
+        category_mode = value.get("category_mode", "manual")
+        file_mode = value.get("file_mode", value.get("mode", "updated"))
+        if category_mode not in {"manual", "name", "count", "updated"}:
+            category_mode = "manual"
+        if file_mode not in {"manual", "updated", "title", "created"}:
+            file_mode = "updated"
+        file_orders = value.get("file_orders", {})
+        if not isinstance(file_orders, dict):
+            file_orders = {}
+        file_modes = value.get("file_modes", {})
+        if not isinstance(file_modes, dict):
+            file_modes = {}
+        result = {
+            "category_mode": category_mode,
+            "category_order": value.get("category_order", []) if isinstance(value.get("category_order", []), list) else [],
+            "file_mode": file_mode,
+            "file_modes": {str(key): mode for key, mode in file_modes.items() if mode in {"manual", "updated", "title", "created"}},
+            "file_orders": {str(key): order for key, order in file_orders.items() if isinstance(order, list)},
+        }
+        legacy_order = value.get("order", []) if isinstance(value.get("order", []), list) else []
+        if legacy_order:
+            result["legacy_order"] = legacy_order
+        return result
+
+    def save_document_sort(self, payload: dict) -> dict:
+        current = self.document_sort()
+        category_mode = str(payload.get("category_mode", current["category_mode"]))
+        file_mode = str(payload.get("file_mode", current["file_mode"]))
+        if category_mode not in {"manual", "name", "count", "updated"}:
+            raise ValueError("分类排序规则无效")
+        if file_mode not in {"manual", "updated", "title", "created"}:
+            raise ValueError("文档排序规则无效")
+        documents = self.list_documents()
+        categories = self.document_categories()
+        category_order = payload.get("category_order", current["category_order"])
+        if not isinstance(category_order, list) or any(not isinstance(item, str) for item in category_order):
+            raise ValueError("分类顺序必须是分类名称列表")
+        cleaned_categories = list(dict.fromkeys(item for item in category_order if item in categories))
+        cleaned_categories.extend(category for category in categories if category not in cleaned_categories)
+        incoming_orders = payload.get("file_orders", current["file_orders"])
+        if not isinstance(incoming_orders, dict):
+            raise ValueError("文档顺序格式无效")
+        incoming_modes = payload.get("file_modes", current.get("file_modes", {}))
+        if not isinstance(incoming_modes, dict) or any(mode not in {"manual", "updated", "title", "created"} for mode in incoming_modes.values()):
+            raise ValueError("分类内文档排序规则无效")
+        legacy_order = current.get("legacy_order", [])
+        cleaned_orders = {}
+        for category in categories:
+            known = [document["id"] for document in documents if str(document.get("category") or "未分类") == category]
+            order = incoming_orders.get(category, legacy_order)
+            if not isinstance(order, list) or any(not isinstance(item, str) for item in order):
+                raise ValueError("文档顺序必须是文档编号列表")
+            cleaned = list(dict.fromkeys(item for item in order if item in known))
+            cleaned.extend(document_id for document_id in known if document_id not in cleaned)
+            cleaned_orders[category] = cleaned
+        cleaned_modes = {category: incoming_modes.get(category, file_mode) for category in categories}
+        value = {"category_mode": category_mode, "category_order": cleaned_categories, "file_mode": file_mode, "file_modes": cleaned_modes, "file_orders": cleaned_orders}
+        (self.config_dir / "document-sort.json").write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+        return value
+
+    def document_categories(self) -> list[str]:
+        path = self.config_dir / "document-categories.json"
+        try:
+            configured = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            configured = []
+        if not isinstance(configured, list):
+            configured = []
+        categories = list(dict.fromkeys(str(item).strip() for item in configured if str(item).strip()))
+        for document in self.list_documents():
+            category = str(document.get("category") or "未分类").strip() or "未分类"
+            if category not in categories:
+                categories.append(category)
+        return categories
+
+    def save_document_categories(self, categories: list) -> list[str]:
+        if not isinstance(categories, list):
+            raise ValueError("文档分类格式无效")
+        cleaned = []
+        for value in categories:
+            name = str(value).strip()
+            if not name:
+                continue
+            if len(name) > 80:
+                raise ValueError("分类名称不能超过 80 个字符")
+            if name not in cleaned:
+                cleaned.append(name)
+        for document in self.list_documents():
+            category = str(document.get("category") or "未分类").strip() or "未分类"
+            if category not in cleaned:
+                cleaned.append(category)
+        (self.config_dir / "document-categories.json").write_text(json.dumps(cleaned, ensure_ascii=False, indent=2), encoding="utf-8")
+        return cleaned
+
+    def ensure_document_category(self, category: str) -> str:
+        name = str(category or "未分类").strip() or "未分类"
+        categories = self.document_categories()
+        if name not in categories:
+            categories.append(name)
+            self.save_document_categories(categories)
+        return name
+
+    def rename_document_category(self, old_name: str, new_name: str) -> dict:
+        old_name = str(old_name).strip()
+        new_name = str(new_name).strip()
+        categories = self.document_categories()
+        if old_name not in categories:
+            raise FileNotFoundError(old_name)
+        if not new_name:
+            raise ValueError("分类名称不能为空")
+        if len(new_name) > 80:
+            raise ValueError("分类名称不能超过 80 个字符")
+        if new_name != old_name and new_name in categories:
+            raise ValueError("分类名称已存在")
+        if new_name == old_name:
+            return {"categories": categories, "document_sort": self.document_sort(), "updated_documents": 0}
+        changed = 0
+        for document in self.list_documents():
+            if str(document.get("category") or "未分类") != old_name:
+                continue
+            path = Path(document["file_path"])
+            meta = {key: value for key, value in document.items() if key not in {"body", "file_path", "file_mtime"}}
+            meta["category"] = new_name
+            meta["updated"] = now_iso()
+            path.write_text(dump_markdown(meta, document.get("body", "")), encoding="utf-8")
+            changed += 1
+        renamed_categories = [new_name if category == old_name else category for category in categories]
+        saved_categories = self.save_document_categories(renamed_categories)
+        sorting = self.document_sort()
+        category_order = [new_name if category == old_name else category for category in sorting.get("category_order", [])]
+        file_modes = dict(sorting.get("file_modes", {}))
+        if old_name in file_modes:
+            file_modes[new_name] = file_modes.pop(old_name)
+        file_orders = dict(sorting.get("file_orders", {}))
+        if old_name in file_orders:
+            file_orders[new_name] = file_orders.pop(old_name)
+        saved_sort = self.save_document_sort({**sorting, "category_order": category_order, "file_modes": file_modes, "file_orders": file_orders})
+        return {"categories": saved_categories, "document_sort": saved_sort, "updated_documents": changed}
 
     def save_workflow_templates(self, workflows: list[dict]) -> list[dict]:
         if not isinstance(workflows, list) or not workflows:
@@ -393,6 +553,10 @@ class Repository:
             for tag in record.get("tags") or []:
                 if tag not in known:
                     known[tag] = {"name": tag, "color": colors[len(known) % len(colors)]}
+        for document in self.list_documents():
+            for tag in document.get("tags") or []:
+                if tag not in known:
+                    known[tag] = {"name": tag, "color": colors[len(known) % len(colors)]}
         return sorted(known.values(), key=lambda item: item["name"].casefold())
 
     def save_tags(self, payload) -> list[dict]:
@@ -412,13 +576,17 @@ class Repository:
                 for tag in record.get("tags") or []:
                     if tag in removed_names:
                         usage.setdefault(tag, []).append(record)
+            for document in self.list_documents():
+                for tag in document.get("tags") or []:
+                    if tag in removed_names:
+                        usage.setdefault(tag, []).append(document)
             if usage:
                 details = []
                 for tag, used_records in usage.items():
                     preview = "、".join(f"{item['id']} {item.get('title', '')}" for item in used_records[:5])
                     suffix = f" 等 {len(used_records)} 条" if len(used_records) > 5 else ""
                     details.append(f"标签「{tag}」正在被使用：{preview}{suffix}")
-                raise ValueError("；".join(details) + "。请先从这些记录中移除标签")
+                raise ValueError("；".join(details) + "。请先从这些记录或文档中移除标签")
         cleaned, names = [], set()
         for item in tags:
             name = str(item.get("name", "")).strip()
@@ -439,6 +607,17 @@ class Repository:
                         new_tags.append(renamed)
                 if new_tags != old_tags:
                     self.update_record(record["id"], {"tags": new_tags})
+            for document in self.list_documents():
+                old_tags = document.get("tags") or []
+                new_tags = []
+                for tag in old_tags:
+                    if tag in removed:
+                        continue
+                    renamed = renames.get(tag, tag)
+                    if renamed and renamed not in new_tags:
+                        new_tags.append(renamed)
+                if new_tags != old_tags:
+                    self.update_document(document["id"], {"tags": new_tags})
         return cleaned
 
     def save_status_templates(self, templates: dict) -> dict:
@@ -467,7 +646,12 @@ class Repository:
         if mode == "created":
             return sorted(projects, key=lambda item: item.get("created", ""), reverse=True)
         if mode == "record_count":
-            return sorted(projects, key=lambda item: (len(self.list_records(project_id=item.get("id"))), item.get("name", "")), reverse=True)
+            counts: dict[str, int] = {}
+            for record in self.list_records():
+                project_id = record.get("project_id")
+                if project_id:
+                    counts[project_id] = counts.get(project_id, 0) + 1
+            return sorted(projects, key=lambda item: (counts.get(item.get("id"), 0), item.get("name", "")), reverse=True)
         if mode == "updated":
             return sorted(projects, key=lambda item: item.get("updated", ""), reverse=True)
         positions = {project_id: index for index, project_id in enumerate(sorting["order"])}
@@ -590,6 +774,134 @@ class Repository:
         self._write_trash_index(index)
         return {"token": token, "purged": True}
 
+    @staticmethod
+    def _trash_tokens(payload: dict) -> list[str]:
+        tokens = payload.get("tokens", [])
+        if not isinstance(tokens, list):
+            raise ValueError("回收站项目列表无效")
+        cleaned = list(dict.fromkeys(str(token) for token in tokens if str(token).strip()))
+        if not cleaned:
+            raise ValueError("请选择回收站内容")
+        return cleaned
+
+    def batch_restore_trash(self, payload: dict) -> dict:
+        tokens = self._trash_tokens(payload)
+        index = self._trash_index()
+        missing = [token for token in tokens if token not in index]
+        if missing:
+            raise FileNotFoundError(missing[0])
+        restored = [self.restore_trash(token) for token in tokens]
+        return {"restored": restored, "count": len(restored)}
+
+    def batch_purge_trash(self, payload: dict) -> dict:
+        tokens = self._trash_tokens(payload)
+        index = self._trash_index()
+        missing = [token for token in tokens if token not in index]
+        if missing:
+            raise FileNotFoundError(missing[0])
+        purged = [self.purge_trash(token) for token in tokens]
+        return {"purged": purged, "count": len(purged)}
+
+    def list_documents(self) -> list[dict]:
+        documents = []
+        for path in self.documents_dir.glob("*.md"):
+            meta, body = load_markdown(path)
+            if meta.get("type") != "document":
+                continue
+            meta.pop("document_type", None)
+            documents.append({**meta, "body": body, "file_path": str(path), "file_mtime": path.stat().st_mtime_ns})
+        return sorted(documents, key=lambda item: item.get("updated", ""), reverse=True)
+
+    def get_document(self, document_id: str) -> tuple[dict, Path] | tuple[None, None]:
+        for document in self.list_documents():
+            if document.get("id") == document_id:
+                return document, Path(document["file_path"])
+        return None, None
+
+    def create_document(self, payload: dict) -> dict:
+        title = str(payload.get("title", "")).strip()
+        if not title:
+            raise ValueError("文档标题不能为空")
+        used = []
+        for document in self.list_documents():
+            match = re.fullmatch(r"DOC-(\d+)", str(document.get("id", "")))
+            if match:
+                used.append(int(match.group(1)))
+        document_id = f"DOC-{max(used, default=0) + 1:04d}"
+        stamp = now_iso()
+        tags = list(dict.fromkeys(str(tag).strip() for tag in payload.get("tags", []) if str(tag).strip())) if isinstance(payload.get("tags", []), list) else []
+        category = self.ensure_document_category(str(payload.get("category", "未分类")))
+        meta = {"id": document_id, "type": "document", "title": title, "category": category, "tags": tags, "created": stamp, "updated": stamp}
+        body = str(payload.get("body", "")).strip() or f"# {title}\n\n"
+        path = self.documents_dir / f"{document_id}-{slugify(title)}.md"
+        path.write_text(dump_markdown(meta, body), encoding="utf-8")
+        return {**meta, "body": body, "file_path": str(path), "file_mtime": path.stat().st_mtime_ns}
+
+    def update_document(self, document_id: str, payload: dict) -> dict:
+        document, path = self.get_document(document_id)
+        if not document or not path:
+            raise FileNotFoundError(document_id)
+        title = str(payload.get("title", document.get("title", ""))).strip()
+        if not title:
+            raise ValueError("文档标题不能为空")
+        meta = {key: value for key, value in document.items() if key not in {"body", "file_path", "file_mtime"}}
+        tags_payload = payload.get("tags", document.get("tags", []))
+        tags = list(dict.fromkeys(str(tag).strip() for tag in tags_payload if str(tag).strip())) if isinstance(tags_payload, list) else document.get("tags", [])
+        meta.pop("document_type", None)
+        category = self.ensure_document_category(str(payload.get("category", document.get("category", "未分类"))))
+        meta.update({"title": title, "category": category, "tags": tags, "updated": now_iso()})
+        body = str(payload.get("body", document.get("body", "")))
+        path.write_text(dump_markdown(meta, body), encoding="utf-8")
+        return {**meta, "body": body, "file_path": str(path), "file_mtime": path.stat().st_mtime_ns}
+
+    def open_document_external(self, document_id: str) -> dict:
+        document, path = self.get_document(document_id)
+        if not document or not path:
+            raise FileNotFoundError(document_id)
+        editor = open_markdown_external(path)
+        return {"ok": True, "editor": editor, "document_id": document_id, "file": path.name}
+
+    def delete_document(self, document_id: str) -> dict:
+        document, path = self.get_document(document_id)
+        if not document or not path:
+            raise FileNotFoundError(document_id)
+        return self._move_to_trash(path, document_id, "document", document.get("title", document_id))
+
+    def import_document(self, payload: dict) -> dict:
+        content = str(payload.get("content", ""))
+        if not content.strip():
+            raise ValueError("导入的文档内容为空")
+        meta, body = load_markdown_text(content)
+        title = str(payload.get("title") or meta.get("title") or "").strip()
+        if not title:
+            heading = re.search(r"^#\s+(.+)$", body, re.MULTILINE)
+            title = heading.group(1).strip() if heading else Path(str(payload.get("name", "导入文档.md"))).stem
+        return self.create_document({
+            "title": title,
+            "category": payload.get("category") or meta.get("category") or "导入文档",
+            "tags": payload.get("tags") or meta.get("tags") or [],
+            "body": body,
+        })
+
+    def export_document(self, document_id: str) -> tuple[bytes, str]:
+        document, path = self.get_document(document_id)
+        if not document or not path:
+            raise FileNotFoundError(document_id)
+        meta = {key: value for key, value in document.items() if key not in {"body", "file_path", "file_mtime", "document_type"}}
+        return dump_markdown(meta, document.get("body", "")).encode("utf-8"), f"{document_id}.md"
+
+    def export_documents_zip(self, document_ids: list[str] | None = None) -> bytes:
+        selected = set(document_ids or [])
+        memory = io.BytesIO()
+        with zipfile.ZipFile(memory, "w", zipfile.ZIP_DEFLATED) as archive:
+            for path in sorted(self.documents_dir.glob("*.md")):
+                meta, body = load_markdown(path)
+                if meta.get("type") != "document" or (selected and str(meta.get("id", "")) not in selected):
+                    continue
+                meta.pop("document_type", None)
+                archive.writestr(path.name, dump_markdown(meta, body))
+        return memory.getvalue()
+
     def export_zip(self, project_id: str | None = None) -> bytes:
         source = self.root
         if project_id:
@@ -613,7 +925,7 @@ class Repository:
             heading = re.search(r"^#\s+(.+)$", body, re.MULTILINE)
             title = heading.group(1).strip() if heading else Path(payload.get("name", "导入记录.md")).stem
         project_id = payload.get("project_id") if payload.get("project_id") is not None else meta.get("project_id")
-        return self.create_record({"type": record_type, "title": title, "project_id": project_id, "status": meta.get("status"), "priority": meta.get("priority", "普通"), "tags": meta.get("tags", []), "due": meta.get("due"), "reminder": meta.get("reminder"), "info_fields": meta.get("info_fields", []), "body": body})
+        return self.create_record({"type": record_type, "title": title, "project_id": project_id, "status": meta.get("status"), "priority": meta.get("priority", "普通"), "tags": meta.get("tags", []), "due": meta.get("due"), "info_fields": meta.get("info_fields", []), "body": body})
 
     def _record_paths(self):
         yield from self.global_ideas_dir.glob("*.md")
@@ -622,24 +934,89 @@ class Repository:
                 for subdir in TYPE_DIRS.values():
                     yield from (directory / subdir).glob("*.md")
 
+    def _load_record(self, path: Path) -> dict | None:
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            with self._record_cache_lock:
+                cached = self._record_cache.pop(path, None)
+                if cached:
+                    self._record_paths_by_id.pop(str(cached[2].get("id", "")), None)
+            return None
+        signature = (stat.st_mtime_ns, stat.st_size)
+        with self._record_cache_lock:
+            cached = self._record_cache.get(path)
+            if cached and cached[:2] == signature:
+                return {**cached[2]}
+            previous_id = str(cached[2].get("id", "")) if cached else ""
+            try:
+                meta, body = load_markdown(path)
+            except FileNotFoundError:
+                self._record_cache.pop(path, None)
+                if previous_id:
+                    self._record_paths_by_id.pop(previous_id, None)
+                return None
+            record = {**meta, "body": body, "file_path": str(path), "file_mtime": stat.st_mtime_ns}
+            self._record_cache[path] = (stat.st_mtime_ns, stat.st_size, record)
+            record_id = str(record.get("id", ""))
+            if previous_id and previous_id != record_id:
+                self._record_paths_by_id.pop(previous_id, None)
+            if record_id:
+                self._record_paths_by_id[record_id] = path
+            return {**record}
+
+    def _forget_record(self, path: Path):
+        with self._record_cache_lock:
+            cached = self._record_cache.pop(path, None)
+            if cached:
+                self._record_paths_by_id.pop(str(cached[2].get("id", "")), None)
+
     def list_records(self, project_id=None, record_type=None) -> list[dict]:
         records = []
-        for path in self._record_paths():
-            meta, body = load_markdown(path)
-            if meta.get("type") not in TYPE_DIRS:
+        paths = list(self._record_paths())
+        for path in paths:
+            record = self._load_record(path)
+            if not record or record.get("type") not in TYPE_DIRS:
                 continue
-            if project_id is not None and meta.get("project_id") != project_id:
+            if project_id is not None and record.get("project_id") != project_id:
                 continue
-            if record_type and meta.get("type") != record_type:
+            if record_type and record.get("type") != record_type:
                 continue
-            records.append({**meta, "body": body, "file_path": str(path), "file_mtime": path.stat().st_mtime_ns})
+            records.append(record)
+        current_paths = set(paths)
+        with self._record_cache_lock:
+            for stale in self._record_cache.keys() - current_paths:
+                cached = self._record_cache.pop(stale)
+                self._record_paths_by_id.pop(str(cached[2].get("id", "")), None)
         return sorted(records, key=lambda item: item.get("updated", ""), reverse=True)
 
+    def list_record_summaries(self, project_id=None, record_type=None) -> list[dict]:
+        """Return list-view data without transferring full Markdown bodies."""
+        summaries = []
+        for record in self.list_records(project_id, record_type):
+            summary = {
+                key: value for key, value in record.items()
+                if key not in {"body", "attachments", "file_path"}
+            }
+            summary["body_preview"] = str(record.get("body", ""))[:600]
+            summaries.append(summary)
+        return summaries
+
+    def record_signatures(self) -> list[dict]:
+        """Return the small payload used by the browser's change poll."""
+        return [{"id": item.get("id"), "type": item.get("type"), "file_mtime": item.get("file_mtime")} for item in self.list_records()]
+
     def get_record(self, record_id: str) -> tuple[dict, Path] | tuple[None, None]:
+        with self._record_cache_lock:
+            known_path = self._record_paths_by_id.get(record_id)
+        if known_path:
+            record = self._load_record(known_path)
+            if record and record.get("id") == record_id:
+                return record, known_path
         for path in self._record_paths():
-            meta, body = load_markdown(path)
-            if meta.get("id") == record_id:
-                return {**meta, "body": body, "file_path": str(path), "file_mtime": path.stat().st_mtime_ns}, path
+            record = self._load_record(path)
+            if record and record.get("id") == record_id:
+                return record, path
         return None, None
 
     def _next_id(self, record_type: str) -> str:
@@ -682,21 +1059,21 @@ class Repository:
                 meta.update({
                     "status": payload.get("status") or {"issue": "待处理", "todo": "待办", "idea": "收件箱"}[record_type],
                     "priority": payload.get("priority", "普通"), "tags": payload.get("tags", []),
-                    "due": payload.get("due"), "reminder": payload.get("reminder"), "completed": bool(payload.get("completed", False)),
+                    "due": payload.get("due"), "completed": bool(payload.get("completed", False)),
                 })
             body = str(payload.get("body", "")).strip() or f"# {title}\n\n"
             filename = f"{record_id}-{slugify(title)}.md"
             path = directory / filename
             path.write_text(dump_markdown(meta, body), encoding="utf-8")
-        return {**meta, "body": body, "file_path": str(path)}
+        return self._load_record(path)
 
     def update_record(self, record_id: str, payload: dict) -> dict:
         record, path = self.get_record(record_id)
         if not record:
             raise FileNotFoundError(record_id)
-        editable = {"title", "status", "priority", "tags", "due", "reminder", "completed", "links", "attachments", "info_fields", "info_color", "body"}
+        editable = {"title", "status", "priority", "tags", "due", "completed", "links", "attachments", "info_fields", "info_color", "body"}
         if record.get("type") == "info":
-            editable -= {"status", "priority", "due", "reminder", "completed"}
+            editable -= {"status", "priority", "due", "completed"}
         if "info_fields" in payload:
             payload = {**payload, "info_fields": normalize_info_fields(payload["info_fields"])}
         if "info_color" in payload:
@@ -707,7 +1084,8 @@ class Repository:
         updated.pop("file_mtime", None)
         self._save_history(record_id, path)
         path.write_text(dump_markdown(updated, body), encoding="utf-8")
-        return {**updated, "body": body, "file_path": str(path), "file_mtime": path.stat().st_mtime_ns}
+        self._forget_record(path)
+        return self._load_record(path)
 
     def open_record_external(self, record_id: str) -> dict:
         record, path = self.get_record(record_id)
@@ -1100,14 +1478,6 @@ class Repository:
                 deleted += 1
         return {"deleted": deleted}
 
-    def reminders(self) -> list[dict]:
-        items = []
-        for record in self.list_records():
-            if record.get("completed") or not (record.get("due") or record.get("reminder")):
-                continue
-            items.append(record)
-        return sorted(items, key=lambda item: item.get("reminder") or item.get("due") or "")
-
     def orphan_assets(self) -> list[dict]:
         referenced = set()
         for record in self.list_records():
@@ -1147,6 +1517,7 @@ class Repository:
         record, path = self.get_record(record_id)
         if not record:
             raise FileNotFoundError(record_id)
+        self._forget_record(path)
         return self._move_to_trash(path, record_id, "record", record.get("title", record_id))
 
     def search(self, query: str) -> list[dict]:
@@ -1409,11 +1780,18 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                 return self._json(self.repository.list_tags())
             if path == "/api/trash":
                 return self._json(self.repository.list_trash())
+            if path.startswith("/api/documents/") and path.endswith("/export"):
+                document_id = path.strip("/").split("/")[-2]
+                content, filename = self.repository.export_document(document_id)
+                return self._bytes(content, "text/markdown; charset=utf-8", filename)
+            if path == "/api/documents":
+                return self._json(self.repository.list_documents())
+            if path.startswith("/api/documents/"):
+                document, _ = self.repository.get_document(path.rsplit("/", 1)[-1])
+                return self._json(document) if document else self._json({"error": "文档不存在"}, HTTPStatus.NOT_FOUND)
             if path == "/api/export":
                 project_id = (query.get("project") or [None])[0]
                 return self._bytes(self.repository.export_zip(project_id), "application/zip", "workbench-export.zip")
-            if path == "/api/reminders":
-                return self._json(self.repository.reminders())
             if path == "/api/orphan-assets":
                 return self._json(self.repository.orphan_assets())
             if path == "/api/projects":
@@ -1439,7 +1817,11 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                 self.end_headers()
                 return self.wfile.write(content)
             if path == "/api/records":
-                return self._json(self.repository.list_records((query.get("project") or [None])[0], (query.get("type") or [None])[0]))
+                loader = self.repository.list_record_summaries if (query.get("summary") or [""])[0] == "1" else self.repository.list_records
+                records = loader((query.get("project") or [None])[0], (query.get("type") or [None])[0])
+                return self._json([record for record in records if record.get("type") != "idea"])
+            if path == "/api/record-signatures":
+                return self._json([record for record in self.repository.record_signatures() if record.get("type") != "idea"])
             if path.startswith("/api/records/"):
                 parts = path.strip("/").split("/")
                 if len(parts) == 4 and parts[-1] == "history":
@@ -1461,7 +1843,7 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                 self.end_headers()
                 return self.wfile.write(content)
             if path == "/api/search":
-                return self._json(self.repository.search((query.get("q") or [""])[0]))
+                return self._json([record for record in self.repository.search((query.get("q") or [""])[0]) if record.get("type") != "idea"])
             return self._json({"error": "接口不存在"}, HTTPStatus.NOT_FOUND)
         except ValueError as exc:
             return self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
@@ -1473,6 +1855,23 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
         try:
             if path == "/api/projects":
                 return self._json(self.repository.create_project(self._body()), HTTPStatus.CREATED)
+            if path == "/api/documents/export":
+                payload = self._body()
+                document_ids = payload.get("document_ids", [])
+                if not isinstance(document_ids, list) or not document_ids:
+                    raise ValueError("请选择需要导出的文档")
+                known = {item["id"] for item in self.repository.list_documents()}
+                cleaned = list(dict.fromkeys(str(item) for item in document_ids if str(item) in known))
+                if not cleaned:
+                    raise ValueError("所选文档不存在")
+                return self._bytes(self.repository.export_documents_zip(cleaned), "application/zip", "knowledge-documents.zip")
+            if path == "/api/documents/import":
+                return self._json(self.repository.import_document(self._body()), HTTPStatus.CREATED)
+            if path == "/api/documents":
+                return self._json(self.repository.create_document(self._body()), HTTPStatus.CREATED)
+            if path.startswith("/api/documents/") and path.endswith("/open-external"):
+                document_id = path.strip("/").split("/")[-2]
+                return self._json(self.repository.open_document_external(document_id))
             if path.startswith("/api/projects/") and path.endswith("/assets/upload"):
                 project_id = path.strip("/").split("/")[2]
                 length = int(self.headers.get("Content-Length", "0"))
@@ -1484,12 +1883,17 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                 payload = self._body()
                 return self._json(self.repository.add_project_asset(project_id, payload.get("name", ""), payload.get("content", ""), payload.get("category", "未分类")), HTTPStatus.CREATED)
             if path == "/api/records":
-                return self._json(self.repository.create_record(self._body()), HTTPStatus.CREATED)
+                payload = self._body()
+                if payload.get("type") == "idea":
+                    raise ValueError("想法记录类型已停用，请使用知识库")
+                return self._json(self.repository.create_record(payload), HTTPStatus.CREATED)
             if path == "/api/import":
                 return self._json(self.repository.import_markdown(self._body()), HTTPStatus.CREATED)
             if path == "/api/export-file":
                 payload = self._body()
                 return self._json(export_to_saved_location(self.repository, payload.get("project_id"), str(payload.get("filename", ""))))
+            if path == "/api/trash/batch/restore":
+                return self._json(self.repository.batch_restore_trash(self._body()))
             if path.startswith("/api/trash/") and path.endswith("/restore"):
                 token = path.strip("/").split("/")[-2]
                 return self._json(self.repository.restore_trash(token))
@@ -1537,6 +1941,10 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                 return self._json(self.repository.save_project_asset_categories(project_id, self._body().get("categories", [])))
             if path == "/api/project-sort":
                 return self._json(self.repository.save_project_sort(self._body()))
+            if path == "/api/document-sort":
+                return self._json(self.repository.save_document_sort(self._body()))
+            if path == "/api/document-categories":
+                return self._json(self.repository.save_document_categories(self._body().get("categories", [])))
             if path == "/api/status-templates":
                 return self._json(self.repository.save_status_templates(self._body()))
             if path == "/api/workflow-templates":
@@ -1555,6 +1963,11 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             if path == "/api/assets/batch":
                 payload = self._body()
                 return self._json(self.repository.batch_update_assets(str(payload.get("project_id", "")), payload.get("selections", []), str(payload.get("category", ""))))
+            if path == "/api/document-categories/rename":
+                payload = self._body()
+                return self._json(self.repository.rename_document_category(payload.get("old_name", ""), payload.get("new_name", "")))
+            if path.startswith("/api/documents/"):
+                return self._json(self.repository.update_document(path.rsplit("/", 1)[-1], self._body()))
             if path.startswith("/api/projects/") and "/assets/" in path:
                 parts = path.strip("/").split("/")
                 if len(parts) != 5:
@@ -1576,6 +1989,10 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             if path == "/api/assets/batch":
                 payload = self._body()
                 return self._json(self.repository.batch_delete_assets(str(payload.get("project_id", "")), payload.get("selections", [])))
+            if path.startswith("/api/documents/"):
+                return self._json(self.repository.delete_document(path.rsplit("/", 1)[-1]))
+            if path == "/api/trash/batch":
+                return self._json(self.repository.batch_purge_trash(self._body()))
             if path.startswith("/api/records/"):
                 return self._json(self.repository.delete_record(path.rsplit("/", 1)[-1]))
             if path.startswith("/api/projects/"):

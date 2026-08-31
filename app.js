@@ -9,18 +9,30 @@ const createDialog = $('#createDialog');
 const searchPanel = $('#searchPanel');
 const detailDrawer = $('#detailDrawer');
 const toast = $('#toast');
-const typeMap = {'问题':'issue', '待办':'todo', '想法':'idea', '信息':'info'};
-const typeNames = {issue:'问题', todo:'待办', idea:'想法', info:'信息'};
-const typeIcons = {issue:'!', todo:'✓', idea:'✦', info:'i'};
+const typeMap = {'问题':'issue', '待办':'todo', '信息':'info'};
+const typeNames = {issue:'问题', todo:'待办', info:'信息'};
+const typeIcons = {issue:'!', todo:'✓', info:'i'};
 const boardStatuses = ['待处理', '分析中', '处理中', '已解决'];
 const statusColors = {'待处理':'gray', '分析中':'blue', '处理中':'orange', '已解决':'green'};
-const gentleColorPalette = [
-  {value:'#64748b', name:'雾灰'}, {value:'#3b82f6', name:'晴蓝'}, {value:'#06b6d4', name:'湖蓝'},
-  {value:'#14b8a6', name:'青绿'}, {value:'#22c55e', name:'草绿'}, {value:'#84cc16', name:'青柠'},
-  {value:'#eab308', name:'暖黄'}, {value:'#f59e0b', name:'琥珀'}, {value:'#f97316', name:'暖橙'},
-  {value:'#ef4444', name:'珊瑚红'}, {value:'#ec4899', name:'玫粉'}, {value:'#a855f7', name:'柔紫'},
-  {value:'#6366f1', name:'靛蓝'}, {value:'#8b5cf6', name:'薰衣草'}, {value:'#0ea5e9', name:'天蓝'},
+const COLOR_THEME_PALETTE = ['#ffffff','#4e83fd','#14c0ff','#00d6b9','#34c724','#b3d600','#fff258','#ff8800','#f54a45','#f14ba9','#7f3bf5'];
+const COLOR_SHADE_PALETTE = [
+  ['#f8f9fa','#e1eaff','#d9f3fd','#d5f6f2','#d9f5d6','#eef6c6','#faf1d1','#fed4a4','#fbbfbc','#fdddef','#ece2fe'],
+  ['#dee0e3','#bacefd','#7edafb','#64e8d6','#8ee085','#c3dd40','#fad355','#ffba6b','#f76964','#f57ac0','#ad82f7'],
+  ['#8f959e','#3370ff','#049fd7','#04b49c','#2ea121','#8fac02','#ffc60a','#de7802','#d83931','#f01d94','#6425d0'],
+  ['#373c43','#245bdb','#037eaa','#036356','#186010','#667901','#dc9b04','#8f4f04','#812520','#9e1361','#380d82'],
+  ['#1f2329','#133c9a','#006185','#024b41','#124b0c','#495700','#795101','#6b3900','#621c18','#7a0f4b','#270561'],
 ];
+
+function recentColors(storageKey) {
+  try { return JSON.parse(localStorage.getItem(storageKey) || '[]').filter(value => /^#[0-9a-f]{6}$/i.test(value)).slice(0, 12); }
+  catch { return []; }
+}
+
+function rememberRecentColor(storageKey, value) {
+  if (!/^#[0-9a-f]{6}$/i.test(value || '')) return;
+  const normalized = value.toLowerCase();
+  localStorage.setItem(storageKey, JSON.stringify([normalized, ...recentColors(storageKey).filter(item => item !== normalized)].slice(0, 12)));
+}
 let selectedType = '问题';
 let selectedProjectId = '';
 let projectTab = 'issues';
@@ -69,6 +81,21 @@ let editorExpanded = false;
 let editorContentExpanded = false;
 let lastEditorRange = null;
 let createContext = {projectId:'', status:''};
+let lastRecordSignature = '';
+let trashItems = [];
+let trashSelection = new Set();
+let documents = [];
+let currentDocument = null;
+let documentMode = 'read';
+let documentFilters = {categoryQuery:''};
+let documentCategoryFileQueries = {};
+let documentOpenCategories = new Set();
+let documentSelection = new Set();
+let documentExportMode = false;
+let documentLastRange = null;
+let documentExpanded = false;
+let documentOutlineCollapsed = localStorage.getItem('workbench-document-outline-collapsed') === 'true';
+let documentOutlineTimer = null;
 
 const PROJECT_CARD_COLLAPSE_LIMIT = 5;
 const PROJECT_LIST_COLLAPSE_LIMIT = 12;
@@ -107,6 +134,7 @@ function openAppDialog({title, message = '', detail = '', confirmText = '确认'
   $('#appDialogConfirm').textContent = confirmText;
   $('button[value="cancel"]:not(.dialog-close)', dialog).textContent = cancelText;
   const field = $('#appDialogInput');
+  const options = $('#appDialogOptions');
   if (input) {
     $('#appDialogInputLabel').textContent = input.label || '请输入内容';
     field.type = input.type || 'text';
@@ -114,10 +142,22 @@ function openAppDialog({title, message = '', detail = '', confirmText = '确认'
     field.placeholder = input.placeholder || '';
     field.required = input.required !== false;
     field.readOnly = Boolean(input.readOnly);
+    const choices = Array.isArray(input.choices) ? input.choices.filter(choice => choice?.value || choice?.label) : [];
+    options.hidden = !choices.length;
+    options.innerHTML = choices.map(choice => `<button type="button" data-app-dialog-choice="${escapeHtml(choice.value || choice.label)}" style="--choice-color:${safeColor(choice.color)}"><i></i><span>${escapeHtml(choice.label || choice.value)}</span></button>`).join('');
+    options.onclick = event => {
+      const choice = event.target.closest('[data-app-dialog-choice]');
+      if (!choice) return;
+      field.value = choice.dataset.appDialogChoice;
+      dialog.close('confirm');
+    };
   } else {
     field.value = '';
     field.required = false;
     field.readOnly = false;
+    options.hidden = true;
+    options.innerHTML = '';
+    options.onclick = null;
   }
   dialog.returnValue = 'cancel';
   dialog.showModal();
@@ -454,6 +494,13 @@ function inlineMarkdownToHtml(text) {
   output = output.replace(/`([^`]+)`/g, '<code>$1</code>');
   output = output.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   output = output.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
+  output = output.replace(/~~([^~]+)~~/g, '<s>$1</s>');
+  output = output.replace(/&lt;u&gt;([\s\S]*?)&lt;\/u&gt;/g, '<u>$1</u>');
+  for (let pass = 0; pass < 6; pass++) {
+    const next = output.replace(/&lt;span style=&quot;((?:color|background-color):#[0-9a-fA-F]{6}(?:;(?:color|background-color):#[0-9a-fA-F]{6})?)&quot;&gt;((?:(?!&lt;span style=)[\s\S])*?)&lt;\/span&gt;/g, '<span style="$1">$2</span>');
+    if (next === output) break;
+    output = next;
+  }
   return output;
 }
 
@@ -557,6 +604,10 @@ function markdownToHtml(markdown = '', interactive = false) {
       index--;
       output.push(`<blockquote>${quoteLines.map(value => `<p>${value ? inlineMarkdownToHtml(value) : '<br>'}</p>`).join('')}</blockquote>`);
     }
+    else if (/^&lt;div align=&quot;(left|center|right)&quot;&gt;([\s\S]*)&lt;\/div&gt;$/.test(line)) {
+      const match = line.match(/^&lt;div align=&quot;(left|center|right)&quot;&gt;([\s\S]*)&lt;\/div&gt;$/);
+      output.push(`<div style="text-align:${match[1]}">${inlineMarkdownToHtml(match[2])}</div>`);
+    }
     else if (line.trim()) output.push(`<p>${inlineMarkdownToHtml(line)}</p>`);
   }
   closeList();
@@ -568,6 +619,7 @@ function inlineNodeToMarkdown(node) {
   if (node.nodeType === Node.TEXT_NODE) return (node.nodeValue || '').replace(/\u200B/g, '');
   if (node.nodeType !== Node.ELEMENT_NODE) return '';
   const element = node;
+  if (element.nodeName === 'SPAN' && element.dataset.documentColorBoundary) return [...element.childNodes].map(inlineNodeToMarkdown).join('').replace(/\u200b/g, '');
   if (element.matches('.internal-link[data-reference-id]')) return `[[${element.dataset.referenceId}]]`;
   if (element.matches('.after-reference-paragraph')) return '';
   if (element.nodeName === 'INPUT') return '';
@@ -575,9 +627,31 @@ function inlineNodeToMarkdown(node) {
   const content = [...element.childNodes].map(inlineNodeToMarkdown).join('');
   if (['STRONG', 'B'].includes(element.nodeName)) return `**${content}**`;
   if (['EM', 'I'].includes(element.nodeName)) return `*${content}*`;
+  if (['S', 'STRIKE', 'DEL'].includes(element.nodeName)) return `~~${content}~~`;
+  if (element.nodeName === 'U') return `<u>${content}</u>`;
+  if (element.nodeName === 'FONT') {
+    const color = cssColorToHex(element.getAttribute('color') || element.style.color);
+    const background = cssColorToHex(element.style.backgroundColor);
+    if (color || background) return `<span style="${color ? `color:${color}` : ''}${color && background ? ';' : ''}${background ? `background-color:${background}` : ''}">${content}</span>`;
+  }
+  if (element.nodeName === 'SPAN') {
+    const color = cssColorToHex(element.style.color);
+    const background = cssColorToHex(element.style.backgroundColor);
+    if (color || background) return `<span style="${color ? `color:${color}` : ''}${color && background ? ';' : ''}${background ? `background-color:${background}` : ''}">${content}</span>`;
+  }
   if (element.nodeName === 'CODE') return `\`${content}\``;
   if (element.nodeName === 'A') return `[${content}](${element.getAttribute('href') || ''})`;
   return content;
+}
+
+function cssColorToHex(value = '') {
+  const text = String(value).trim();
+  if (!text || text.toLowerCase() === 'transparent' || (/^rgba\(/i.test(text) && /[,/]\s*0(?:\.0+)?\s*\)$/.test(text))) return '';
+  if (/^#[0-9a-f]{6}$/i.test(text)) return text.toLowerCase();
+  if (/^#[0-9a-f]{3}$/i.test(text)) return `#${[...text.slice(1)].map(char => char + char).join('')}`.toLowerCase();
+  const rgb = text.match(/^rgba?\(\s*(\d+)\s*[, ]\s*(\d+)\s*[, ]\s*(\d+)/i);
+  if (!rgb) return '';
+  return `#${rgb.slice(1, 4).map(value => Math.max(0, Math.min(255, Number(value))).toString(16).padStart(2, '0')).join('')}`;
 }
 
 function codeElementToText(root) {
@@ -630,6 +704,7 @@ function editorToMarkdown(editor) {
     else if (node.nodeName === 'H6') blocks.push(`###### ${text}`);
     else if (node.nodeName === 'UL') blocks.push([...node.children].map(item => `${item.classList.contains('task-item') ? `- [${$('input', item)?.checked ? 'x' : ' '}]` : '-'} ${inlineNodeToMarkdown(item).trim()}`).join('\n'));
     else if (node.nodeName === 'OL') blocks.push([...node.children].map((item, index) => `${index + 1}. ${inlineNodeToMarkdown(item).trim()}`).join('\n'));
+    else if (node.nodeName === 'DIV' && ['left','center','right'].includes(node.style?.textAlign)) blocks.push(`<div align="${node.style.textAlign}">${text}</div>`);
     else blocks.push(text);
   });
   return blocks.join('\n\n');
@@ -662,8 +737,8 @@ function placeCaret(node, atStart = true) {
   selection.addRange(range);
 }
 
-function insertTextAtSelection(text) {
-  const selection = selectionInsideEditor();
+function insertTextAtSelection(text, editor = $('.editor')) {
+  const selection = selectionInsideEditor(editor);
   if (!selection) return false;
   const range = selection.getRangeAt(0);
   range.deleteContents();
@@ -676,8 +751,8 @@ function insertTextAtSelection(text) {
   return true;
 }
 
-function insertCodeLineBreakAtSelection() {
-  const selection = selectionInsideEditor();
+function insertCodeLineBreakAtSelection(editor = $('.editor')) {
+  const selection = selectionInsideEditor(editor);
   if (!selection) return false;
   const range = selection.getRangeAt(0);
   range.deleteContents();
@@ -718,8 +793,7 @@ function insertCodeBlock(language = $('#codeLanguage')?.value || 'txt') {
   markEditorChanged();
 }
 
-function toggleBlockquote() {
-  const editor = $('.editor');
+function toggleBlockquote(editor = $('.editor'), onChange = markEditorChanged) {
   const selection = selectionInsideEditor(editor);
   if (!selection) return;
   const block = closestEditorBlock(selection.anchorNode, editor);
@@ -751,10 +825,10 @@ function toggleBlockquote() {
     }
     placeCaret(paragraph, false);
   }
-  markEditorChanged();
+  onChange();
 }
 
-function handleQuoteEnter(event) {
+function handleQuoteEnter(event, onChange = markEditorChanged) {
   if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return false;
   const editor = event.currentTarget;
   const selection = selectionInsideEditor(editor);
@@ -791,11 +865,11 @@ function handleQuoteEnter(event) {
     block.after(paragraph);
     placeCaret(paragraph);
   }
-  markEditorChanged();
+  onChange();
   return true;
 }
 
-function handleCodeBlockEnter(event) {
+function handleCodeBlockEnter(event, onChange = markEditorChanged) {
   if (event.key !== 'Enter' || event.isComposing) return false;
   const editor = event.currentTarget;
   const selection = selectionInsideEditor(editor);
@@ -828,9 +902,9 @@ function handleCodeBlockEnter(event) {
     }
     placeCaret(paragraph);
   } else {
-    insertCodeLineBreakAtSelection();
+    insertCodeLineBreakAtSelection(editor);
   }
-  markEditorChanged();
+  onChange();
   return true;
 }
 
@@ -856,6 +930,8 @@ function updateEditorToolbarState() {
 }
 
 function setPage(page) {
+  const managePages = ['status_templates', 'archive', 'documents', 'timeline', 'tags', 'trash', 'settings'];
+  if (!['home', 'project', ...managePages].includes(page)) page = 'home';
   if (!['tags', 'status_templates', 'settings'].includes(page) || page !== activeManagePage) savedManageSnapshot = null;
   $$('.page').forEach(node => node.classList.remove('active'));
   $$('.nav-item').forEach(node => node.classList.toggle('active', page === 'project' ? node.dataset.projectId === selectedProjectId : node.dataset.page === page));
@@ -863,7 +939,7 @@ function setPage(page) {
   else if (page === 'project') {
     $('#projectPage').classList.add('active');
     renderProjectPage();
-  } else if (['reminders', 'status_templates', 'archive', 'ideas', 'timeline', 'tags', 'trash', 'settings'].includes(page)) {
+  } else if (managePages.includes(page)) {
     $('#managePage').classList.add('active');
     activeManagePage = page;
     renderManagePage(page).catch(error => {
@@ -940,9 +1016,7 @@ function renderNavigation() {
   }).join('');
   $('#projectSortButton').classList.toggle('active', !manualProjectOrder);
   bindProjectNavigationDrag();
-  $('#projectSelect').innerHTML = `${selectedType === '想法' ? '<option value="">不属于项目</option>' : ''}${projects.map(project => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)}${project.status === 'archived' ? '（已归档）' : ''}</option>`).join('')}`;
-  const ideaBadge = $('[data-page="ideas"] em');
-  if (ideaBadge) ideaBadge.textContent = records.filter(record => record.type === 'idea' && !record.project_id).length;
+  $('#projectSelect').innerHTML = projects.map(project => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)}${project.status === 'archived' ? '（已归档）' : ''}</option>`).join('');
   $('.storage-path').textContent = window.workbenchDataDir || 'workbench-data';
 }
 
@@ -1010,7 +1084,7 @@ function markdownToPlainText(markdown = '', maxLength = 110, title = '') {
 
 function cardHtml(record, extraClass = '') {
   const priorityClass = record.priority === '紧急' ? 'urgent' : record.priority === '高' ? 'high' : 'normal';
-  const summary = markdownToPlainText(record.body, 110, record.title);
+  const summary = markdownToPlainText(record.body_preview ?? record.body, 110, record.title);
   return `<article class="kanban-card ${extraClass}" draggable="true" data-record-id="${record.id}"><div class="card-top"><span class="priority ${priorityClass}">${escapeHtml(record.priority)}</span><button type="button" class="card-menu-button" data-card-menu="${escapeHtml(record.id)}" aria-label="记录操作" title="记录操作">•••</button></div><h3>${escapeHtml(record.title)}</h3>${summary ? `<p>${escapeHtml(summary)}</p>` : ''}<div class="tag-row">${(record.tags || []).map(projectTagHtml).join('')}</div><footer><span class="${record.due ? 'overdue' : ''}">◷ ${formatDate(record.due)}</span><span>${record.id}</span></footer></article>`;
 }
 
@@ -1018,7 +1092,6 @@ function recordSortKeys(tab = projectTab) {
   return {
     issues:{sort:'issue_record_sort', order:'issue_record_order', statusSorts:'issue_status_record_sorts'},
     todos:{sort:'todo_record_sort', order:'todo_record_order', statusSorts:'todo_status_record_sorts'},
-    ideas:{sort:'idea_record_sort', order:'idea_record_order', statusSorts:'idea_status_record_sorts'},
     infos:{sort:'info_record_sort', order:'info_record_order', statusSorts:null},
     mixed:{sort:'mixed_record_sort', order:'mixed_record_order', statusSorts:'mixed_status_record_sorts'},
   }[tab] || null;
@@ -1211,18 +1284,18 @@ function renderProjectPage() {
   $('.project-title-row p').textContent = project.description || '暂无项目描述';
   $('#archiveProject').textContent = project.status === 'archived' ? '恢复项目' : '归档项目';
   const allProjectRecords = records.filter(record => record.project_id === project.id);
-  const counts = {issues:allProjectRecords.filter(item => item.type === 'issue').length, todos:allProjectRecords.filter(item => item.type === 'todo').length, ideas:allProjectRecords.filter(item => item.type === 'idea').length, infos:allProjectRecords.filter(item => item.type === 'info').length};
+  const counts = {issues:allProjectRecords.filter(item => item.type === 'issue').length, todos:allProjectRecords.filter(item => item.type === 'todo').length, infos:allProjectRecords.filter(item => item.type === 'info').length};
   $$('.tabs [data-project-tab]').forEach(button => {
     button.classList.toggle('active', button.dataset.projectTab === projectTab);
     const count = button.querySelector('span'); if (count && counts[button.dataset.projectTab] !== undefined) count.textContent = counts[button.dataset.projectTab];
   });
-  const typeForTab = {issues:'issue', todos:'todo', ideas:'idea', infos:'info'};
+  const typeForTab = {issues:'issue', todos:'todo', infos:'info'};
   let projectRecords = typeForTab[projectTab] ? allProjectRecords.filter(item => item.type === typeForTab[projectTab]) : allProjectRecords;
   if (projectTab === 'mixed') projectRecords = projectRecords.filter(item => item.type !== 'info');
   const toolbar = $('.board-toolbar');
   toolbar.style.display = ['overview', 'assets'].includes(projectTab) ? 'none' : 'flex';
   $$('.view-switch [data-view-mode]').forEach(button => button.classList.toggle('active', button.dataset.viewMode === projectViewMode));
-  const createLabel = projectTab === 'todos' ? '待办' : projectTab === 'ideas' ? '想法' : projectTab === 'infos' ? '信息' : '问题';
+  const createLabel = projectTab === 'todos' ? '待办' : projectTab === 'infos' ? '信息' : '问题';
   const createButton = $('.board-toolbar [data-create-type]');
   if (createButton) { createButton.dataset.createType = createLabel; createButton.textContent = `＋ 新建${createLabel}`; }
   const rawStatuses = [...new Set(projectRecords.map(item => item.status).filter(Boolean))];
@@ -1246,7 +1319,7 @@ function renderProjectPage() {
   const content = $('#kanban');
   content.classList.toggle('list-layout', projectViewMode === 'list' || ['overview', 'assets', 'infos'].includes(projectTab));
   if (projectTab === 'overview') {
-    content.innerHTML = `<div class="stat-grid"><div class="stat-card"><strong>${counts.issues}</strong><span>问题</span></div><div class="stat-card"><strong>${counts.todos}</strong><span>待办</span></div><div class="stat-card"><strong>${counts.ideas}</strong><span>想法</span></div><div class="stat-card"><strong>${counts.infos}</strong><span>信息</span></div><div class="stat-card"><strong>${allProjectRecords.filter(item => item.completed).length}</strong><span>已完成</span></div></div>`;
+    content.innerHTML = `<div class="stat-grid"><div class="stat-card"><strong>${counts.issues}</strong><span>问题</span></div><div class="stat-card"><strong>${counts.todos}</strong><span>待办</span></div><div class="stat-card"><strong>${counts.infos}</strong><span>信息</span></div><div class="stat-card"><strong>${allProjectRecords.filter(item => item.completed).length}</strong><span>已完成</span></div></div>`;
     return;
   }
   if (projectTab === 'assets') {
@@ -1280,7 +1353,7 @@ function renderProjectPage() {
     const unconfiguredStatuses = rawStatuses.filter(name => !configuredNames.has(name)).map(name => ({name, color:'#64748b', unconfigured:true}));
     statuses = [...configuredStatuses, ...unconfiguredStatuses];
   }
-  const orderKey = {issues:'issue_status_order', todos:'todo_status_order', ideas:'idea_status_order', mixed:'mixed_status_order'}[projectTab];
+  const orderKey = {issues:'issue_status_order', todos:'todo_status_order', mixed:'mixed_status_order'}[projectTab];
   const savedOrder = orderKey && Array.isArray(project[orderKey]) ? project[orderKey] : [];
   if (savedOrder.length) statuses = [...statuses].sort((a, b) => { const ai = savedOrder.indexOf(a.name), bi = savedOrder.indexOf(b.name); return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi); });
   content.dataset.orderKey = orderKey || '';
@@ -1313,7 +1386,7 @@ function renderCreateStatusOptions(preferredStatus = '') {
   field.style.display = 'flex';
   const recordType = typeMap[selectedType];
   const projectId = $('#projectSelect').value || null;
-  const fallback = {issue:['待处理'], todo:['待办'], idea:['收件箱']}[recordType] || [];
+  const fallback = {issue:['待处理'], todo:['待办']}[recordType] || [];
   const statuses = statusesFor(recordType, projectId);
   const options = statuses.length ? statuses : fallback.map(name => ({name, completed:false}));
   $('#createStatus').innerHTML = options.map(status => `<option value="${escapeHtml(status.name)}" data-completed="${Boolean(status.completed)}">${escapeHtml(status.name)}</option>`).join('');
@@ -1341,7 +1414,7 @@ function openCreate(type = '问题', options = {}) {
   $('.type-picker').style.display = isProject ? 'none' : 'grid';
   $$('.type-picker button').forEach(button => button.classList.toggle('active', button.dataset.type === selectedType));
   $('#projectSelect').closest('label').style.display = isProject ? 'none' : 'flex';
-  $('#projectSelect').closest('label').style.opacity = selectedType === '想法' ? '.72' : '1';
+  $('#projectSelect').closest('label').style.opacity = '1';
   $('.create-dialog h2').textContent = isProject ? '新建项目' : '新建记录';
   updateCreateFormForType();
   renderNavigation();
@@ -1365,6 +1438,8 @@ function updateExternalEditorButton() {
   const name = externalEditorData?.selected_name || '外部编辑器';
   $('#externalEditorButtonLabel').textContent = `${name} 打开`;
   $('#openExternalEditor').title = `使用 ${name} 打开当前 Markdown`;
+  if ($('#documentExternalEditorLabel')) $('#documentExternalEditorLabel').textContent = `${name} 打开`;
+  if ($('#openDocumentExternal')) $('#openDocumentExternal').title = `使用 ${name} 打开当前知识库 Markdown`;
 }
 
 async function loadExternalEditors() {
@@ -1435,7 +1510,6 @@ async function openDrawer(recordId, options = {}) {
     }
     $('#drawerProject').textContent = projectName(currentRecord.project_id);
     $('#drawerDue').value = (currentRecord.due || '').slice(0, 10);
-    $('#drawerReminder').value = currentRecord.reminder ? currentRecord.reminder.slice(0, 16) : '';
     $('#drawerTags').innerHTML = `${(currentRecord.tags || []).map(drawerTagHtml).join('')}<button id="addRecordTag">＋ 添加标签</button>`;
     $('.editor').innerHTML = markdownToHtml(currentRecord.body, true);
     $('.markdown-source').value = currentRecord.body;
@@ -1583,17 +1657,6 @@ function renderRelationResults(query = '') {
 }
 
 async function renderManagePage(page) {
-  if (page === 'reminders') {
-    $('#manageEyebrow').textContent = '时间与通知';
-    $('#manageTitle').textContent = '提醒中心';
-    $('#manageDescription').textContent = '查看即将到期和已经逾期的工作。';
-    $('#manageActions').innerHTML = '<button class="secondary-button" id="enableNotifications">启用桌面通知</button>';
-    try {
-      const reminders = await api('/reminders');
-      $('#manageContent').innerHTML = `<div class="reminder-list">${reminders.map(record => `<article class="reminder-row"><span>◷</span><div><strong>${escapeHtml(record.title)}</strong><small>${escapeHtml(projectName(record.project_id))} · ${typeNames[record.type]} · ${escapeHtml(record.status)}</small></div><time>${escapeHtml(record.reminder || record.due)}</time><div class="reminder-actions"><button data-open-reminder="${record.id}">打开</button><button data-snooze-reminder="${record.id}">1小时后</button><button data-complete-reminder="${record.id}">完成</button></div></article>`).join('') || '<div class="empty-state">目前没有需要提醒的记录</div>'}</div>`;
-    } catch (error) { notify('提醒加载失败', error.message, true); }
-    return;
-  }
   if (page === 'status_templates') {
     $('#manageEyebrow').textContent = '全局配置';
     $('#manageTitle').textContent = '状态模板';
@@ -1602,8 +1665,8 @@ async function renderManagePage(page) {
     if (!workflows.some(item => item.id === selectedWorkflowId)) selectedWorkflowId = workflows[0]?.id;
     const selectedWorkflow = workflows.find(item => item.id === selectedWorkflowId) || workflows[0];
     $('#manageActions').innerHTML = `<select class="filter-button" id="workflowSelector">${workflows.map(item => `<option value="${escapeHtml(item.id)}" ${item.id === selectedWorkflowId ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}</select><button class="secondary-button" id="statusUsageOverview">使用统计</button><button class="secondary-button" id="newWorkflow">＋ 新建</button><button class="secondary-button" id="duplicateWorkflow">复制</button><button class="secondary-button danger-button" id="deleteWorkflow">删除</button><button class="primary-button" id="saveTemplates">保存工作流</button>`;
-    const names = {issue:'问题状态', todo:'待办状态', idea:'想法状态'};
-    $('#manageContent').innerHTML = `<div class="template-grid">${Object.entries(selectedWorkflow?.statuses || {}).map(([type, statuses]) => `<section class="template-panel" data-template-type="${type}"><header><h2>${names[type]}</h2><span class="count-badge">${statuses.length}</span></header><div class="status-edit-list">${statuses.map(status => statusEditorHtml(status, type)).join('')}</div><button class="add-status" data-add-status="${type}">＋ 添加状态</button></section>`).join('')}</div>`;
+    const names = {issue:'问题状态', todo:'待办状态'};
+    $('#manageContent').innerHTML = `<div class="status-batch-bar"><label><input type="checkbox" id="selectAllStatuses"><span>全选</span></label><strong id="statusSelectionCount">已选择 0 个状态</strong><button type="button" class="secondary-button danger-button" id="batchDeleteStatuses" disabled>批量删除</button></div><div class="template-grid">${Object.entries(selectedWorkflow?.statuses || {}).filter(([type]) => type !== 'idea').map(([type, statuses]) => `<section class="template-panel" data-template-type="${type}"><header><h2>${names[type]}</h2><span class="count-badge">${statuses.length}</span></header><div class="status-edit-list">${statuses.map(status => statusEditorHtml(status, type)).join('')}</div><button class="add-status" data-add-status="${type}">＋ 添加状态</button></section>`).join('')}</div>`;
     captureManageSnapshot(page);
     return;
   }
@@ -1613,10 +1676,12 @@ async function renderManagePage(page) {
     $('#manageContent').innerHTML = archived.length ? `<div class="management-grid">${archived.map(project => `<article class="management-card"><h3>${escapeHtml(project.name)}</h3><p>${escapeHtml(project.description || '暂无项目描述')}</p><footer><span>${records.filter(item => item.project_id === project.id).length} 条记录</span><div><button class="secondary-button" data-open-project="${escapeHtml(project.id)}">打开</button> <button class="secondary-button" data-restore-project="${escapeHtml(project.id)}">恢复</button></div></footer></article>`).join('')}</div>` : '<div class="empty-state">暂无已归档项目</div>';
     return;
   }
-  if (page === 'ideas') {
-    const ideas = records.filter(record => record.type === 'idea' && !record.project_id);
-    $('#manageEyebrow').textContent = '灵感收集'; $('#manageTitle').textContent = '想法收件箱'; $('#manageDescription').textContent = '先捕捉未归属的想法，再决定所属项目或转换为行动。'; $('#manageActions').innerHTML = '<button class="primary-button" data-create-type="想法">＋ 记录想法</button>';
-    $('#manageContent').innerHTML = ideas.length ? `<table class="data-table"><thead><tr><th>标题</th><th>状态</th><th>优先级</th><th>标签</th><th>更新时间</th></tr></thead><tbody>${ideas.map(record => `<tr data-record-id="${record.id}"><td><strong>${escapeHtml(record.title)}</strong></td><td>${escapeHtml(record.status)}</td><td>${escapeHtml(record.priority)}</td><td>${escapeHtml((record.tags || []).join('、'))}</td><td>${new Date(record.updated).toLocaleDateString('zh-CN')}</td></tr>`).join('')}</tbody></table>` : '<div class="empty-state">想法收件箱已经整理完毕</div>';
+  if (page === 'documents') {
+    $('#manageEyebrow').textContent = '知识沉淀'; $('#manageTitle').textContent = '知识库'; $('#manageDescription').textContent = '使用自定义分类集中收纳与维护文档。'; $('#manageActions').innerHTML = '<button class="secondary-button" id="importKnowledgeDocuments">导入文档</button><button class="secondary-button" id="startDocumentExport">导出</button><button class="secondary-button" id="newDocumentCategory">＋ 新建分类</button><button class="primary-button" id="newDocument">＋ 新建文档</button>';
+    $('#manageContent').innerHTML = '<div class="empty-state">正在加载文档…</div>';
+    documents = await api('/documents');
+    if (activeManagePage !== page) return;
+    renderDocumentsPage();
     return;
   }
   if (page === 'timeline') {
@@ -1650,27 +1715,798 @@ async function renderManagePage(page) {
     const tags = await api('/tags');
     if (activeManagePage !== page) return;
     configData.tags = tags;
-    $('#manageContent').innerHTML = `<div class="tag-manager">${tags.map(tag => tagEditorHtml(tag)).join('')}<button type="button" class="add-config-card" id="addGlobalTag"><span>＋</span><strong>新建标签</strong></button></div>`;
+    $('#manageContent').innerHTML = `<div class="tag-batch-bar"><label><input type="checkbox" id="selectAllTags"><span>全选</span></label><strong id="tagSelectionCount">已选择 0 个标签</strong><button type="button" class="secondary-button danger-button" id="batchDeleteTags" disabled>批量删除</button></div><div class="tag-manager">${tags.map(tag => tagEditorHtml(tag)).join('')}<button type="button" class="add-config-card" id="addGlobalTag"><span>＋</span><strong>新建标签</strong></button></div>`;
     captureManageSnapshot(page);
     return;
   }
   if (page === 'trash') {
-    $('#manageEyebrow').textContent = '数据保护'; $('#manageTitle').textContent = '回收站'; $('#manageDescription').textContent = '删除的项目和记录可以恢复，永久删除后无法找回。'; $('#manageActions').innerHTML = '';
+    $('#manageEyebrow').textContent = '数据保护'; $('#manageTitle').textContent = '回收站'; $('#manageDescription').textContent = '删除的项目和记录可以恢复，永久删除后无法找回。';
     $('#manageContent').innerHTML = '<div class="empty-state">正在加载回收站…</div>';
-    const items = await api('/trash');
+    trashItems = await api('/trash');
     if (activeManagePage !== page) return;
-    $('#manageContent').innerHTML = items.length ? `<table class="data-table"><thead><tr><th>名称</th><th>类型</th><th>删除时间</th><th>操作</th></tr></thead><tbody>${items.map(item => `<tr><td><strong>${escapeHtml(item.title)}</strong><br><small>${escapeHtml(item.id)}</small></td><td>${item.kind === 'project' ? '项目' : '记录'}</td><td>${new Date(item.deleted_at).toLocaleString('zh-CN')}</td><td><button class="secondary-button" data-restore-trash="${escapeHtml(item.token)}">恢复</button> <button class="secondary-button danger-button" data-purge-trash="${escapeHtml(item.token)}">永久删除</button></td></tr>`).join('')}</tbody></table>` : '<div class="empty-state">回收站为空</div>';
+    trashSelection = new Set([...trashSelection].filter(token => trashItems.some(item => item.token === token)));
+    renderTrashPage();
     return;
   }
   if (page === 'settings') {
     $('#manageEyebrow').textContent = '本地数据'; $('#manageTitle').textContent = '设置与数据'; $('#manageDescription').textContent = '查看数据位置，导入 Markdown 或导出完整备份。'; $('#manageActions').innerHTML = '';
-    $('#manageContent').innerHTML = `<div class="settings-stack"><section class="settings-card"><h2>Markdown 数据目录</h2><p>可修改为当前电脑上的其他目录。切换成功后，新记录会自动保存到新位置。</p><label class="data-directory-field"><span>完整目录路径</span><input id="dataDirectoryInput" value="${escapeHtml(configData.data_dir)}" spellcheck="false" placeholder="例如 E:\\WorkBenchData"></label><div class="data-directory-actions"><select id="dataDirectoryMode"><option value="migrate">复制当前全部数据并切换（推荐）</option><option value="existing">直接使用已有工作台目录</option></select><button class="primary-button" id="saveDataDirectory">应用新目录</button></div><small class="settings-hint">复制模式要求目标目录为空，原目录会保留作为备份；直接使用模式不会删除或覆盖已有文件。</small></section><section class="settings-card"><h2>导入与导出</h2><p>导入单个 Markdown 文件、完整项目目录，或将整个工作台打包成 ZIP。</p><div class="settings-actions"><button class="primary-button" id="importMarkdown">导入 Markdown</button><input type="file" id="importMarkdownInput" accept=".md,text/markdown" hidden><button class="secondary-button" id="importDirectory">导入项目目录</button><input type="file" id="importDirectoryInput" accept=".md,text/markdown" webkitdirectory multiple hidden><button class="secondary-button" id="exportAll">导出全部数据</button></div></section><section class="settings-card"><h2>附件清理</h2><p>扫描没有被任何记录引用的附件，确认后再从磁盘删除。</p><div class="settings-actions"><button class="secondary-button" id="scanOrphanAssets">扫描无引用附件</button><span id="orphanAssetResult"></span></div></section><section class="settings-card"><h2>当前数据</h2><div class="stat-grid"><div class="stat-card"><strong>${projects.length}</strong><span>项目</span></div><div class="stat-card"><strong>${records.filter(item=>item.type==='issue').length}</strong><span>问题</span></div><div class="stat-card"><strong>${records.filter(item=>item.type==='todo').length}</strong><span>待办</span></div><div class="stat-card"><strong>${records.filter(item=>item.type==='idea').length}</strong><span>想法</span></div></div></section></div>`;
+    $('#manageContent').innerHTML = `<div class="settings-stack"><section class="settings-card"><h2>Markdown 数据目录</h2><p>可修改为当前电脑上的其他目录。切换成功后，新记录会自动保存到新位置。</p><label class="data-directory-field"><span>完整目录路径</span><input id="dataDirectoryInput" value="${escapeHtml(configData.data_dir)}" spellcheck="false" placeholder="例如 E:\\WorkBenchData"></label><div class="data-directory-actions"><select id="dataDirectoryMode"><option value="migrate">复制当前全部数据并切换（推荐）</option><option value="existing">直接使用已有工作台目录</option></select><button class="primary-button" id="saveDataDirectory">应用新目录</button></div><small class="settings-hint">复制模式要求目标目录为空，原目录会保留作为备份；直接使用模式不会删除或覆盖已有文件。</small></section><section class="settings-card"><h2>导入与导出</h2><p>导入单个 Markdown 文件、完整项目目录，或将整个工作台打包成 ZIP。</p><div class="settings-actions"><button class="primary-button" id="importMarkdown">导入 Markdown</button><input type="file" id="importMarkdownInput" accept=".md,text/markdown" hidden><button class="secondary-button" id="importDirectory">导入项目目录</button><input type="file" id="importDirectoryInput" accept=".md,text/markdown" webkitdirectory multiple hidden><button class="secondary-button" id="exportAll">导出全部数据</button></div></section><section class="settings-card"><h2>附件清理</h2><p>扫描没有被任何记录引用的附件，确认后再从磁盘删除。</p><div class="settings-actions"><button class="secondary-button" id="scanOrphanAssets">扫描无引用附件</button><span id="orphanAssetResult"></span></div></section><section class="settings-card"><h2>当前数据</h2><div class="stat-grid"><div class="stat-card"><strong>${projects.length}</strong><span>项目</span></div><div class="stat-card"><strong>${records.filter(item=>item.type==='issue').length}</strong><span>问题</span></div><div class="stat-card"><strong>${records.filter(item=>item.type==='todo').length}</strong><span>待办</span></div><div class="stat-card"><strong>${records.filter(item=>item.type==='info').length}</strong><span>信息</span></div></div></section></div>`;
     captureManageSnapshot(page);
   }
 }
 
+function renderDocumentsPage() {
+  $$('.document-category-group', $('#manageContent')).forEach(group => {
+    if (group.open) documentOpenCategories.add(group.dataset.documentCategory);
+    else documentOpenCategories.delete(group.dataset.documentCategory);
+  });
+  const sortConfig = knowledgeSortConfig();
+  const categoryQuery = documentFilters.categoryQuery.trim().toLowerCase();
+  const categoryIndex = new Map(sortConfig.category_order.map((name, index) => [name, index]));
+  let categoryEntries = [...new Set([...(configData?.document_categories || []), ...documents.map(item => item.category || '未分类')])].map(name => {
+    const allItems = documents.filter(item => (item.category || '未分类') === name);
+    return {name, allItems, updated:Math.max(0, ...allItems.map(item => Date.parse(item.updated || '') || 0))};
+  }).filter(entry => !categoryQuery || entry.name.toLowerCase().includes(categoryQuery));
+  categoryEntries.sort((a,b) => {
+    if (sortConfig.category_mode === 'manual') return (categoryIndex.get(a.name) ?? 999999) - (categoryIndex.get(b.name) ?? 999999) || a.name.localeCompare(b.name, 'zh-CN');
+    if (sortConfig.category_mode === 'count') return b.allItems.length - a.allItems.length || a.name.localeCompare(b.name, 'zh-CN');
+    if (sortConfig.category_mode === 'updated') return b.updated - a.updated || a.name.localeCompare(b.name, 'zh-CN');
+    return a.name.localeCompare(b.name, 'zh-CN');
+  });
+  categoryEntries = categoryEntries.map(entry => {
+    const fileQuery = (documentCategoryFileQueries[entry.name] || '').trim().toLowerCase();
+    const fileMode = sortConfig.file_modes[entry.name] || sortConfig.file_mode;
+    const fileIndex = new Map((sortConfig.file_orders[entry.name] || []).map((id, index) => [id, index]));
+    const items = entry.allItems.filter(item => !fileQuery || `${item.title} ${item.body} ${(item.tags || []).join(' ')}`.toLowerCase().includes(fileQuery)).sort((a,b) => {
+      if (fileMode === 'manual') return (fileIndex.get(a.id) ?? 999999) - (fileIndex.get(b.id) ?? 999999) || String(a.title).localeCompare(String(b.title), 'zh-CN');
+      if (fileMode === 'title') return String(a.title).localeCompare(String(b.title), 'zh-CN');
+      const field = fileMode === 'created' ? 'created' : 'updated';
+      return (Date.parse(b[field] || '') || 0) - (Date.parse(a[field] || '') || 0);
+    });
+    return {...entry, items, fileQuery, fileMode};
+  });
+  const visible = categoryEntries.flatMap(entry => entry.items);
+  documentSelection = new Set([...documentSelection].filter(id => documents.some(item => item.id === id)));
+  renderDocumentActions();
+  const hasFileFilters = Object.values(documentCategoryFileQueries).some(value => value.trim());
+  const categoryDrag = sortConfig.category_mode === 'manual' && !categoryQuery && !hasFileFilters && !documentExportMode;
+  const documentDrag = !categoryQuery && !hasFileFilters && !documentExportMode;
+  const cardHtml = item => `<article class="document-card ${documentSelection.has(item.id) ? 'selected' : ''}" data-document-card="${escapeHtml(item.id)}" data-document-sort-id="${escapeHtml(item.id)}" draggable="${documentDrag}" title="${documentDrag ? '拖到其他分类条目可更改分类' : '清除筛选后可拖动文档'}">${documentExportMode ? `<label class="document-card-select" title="选择文档"><input type="checkbox" data-document-select="${escapeHtml(item.id)}" ${documentSelection.has(item.id) ? 'checked' : ''}><span>选择</span></label>` : ''}<button type="button" class="document-card-open" data-document-id="${escapeHtml(item.id)}"><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(markdownToPlainText(item.body, 110, item.title))}</p>${(item.tags || []).length ? `<div class="document-card-tags">${item.tags.map(tag => `<span style="--tag-color:${safeColor((configData.tags || []).find(item => item.name === tag)?.color, '#64748b')}">${escapeHtml(tag)}</span>`).join('')}</div>` : ''}<footer><span>${escapeHtml(item.id)}</span><time>${new Date(item.updated).toLocaleDateString('zh-CN')}</time></footer></button></article>`;
+  const categoryLabels = {manual:'手动排序', name:'分类名称', count:'文档数量', updated:'最近更新'};
+  const fileLabels = {manual:'手动排序', updated:'最近更新', title:'文档标题', created:'最新创建'};
+  $('#manageContent').innerHTML = `<div class="knowledge-filter-panel category-only"><div class="knowledge-filter-row"><span class="knowledge-filter-level">分类</span><label class="document-search"><span>⌕</span><input id="documentCategorySearch" value="${escapeHtml(documentFilters.categoryQuery)}" placeholder="筛选分类名称"></label><button type="button" class="secondary-button document-sort-button ${sortConfig.category_mode === 'manual' ? '' : 'active'}" id="documentCategorySortButton" title="分类排序：${categoryLabels[sortConfig.category_mode]}">↕ <span>${categoryLabels[sortConfig.category_mode]}</span></button>${categoryQuery ? '<button type="button" class="knowledge-filter-clear" id="clearDocumentCategoryFilter">清除</button>' : ''}</div><p>分类名称旁可直接重命名；分类条目右侧可筛选、排序该分类内的文档。</p></div>${documentExportMode ? `<div class="document-batch-bar"><label><input type="checkbox" id="selectVisibleDocuments" data-visible-ids="${escapeHtml(visible.map(item => item.id).join(','))}"> 全选当前结果</label><span id="documentSelectionCount">已选择 ${documentSelection.size} 篇</span><button type="button" class="secondary-button" id="clearDocumentSelection" ${documentSelection.size ? '' : 'disabled'}>清除选择</button></div>` : ''}<div class="document-result-count">显示 ${categoryEntries.length} 个分类 · ${visible.length} / ${documents.length} 篇文档</div><div class="document-category-list">${categoryEntries.map(entry => { const open = documentExportMode || Boolean(entry.fileQuery) || documentOpenCategories.has(entry.name); return `<details class="document-category-group" data-document-category="${escapeHtml(entry.name)}" draggable="${categoryDrag}" ${open ? 'open' : ''}><summary><span class="document-category-drag" title="${categoryDrag ? '拖动分类调整顺序' : '切换为手动排序后可拖动'}">⠿</span><span class="document-category-chevron">›</span><span class="document-category-icon">▤</span><strong>${escapeHtml(entry.name)}</strong><button type="button" class="document-category-rename" data-rename-document-category="${escapeHtml(entry.name)}" title="重命名分类" aria-label="重命名分类 ${escapeHtml(entry.name)}">✎</button><em>${entry.items.length}${entry.fileQuery ? ` / ${entry.allItems.length}` : ''} 篇</em><div class="document-category-file-tools"><label><span>⌕</span><input data-document-file-search="${escapeHtml(entry.name)}" value="${escapeHtml(documentCategoryFileQueries[entry.name] || '')}" placeholder="筛选文档"></label>${entry.fileQuery ? `<button type="button" class="category-file-clear" data-clear-document-file-filter="${escapeHtml(entry.name)}" title="清除文档筛选">×</button>` : ''}<button type="button" class="category-file-sort ${entry.fileMode === 'manual' ? '' : 'active'}" data-document-file-sort="${escapeHtml(entry.name)}" title="文档排序：${fileLabels[entry.fileMode]}">↕ <span>${fileLabels[entry.fileMode]}</span></button></div><small class="document-category-drop-hint">拖入文档以分类</small></summary><div class="document-grid" data-document-category-grid="${escapeHtml(entry.name)}">${entry.items.map(cardHtml).join('') || '<div class="empty-state document-empty">此分类中没有符合条件的文档</div>'}</div></details>`; }).join('') || '<div class="empty-state document-empty">没有符合当前条件的分类</div>'}</div>`;
+  updateDocumentSelectionUI();
+  bindKnowledgeDragAndDrop();
+}
+
+function renderDocumentActions() {
+  if (documentExportMode) {
+    $('#manageActions').innerHTML = `<span class="document-export-count" id="documentExportCount">已选 ${documentSelection.size} 篇</span><button class="primary-button" id="exportSelectedKnowledge" ${documentSelection.size ? '' : 'disabled'}>导出所选</button><button class="secondary-button" id="cancelDocumentExport">取消</button>`;
+  } else {
+    $('#manageActions').innerHTML = '<button class="secondary-button" id="importKnowledgeDocuments">导入文档</button><button class="secondary-button" id="startDocumentExport">导出</button><button class="secondary-button" id="newDocumentCategory">＋ 新建分类</button><button class="primary-button" id="newDocument">＋ 新建文档</button>';
+  }
+}
+
+async function createDocumentCategory() {
+  const name = await appPrompt({title:'新建知识库分类', message:'新分类可以先保持为空，也可以直接拖入文档。', confirmText:'创建分类', input:{label:'分类名称', placeholder:'例如：产品设计'}});
+  const category = name?.trim();
+  if (!category) return;
+  const currentCategories = configData?.document_categories || [];
+  if (currentCategories.includes(category)) { notify('分类已存在', `「${category}」已经在知识库中`, true); return; }
+  try {
+    configData.document_categories = await api('/document-categories', {method:'PUT', body:JSON.stringify({categories:[...currentCategories, category]})});
+    const sort = knowledgeSortConfig();
+    configData.document_sort = await api('/document-sort', {method:'PUT', body:JSON.stringify({...sort, category_order:[...sort.category_order.filter(item => item !== category), category]})});
+    documentOpenCategories.add(category);
+    renderDocumentsPage();
+    notify('分类已创建', `「${category}」现在可以接收文档`);
+  } catch (error) { notify('创建分类失败', error.message, true); }
+}
+
+async function renameDocumentCategory(oldName) {
+  const value = await appPrompt({title:'重命名知识库分类', message:`分类中的文档会一起迁移，不会改变文档内容。`, confirmText:'保存名称', input:{label:'新分类名称', value:oldName}});
+  const newName = value?.trim();
+  if (!newName || newName === oldName) return;
+  try {
+    const result = await api('/document-categories/rename', {method:'PATCH', body:JSON.stringify({old_name:oldName, new_name:newName})});
+    configData.document_categories = result.categories;
+    configData.document_sort = result.document_sort;
+    documents = await api('/documents');
+    if (Object.hasOwn(documentCategoryFileQueries, oldName)) {
+      documentCategoryFileQueries[newName] = documentCategoryFileQueries[oldName];
+      delete documentCategoryFileQueries[oldName];
+    }
+    if (documentOpenCategories.delete(oldName)) documentOpenCategories.add(newName);
+    if (documentFilters.categoryQuery && oldName.toLowerCase().includes(documentFilters.categoryQuery.toLowerCase()) && !newName.toLowerCase().includes(documentFilters.categoryQuery.toLowerCase())) documentFilters.categoryQuery = '';
+    renderDocumentsPage();
+    notify('分类已重命名', `${oldName} → ${newName} · 已同步 ${result.updated_documents} 篇文档`);
+  } catch (error) { notify('分类重命名失败', error.message, true); }
+}
+
+function knowledgeSortConfig() {
+  const value = configData?.document_sort || {};
+  return {category_mode:value.category_mode || 'manual', category_order:Array.isArray(value.category_order) ? value.category_order : [], file_mode:value.file_mode || value.mode || 'updated', file_modes:value.file_modes && typeof value.file_modes === 'object' ? value.file_modes : {}, file_orders:value.file_orders && typeof value.file_orders === 'object' ? value.file_orders : {}};
+}
+
+function openDocumentCategorySortMenu(button) {
+  const current = knowledgeSortConfig().category_mode;
+  const rules = [['manual','⠿','手动拖动排序'],['name','A','按分类名称'],['count','#','文档数量多优先'],['updated','◷','最近更新优先']];
+  showKanbanMenu(button, `<div class="context-menu-title">分类条目排序</div><div class="context-menu-label">仅调整分类条目的显示顺序</div>${rules.map(([mode, icon, label]) => `<button data-menu-action="sort-document-categories" data-sort-mode="${mode}"><i class="sort-rule-icon">${icon}</i>${label}${current === mode ? '<span>✓</span>' : ''}</button>`).join('')}<div class="context-menu-note">选择手动排序后，可上下拖动整个分类条目。</div>`);
+}
+
+function openDocumentSortMenu(button) {
+  const category = button.dataset.documentFileSort;
+  const config = knowledgeSortConfig();
+  const current = config.file_modes[category] || config.file_mode;
+  const rules = [['manual','⠿','手动拖动排序'],['updated','◷','最近更新优先'],['title','A','按标题名称'],['created','＋','最新创建优先']];
+  showKanbanMenu(button, `<div class="context-menu-title">${escapeHtml(category)} · 文档排序</div><div class="context-menu-label">只调整这个分类中的文件顺序</div>${rules.map(([mode, icon, label]) => `<button data-menu-action="sort-documents" data-document-category="${escapeHtml(category)}" data-sort-mode="${mode}"><i class="sort-rule-icon">${icon}</i>${label}${current === mode ? '<span>✓</span>' : ''}</button>`).join('')}<div class="context-menu-note">选择手动排序后，可在该分类中拖动文档卡片。</div>`);
+}
+
+async function saveKnowledgeSort(patch, title, detail) {
+  try {
+    configData.document_sort = await api('/document-sort', {method:'PUT', body:JSON.stringify({...knowledgeSortConfig(), ...patch})});
+    renderDocumentsPage();
+    notify(title, detail);
+  } catch (error) { notify('文档排序设置失败', error.message, true); }
+}
+
+function bindKnowledgeDragAndDrop() {
+  const sortConfig = knowledgeSortConfig();
+  const filtersActive = Boolean(documentFilters.categoryQuery || Object.values(documentCategoryFileQueries).some(value => value.trim()) || documentExportMode);
+  let draggedDocument = null;
+  let sourceDocumentCategory = '';
+  if (!filtersActive) {
+    $$('[data-document-sort-id]').forEach(card => {
+      card.addEventListener('dragstart', event => {
+        draggedDocument = card;
+        sourceDocumentCategory = card.closest('[data-document-category-grid]')?.dataset.documentCategoryGrid || '';
+        card.classList.add('dragging');
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', card.dataset.documentSortId);
+      });
+      card.addEventListener('dragend', () => {
+        card.classList.remove('dragging');
+        $$('.document-category-drop-target').forEach(item => item.classList.remove('document-category-drop-target'));
+        draggedDocument = null; sourceDocumentCategory = '';
+      });
+    });
+  }
+
+  const moveDocumentToCategory = async targetCategory => {
+    if (!draggedDocument || !targetCategory || targetCategory === sourceDocumentCategory) return false;
+    const documentId = draggedDocument.dataset.documentSortId;
+    const item = documents.find(document => document.id === documentId);
+    if (!item) return false;
+    try {
+      await api(`/documents/${encodeURIComponent(documentId)}`, {method:'PATCH', body:JSON.stringify({category:targetCategory})});
+      documents = await api('/documents');
+      const current = knowledgeSortConfig();
+      const fileOrders = Object.fromEntries(Object.entries(current.file_orders).map(([category, order]) => [category, order.filter(id => id !== documentId)]));
+      fileOrders[targetCategory] = [...(fileOrders[targetCategory] || []), documentId];
+      configData.document_sort = await api('/document-sort', {method:'PUT', body:JSON.stringify({...current, file_orders:fileOrders})});
+      documentOpenCategories.add(targetCategory);
+      renderDocumentsPage();
+      notify('文档分类已更新', `「${item.title}」已移动到「${targetCategory}」`);
+      return true;
+    } catch (error) {
+      notify('文档分类移动失败', error.message, true);
+      renderDocumentsPage();
+      return false;
+    }
+  };
+
+  if (!filtersActive) {
+    $$('.document-category-group', $('#manageContent')).forEach(group => {
+      group.addEventListener('toggle', () => {
+        if (group.open) documentOpenCategories.add(group.dataset.documentCategory);
+        else documentOpenCategories.delete(group.dataset.documentCategory);
+      });
+      const summary = $('summary', group);
+      summary.addEventListener('dragover', event => {
+        if (!draggedDocument || group.dataset.documentCategory === sourceDocumentCategory) return;
+        event.preventDefault(); event.stopPropagation();
+        group.classList.add('document-category-drop-target');
+        event.dataTransfer.dropEffect = 'move';
+      });
+      summary.addEventListener('dragleave', event => {
+        if (!summary.contains(event.relatedTarget)) group.classList.remove('document-category-drop-target');
+      });
+      summary.addEventListener('drop', async event => {
+        if (!draggedDocument) return;
+        event.preventDefault(); event.stopPropagation();
+        group.classList.remove('document-category-drop-target');
+        await moveDocumentToCategory(group.dataset.documentCategory);
+      });
+    });
+  }
+
+  if (sortConfig.category_mode === 'manual' && !filtersActive) {
+    let draggedCategory = null;
+    $$('.document-category-group', $('#manageContent')).forEach(group => {
+      group.addEventListener('dragstart', event => {
+        if (event.target.closest('[data-document-sort-id]')) return;
+        draggedCategory = group; group.classList.add('dragging'); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', group.dataset.documentCategory);
+      });
+      group.addEventListener('dragend', () => { group.classList.remove('dragging'); draggedCategory = null; });
+      group.addEventListener('dragover', event => {
+        if (!draggedCategory || draggedCategory === group) return;
+        event.preventDefault();
+        const rect = group.getBoundingClientRect();
+        group.parentElement.insertBefore(draggedCategory, event.clientY < rect.top + rect.height / 2 ? group : group.nextSibling);
+      });
+      group.addEventListener('drop', async event => {
+        if (!draggedCategory) return;
+        event.preventDefault();
+        const order = $$('.document-category-group', $('#manageContent')).map(item => item.dataset.documentCategory);
+        await saveKnowledgeSort({category_mode:'manual', category_order:order}, '分类顺序已保存', '可继续拖动分类调整位置');
+      });
+    });
+  }
+  if (filtersActive) return;
+  $$('[data-document-category-grid]', $('#manageContent')).forEach(grid => {
+    const fileMode = sortConfig.file_modes[grid.dataset.documentCategoryGrid] || sortConfig.file_mode;
+    grid.addEventListener('dragover', event => {
+      if (!draggedDocument) return;
+      if (sourceDocumentCategory !== grid.dataset.documentCategoryGrid) {
+        event.preventDefault();
+        grid.closest('.document-category-group')?.classList.add('document-category-drop-target');
+        return;
+      }
+      if (fileMode !== 'manual' || draggedDocument.parentElement !== grid) return;
+      event.preventDefault();
+      const target = event.target.closest('[data-document-sort-id]');
+      if (!target || target === draggedDocument) return;
+      const rect = target.getBoundingClientRect();
+      const before = event.clientY < rect.top + rect.height / 2 || (Math.abs(event.clientY - (rect.top + rect.height / 2)) < rect.height / 4 && event.clientX < rect.left + rect.width / 2);
+      grid.insertBefore(draggedDocument, before ? target : target.nextSibling);
+    });
+    grid.addEventListener('drop', async event => {
+      if (!draggedDocument) return;
+      event.preventDefault();
+      const category = grid.dataset.documentCategoryGrid;
+      if (category !== sourceDocumentCategory) { await moveDocumentToCategory(category); return; }
+      if (fileMode !== 'manual' || draggedDocument.parentElement !== grid) return;
+      const order = $$('[data-document-sort-id]', grid).map(card => card.dataset.documentSortId);
+      await saveKnowledgeSort({file_modes:{...sortConfig.file_modes, [category]:'manual'}, file_orders:{...sortConfig.file_orders, [category]:order}}, '文档顺序已保存', `已更新「${category}」内的文件顺序`);
+    });
+  });
+}
+
+function updateDocumentSelectionUI() {
+  const count = documentSelection.size;
+  if ($('#documentSelectionCount')) $('#documentSelectionCount').textContent = `已选择 ${count} 篇`;
+  if ($('#documentExportCount')) $('#documentExportCount').textContent = `已选 ${count} 篇`;
+  if ($('#exportSelectedKnowledge')) $('#exportSelectedKnowledge').disabled = !count;
+  if ($('#clearDocumentSelection')) $('#clearDocumentSelection').disabled = !count;
+  $$('[data-document-card]').forEach(card => card.classList.toggle('selected', documentSelection.has(card.dataset.documentCard)));
+  const visibleToggle = $('#selectVisibleDocuments');
+  if (visibleToggle) {
+    const ids = (visibleToggle.dataset.visibleIds || '').split(',').filter(Boolean);
+    const selected = ids.filter(id => documentSelection.has(id)).length;
+    visibleToggle.checked = Boolean(ids.length) && selected === ids.length;
+    visibleToggle.indeterminate = selected > 0 && selected < ids.length;
+  }
+}
+
+function documentOutlineItems() {
+  if (documentMode === 'markdown') {
+    const source = $('#documentBody').value;
+    const items = [];
+    const pattern = /^(#{1,4})\s+(.+)$/gm;
+    let match;
+    while ((match = pattern.exec(source))) items.push({level:match[1].length, text:match[2].replace(/[*_`~\[\]]/g, '').trim(), offset:match.index});
+    return items;
+  }
+  const container = documentMode === 'read' ? $('#documentReadPane') : $('#documentVisualEditor');
+  return $$('h1,h2,h3,h4', container).map((heading, index) => {
+    heading.dataset.documentOutlineIndex = String(index);
+    heading.id = `document-section-${index}`;
+    return {level:Number(heading.nodeName.slice(1)), text:heading.textContent.trim(), index};
+  }).filter(item => item.text);
+}
+
+function updateDocumentOutline() {
+  const outline = $('#documentOutline');
+  if (!outline) return;
+  outline.classList.toggle('collapsed', documentOutlineCollapsed);
+  $('#documentDialog').classList.toggle('outline-collapsed', documentOutlineCollapsed);
+  $('#toggleDocumentOutline').textContent = documentOutlineCollapsed ? '›' : '‹';
+  $('#toggleDocumentOutline').title = documentOutlineCollapsed ? '展开导航' : '收起导航';
+  $('#toggleDocumentOutline').setAttribute('aria-label', documentOutlineCollapsed ? '展开文档导航' : '收起文档导航');
+  $('#documentOutlineTitle').textContent = $('#documentTitle').value.trim() || currentDocument?.title || '新建文档';
+  const items = documentOutlineItems();
+  $('#documentOutlineNav').innerHTML = items.length ? items.map((item, index) => `<button type="button" data-document-outline-index="${item.index ?? index}" data-document-outline-offset="${item.offset ?? ''}" style="--outline-indent:${Math.max(0, item.level - 1) * 13}px" title="${escapeHtml(item.text)}"><span>${escapeHtml(item.text)}</span></button>`).join('') : '<p>添加标题后将自动生成导航</p>';
+}
+
+function scheduleDocumentOutlineUpdate() {
+  clearTimeout(documentOutlineTimer);
+  documentOutlineTimer = setTimeout(updateDocumentOutline, 120);
+}
+
+function navigateDocumentOutline(button) {
+  const index = Number(button.dataset.documentOutlineIndex);
+  if (documentMode === 'markdown') {
+    const textarea = $('#documentBody');
+    const offset = Number(button.dataset.documentOutlineOffset || 0);
+    textarea.focus(); textarea.setSelectionRange(offset, offset);
+    textarea.scrollTop = textarea.scrollHeight * (offset / Math.max(1, textarea.value.length));
+    return;
+  }
+  const container = documentMode === 'read' ? $('#documentReadPane') : $('#documentVisualEditor');
+  const heading = $(`[data-document-outline-index="${index}"]`, container);
+  heading?.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+function setDocumentMode(mode) {
+  if (documentMode === 'visual' && mode !== 'visual') $('#documentBody').value = editorToMarkdown($('#documentVisualEditor'));
+  if (documentMode === 'markdown' && mode !== 'markdown') $('#documentVisualEditor').innerHTML = markdownToHtml($('#documentBody').value, true);
+  documentMode = mode;
+  $('#documentSelectionToolbar').classList.remove('visible');
+  $('#documentColorPalette').hidden = true;
+  const reading = mode === 'read';
+  $('#documentEditPane').hidden = reading;
+  $('#documentReadPane').style.display = reading ? 'block' : 'none';
+  $('.document-editor-shell').style.display = reading ? 'none' : '';
+  $('#saveDocument').style.display = reading ? 'none' : '';
+  $('#toggleDocumentMode').textContent = reading ? '编辑模式' : '阅读模式';
+  $('#documentVisualEditor').style.display = mode === 'visual' ? 'block' : 'none';
+  $('#documentBody').style.display = mode === 'markdown' ? 'block' : 'none';
+  $('#documentInlinePreview').style.display = 'none';
+  $('#documentFormatToolbar').style.display = mode === 'visual' ? 'flex' : 'none';
+  $$('.document-editor-tabs [data-document-mode]').forEach(button => button.classList.toggle('active', button.dataset.documentMode === mode));
+  if (reading) $('#documentReadPane').innerHTML = markdownToHtml($('#documentBody').value || currentDocument?.body || '');
+  requestAnimationFrame(updateDocumentOutline);
+}
+
+function documentMarkdownContent() {
+  if (documentMode === 'visual') $('#documentBody').value = editorToMarkdown($('#documentVisualEditor'));
+  return $('#documentBody').value;
+}
+
+function restoreDocumentSelection() {
+  const editor = $('#documentVisualEditor');
+  if (!documentLastRange || !editor.contains(documentLastRange.commonAncestorContainer)) return false;
+  const selection = window.getSelection();
+  selection.removeAllRanges(); selection.addRange(documentLastRange.cloneRange());
+  return true;
+}
+
+function captureDocumentSelection() {
+  const editor = $('#documentVisualEditor');
+  const selection = window.getSelection();
+  if (!selection?.rangeCount || !editor.contains(selection.anchorNode)) return false;
+  documentLastRange = selection.getRangeAt(0).cloneRange();
+  return true;
+}
+
+function insertDocumentCodeBlock() {
+  const editor = $('#documentVisualEditor');
+  editor.focus();
+  if (!restoreDocumentSelection()) placeCaret(editor, false);
+  const selection = window.getSelection();
+  if (!selection?.rangeCount) return;
+  const selectedText = selection.toString();
+  const range = selection.getRangeAt(0);
+  range.deleteContents();
+  const marker = document.createElement('span');
+  marker.dataset.documentCodeMarker = 'true';
+  range.insertNode(marker);
+  const pre = document.createElement('pre');
+  const code = document.createElement('code');
+  code.dataset.language = 'txt';
+  code.textContent = selectedText || '在这里输入代码';
+  pre.appendChild(code);
+  const nearestBlock = closestEditorBlock(marker, editor);
+  let topBlock = nearestBlock;
+  while (topBlock !== editor && topBlock.parentElement !== editor) topBlock = topBlock.parentElement;
+  if (nearestBlock !== editor && topBlock === nearestBlock) {
+    const trailing = document.createRange();
+    trailing.setStartAfter(marker);
+    trailing.setEnd(nearestBlock, nearestBlock.childNodes.length);
+    const remainder = trailing.extractContents();
+    marker.remove();
+    const after = document.createElement(['P','DIV'].includes(nearestBlock.nodeName) ? nearestBlock.nodeName.toLowerCase() : 'p');
+    after.appendChild(remainder);
+    if (!after.textContent && !after.querySelector('img,br')) after.appendChild(document.createElement('br'));
+    if (!nearestBlock.textContent && !nearestBlock.querySelector('img,br')) nearestBlock.replaceWith(pre);
+    else nearestBlock.after(pre);
+    pre.after(after);
+  } else {
+    marker.remove();
+    const after = document.createElement('p');
+    after.appendChild(document.createElement('br'));
+    if (topBlock === editor) editor.append(pre, after);
+    else topBlock.after(pre, after);
+  }
+  const codeRange = document.createRange();
+  codeRange.selectNodeContents(code);
+  if (selectedText) codeRange.collapse(false);
+  selection.removeAllRanges(); selection.addRange(codeRange);
+  captureDocumentSelection();
+  $('#documentSaveState').textContent = '有未保存的修改';
+}
+
+function renderDocumentTagOptions(selectedTags = []) {
+  const selected = new Set(selectedTags || []);
+  const tags = configData?.tags || [];
+  $('#documentTagOptions').innerHTML = tags.length
+    ? tags.map(tag => `<label class="document-tag-option" style="--tag-color:${safeColor(tag.color, '#64748b')}"><input type="checkbox" value="${escapeHtml(tag.name)}" ${selected.has(tag.name) ? 'checked' : ''}><span>${escapeHtml(tag.name)}</span></label>`).join('')
+    : '<em>标签管理中还没有标签</em>';
+  $('#documentTagOptions').hidden = true;
+  updateDocumentTagSummary();
+}
+
+function selectedDocumentTags() {
+  return $$('#documentTagOptions input:checked').map(input => input.value);
+}
+
+let documentColorDefaults = {
+  foreColor: localStorage.getItem('workbench-document-text-color') || '#2563eb',
+  hiliteColor: localStorage.getItem('workbench-document-background-color') || '#fef9c3',
+};
+
+function updateDocumentColorButtons() {
+  $$('[data-document-color-apply]').forEach(button => {
+    const value = documentColorDefaults[button.dataset.documentColorApply];
+    button.style.setProperty('--current-color', ['transparent','inherit'].includes(value) ? 'transparent' : value);
+  });
+}
+
+function openDocumentColorPalette(trigger, command) {
+  const palette = $('#documentColorPalette');
+  const clearValue = command === 'hiliteColor' ? 'transparent' : 'inherit';
+  const recent = recentColors(`workbench-document-recent-${command}`);
+  const swatch = value => `<button type="button" data-document-color-value="${value}" title="${value.toUpperCase()}" aria-label="颜色 ${value}" class="${documentColorDefaults[command] === value ? 'selected' : ''}" style="--swatch:${value}"></button>`;
+  palette.dataset.command = command;
+  palette.innerHTML = `<div class="document-theme-colors"><button type="button" data-document-color-value="${clearValue}" title="${command === 'hiliteColor' ? '无填充' : '默认色'}" aria-label="${command === 'hiliteColor' ? '无填充' : '默认色'}" class="clear-color ${documentColorDefaults[command] === clearValue ? 'selected' : ''}"></button>${COLOR_THEME_PALETTE.slice(1).map(swatch).join('')}</div><div class="document-shade-colors">${COLOR_SHADE_PALETTE.flat().map(swatch).join('')}</div>${recent.length ? `<span class="color-section-label">最近使用</span><div class="document-recent-colors">${recent.map(swatch).join('')}</div>` : ''}<label class="document-more-color"><input type="color" value="${/^#[0-9a-f]{6}$/i.test(documentColorDefaults[command]) ? documentColorDefaults[command] : '#2563eb'}" data-document-custom-color="${command}"><i></i><span>更多颜色</span><b>›</b></label>`;
+  palette.hidden = false;
+  const rect = trigger.getBoundingClientRect();
+  const width = palette.offsetWidth || 306;
+  const height = palette.offsetHeight || 410;
+  palette.style.left = `${Math.max(10, Math.min(window.innerWidth - width - 10, rect.left))}px`;
+  palette.style.top = `${rect.bottom + height + 10 <= window.innerHeight ? rect.bottom + 7 : Math.max(10, rect.top - height - 7)}px`;
+}
+
+function documentColorElement(node, command, editor = $('#documentVisualEditor')) {
+  let element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+  while (element && element !== editor) {
+    const matches = command === 'hiliteColor'
+      ? Boolean(element.style?.backgroundColor || element.getAttribute?.('bgcolor'))
+      : Boolean(element.style?.color || (element.nodeName === 'FONT' && element.getAttribute('color')));
+    if (matches) return element;
+    element = element.parentElement;
+  }
+  return null;
+}
+
+function moveCaretOutsideDocumentColor(command) {
+  const editor = $('#documentVisualEditor');
+  const selection = window.getSelection();
+  if (!selection?.rangeCount) return;
+  selection.collapseToEnd();
+  let probe = selection.focusNode;
+  if (probe?.nodeType === Node.ELEMENT_NODE) {
+    probe = probe.childNodes[Math.max(0, selection.focusOffset - 1)] || probe;
+    while (probe?.lastChild) probe = probe.lastChild;
+  }
+  const colorElement = documentColorElement(probe, command, editor);
+  if (!colorElement || !editor.contains(colorElement)) return;
+  const marker = document.createElement('span');
+  marker.dataset.documentColorBoundary = command;
+  if (command === 'hiliteColor') marker.style.backgroundColor = 'transparent';
+  else marker.style.color = 'inherit';
+  marker.appendChild(document.createTextNode('\u200b'));
+  colorElement.after(marker);
+  const range = document.createRange();
+  range.setStart(marker.firstChild, 1); range.collapse(true);
+  selection.removeAllRanges(); selection.addRange(range);
+  documentLastRange = range.cloneRange();
+}
+
+function finishDocumentColorBoundaryInput() {
+  const selection = window.getSelection();
+  if (!selection?.rangeCount) return;
+  const marker = (selection.anchorNode?.nodeType === Node.ELEMENT_NODE ? selection.anchorNode : selection.anchorNode?.parentElement)?.closest?.('[data-document-color-boundary]');
+  if (!marker) return;
+  const text = marker.firstChild?.nodeType === Node.TEXT_NODE ? marker.firstChild : marker.appendChild(document.createTextNode(''));
+  text.data = text.data.replace(/\u200b/g, '');
+  marker.removeAttribute('data-document-color-boundary');
+  const range = document.createRange();
+  range.setStart(text, text.length); range.collapse(true);
+  selection.removeAllRanges(); selection.addRange(range);
+  documentLastRange = range.cloneRange();
+}
+
+function applyDocumentColor(value, command = $('#documentColorPalette').dataset.command || 'foreColor', remember = true) {
+  const palette = $('#documentColorPalette');
+  const editor = $('#documentVisualEditor');
+  editor.focus(); restoreDocumentSelection();
+  const selection = window.getSelection();
+  const hadSelectedText = Boolean(selection?.rangeCount && !selection.getRangeAt(0).collapsed);
+  const clearing = ['transparent','inherit'].includes(value);
+  if (clearing && !hadSelectedText) moveCaretOutsideDocumentColor(command);
+  else {
+    const applied = document.execCommand(command, false, value);
+    if (!applied && command === 'hiliteColor') document.execCommand('backColor', false, value);
+  }
+  if (remember) {
+    documentColorDefaults[command] = value;
+    localStorage.setItem(command === 'hiliteColor' ? 'workbench-document-background-color' : 'workbench-document-text-color', value);
+    rememberRecentColor(`workbench-document-recent-${command}`, value);
+    updateDocumentColorButtons();
+  }
+  palette.hidden = true;
+  if (hadSelectedText) moveCaretOutsideDocumentColor(command);
+  else captureDocumentSelection();
+  $('#documentSaveState').textContent = '有未保存的修改';
+}
+
+function markDocumentChanged() {
+  $('#documentSaveState').textContent = '有未保存的修改';
+  updateDocumentToolbarState();
+  scheduleDocumentOutlineUpdate();
+}
+
+function updateDocumentToolbarState() {
+  const editor = $('#documentVisualEditor');
+  const selection = selectionInsideEditor(editor);
+  if (!selection) return;
+  $$('[data-document-command]', $('#documentFormatToolbar')).forEach(button => {
+    const command = button.dataset.documentCommand;
+    if (['bold','italic','underline','strikeThrough','insertUnorderedList','insertOrderedList','justifyLeft','justifyCenter','justifyRight'].includes(command)) {
+      try { button.setAttribute('aria-pressed', String(document.queryCommandState(command))); } catch { button.setAttribute('aria-pressed', 'false'); }
+    }
+  });
+  const block = closestEditorBlock(selection.anchorNode, editor);
+  const heading = ['H1','H2','H3','H4'].includes(block.nodeName) ? block.nodeName.toLowerCase() : 'p';
+  $('#documentHeading').value = heading;
+  const quoteButton = $('[data-document-block="blockquote"]', $('#documentFormatToolbar'));
+  if (quoteButton) quoteButton.setAttribute('aria-pressed', String(Boolean(block.closest?.('blockquote'))));
+}
+
+function handleDocumentTaskListEnter(event) {
+  if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return false;
+  const editor = event.currentTarget;
+  const selection = selectionInsideEditor(editor);
+  if (!selection?.isCollapsed) return false;
+  const element = selection.anchorNode.nodeType === Node.ELEMENT_NODE ? selection.anchorNode : selection.anchorNode.parentElement;
+  const item = element?.closest('li.task-item');
+  if (!item) return false;
+  event.preventDefault();
+  const list = item.parentElement;
+  if (!(item.textContent || '').trim()) {
+    const paragraph = document.createElement('p'); paragraph.innerHTML = '<br>';
+    const anchor = list;
+    item.remove();
+    anchor.after(paragraph);
+    if (!anchor.children.length) anchor.remove();
+    placeCaret(paragraph);
+  } else {
+    const range = selection.getRangeAt(0);
+    const tailRange = document.createRange();
+    tailRange.setStart(range.startContainer, range.startOffset);
+    tailRange.setEnd(item, item.childNodes.length);
+    const tail = tailRange.extractContents();
+    const next = document.createElement('li'); next.className = 'task-item';
+    const checkbox = document.createElement('input'); checkbox.type = 'checkbox';
+    next.append(checkbox, document.createTextNode(' '), tail);
+    item.after(next); placeCaret(next, false);
+  }
+  markDocumentChanged();
+  return true;
+}
+
+function updateDocumentTagSummary() {
+  const selected = selectedDocumentTags();
+  $('#documentSelectedTags').innerHTML = selected.map(name => {
+    const color = safeColor((configData?.tags || []).find(tag => tag.name === name)?.color, '#64748b');
+    return `<button type="button" class="document-selected-tag" data-remove-document-tag="${escapeHtml(name)}" style="--tag-color:${color}" title="移除标签"><i></i>${escapeHtml(name)}<b>×</b></button>`;
+  }).join('');
+  $('#toggleDocumentTags').textContent = selected.length ? `＋ 继续选择 (${selected.length})` : '＋ 选择标签';
+}
+
+function updateDocumentSelectionToolbar() {
+  const toolbar = $('#documentSelectionToolbar');
+  const selection = window.getSelection();
+  if (documentMode !== 'visual' || !selection?.rangeCount || !$('#documentVisualEditor').contains(selection.anchorNode)) {
+    toolbar.classList.remove('visible'); toolbar.setAttribute('aria-hidden', 'true'); return;
+  }
+  documentLastRange = selection.getRangeAt(0).cloneRange();
+  if (selection.isCollapsed) {
+    toolbar.classList.remove('visible'); toolbar.setAttribute('aria-hidden', 'true'); return;
+  }
+  const rect = documentLastRange.getBoundingClientRect();
+  const width = toolbar.offsetWidth || 310;
+  toolbar.style.left = `${Math.max(12, Math.min(window.innerWidth - width - 12, rect.left + rect.width / 2 - width / 2))}px`;
+  toolbar.style.top = `${Math.max(12, rect.top - 50)}px`;
+  toolbar.classList.add('visible'); toolbar.setAttribute('aria-hidden', 'false');
+}
+
+function openDocument(documentId = '') {
+  currentDocument = documents.find(item => item.id === documentId) || null;
+  $('#documentDialogTitle').textContent = currentDocument ? currentDocument.title : '新建文档';
+  $('#documentTitle').value = currentDocument?.title || '';
+  $('#documentCategory').value = currentDocument?.category || '';
+  renderDocumentTagOptions(currentDocument?.tags || []);
+  $('#documentBody').value = currentDocument?.body || '';
+  $('#documentVisualEditor').innerHTML = markdownToHtml(currentDocument?.body || '', true);
+  $('#documentCategoryOptions').innerHTML = [...new Set([...(configData?.document_categories || []), ...documents.map(item => item.category).filter(Boolean)])].map(value => `<option value="${escapeHtml(value)}"></option>`).join('');
+  $('#deleteDocument').style.display = currentDocument ? '' : 'none';
+  $('#exportDocument').style.display = currentDocument ? '' : 'none';
+  $('.document-external-editor').style.display = currentDocument ? 'inline-flex' : 'none';
+  $('#documentSaveState').textContent = currentDocument ? `更新于 ${new Date(currentDocument.updated).toLocaleString('zh-CN')}` : '将保存为本地 Markdown';
+  documentExpanded = false;
+  $('#documentDialog').classList.remove('expanded');
+  $('#documentDialog').classList.toggle('outline-collapsed', documentOutlineCollapsed);
+  $('#toggleDocumentExpand span').textContent = '展开编辑';
+  setDocumentMode(currentDocument ? 'read' : 'visual');
+  $('#documentDialog').showModal();
+  requestAnimationFrame(updateDocumentOutline);
+  if (!currentDocument) setTimeout(() => $('#documentTitle').focus(), 30);
+}
+
+async function saveDocument({readAfterSave = true, notifyUser = true} = {}) {
+  const title = $('#documentTitle').value.trim();
+  if (!title) { $('#documentTitle').focus(); notify('文档标题不能为空', '请输入标题后再保存', true); return null; }
+  const payload = {title, category:$('#documentCategory').value.trim() || '未分类', tags:selectedDocumentTags(), body:documentMarkdownContent()};
+  try {
+    const saved = await api(currentDocument ? `/documents/${encodeURIComponent(currentDocument.id)}` : '/documents', {method:currentDocument ? 'PATCH' : 'POST', body:JSON.stringify(payload)});
+    currentDocument = saved;
+    documents = await api('/documents');
+    renderDocumentsPage();
+    if (readAfterSave) setDocumentMode('read');
+    $('#documentDialogTitle').textContent = saved.title;
+    $('#documentOutlineTitle').textContent = saved.title;
+    $('#deleteDocument').style.display = '';
+    $('#documentSaveState').textContent = '已保存';
+    if (notifyUser) notify('文档已保存', saved.category);
+    return saved;
+  } catch (error) { notify('文档保存失败', error.message, true); return null; }
+}
+
+async function openCurrentDocumentExternal() {
+  if (!currentDocument) return;
+  const dirty = $('#documentSaveState').textContent === '有未保存的修改';
+  if (dirty && !await saveDocument({readAfterSave:false, notifyUser:false})) return;
+  const button = $('#openDocumentExternal');
+  const label = $('#documentExternalEditorLabel');
+  const original = label.textContent;
+  button.disabled = true; label.textContent = '正在打开…';
+  try {
+    const result = await api(`/documents/${encodeURIComponent(currentDocument.id)}/open-external`, {method:'POST'});
+    notify(`已使用${result.editor}打开`, `${result.file} · 外部保存后工作台会自动检测修改`);
+  } catch (error) { notify('无法打开外部编辑器', error.message, true); }
+  finally { button.disabled = false; label.textContent = original; }
+}
+
+function documentHasUnsavedChanges() {
+  return $('#documentSaveState').textContent === '有未保存的修改';
+}
+
+async function closeDocumentEditor() {
+  if (documentHasUnsavedChanges() && !await appConfirm({title:'放弃未保存的文档修改？', message:'当前编辑内容尚未写入 Markdown 文件。', detail:'选择放弃后，本次修改无法恢复。', confirmText:'放弃修改', danger:true})) return false;
+  $('#documentDialog').close();
+  $('#documentColorPalette').hidden = true;
+  documentLastRange = null;
+  return true;
+}
+
+function reloadCurrentDocumentFromDisk(latest) {
+  if (!latest || !currentDocument || latest.id !== currentDocument.id) return;
+  currentDocument = latest;
+  $('#documentDialogTitle').textContent = latest.title;
+  $('#documentTitle').value = latest.title;
+  $('#documentCategory').value = latest.category || '';
+  renderDocumentTagOptions(latest.tags || []);
+  $('#documentBody').value = latest.body || '';
+  $('#documentVisualEditor').innerHTML = markdownToHtml(latest.body || '', true);
+  if (documentMode === 'read') $('#documentReadPane').innerHTML = markdownToHtml(latest.body || '');
+  scheduleDocumentOutlineUpdate();
+  $('#documentSaveState').textContent = `已同步外部修改 · ${new Date(latest.updated).toLocaleTimeString('zh-CN')}`;
+  delete $('#documentDialog').dataset.pendingExternalMtime;
+  notify('已同步外部 Markdown 修改', latest.title);
+}
+
+async function deleteDocument() {
+  if (!currentDocument || !await appConfirm({title:'将文档移入回收站？', message:`「${currentDocument.title}」`, detail:'稍后可以在回收站中恢复。', confirmText:'移入回收站', danger:true})) return;
+  try {
+    await api(`/documents/${encodeURIComponent(currentDocument.id)}`, {method:'DELETE'});
+    $('#documentDialog').close(); currentDocument = null; documents = await api('/documents'); renderDocumentsPage(); notify('文档已移入回收站');
+  } catch (error) { notify('文档删除失败', error.message, true); }
+}
+
+function downloadKnowledgeFile(path) {
+  const link = document.createElement('a');
+  link.href = `/api${path}`;
+  link.download = '';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+async function exportSelectedDocuments() {
+  const documentIds = [...documentSelection];
+  if (!documentIds.length) return;
+  try {
+    const response = await fetch('/api/documents/export', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({document_ids:documentIds})});
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || `导出失败 (${response.status})`);
+    }
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a'); link.href = url; link.download = 'knowledge-documents.zip'; document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    notify(`正在导出 ${documentIds.length} 篇文档`, '所选文档将打包为 ZIP');
+    documentSelection.clear(); documentExportMode = false; renderDocumentsPage();
+  } catch (error) { notify('文档导出失败', error.message, true); }
+}
+
+async function importKnowledgeDocuments(files) {
+  const markdownFiles = [...files].filter(file => file.name.toLowerCase().endsWith('.md'));
+  if (!markdownFiles.length) return notify('没有可导入的 Markdown 文档', '请选择 .md 文件', true);
+  let imported = 0;
+  try {
+    for (const file of markdownFiles) {
+      await api('/documents/import', {method:'POST', body:JSON.stringify({name:file.name, content:await file.text()})});
+      imported += 1;
+    }
+    documents = await api('/documents');
+    renderDocumentsPage();
+    notify(`已导入 ${imported} 篇文档`, '分类会优先读取 Markdown 元数据，也可以在编辑时自定义');
+  } catch (error) {
+    documents = await api('/documents'); renderDocumentsPage();
+    notify('文档导入未全部完成', `${imported ? `已导入 ${imported} 篇；` : ''}${error.message}`, true);
+  }
+}
+
+function renderTrashPage() {
+  const selectedCount = trashSelection.size;
+  $('#manageActions').innerHTML = trashItems.length ? `<span class="trash-selection-count" id="trashSelectionCount">已选择 ${selectedCount} 项</span><button class="secondary-button" id="batchRestoreTrash" ${selectedCount ? '' : 'disabled'}>批量恢复</button><button class="secondary-button danger-button" id="batchPurgeTrash" ${selectedCount ? '' : 'disabled'}>批量永久删除</button>` : '';
+  $('#manageContent').innerHTML = trashItems.length ? `<div class="trash-table-wrap"><table class="data-table trash-table"><thead><tr><th class="trash-select-cell"><input type="checkbox" id="selectAllTrash" aria-label="全选回收站内容" ${selectedCount === trashItems.length ? 'checked' : ''}></th><th>名称</th><th>类型</th><th>删除时间</th><th>操作</th></tr></thead><tbody>${trashItems.map(item => `<tr data-trash-row="${escapeHtml(item.token)}" class="${trashSelection.has(item.token) ? 'selected' : ''}"><td class="trash-select-cell"><input type="checkbox" data-trash-select="${escapeHtml(item.token)}" aria-label="选择 ${escapeHtml(item.title)}" ${trashSelection.has(item.token) ? 'checked' : ''}></td><td><strong>${escapeHtml(item.title)}</strong><br><small>${escapeHtml(item.id)}</small></td><td>${item.kind === 'project' ? '项目' : '记录'}</td><td>${new Date(item.deleted_at).toLocaleString('zh-CN')}</td><td class="trash-row-actions"><button class="secondary-button" data-restore-trash="${escapeHtml(item.token)}">恢复</button><button class="secondary-button danger-button" data-purge-trash="${escapeHtml(item.token)}">永久删除</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-state">回收站为空</div>';
+  updateTrashSelectionUI();
+}
+
+function updateTrashSelectionUI() {
+  const count = trashSelection.size;
+  const selectAll = $('#selectAllTrash');
+  if (selectAll) {
+    selectAll.checked = Boolean(trashItems.length) && count === trashItems.length;
+    selectAll.indeterminate = count > 0 && count < trashItems.length;
+  }
+  if ($('#trashSelectionCount')) $('#trashSelectionCount').textContent = `已选择 ${count} 项`;
+  if ($('#batchRestoreTrash')) $('#batchRestoreTrash').disabled = !count;
+  if ($('#batchPurgeTrash')) $('#batchPurgeTrash').disabled = !count;
+  $$('[data-trash-row]').forEach(row => row.classList.toggle('selected', trashSelection.has(row.dataset.trashRow)));
+}
+
+async function batchRestoreTrash() {
+  const tokens = [...trashSelection];
+  if (!tokens.length) return;
+  try {
+    const result = await api('/trash/batch/restore', {method:'POST', body:JSON.stringify({tokens})});
+    trashSelection.clear();
+    await refreshData();
+    await renderManagePage('trash');
+    notify(`已恢复 ${result.count} 项内容`);
+  } catch (error) { notify('批量恢复失败', error.message, true); }
+}
+
+async function batchPurgeTrash() {
+  const tokens = [...trashSelection];
+  if (!tokens.length || !await appConfirm({title:`永久删除所选 ${tokens.length} 项？`, message:'此操作无法撤销，删除后不能从回收站恢复。', confirmText:'批量永久删除', danger:true})) return;
+  try {
+    const result = await api('/trash/batch', {method:'DELETE', body:JSON.stringify({tokens})});
+    trashSelection.clear();
+    await renderManagePage('trash');
+    notify(`已永久删除 ${result.count} 项内容`);
+  } catch (error) { notify('批量删除失败', error.message, true); }
+}
+
 function tagUsageRecords(tagName) {
-  return records.filter(record => (record.tags || []).includes(tagName));
+  return [
+    ...records.filter(record => (record.tags || []).includes(tagName)),
+    ...documents.filter(item => (item.tags || []).includes(tagName)).map(item => ({...item, type:'document'})),
+  ];
 }
 
 function statusUsageRecords(recordType, statusName, statusId = '') {
@@ -1685,7 +2521,7 @@ function statusTemplateColor(recordType, statusId, statusName) {
 }
 
 function usageRecordRowsHtml(items) {
-  return items.length ? `<div class="usage-record-list">${items.map(record => `<button type="button" class="usage-record-row" data-usage-record="${escapeHtml(record.id)}"><span class="type-icon ${escapeHtml(record.type)}">${escapeHtml(typeIcons[record.type] || '•')}</span><span><strong>${escapeHtml(record.title)}</strong><small>${escapeHtml(record.id)} · ${escapeHtml(typeNames[record.type] || record.type)} · ${escapeHtml(projectName(record.project_id))}${record.status ? ` · ${escapeHtml(record.status)}` : ''}</small></span><em>打开</em></button>`).join('')}</div>` : '<div class="usage-empty"><span>✓</span><strong>暂无记录使用</strong><small>当前可以安全删除这项配置</small></div>';
+  return items.length ? `<div class="usage-record-list">${items.map(record => `<button type="button" class="usage-record-row" ${record.type === 'document' ? `data-usage-document="${escapeHtml(record.id)}"` : `data-usage-record="${escapeHtml(record.id)}"`}><span class="type-icon ${escapeHtml(record.type)}">${record.type === 'document' ? '▤' : escapeHtml(typeIcons[record.type] || '•')}</span><span><strong>${escapeHtml(record.title)}</strong><small>${escapeHtml(record.id)} · ${record.type === 'document' ? `知识库文档 · ${escapeHtml(record.category || '未分类')}` : `${escapeHtml(typeNames[record.type] || record.type)} · ${escapeHtml(projectName(record.project_id))}${record.status ? ` · ${escapeHtml(record.status)}` : ''}`}</small></span><em>打开</em></button>`).join('')}</div>` : '<div class="usage-empty"><span>✓</span><strong>暂无内容使用</strong><small>当前可以安全删除这项配置</small></div>';
 }
 
 function updateRecordBackButton() {
@@ -1716,7 +2552,7 @@ function openUsageDetail({kind, name, recordType = '', statusId = ''}, options =
   const items = kind === 'tag' ? tagUsageRecords(name) : statusUsageRecords(recordType, name, statusId);
   $('#usageDialogEyebrow').textContent = kind === 'tag' ? '标签使用情况' : `${typeNames[recordType] || recordType}状态使用情况`;
   $('#usageDialogTitle').textContent = `「${name}」`;
-  $('#usageDialogSummary').innerHTML = `<strong>${items.length}</strong><span>条记录正在使用</span>${items.length ? '<small>需要先在下列记录中移除或更改，才能删除此配置。</small>' : '<small>这项配置目前未被使用，可以安全删除。</small>'}`;
+  $('#usageDialogSummary').innerHTML = `<strong>${items.length}</strong><span>条内容正在使用</span>${items.length ? '<small>需要先在下列记录或文档中移除或更改，才能删除此配置。</small>' : '<small>这项配置目前未被使用，可以安全删除。</small>'}`;
   $('#usageDialogContent').innerHTML = usageRecordRowsHtml(items);
   updateUsageDialogBackButton();
   if (!$('#usageDialog').open) $('#usageDialog').showModal();
@@ -1732,7 +2568,7 @@ function openUsageOverview(kind, options = {}) {
   const totalUsage = items.reduce((sum, item) => sum + item.count, 0);
   $('#usageDialogEyebrow').textContent = isTag ? '标签使用统计' : '状态使用统计';
   $('#usageDialogTitle').textContent = isTag ? '全部标签' : '当前工作流状态';
-  $('#usageDialogSummary').innerHTML = `<strong>${items.length}</strong><span>项配置</span><small>合计 ${totalUsage} 次记录引用；点击任一项查看具体记录。</small>`;
+  $('#usageDialogSummary').innerHTML = `<strong>${items.length}</strong><span>项配置</span><small>合计 ${totalUsage} 次内容引用；点击任一项查看具体记录或文档。</small>`;
   $('#usageDialogContent').innerHTML = `<div class="usage-overview-list">${items.map(item => `<button type="button" data-usage-detail-kind="${kind}" data-usage-detail-name="${escapeHtml(item.name)}" ${item.recordType ? `data-usage-detail-type="${escapeHtml(item.recordType)}" data-usage-detail-status-id="${escapeHtml(item.statusId)}"` : ''}><span><i style="background:${isTag ? tagColor(item.name) : statusTemplateColor(item.recordType, item.statusId, item.name)}"></i><strong>${escapeHtml(item.name)}</strong>${item.recordType ? `<small>${escapeHtml(typeNames[item.recordType] || item.recordType)}</small>` : ''}</span><em class="${item.count ? 'in-use' : ''}">${item.count} 条</em><b>查看 ›</b></button>`).join('') || '<div class="usage-empty"><strong>暂无配置</strong></div>'}</div>`;
   updateUsageDialogBackButton();
   if (!$('#usageDialog').open) $('#usageDialog').showModal();
@@ -1755,11 +2591,58 @@ function closeUsageDialog() {
 
 function tagEditorHtml(tag) {
   const usageName = tag.original_name ?? tag.name ?? '';
+  const originalColor = safeColor(tag.color || '#64748b');
   const count = usageName ? tagUsageRecords(usageName).length : 0;
-  const action = usageName
-    ? `<button type="button" class="usage-button tag-usage-button ${count ? 'in-use' : ''}" title="查看使用此标签的记录">${count} 条</button>`
-    : '<button type="button" class="inline-config-save" data-save-manage="tags" title="立即保存这个新标签">保存</button>';
-  return `<div class="tag-edit" data-original-name="${escapeHtml(usageName)}">${colorPickerHtml(tag.color || '#64748b', '标签颜色')}<input type="text" value="${escapeHtml(tag.name)}" aria-label="标签名称">${action}<button class="remove-global-tag" aria-label="删除标签" title="删除标签">✕</button></div>`;
+  const actions = usageName
+    ? `<button type="button" class="usage-button tag-usage-button ${count ? 'in-use' : ''}" title="查看使用此标签的记录">${count} 条</button><button class="remove-global-tag" aria-label="删除标签" title="删除标签">✕</button>`
+    : '<button type="button" class="tag-row-save" data-save-tag-row title="保存新标签">保存</button><button type="button" class="tag-row-cancel" data-cancel-tag-row title="取消新建">取消</button>';
+  return `<div class="tag-edit ${usageName ? '' : 'tag-row-dirty'}" data-original-name="${escapeHtml(usageName)}" data-original-color="${originalColor}"><label class="tag-select" title="选择标签"><input type="checkbox" data-tag-select aria-label="选择标签 ${escapeHtml(tag.name)}"><span></span></label>${colorPickerHtml(originalColor, '标签颜色')}<input type="text" value="${escapeHtml(tag.name)}" aria-label="标签名称"><div class="tag-edit-actions">${actions}</div></div>`;
+}
+
+function updateTagBatchUI() {
+  const inputs = $$('[data-tag-select]');
+  const selected = inputs.filter(input => input.checked);
+  const selectAll = $('#selectAllTags');
+  if (selectAll) {
+    selectAll.checked = Boolean(inputs.length) && selected.length === inputs.length;
+    selectAll.indeterminate = selected.length > 0 && selected.length < inputs.length;
+  }
+  if ($('#tagSelectionCount')) $('#tagSelectionCount').textContent = `已选择 ${selected.length} 个标签`;
+  if ($('#batchDeleteTags')) $('#batchDeleteTags').disabled = !selected.length;
+}
+
+async function deleteSelectedTags() {
+  const rows = $$('[data-tag-select]:checked').map(input => input.closest('.tag-edit'));
+  if (!rows.length) return;
+  const blocked = rows.filter(row => tagUsageRecords(row.dataset.originalName || $('input[type="text"]', row).value.trim()).length);
+  const removable = rows.filter(row => !blocked.includes(row));
+  if (!removable.length) {
+    notify('所选标签均在使用中', '请先从相关记录或知识库文档中移除引用', true);
+    return;
+  }
+  const names = removable.map(row => row.dataset.originalName || $('input[type="text"]', row).value.trim()).filter(Boolean);
+  const detail = blocked.length ? `另有 ${blocked.length} 个正在使用的标签将被跳过。` : '删除后会立即更新标签库，此操作无法撤销。';
+  if (!await appConfirm({title:`删除所选 ${removable.length} 个标签？`, message:names.join('、'), detail, confirmText:'批量删除', danger:true})) return;
+  removable.forEach(row => row.remove());
+  await saveTags();
+}
+
+function updateTagRowDirtyState(row) {
+  if (!row) return;
+  const originalName = row.dataset.originalName || '';
+  const originalColor = (row.dataset.originalColor || '#64748b').toLowerCase();
+  const name = $('input[type="text"]', row).value;
+  const color = $('input[type="color"]', row).value.toLowerCase();
+  const dirty = !originalName || name !== originalName || color !== originalColor;
+  row.classList.toggle('tag-row-dirty', dirty);
+  const actions = $('.tag-edit-actions', row);
+  if (!actions) return;
+  if (dirty) {
+    actions.innerHTML = '<button type="button" class="tag-row-save" data-save-tag-row title="保存此标签修改">保存</button><button type="button" class="tag-row-cancel" data-cancel-tag-row title="取消此标签修改">取消</button>';
+    return;
+  }
+  const count = tagUsageRecords(originalName).length;
+  actions.innerHTML = `<button type="button" class="usage-button tag-usage-button ${count ? 'in-use' : ''}" title="查看使用此标签的记录">${count} 条</button><button class="remove-global-tag" aria-label="删除标签" title="删除标签">✕</button>`;
 }
 
 async function saveTags() {
@@ -1768,21 +2651,95 @@ async function saveTags() {
   const renames = Object.fromEntries(tags.filter(item => item.original && item.original !== item.name).map(item => [item.original,item.name]));
   const remainingOriginals = new Set(tags.map(item => item.original).filter(Boolean));
   const removed = (configData.tags || []).map(item => item.name).filter(name => !remainingOriginals.has(name) && !renames[name]);
-  try { configData.tags = await api('/tags', {method:'PUT', body:JSON.stringify({tags:tags.map(({name,color}) => ({name,color})), renames, removed})}); await refreshData(); notify('标签库已保存', '标签重命名、合并或删除已同步到所有记录'); await renderManagePage('tags'); return true; }
+  try {
+    configData.tags = await api('/tags', {method:'PUT', body:JSON.stringify({tags:tags.map(({name,color}) => ({name,color})), renames, removed})});
+    const [recordsResult, documentsResult] = await Promise.allSettled([api('/records?summary=1'), api('/documents')]);
+    if (recordsResult.status === 'fulfilled') {
+      records = recordsResult.value.filter(record => record.type !== 'idea');
+      lastRecordSignature = recordSignature(records);
+    }
+    if (documentsResult.status === 'fulfilled') documents = documentsResult.value;
+    if (activeManagePage === 'tags') {
+      const savedByName = new Map(configData.tags.map(tag => [tag.name, tag]));
+      const seen = new Set();
+      $$('.tag-edit').forEach(row => {
+        const name = $('input[type="text"]', row).value.trim();
+        const saved = savedByName.get(name);
+        if (!saved || seen.has(saved.name)) { row.remove(); return; }
+        seen.add(saved.name);
+        row.dataset.originalName = saved.name;
+        row.dataset.originalColor = safeColor(saved.color || '#64748b');
+        $('input[type="text"]', row).value = saved.name;
+        syncColorPicker($('[data-color-picker]', row), row.dataset.originalColor);
+        row.classList.remove('new-config-row');
+        updateTagRowDirtyState(row);
+      });
+      const addButton = $('#addGlobalTag');
+      configData.tags.filter(tag => !seen.has(tag.name)).forEach(tag => addButton?.insertAdjacentHTML('beforebegin', tagEditorHtml(tag)));
+      updateTagBatchUI();
+      captureManageSnapshot('tags');
+    }
+    notify('标签库已保存', '标签重命名、合并或删除已同步到记录和知识库文档');
+    return true;
+  }
   catch (error) { notify('标签保存失败', error.message, true); return false; }
 }
 
 function statusEditorHtml(status, recordType = '', options = {}) {
   const count = recordType ? statusUsageRecords(recordType, status.name, status.id).length : 0;
-  const action = options.newItem
-    ? '<button type="button" class="inline-config-save" data-save-manage="status_templates" title="立即保存这个新状态">保存</button>'
-    : `<button type="button" class="usage-button status-usage-button ${count ? 'in-use' : ''}" title="查看使用此状态的记录">${count} 条</button>`;
-  return `<div class="status-edit-row" data-status-id="${escapeHtml(status.id)}">${colorPickerHtml(status.color || '#64748b', '状态颜色')}<input type="text" value="${escapeHtml(status.name)}" aria-label="状态名称"><label title="完成状态"><input class="status-completed" type="checkbox" ${status.completed ? 'checked' : ''}></label>${action}<button class="remove-status" aria-label="删除状态" title="删除状态">✕</button></div>`;
+  const color = safeColor(status.color || '#64748b');
+  const actions = options.newItem
+    ? '<button type="button" class="status-row-save" data-save-status-row title="保存新状态">保存</button><button type="button" class="status-row-cancel" data-cancel-status-row title="取消新建">取消</button>'
+    : `<button type="button" class="usage-button status-usage-button ${count ? 'in-use' : ''}" title="查看使用此状态的记录">${count} 条</button><button class="remove-status" aria-label="删除状态" title="删除状态">✕</button>`;
+  return `<div class="status-edit-row ${options.newItem ? 'status-row-dirty' : ''}" data-status-id="${escapeHtml(status.id)}" data-original-name="${escapeHtml(options.newItem ? '' : status.name)}" data-original-color="${color}" data-original-completed="${Boolean(status.completed)}"><label class="status-select" title="选择状态"><input type="checkbox" data-status-select aria-label="选择状态 ${escapeHtml(status.name)}"><span></span></label>${colorPickerHtml(color, '状态颜色')}<input type="text" value="${escapeHtml(status.name)}" aria-label="状态名称"><label class="status-completed-label" title="完成状态"><input class="status-completed" type="checkbox" ${status.completed ? 'checked' : ''}></label><div class="status-edit-actions">${actions}</div></div>`;
+}
+
+function updateStatusRowDirtyState(row) {
+  if (!row) return;
+  const dirty = !row.dataset.originalName
+    || $('input[type="text"]', row).value !== row.dataset.originalName
+    || $('input[type="color"]', row).value.toLowerCase() !== (row.dataset.originalColor || '#64748b').toLowerCase()
+    || $('.status-completed', row).checked !== (row.dataset.originalCompleted === 'true');
+  row.classList.toggle('status-row-dirty', dirty);
+  const actions = $('.status-edit-actions', row);
+  if (!actions) return;
+  if (dirty) {
+    actions.innerHTML = '<button type="button" class="status-row-save" data-save-status-row title="保存此状态修改">保存</button><button type="button" class="status-row-cancel" data-cancel-status-row title="取消此状态修改">取消</button>';
+    return;
+  }
+  const type = row.closest('.template-panel')?.dataset.templateType || '';
+  const count = statusUsageRecords(type, row.dataset.originalName, row.dataset.statusId || '').length;
+  actions.innerHTML = `<button type="button" class="usage-button status-usage-button ${count ? 'in-use' : ''}" title="查看使用此状态的记录">${count} 条</button><button class="remove-status" aria-label="删除状态" title="删除状态">✕</button>`;
+}
+
+function updateStatusBatchUI() {
+  const inputs = $$('[data-status-select]');
+  const selected = inputs.filter(input => input.checked);
+  const selectAll = $('#selectAllStatuses');
+  if (selectAll) { selectAll.checked = Boolean(inputs.length) && selected.length === inputs.length; selectAll.indeterminate = selected.length > 0 && selected.length < inputs.length; }
+  if ($('#statusSelectionCount')) $('#statusSelectionCount').textContent = `已选择 ${selected.length} 个状态`;
+  if ($('#batchDeleteStatuses')) $('#batchDeleteStatuses').disabled = !selected.length;
+}
+
+async function deleteSelectedStatuses() {
+  const rows = $$('[data-status-select]:checked').map(input => input.closest('.status-edit-row'));
+  if (!rows.length) return;
+  const usage = row => statusUsageRecords(row.closest('.template-panel')?.dataset.templateType, row.dataset.originalName || $('input[type="text"]', row).value.trim(), row.dataset.statusId || '');
+  const blocked = rows.filter(row => usage(row).length);
+  const removable = rows.filter(row => !blocked.includes(row));
+  if (!removable.length) { notify('所选状态均在使用中', '请先把相关记录移动到其他状态', true); return; }
+  const names = removable.map(row => $('input[type="text"]', row).value.trim()).filter(Boolean);
+  const detail = blocked.length ? `另有 ${blocked.length} 个正在使用的状态将被跳过。` : '删除后会立即更新当前工作流，此操作无法撤销。';
+  if (!await appConfirm({title:`删除所选 ${removable.length} 个状态？`, message:names.join('、'), detail, confirmText:'批量删除', danger:true})) return;
+  removable.forEach(row => row.remove());
+  await saveTemplates();
 }
 
 function colorPickerHtml(color, label) {
   const value = /^#[0-9a-f]{6}$/i.test(color || '') ? color.toLowerCase() : '#64748b';
-  return `<div class="color-picker" data-color-picker><button type="button" class="color-picker-trigger" aria-label="选择${escapeHtml(label)}" aria-expanded="false" title="${escapeHtml(label)}：${value}"><i style="background:${value}"></i></button><div class="color-picker-popover" role="dialog" aria-label="${escapeHtml(label)}选项"><div class="color-picker-title"><strong>常用颜色</strong><span>温和鲜明</span></div><div class="color-palette">${gentleColorPalette.map(item => `<button type="button" data-color-value="${item.value}" aria-label="${item.name} ${item.value}" title="${item.name}"><i style="background:${item.value}"></i></button>`).join('')}</div><label class="custom-color-row"><input type="color" value="${value}" aria-label="自定义${escapeHtml(label)}"><span>自定义颜色</span><code>${value.toUpperCase()}</code></label></div></div>`;
+  const recent = recentColors('workbench-recent-management-colors');
+  const swatch = colorValue => `<button type="button" data-color-value="${colorValue}" aria-label="颜色 ${colorValue}" title="${colorValue.toUpperCase()}"><i style="background:${colorValue}"></i></button>`;
+  return `<div class="color-picker" data-color-picker><button type="button" class="color-picker-trigger" aria-label="选择${escapeHtml(label)}" aria-expanded="false" title="${escapeHtml(label)}：${value}"><i style="background:${value}"></i></button><div class="color-picker-popover" role="dialog" aria-label="${escapeHtml(label)}选项"><div class="color-palette color-theme-palette">${COLOR_THEME_PALETTE.map(swatch).join('')}</div><div class="color-palette color-shade-palette">${COLOR_SHADE_PALETTE.flat().map(swatch).join('')}</div>${recent.length ? `<span class="color-section-label">最近使用</span><div class="color-palette color-recent-palette">${recent.map(swatch).join('')}</div>` : ''}<label class="custom-color-row"><input type="color" value="${value}" aria-label="自定义${escapeHtml(label)}"><i></i><span>更多颜色</span><code>${value.toUpperCase()}</code><b>›</b></label></div></div>`;
 }
 
 function syncColorPicker(picker, value) {
@@ -1797,16 +2754,46 @@ function syncColorPicker(picker, value) {
 }
 
 async function saveTemplates() {
-  const statuses = {};
+  const workflow = configData.workflow_templates.find(item => item.id === selectedWorkflowId);
+  const statuses = {idea:workflow?.statuses?.idea || []};
   $$('.template-panel').forEach(panel => {
     statuses[panel.dataset.templateType] = $$('.status-edit-row', panel).map((row, index) => ({id:row.dataset.statusId || `${panel.dataset.templateType}_${Date.now()}_${index}`, name:$('input[type="text"]', row).value.trim(), color:$('input[type="color"]', row).value, completed:$('.status-completed', row).checked})).filter(item => item.name);
   });
   try {
-    const workflow = configData.workflow_templates.find(item => item.id === selectedWorkflowId); workflow.statuses = statuses;
+    workflow.statuses = statuses;
     configData.workflow_templates = await api('/workflow-templates', {method:'PUT', body:JSON.stringify(configData.workflow_templates)});
-    await refreshData();
+    const recordsResult = await Promise.allSettled([api('/records?summary=1')]);
+    if (recordsResult[0].status === 'fulfilled') {
+      records = recordsResult[0].value.filter(record => record.type !== 'idea');
+      lastRecordSignature = recordSignature(records);
+    }
+    if (activeManagePage === 'status_templates') {
+      const savedWorkflow = configData.workflow_templates.find(item => item.id === selectedWorkflowId);
+      $$('.template-panel').forEach(panel => {
+        const savedStatuses = savedWorkflow?.statuses?.[panel.dataset.templateType] || [];
+        const savedById = new Map(savedStatuses.map(status => [status.id, status]));
+        const seen = new Set();
+        $$('.status-edit-row', panel).forEach(row => {
+          const saved = savedById.get(row.dataset.statusId);
+          if (!saved || seen.has(saved.id)) { row.remove(); return; }
+          seen.add(saved.id);
+          row.dataset.originalName = saved.name;
+          row.dataset.originalColor = safeColor(saved.color || '#64748b');
+          row.dataset.originalCompleted = String(Boolean(saved.completed));
+          $('input[type="text"]', row).value = saved.name;
+          $('.status-completed', row).checked = Boolean(saved.completed);
+          syncColorPicker($('[data-color-picker]', row), row.dataset.originalColor);
+          row.classList.remove('new-config-row');
+          updateStatusRowDirtyState(row);
+        });
+        const list = $('.status-edit-list', panel);
+        savedStatuses.filter(status => !seen.has(status.id)).forEach(status => list?.insertAdjacentHTML('beforeend', statusEditorHtml(status, panel.dataset.templateType)));
+        $('.count-badge', panel).textContent = savedStatuses.length;
+      });
+      updateStatusBatchUI();
+      captureManageSnapshot('status_templates');
+    }
     notify('工作流已保存', '使用此模板的项目会立即采用新状态');
-    await renderManagePage('status_templates');
     return true;
   } catch (error) { notify('模板保存失败', error.message, true); return false; }
 }
@@ -1890,25 +2877,6 @@ async function uploadProjectAssets(files) {
   }
 }
 
-async function checkReminders() {
-  if (!apiAvailable || !('Notification' in window) || Notification.permission !== 'granted') return;
-  try {
-    const reminders = await api('/reminders');
-    const notified = JSON.parse(localStorage.getItem('workbench-notified') || '{}');
-    const now = Date.now();
-    reminders.forEach(record => {
-      const raw = record.reminder || (record.due ? `${record.due}T09:00:00` : '');
-      const when = new Date(raw).valueOf();
-      const key = `${record.id}:${raw}`;
-      if (raw && when <= now && !notified[key]) {
-        const notice = new Notification(record.title, {body:`${projectName(record.project_id)} · ${record.status}`});
-        notice.onclick = () => { window.focus(); openDrawer(record.id); };
-        notified[key] = now;
-      }
-    });
-    localStorage.setItem('workbench-notified', JSON.stringify(notified));
-  } catch { /* 下一次轮询重试 */ }
-}
 function editorDraftKey(recordId) {
   return `workbench-editor-draft:${recordId}`;
 }
@@ -2028,10 +2996,17 @@ async function closeRecordView() {
 }
 
 async function refreshData() {
-  [projects, records] = await Promise.all([api('/projects'), api('/records')]);
+  const loaded = await Promise.all([api('/projects'), api('/records?summary=1')]);
+  projects = loaded[0];
+  records = loaded[1].filter(record => record.type !== 'idea');
+  lastRecordSignature = recordSignature(records);
   if (!selectedProjectId && projects.length) selectedProjectId = projects[0].id;
   renderNavigation(); renderDashboard();
   if ($('#projectPage').classList.contains('active')) renderProjectPage();
+}
+
+function recordSignature(items) {
+  return items.map(item => `${item.id}:${item.file_mtime || item.updated}`).sort().join('|');
 }
 
 async function updateRecord(recordId, changes, successMessage) {
@@ -2039,6 +3014,7 @@ async function updateRecord(recordId, changes, successMessage) {
     const updated = await api(`/records/${encodeURIComponent(recordId)}`, {method:'PATCH', body:JSON.stringify(changes)});
     const index = records.findIndex(item => item.id === recordId);
     if (index >= 0) records[index] = updated;
+    lastRecordSignature = recordSignature(records);
     if (currentRecord?.id === recordId) currentRecord = updated;
     renderDashboard();
     if ($('#projectPage').classList.contains('active')) renderProjectPage();
@@ -2079,7 +3055,7 @@ function prepareImportPreview(name, content) {
   const frontmatter = normalized.startsWith('---\n') && frontmatterEnd >= 0 ? normalized.slice(4, frontmatterEnd) : '';
   const body = frontmatter ? normalized.slice(frontmatterEnd + 5).trim() : normalized.trim();
   const readMeta = key => { const match = frontmatter.match(new RegExp(`^${key}:\\s*["']?([^"'\\n]+)`, 'm')); return match?.[1]?.trim(); };
-  const detectedType = ['issue','todo','idea','info'].includes(readMeta('type')) ? readMeta('type') : 'idea';
+  const detectedType = ['issue','todo','info'].includes(readMeta('type')) ? readMeta('type') : 'issue';
   const heading = body.match(/^#\s+(.+)$/m)?.[1]?.trim();
   pendingImport = {name, content};
   $('#importType').value = detectedType;
@@ -2093,6 +3069,7 @@ function prepareImportPreview(name, content) {
 }
 
 function renderSearchResults(results) {
+  results = results.filter(record => record.type !== 'idea');
   lastSearchResults = results;
   $$('[data-search-type]').forEach(button => { button.classList.toggle('active', button.dataset.searchType === searchTypeFilter); const count = $('span', button); if (count) count.textContent = results.filter(item => !button.dataset.searchType || item.type === button.dataset.searchType).length; });
   const selectOptions = (selector, values, emptyLabel) => { const select = $(selector); const current = searchFilters[select.dataset.filterKey]; select.innerHTML = `<option value="">${emptyLabel}</option>${values.map(([value,label]) => `<option value="${escapeHtml(value)}" ${value === current ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('')}`; };
@@ -2187,7 +3164,7 @@ async function persistRecordOrder(visibleOrder, manualStatuses = [], quiet = fal
   if (!project || !sortKey || !orderKey || !statusSortsKey) return;
   const displayed = visibleOrder || $$('.kanban-card', board).map(card => card.dataset.recordId);
   const visibleSet = new Set(displayed);
-  const tabType = {issues:'issue', todos:'todo', ideas:'idea'}[projectTab];
+  const tabType = {issues:'issue', todos:'todo'}[projectTab];
   const eligible = records.filter(record => record.project_id === selectedProjectId && (!tabType || record.type === tabType)).map(record => record.id);
   const eligibleSet = new Set(eligible);
   const base = [...(Array.isArray(project[orderKey]) ? project[orderKey] : []), ...eligible].filter((id, index, list) => eligibleSet.has(id) && list.indexOf(id) === index);
@@ -2339,6 +3316,100 @@ function bindDragAndDrop() {
 }
 
 document.addEventListener('click', async event => {
+  const documentColorMenu = event.target.closest('[data-document-color-menu]');
+  if (documentColorMenu) { openDocumentColorPalette(documentColorMenu, documentColorMenu.dataset.documentColorMenu); return; }
+  const documentColorApply = event.target.closest('[data-document-color-apply]');
+  if (documentColorApply) { const command = documentColorApply.dataset.documentColorApply; applyDocumentColor(documentColorDefaults[command], command, false); return; }
+  const documentColorValue = event.target.closest('[data-document-color-value]');
+  if (documentColorValue) { applyDocumentColor(documentColorValue.dataset.documentColorValue); return; }
+  if (!event.target.closest('#documentColorPalette')) $('#documentColorPalette').hidden = true;
+  if (event.target.closest('#toggleDocumentTags')) { $('#documentTagOptions').hidden = !$('#documentTagOptions').hidden; return; }
+  const removeDocumentTag = event.target.closest('[data-remove-document-tag]');
+  if (removeDocumentTag) {
+    const input = $$('#documentTagOptions input').find(item => item.value === removeDocumentTag.dataset.removeDocumentTag);
+    if (input) input.checked = false;
+    updateDocumentTagSummary();
+    $('#documentSaveState').textContent = '有未保存的修改';
+    return;
+  }
+  if (!event.target.closest('.document-tag-picker') && $('#documentTagOptions')) $('#documentTagOptions').hidden = true;
+  if (event.target.closest('#openDocumentExternal')) { await openCurrentDocumentExternal(); return; }
+  if (event.target.closest('#chooseDocumentExternal')) { await openExternalEditorDialog(); return; }
+  if (event.target.closest('#newDocument')) { openDocument(); return; }
+  if (event.target.closest('#newDocumentCategory')) { await createDocumentCategory(); return; }
+  const renameDocumentCategoryButton = event.target.closest('[data-rename-document-category]');
+  if (renameDocumentCategoryButton) { event.preventDefault(); await renameDocumentCategory(renameDocumentCategoryButton.dataset.renameDocumentCategory); return; }
+  if (event.target.closest('#importKnowledgeDocuments')) { $('#knowledgeImportInput').click(); return; }
+  if (event.target.closest('#startDocumentExport')) { documentExportMode = true; documentSelection.clear(); renderDocumentsPage(); return; }
+  if (event.target.closest('#cancelDocumentExport')) { documentExportMode = false; documentSelection.clear(); renderDocumentsPage(); return; }
+  if (event.target.closest('#exportSelectedKnowledge')) { await exportSelectedDocuments(); return; }
+  if (event.target.closest('#clearDocumentSelection')) { documentSelection.clear(); $$('[data-document-select]').forEach(input => { input.checked = false; }); updateDocumentSelectionUI(); return; }
+  if (event.target.closest('#exportDocument') && currentDocument) { downloadKnowledgeFile(`/documents/${encodeURIComponent(currentDocument.id)}/export`); notify('正在导出文档', `${currentDocument.title}.md`); return; }
+  const documentCard = event.target.closest('[data-document-id]');
+  if (documentCard) {
+    if (documentExportMode) {
+      const id = documentCard.dataset.documentId;
+      if (documentSelection.has(id)) documentSelection.delete(id); else documentSelection.add(id);
+      const input = $(`[data-document-select="${id}"]`); if (input) input.checked = documentSelection.has(id);
+      updateDocumentSelectionUI(); return;
+    }
+    openDocument(documentCard.dataset.documentId); return;
+  }
+  if (event.target.closest('#toggleDocumentOutline')) {
+    documentOutlineCollapsed = !documentOutlineCollapsed;
+    localStorage.setItem('workbench-document-outline-collapsed', String(documentOutlineCollapsed));
+    updateDocumentOutline();
+    return;
+  }
+  const documentOutlineLink = event.target.closest('[data-document-outline-index]');
+  if (documentOutlineLink) { navigateDocumentOutline(documentOutlineLink); return; }
+  if (event.target.closest('#closeDocumentDialog')) { await closeDocumentEditor(); return; }
+  if (event.target.closest('#toggleDocumentExpand')) {
+    if (documentMode === 'read') setDocumentMode('visual');
+    documentExpanded = !documentExpanded;
+    $('#documentDialog').classList.toggle('expanded', documentExpanded);
+    $('#toggleDocumentExpand span').textContent = documentExpanded ? '退出展开' : '展开编辑';
+    return;
+  }
+  if (event.target.closest('#toggleDocumentMode')) { setDocumentMode(documentMode === 'read' ? 'visual' : 'read'); return; }
+  const documentModeButton = event.target.closest('[data-document-mode]');
+  if (documentModeButton) { setDocumentMode(documentModeButton.dataset.documentMode); return; }
+  const documentCommand = event.target.closest('[data-document-command]');
+  if (documentCommand) { $('#documentVisualEditor').focus(); restoreDocumentSelection(); document.execCommand(documentCommand.dataset.documentCommand, false); markDocumentChanged(); return; }
+  if (event.target.closest('[data-document-block="blockquote"]')) { $('#documentVisualEditor').focus(); restoreDocumentSelection(); toggleBlockquote($('#documentVisualEditor'), markDocumentChanged); return; }
+  if (event.target.closest('#documentChecklist')) { $('#documentVisualEditor').focus(); restoreDocumentSelection(); document.execCommand('insertHTML', false, '<ul><li class="task-item"><input type="checkbox"> 待办项</li></ul><p><br></p>'); markDocumentChanged(); return; }
+  if (event.target.closest('#documentCodeBlock')) {
+    insertDocumentCodeBlock(); return;
+  }
+  if (event.target.closest('#documentLink')) {
+    const url = await appPrompt({title:'插入链接', confirmText:'插入', input:{label:'链接地址', placeholder:'https://example.com'}});
+    if (url?.trim()) { $('#documentVisualEditor').focus(); restoreDocumentSelection(); document.execCommand('createLink', false, /^(https?:|mailto:)/i.test(url.trim()) ? url.trim() : `https://${url.trim()}`); markDocumentChanged(); }
+    return;
+  }
+  if (event.target.closest('#documentSelectionLink')) {
+    const url = await appPrompt({title:'插入链接', confirmText:'插入', input:{label:'链接地址', placeholder:'https://example.com'}});
+    if (url?.trim()) { $('#documentVisualEditor').focus(); restoreDocumentSelection(); document.execCommand('createLink', false, /^(https?:|mailto:)/i.test(url.trim()) ? url.trim() : `https://${url.trim()}`); markDocumentChanged(); }
+    return;
+  }
+  if (event.target.closest('#documentSelectionCode')) {
+    const text = documentLastRange?.toString() || '代码'; $('#documentVisualEditor').focus(); restoreDocumentSelection(); document.execCommand('insertHTML', false, `<code>${escapeHtml(text)}</code>`); markDocumentChanged(); return;
+  }
+  if (event.target.closest('#saveDocument')) { await saveDocument(); return; }
+  if (event.target.closest('#deleteDocument')) { await deleteDocument(); return; }
+  if (event.target.id === 'selectAllTrash') {
+    trashSelection = event.target.checked ? new Set(trashItems.map(item => item.token)) : new Set();
+    $$('[data-trash-select]').forEach(input => { input.checked = event.target.checked; });
+    updateTrashSelectionUI();
+    return;
+  }
+  if (event.target.matches('[data-trash-select]')) {
+    const token = event.target.dataset.trashSelect;
+    if (event.target.checked) trashSelection.add(token); else trashSelection.delete(token);
+    updateTrashSelectionUI();
+    return;
+  }
+  if (event.target.closest('#batchRestoreTrash')) { await batchRestoreTrash(); return; }
+  if (event.target.closest('#batchPurgeTrash')) { await batchPurgeTrash(); return; }
   const manageSave = event.target.closest('[data-save-manage]');
   if (manageSave) {
     if (manageSave.disabled) return;
@@ -2443,6 +3514,9 @@ document.addEventListener('click', async event => {
     event.preventDefault();
     const picker = paletteColor.closest('[data-color-picker]');
     syncColorPicker(picker, paletteColor.dataset.colorValue);
+    rememberRecentColor('workbench-recent-management-colors', paletteColor.dataset.colorValue);
+    updateTagRowDirtyState(picker.closest('.tag-edit'));
+    updateStatusRowDirtyState(picker.closest('.status-edit-row'));
     picker.classList.remove('open');
     $('.color-picker-trigger', picker).setAttribute('aria-expanded', 'false');
     if (picker.closest('#infoColorPicker')) markEditorChanged();
@@ -2455,6 +3529,13 @@ document.addEventListener('click', async event => {
   if (recordSortButton) { event.preventDefault(); openRecordSortMenu(recordSortButton); return; }
   const projectSortButton = event.target.closest('#projectSortButton');
   if (projectSortButton) { event.preventDefault(); openProjectSortMenu(projectSortButton); return; }
+  const documentCategorySortButton = event.target.closest('#documentCategorySortButton');
+  if (documentCategorySortButton) { event.preventDefault(); openDocumentCategorySortMenu(documentCategorySortButton); return; }
+  const documentSortButton = event.target.closest('[data-document-file-sort]');
+  if (documentSortButton) { event.preventDefault(); openDocumentSortMenu(documentSortButton); return; }
+  if (event.target.closest('#clearDocumentCategoryFilter')) { documentFilters.categoryQuery = ''; renderDocumentsPage(); $('#documentCategorySearch')?.focus(); return; }
+  const clearDocumentFileFilter = event.target.closest('[data-clear-document-file-filter]');
+  if (clearDocumentFileFilter) { const category = clearDocumentFileFilter.dataset.clearDocumentFileFilter; documentCategoryFileQueries[category] = ''; renderDocumentsPage(); $(`[data-document-file-search="${CSS.escape(category)}"]`)?.focus(); return; }
   const cardMenuButton = event.target.closest('[data-card-menu]');
   if (cardMenuButton) { event.preventDefault(); event.stopPropagation(); openCardMenu(cardMenuButton, cardMenuButton.dataset.cardMenu); return; }
   const columnMenuButton = event.target.closest('[data-column-menu]');
@@ -2474,12 +3555,25 @@ document.addEventListener('click', async event => {
         notify('项目排序规则已更新', labels[mode]);
       } catch (error) { notify('项目排序设置失败', error.message, true); }
     }
+    if (action === 'sort-documents') {
+      const mode = menuAction.dataset.sortMode;
+      const category = menuAction.dataset.documentCategory;
+      const labels = {manual:'手动拖动排序', updated:'最近更新优先', title:'按标题名称', created:'最新创建优先'};
+      const config = knowledgeSortConfig();
+      documentOpenCategories.add(category);
+      await saveKnowledgeSort({file_modes:{...config.file_modes, [category]:mode}}, `「${category}」文档排序已更新`, labels[mode]);
+    }
+    if (action === 'sort-document-categories') {
+      const mode = menuAction.dataset.sortMode;
+      const labels = {manual:'手动拖动排序', name:'按分类名称', count:'文档数量多优先', updated:'最近更新优先'};
+      await saveKnowledgeSort({category_mode:mode}, '分类条目排序已更新', labels[mode]);
+    }
     if (action === 'sort-records') {
       const project = projects.find(item => item.id === selectedProjectId);
       const keys = recordSortKeys();
       const mode = menuAction.dataset.sortMode;
       if (project && keys) {
-        const tabType = {issues:'issue', todos:'todo', ideas:'idea'}[projectTab];
+        const tabType = {issues:'issue', todos:'todo'}[projectTab];
         const existingOrder = Array.isArray(project[keys.order]) && project[keys.order].length
           ? project[keys.order]
           : records.filter(record => record.project_id === selectedProjectId && (!tabType || record.type === tabType)).map(record => record.id);
@@ -2524,7 +3618,7 @@ document.addEventListener('click', async event => {
       }
     }
     if (action === 'new-in-column') {
-      const type = projectTab === 'todos' ? '待办' : projectTab === 'ideas' ? '想法' : '问题';
+      const type = projectTab === 'todos' ? '待办' : '问题';
       openCreate(type, {projectId:selectedProjectId, status:menuAction.dataset.status});
     }
     if (action === 'move-column-left' || action === 'move-column-right') {
@@ -2644,6 +3738,24 @@ document.addEventListener('click', async event => {
     openUsageDetail({kind:'status', name:$('input[type="text"]', row).value.trim(), recordType:row.closest('.template-panel').dataset.templateType, statusId:row.dataset.statusId || ''});
     return;
   }
+  const saveStatusRow = event.target.closest('[data-save-status-row]');
+  if (saveStatusRow) {
+    const row = saveStatusRow.closest('.status-edit-row');
+    if (!$('input[type="text"]', row).value.trim()) { notify('请输入状态名称', '状态名称不能为空', true); $('input[type="text"]', row).focus(); return; }
+    saveStatusRow.disabled = true; saveStatusRow.textContent = '保存中…';
+    if (!await saveTemplates() && saveStatusRow.isConnected) { saveStatusRow.disabled = false; saveStatusRow.textContent = '保存'; }
+    return;
+  }
+  const cancelStatusRow = event.target.closest('[data-cancel-status-row]');
+  if (cancelStatusRow) {
+    const row = cancelStatusRow.closest('.status-edit-row');
+    if (!row.dataset.originalName) { row.remove(); updateStatusBatchUI(); return; }
+    $('input[type="text"]', row).value = row.dataset.originalName;
+    $('.status-completed', row).checked = row.dataset.originalCompleted === 'true';
+    syncColorPicker($('[data-color-picker]', row), row.dataset.originalColor || '#64748b');
+    updateStatusRowDirtyState(row);
+    return;
+  }
   const removeStatus = event.target.closest('.remove-status');
   if (removeStatus) {
     const row = removeStatus.closest('.status-edit-row');
@@ -2653,9 +3765,13 @@ document.addEventListener('click', async event => {
     if (affected.length) {
       openUsageDetail({kind:'status', name, recordType:type, statusId:row.dataset.statusId || ''});
       notify('无法删除正在使用的状态', `仍有 ${affected.length} 条记录，请先移动到其他状态`, true);
-    } else row.remove();
+    } else if (await appConfirm({title:`删除状态「${name}」？`, message:'状态将从当前工作流中移除。', detail:'删除后无法撤销。', confirmText:'删除状态', danger:true})) {
+      row.remove();
+      await saveTemplates();
+    }
     return;
   }
+  if (event.target.closest('#batchDeleteStatuses')) { await deleteSelectedStatuses(); return; }
   if (event.target.closest('#statusUsageOverview')) { openUsageOverview('status'); return; }
   if (event.target.closest('#saveTemplates')) { await saveTemplates(); return; }
   if (event.target.closest('#newWorkflow')) {
@@ -2674,9 +3790,6 @@ document.addEventListener('click', async event => {
     if (used) notify('无法删除', '仍有项目正在使用这套工作流', true);
     else if (configData.workflow_templates.length <= 1) notify('无法删除', '至少需要保留一套工作流', true);
     else if (await appConfirm({title:'删除这套工作流？', message:'删除后无法恢复这套工作流配置。', detail:'只有未被任何项目使用的工作流才能删除。', confirmText:'删除工作流', danger:true})) { configData.workflow_templates = configData.workflow_templates.filter(item => item.id !== selectedWorkflowId); selectedWorkflowId = configData.workflow_templates[0].id; api('/workflow-templates', {method:'PUT', body:JSON.stringify(configData.workflow_templates)}).then(saved => { configData.workflow_templates = saved; renderManagePage('status_templates'); notify('工作流已删除'); }); }
-  }
-  if (event.target.closest('#enableNotifications')) {
-    if ('Notification' in window) Notification.requestPermission().then(permission => notify(permission === 'granted' ? '桌面通知已启用' : '未获得通知权限', permission === 'granted' ? '到期提醒会在本地工作台运行时弹出' : '可以在浏览器站点设置中重新授权', permission !== 'granted'));
   }
   const restoreButton = event.target.closest('[data-restore-version]');
   if (restoreButton && currentRecord) {
@@ -2778,6 +3891,24 @@ document.addEventListener('click', async event => {
     openUsageDetail({kind:'tag', name:row.dataset.originalName || $('input[type="text"]', row).value.trim()});
     return;
   }
+  const saveTagRow = event.target.closest('[data-save-tag-row]');
+  if (saveTagRow) {
+    const row = saveTagRow.closest('.tag-edit');
+    if (!$('input[type="text"]', row).value.trim()) { notify('请输入标签名称', '标签名称不能为空', true); $('input[type="text"]', row).focus(); return; }
+    saveTagRow.disabled = true;
+    saveTagRow.textContent = '保存中…';
+    if (!await saveTags() && saveTagRow.isConnected) { saveTagRow.disabled = false; saveTagRow.textContent = '保存'; }
+    return;
+  }
+  const cancelTagRow = event.target.closest('[data-cancel-tag-row]');
+  if (cancelTagRow) {
+    const row = cancelTagRow.closest('.tag-edit');
+    if (!row.dataset.originalName) { row.remove(); return; }
+    $('input[type="text"]', row).value = row.dataset.originalName;
+    syncColorPicker($('[data-color-picker]', row), row.dataset.originalColor || '#64748b');
+    updateTagRowDirtyState(row);
+    return;
+  }
   const removeGlobalTag = event.target.closest('.remove-global-tag');
   if (removeGlobalTag) {
     const row = removeGlobalTag.closest('.tag-edit');
@@ -2785,10 +3916,14 @@ document.addEventListener('click', async event => {
     const affected = tagUsageRecords(name);
     if (affected.length) {
       openUsageDetail({kind:'tag', name});
-      notify('无法删除正在使用的标签', `仍有 ${affected.length} 条记录，请先从记录中移除此标签`, true);
-    } else row.remove();
+      notify('无法删除正在使用的标签', `仍有 ${affected.length} 条内容，请先从记录或知识库文档中移除此标签`, true);
+    } else if (await appConfirm({title:`删除标签「${name}」？`, message:'标签将从全局标签库中移除。', detail:'删除后无法撤销。', confirmText:'删除标签', danger:true})) {
+      row.remove();
+      await saveTags();
+    }
     return;
   }
+  if (event.target.closest('#batchDeleteTags')) { await deleteSelectedTags(); return; }
   if (event.target.closest('#tagUsageOverview')) { openUsageOverview('tag'); return; }
   const usageDetail = event.target.closest('[data-usage-detail-kind]');
   if (usageDetail) {
@@ -2801,6 +3936,12 @@ document.addEventListener('click', async event => {
     usageReturnContext = {view:{...currentUsageView}, navigationStack:usageNavigationStack.map(item => ({...item})), scrollTop:$('#usageDialogContent').scrollTop};
     $('#usageDialog').close();
     await openDrawer(usageRecord.dataset.usageRecord, {fromUsage:true});
+    return;
+  }
+  const usageDocument = event.target.closest('[data-usage-document]');
+  if (usageDocument) {
+    $('#usageDialog').close();
+    openDocument(usageDocument.dataset.usageDocument);
     return;
   }
   if (event.target.closest('#saveTags')) { await saveTags(); return; }
@@ -2831,20 +3972,12 @@ document.addEventListener('click', async event => {
   const removeTag = event.target.closest('[data-remove-tag]');
   if (removeTag && currentRecord) updateRecord(currentRecord.id, {tags:(currentRecord.tags || []).filter(tag => tag !== removeTag.dataset.removeTag)}, '标签已移除').then(() => openDrawer(currentRecord.id));
   if (event.target.closest('#addRecordTag') && currentRecord) {
-    const value = await appPrompt({title:'添加标签', message:'为当前记录添加一个便于筛选的标签。', confirmText:'添加', input:{label:'标签名称', placeholder:'例如：前端、紧急、待确认'}});
+    try { configData.tags = await api('/tags'); }
+    catch (error) { notify('无法读取标签库', error.message, true); }
+    const selected = new Set(currentRecord.tags || []);
+    const choices = (configData?.tags || []).filter(tag => !selected.has(tag.name)).map(tag => ({label:tag.name, value:tag.name, color:tag.color}));
+    const value = await appPrompt({title:'添加标签', message:choices.length ? '选择已有标签，或输入一个新标签。' : '当前没有其他可选标签，也可以直接创建新标签。', detail:choices.length ? '点击标签即可立即添加；输入新名称后按 Enter 或点击“添加”。' : '取消、右上角关闭和 Esc 均可直接退出。', confirmText:'添加', input:{label:'新标签名称（可选）', placeholder:'例如：前端、紧急、待确认', choices}});
     if (value?.trim()) updateRecord(currentRecord.id, {tags:[...new Set([...(currentRecord.tags || []), value.trim()])]}, '标签已添加').then(async () => { configData.tags = await api('/tags'); await openDrawer(currentRecord.id); });
-  }
-  const openReminder = event.target.closest('[data-open-reminder]');
-  if (openReminder) openDrawer(openReminder.dataset.openReminder);
-  const snoozeReminder = event.target.closest('[data-snooze-reminder]');
-  if (snoozeReminder) {
-    const when = new Date(Date.now() + 3600_000); const local = new Date(when.getTime() - when.getTimezoneOffset() * 60000).toISOString().slice(0,16);
-    updateRecord(snoozeReminder.dataset.snoozeReminder, {reminder:local}, '已推迟1小时').then(() => renderManagePage('reminders'));
-  }
-  const completeReminder = event.target.closest('[data-complete-reminder]');
-  if (completeReminder) {
-    const record = records.find(item => item.id === completeReminder.dataset.completeReminder); const completedStatus = statusesFor(record?.type, record?.project_id).find(item => item.completed)?.name || (record?.type === 'todo' ? '已完成' : '已解决');
-    updateRecord(completeReminder.dataset.completeReminder, {completed:true, status:completedStatus}, '已标记完成').then(() => renderManagePage('reminders'));
   }
   if (event.target.closest('#addRelation') && currentRecord) { $('#relationSearch').value = ''; renderRelationResults(); $('#relationDialog').showModal(); setTimeout(() => $('#relationSearch').focus(), 30); }
   const openRelated = event.target.closest('[data-open-related]');
@@ -2883,7 +4016,7 @@ $$('.type-picker button').forEach(button => button.addEventListener('click', () 
   const currentProject = $('#projectSelect').value || createContext.projectId;
   selectedType = button.dataset.type;
   $$('.type-picker button').forEach(item => item.classList.toggle('active', item === button));
-  $('#projectSelect').closest('label').style.opacity = selectedType === '想法' ? '.72' : '1';
+  $('#projectSelect').closest('label').style.opacity = '1';
   updateCreateFormForType();
   renderNavigation();
   if (currentProject && projects.some(project => project.id === currentProject)) $('#projectSelect').value = currentProject;
@@ -3008,7 +4141,6 @@ $('#attachmentInput').addEventListener('change', event => { uploadAttachment(eve
 $('#drawerStatus').addEventListener('change', event => { if (currentRecord) { const statusMeta = statusesFor(currentRecord.type, currentRecord.project_id).find(item => item.name === event.target.value); updateRecord(currentRecord.id, {status:event.target.value, completed:Boolean(statusMeta?.completed)}, '状态已保存'); } });
 $('#drawerPriority').addEventListener('change', event => { if (currentRecord) updateRecord(currentRecord.id, {priority:event.target.value}, '优先级已保存'); });
 $('#drawerDue').addEventListener('change', event => { if (currentRecord) updateRecord(currentRecord.id, {due:event.target.value || null}, '截止日期已保存'); });
-$('#drawerReminder').addEventListener('change', event => { if (currentRecord) updateRecord(currentRecord.id, {reminder:event.target.value || null}, '提醒时间已保存'); });
 $('#convertRecord').addEventListener('click', async () => {
   if (!currentRecord) return;
   const targetType = currentRecord.type === 'todo' ? 'issue' : 'todo';
@@ -3094,7 +4226,7 @@ $('#conflictMerged').addEventListener('click', async () => {
 $('#confirmImport').addEventListener('click', async () => {
   if (!pendingImport) return;
   const type = $('#importType').value, projectId = $('#importProject').value || null;
-  if (type !== 'idea' && !projectId) return notify('请选择项目', '问题和待办必须属于一个项目', true);
+  if (!projectId) return notify('请选择项目', '问题、待办和信息必须属于一个项目', true);
   try { const imported = await api('/import', {method:'POST', body:JSON.stringify({name:pendingImport.name, content:pendingImport.content, type, title:$('#importTitle').value.trim(), project_id:projectId})}); $('#importPreviewDialog').close(); pendingImport = null; await refreshData(); notify(`已导入：${imported.title}`); openDrawer(imported.id); }
   catch (error) { notify('导入失败', error.message, true); }
 });
@@ -3107,6 +4239,11 @@ overlay.addEventListener('click', async () => {
 });
 
 document.addEventListener('keydown', event => {
+  if (event.defaultPrevented) return;
+  if ($('#documentDialog').open && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); saveDocument(); return; }
+  if (event.target.id === 'documentVisualEditor' && (event.ctrlKey || event.metaKey) && ['b','i'].includes(event.key.toLowerCase())) {
+    event.preventDefault(); document.execCommand(event.key.toLowerCase() === 'b' ? 'bold' : 'italic', false); return;
+  }
   if (event.key === 'Enter' && !event.isComposing && event.target.matches('.new-config-row input[type="text"]')) {
     const saveButton = event.target.closest('.new-config-row')?.querySelector('[data-save-manage]');
     if (saveButton && !saveButton.disabled) {
@@ -3228,13 +4365,64 @@ $('.editor-area').addEventListener('paste', event => {
     document.execCommand('insertText', false, event.clipboardData.getData('text/plain'));
   }
 });
+$('#documentVisualEditor').addEventListener('keydown', event => {
+  if (handleDocumentTaskListEnter(event)) return;
+  if (handleCodeBlockEnter(event, markDocumentChanged)) return;
+  if (handleQuoteEnter(event, markDocumentChanged)) return;
+  if (event.key === 'Tab' && !event.isComposing) {
+    const editor = event.currentTarget;
+    const selection = selectionInsideEditor(editor);
+    const element = selection && (selection.anchorNode.nodeType === Node.ELEMENT_NODE ? selection.anchorNode : selection.anchorNode.parentElement);
+    if (element?.closest('pre')) {
+      event.preventDefault(); insertTextAtSelection('  ', editor); markDocumentChanged(); return;
+    }
+    if (element?.closest('li')) {
+      event.preventDefault(); document.execCommand(event.shiftKey ? 'outdent' : 'indent', false); markDocumentChanged(); return;
+    }
+  }
+  if (!(event.ctrlKey || event.metaKey) || event.isComposing) return;
+  const key = event.key.toLowerCase();
+  const commands = {b:'bold', i:'italic', u:'underline'};
+  if (event.shiftKey && key === 'q') {
+    event.preventDefault(); toggleBlockquote(event.currentTarget, markDocumentChanged);
+  } else if (commands[key]) {
+    event.preventDefault(); document.execCommand(commands[key], false); markDocumentChanged();
+  }
+});
+$('#documentVisualEditor').addEventListener('input', () => { finishDocumentColorBoundaryInput(); markDocumentChanged(); });
+$('#documentVisualEditor').addEventListener('change', event => { if (event.target.matches('input[type="checkbox"]')) markDocumentChanged(); });
 document.addEventListener('selectionchange', () => {
   const selection = selectionInsideEditor();
   if (!selection) return;
   lastEditorRange = selection.getRangeAt(0).cloneRange();
   updateEditorToolbarState();
 });
+document.addEventListener('selectionchange', () => requestAnimationFrame(() => { updateDocumentSelectionToolbar(); updateDocumentToolbarState(); }));
+$('#documentFormatToolbar').addEventListener('mousedown', event => { if (event.target.closest('button')) event.preventDefault(); });
+$('#documentSelectionToolbar').addEventListener('mousedown', event => { if (event.target.closest('button')) event.preventDefault(); });
+$('#documentColorPalette').addEventListener('mousedown', event => { if (event.target.closest('button')) event.preventDefault(); });
+$('#documentDialog').addEventListener('cancel', event => { event.preventDefault(); closeDocumentEditor(); });
 document.addEventListener('change', async event => {
+  if (event.target.id === 'knowledgeImportInput') { const files = [...event.target.files]; event.target.value = ''; await importKnowledgeDocuments(files); return; }
+  if (event.target.id === 'selectAllStatuses') { $$('[data-status-select]').forEach(input => { input.checked = event.target.checked; }); updateStatusBatchUI(); return; }
+  if (event.target.matches('[data-status-select]')) { updateStatusBatchUI(); return; }
+  if (event.target.matches('.status-edit-row .status-completed')) { updateStatusRowDirtyState(event.target.closest('.status-edit-row')); return; }
+  if (event.target.id === 'selectAllTags') { $$('[data-tag-select]').forEach(input => { input.checked = event.target.checked; }); updateTagBatchUI(); return; }
+  if (event.target.matches('[data-tag-select]')) { updateTagBatchUI(); return; }
+  if (event.target.matches('[data-document-custom-color]')) { applyDocumentColor(event.target.value, event.target.dataset.documentCustomColor); return; }
+  if (event.target.id === 'selectVisibleDocuments') {
+    const ids = (event.target.dataset.visibleIds || '').split(',').filter(Boolean);
+    ids.forEach(id => event.target.checked ? documentSelection.add(id) : documentSelection.delete(id));
+    $$('[data-document-select]').forEach(input => { input.checked = documentSelection.has(input.dataset.documentSelect); }); updateDocumentSelectionUI(); return;
+  }
+  if (event.target.matches('[data-document-select]')) {
+    const id = event.target.dataset.documentSelect;
+    if (event.target.checked) documentSelection.add(id); else documentSelection.delete(id);
+    updateDocumentSelectionUI(); return;
+  }
+  if (event.target.id === 'documentHeading') { $('#documentVisualEditor').focus(); restoreDocumentSelection(); document.execCommand('formatBlock', false, event.target.value); markDocumentChanged(); return; }
+  if (event.target.matches('[data-selection-heading]')) { $('#documentVisualEditor').focus(); restoreDocumentSelection(); document.execCommand('formatBlock', false, event.target.value); markDocumentChanged(); return; }
+  if (event.target.matches('#documentTagOptions input')) { updateDocumentTagSummary(); $('#documentSaveState').textContent = '有未保存的修改'; return; }
   if (event.target.id === 'projectAssetInput') {
     const files = [...event.target.files]; event.target.value = '';
     await uploadProjectAssets(files); return;
@@ -3308,25 +4496,40 @@ async function initialize() {
     window.workbenchDataDir = config.data_dir;
     await refreshData();
     await loadExternalEditors();
+    updateDocumentColorButtons();
     const requestedPage = location.hash.replace('#', '');
     if (requestedPage.startsWith('record/')) { setPage('home'); openDrawer(requestedPage.slice(7)); }
     else if (requestedPage) setPage(requestedPage);
-    checkReminders();
-    setInterval(checkReminders, 60_000);
-    let lastSignature = records.map(item => `${item.id}:${item.file_mtime || item.updated}`).sort().join('|');
     setInterval(async () => {
       if (!apiAvailable || document.hidden) return;
       try {
-        const latest = await api('/records');
-        const signature = latest.map(item => `${item.id}:${item.file_mtime || item.updated}`).sort().join('|');
-        if (signature !== lastSignature) {
+        const signatures = (await api('/record-signatures')).filter(record => record.type !== 'idea');
+        const signature = recordSignature(signatures);
+        if (signature !== lastRecordSignature) {
+          const latest = (await api('/records?summary=1')).filter(record => record.type !== 'idea');
           const latestOpen = currentRecord ? latest.find(item => item.id === currentRecord.id) : null;
           const openChanged = latestOpen && latestOpen.file_mtime !== currentRecord.file_mtime;
           if (openChanged && detailDrawer.classList.contains('visible') && editorDirty) showConflict(latestOpen);
           else if (openChanged && detailDrawer.classList.contains('visible')) openDrawer(latestOpen.id);
-          records = latest; lastSignature = signature; renderDashboard();
+          records = latest; lastRecordSignature = signature; renderDashboard();
           if ($('#projectPage').classList.contains('active')) renderProjectPage();
           if (!detailDrawer.classList.contains('visible')) notify('检测到外部 Markdown 修改', '工作台内容已重新载入');
+        }
+        if ($('#documentDialog').open || activeManagePage === 'documents') {
+          const latestDocuments = await api('/documents');
+          const latestOpenDocument = currentDocument ? latestDocuments.find(item => item.id === currentDocument.id) : null;
+          const documentChanged = latestOpenDocument && latestOpenDocument.file_mtime !== currentDocument.file_mtime;
+          if (documentChanged && $('#documentDialog').open) {
+            if (documentHasUnsavedChanges()) {
+              const mtime = String(latestOpenDocument.file_mtime || '');
+              if ($('#documentDialog').dataset.pendingExternalMtime !== mtime) {
+                $('#documentDialog').dataset.pendingExternalMtime = mtime;
+                notify('检测到外部文档修改', '当前还有未保存编辑，请先保存或放弃后重新打开文档', true);
+              }
+            } else reloadCurrentDocumentFromDisk(latestOpenDocument);
+          }
+          documents = latestDocuments;
+          if (activeManagePage === 'documents') renderDocumentsPage();
         }
       } catch { /* 保持当前内容，下一次轮询重试 */ }
     }, 15_000);
@@ -3337,6 +4540,16 @@ async function initialize() {
 }
 
 document.addEventListener('input', event => {
+  if (event.target.matches('.tag-edit input[type="text"]')) { updateTagRowDirtyState(event.target.closest('.tag-edit')); return; }
+  if (event.target.matches('.status-edit-row input[type="text"]')) { updateStatusRowDirtyState(event.target.closest('.status-edit-row')); return; }
+  if (event.target.id === 'documentCategorySearch') { documentFilters.categoryQuery = event.target.value; renderDocumentsPage(); const input = $('#documentCategorySearch'); input?.focus(); input?.setSelectionRange(input.value.length, input.value.length); return; }
+  if (event.target.matches('[data-document-file-search]')) { const category = event.target.dataset.documentFileSearch; documentCategoryFileQueries[category] = event.target.value; documentOpenCategories.add(category); renderDocumentsPage(); const input = $(`[data-document-file-search="${CSS.escape(category)}"]`); input?.focus(); input?.setSelectionRange(input.value.length, input.value.length); return; }
+  if (['documentVisualEditor','documentBody','documentTitle','documentCategory'].includes(event.target.id)) {
+    $('#documentSaveState').textContent = '有未保存的修改';
+    if (event.target.id === 'documentTitle') $('#documentOutlineTitle').textContent = event.target.value.trim() || '新建文档';
+    if (['documentVisualEditor','documentBody'].includes(event.target.id)) scheduleDocumentOutlineUpdate();
+    return;
+  }
   if (event.target.id === 'projectAssetSearch') {
     projectAssetSearch = event.target.value;
     clearTimeout(projectAssetSearchTimer);
@@ -3346,6 +4559,9 @@ document.addEventListener('input', event => {
   if (event.target.matches('[data-info-field-value]')) autoSizeInfoFieldTextareas(event.target.closest('[data-info-field-row]'));
   if (event.target.matches('[data-color-picker] input[type="color"]')) {
     syncColorPicker(event.target.closest('[data-color-picker]'), event.target.value);
+    rememberRecentColor('workbench-recent-management-colors', event.target.value);
+    updateTagRowDirtyState(event.target.closest('.tag-edit'));
+    updateStatusRowDirtyState(event.target.closest('.status-edit-row'));
     if (event.target.closest('#infoColorPicker')) markEditorChanged();
   }
   if (event.target.id === 'timelineFilterSearch') {

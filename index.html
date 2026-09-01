@@ -5,7 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light dark">
   <title>本地工作台 · 交互原型</title>
-  <link rel="stylesheet" href="styles.css?v=20260831-7">
+  <script>
+    (() => {
+      try {
+        const hashPage = location.hash.slice(1);
+        const navigation = JSON.parse(localStorage.getItem('workbench-navigation-state') || '{}');
+        const restoredPage = hashPage || navigation.page || 'home';
+        if (restoredPage !== 'home') document.documentElement.classList.add('navigation-restoring');
+      } catch { /* 使用默认首页 */ }
+    })();
+  </script>
+  <link rel="stylesheet" href="styles.css?v=20260901-10">
 </head>
 <body>
   <div class="app-shell">
@@ -25,6 +35,7 @@
         </div>
         <button class="nav-item muted" data-page="archive"><span>◫</span><b>已归档项目</b></button>
         <div class="nav-label"><span>工作区</span></div>
+        <button class="nav-item" data-page="concept_maps"><span>◇</span><b>概念图</b></button>
         <button class="nav-item" data-page="documents"><span>▤</span><b>知识库</b></button>
         <button class="nav-item" data-page="timeline"><span>☷</span><b>全部记录</b></button>
         <button class="nav-item" data-page="tags"><span>⌗</span><b>标签管理</b></button>
@@ -137,6 +148,37 @@
         <div id="manageContent"></div>
       </section>
 
+      <section class="page concept-map-page" id="conceptMapPage">
+        <div class="concept-map-library" id="conceptMapLibrary"></div>
+        <div class="concept-map-workspace" id="conceptMapWorkspace" hidden>
+          <header class="concept-map-toolbar">
+            <button type="button" class="icon-button" id="closeConceptMap" title="返回概念图库" aria-label="返回概念图库">←</button>
+            <div class="concept-map-title-fields"><input id="conceptMapTitle" aria-label="概念图标题" placeholder="概念图标题"><input id="conceptMapFocus" aria-label="焦点问题" placeholder="输入这张图要回答的焦点问题…"></div>
+            <span class="concept-map-save-state" id="conceptMapSaveState">已保存</span>
+            <div class="concept-map-tools">
+              <button type="button" class="secondary-button" id="addConceptNode">＋ 概念</button>
+              <button type="button" class="secondary-button" id="layoutConceptMap">自动布局</button>
+              <button type="button" class="secondary-button" id="fitConceptMap">适应画布</button>
+              <button type="button" class="secondary-button" id="exportConceptMap">导出 PNG</button>
+              <button type="button" class="icon-button concept-map-more" id="conceptMapMore" title="更多操作" aria-label="更多操作">•••</button>
+            </div>
+          </header>
+          <div class="concept-map-body">
+            <div class="concept-map-canvas-shell" id="conceptMapCanvasShell">
+              <div class="concept-map-stage" id="conceptMapStage">
+                <svg class="concept-map-edges" id="conceptMapEdges" width="12000" height="8000" viewBox="0 0 12000 8000" aria-label="概念关系"></svg>
+                <div class="concept-map-labels" id="conceptMapLabels"></div>
+                <div class="concept-map-nodes" id="conceptMapNodes"></div>
+              </div>
+              <div class="concept-map-hint" id="conceptMapHint">拖动画布平移 · Shift＋拖动框选 · Ctrl＋Z 撤销 · 双击添加概念 · 从四向箭头拖出新概念</div>
+              <div class="concept-map-minimap" id="conceptMapMiniMap" title="导航视图"></div>
+              <div class="concept-map-zoom"><button type="button" id="conceptMapZoomOut">−</button><button type="button" id="conceptMapZoomValue">100%</button><button type="button" id="conceptMapZoomIn">＋</button></div>
+            </div>
+            <aside class="concept-map-inspector" id="conceptMapInspector" hidden></aside>
+          </div>
+        </div>
+      </section>
+
       <section class="page placeholder-page" id="placeholderPage"><div><span>◫</span><h1 id="placeholderTitle">页面原型</h1><p>该页面将在后续原型中继续完善。</p><button class="primary-button" data-page-link="home">返回首页</button></div></section>
     </main>
   </div>
@@ -167,9 +209,11 @@
       <section class="info-fields-panel" id="infoFieldsPanel"><header><div><strong>信息字段</strong><small>拖动字段调整顺序，可补充说明或插入正文</small></div><div class="info-fields-actions"><span class="info-color-label">色条</span><div id="infoColorPicker"></div><button type="button" id="addDrawerInfoField">＋ 添加字段</button></div></header><div id="drawerInfoFieldList"></div></section>
       <div class="editor-tabs"><button class="active" data-editor-mode="wysiwyg">所见即所得</button><button data-editor-mode="markdown">Markdown</button><button data-editor-mode="split">分栏</button><button id="toggleEditorExpand" class="editor-expand-button" aria-pressed="false" title="展开编辑区域">⛶ 展开编辑</button></div>
       <div class="editor-toolbar" role="toolbar" aria-label="正文格式工具栏">
-        <button data-editor-command="bold" title="加粗（Ctrl+B）"><b>B</b></button><button data-editor-command="italic" title="斜体（Ctrl+I）"><i>I</i></button><span></span>
-        <label class="editor-toolbar-select" title="设置正文或标题级别"><span>标题</span><select id="editorHeadingLevel" aria-label="标题级别"><option value="p">正文</option><option value="h1">一级标题</option><option value="h2">二级标题</option><option value="h3">三级标题</option><option value="h4">四级标题</option></select></label><button data-editor-command="insertUnorderedList" title="项目列表（Ctrl+Shift+8）">• 列表</button><button data-editor-command="insertOrderedList" title="编号列表（Ctrl+Shift+7）">1. 列表</button><button id="insertChecklist" title="插入待办项">☐ 待办项</button><button data-editor-block="blockquote" title="引用块（Ctrl+Shift+Q）；空引用行回车退出">❝ 引用</button><span></span>
-        <label class="editor-toolbar-select code-language-select" title="选择新代码块或当前代码块的语言"><span>语言</span><select id="codeLanguage" aria-label="代码语言"><option value="txt">TXT 文本</option><option value="javascript">JavaScript</option><option value="typescript">TypeScript</option><option value="python">Python</option><option value="java">Java</option><option value="c">C</option><option value="cpp">C++</option><option value="csharp">C#</option><option value="go">Go</option><option value="rust">Rust</option><option value="html">HTML</option><option value="css">CSS</option><option value="json">JSON</option><option value="sql">SQL</option><option value="shell">Shell</option><option value="markdown">Markdown</option><option value="yaml">YAML</option></select></label><button id="insertCodeBlock" title="使用所选语言插入代码块；连续三次回车退出，Ctrl+Enter 立即退出">&lt;/&gt; 代码块</button><button id="insertEditorLink" title="添加网页链接">🔗 链接</button><button id="insertRecordReference" title="引用另一条记录">⌗ 引用记录</button><button data-editor-command="removeFormat" title="清除格式">清除格式</button>
+        <span class="editor-tool-group"><button data-editor-command="bold" aria-label="加粗" title="加粗（Ctrl+B）"><b>B</b></button><button data-editor-command="italic" aria-label="斜体" title="斜体（Ctrl+I）"><i>I</i></button></span>
+        <span class="editor-tool-group"><label class="editor-toolbar-select editor-heading-control" title="设置正文或标题级别"><select id="editorHeadingLevel" aria-label="标题级别"><option value="p">正文</option><option value="h1">一级标题</option><option value="h2">二级标题</option><option value="h3">三级标题</option><option value="h4">四级标题</option></select></label></span>
+        <span class="editor-tool-group"><button data-editor-command="insertUnorderedList" aria-label="项目列表" title="项目列表（Ctrl+Shift+8）"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg></button><button data-editor-command="insertOrderedList" aria-label="编号列表" title="编号列表（Ctrl+Shift+7）"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6h10M10 12h10M10 18h10M4 5h1v3M4 11h2l-2 3h2M4 17h2v3H4"/></svg></button><button id="insertChecklist" aria-label="插入待办项" title="插入待办项"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="7" height="7" rx="1"/><path d="m5 7 2 2 4-5M14 7h7M3 17h7M14 17h7"/></svg></button><button data-editor-block="blockquote" aria-label="引用块" title="引用块（Ctrl+Shift+Q）；空引用行回车退出"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17H4a2 2 0 0 1-2-2v-3a6 6 0 0 1 6-6v3a3 3 0 0 0-3 3h2v5ZM19 17h-3a2 2 0 0 1-2-2v-3a6 6 0 0 1 6-6v3a3 3 0 0 0-3 3h2v5Z"/></svg></button></span>
+        <span class="editor-tool-group editor-code-group"><label class="editor-toolbar-select code-language-select" title="选择新代码块或当前代码块的语言"><select id="codeLanguage" aria-label="代码语言"><option value="txt">TXT 文本</option><option value="javascript">JavaScript</option><option value="typescript">TypeScript</option><option value="python">Python</option><option value="java">Java</option><option value="c">C</option><option value="cpp">C++</option><option value="csharp">C#</option><option value="go">Go</option><option value="rust">Rust</option><option value="html">HTML</option><option value="css">CSS</option><option value="json">JSON</option><option value="sql">SQL</option><option value="shell">Shell</option><option value="markdown">Markdown</option><option value="yaml">YAML</option></select></label><button id="insertCodeBlock" aria-label="插入代码块" title="使用所选语言插入代码块；连续三次回车退出，Ctrl+Enter 立即退出"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 9-3 3 3 3M16 9l3 3-3 3M14 5l-4 14"/></svg></button></span>
+        <span class="editor-tool-group"><button id="insertEditorLink" aria-label="添加网页链接" title="添加网页链接"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.1 1.1M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.1-1.1"/></svg></button><button id="insertRecordReference" aria-label="引用另一条记录" title="引用另一条记录"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8H6a4 4 0 0 0 0 8h3M16 8h2a4 4 0 0 1 0 8h-3M8 12h8"/></svg></button><button data-editor-command="removeFormat" aria-label="清除格式" title="清除格式"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M5 6h11M12 6l-4 12M5 18h9"/></svg></button></span>
       </div>
       <div class="editor-area"><article class="editor" contenteditable="true" aria-label="记录正文" data-placeholder="输入正文，支持 Markdown 格式与快捷键" spellcheck="false" autocorrect="off" autocapitalize="off"></article><textarea class="markdown-source" aria-label="Markdown 源码" spellcheck="false" autocorrect="off" autocapitalize="off"></textarea><article class="markdown-preview"></article><button type="button" class="editor-auto-expand">内容较长，点击编辑框展开全部⌄</button></div>
       <section class="relation-box"><header><strong>关联记录</strong><button id="addRelation">＋ 添加关联</button></header><div id="relationList"><div class="empty-state">暂无关联记录</div></div></section>
@@ -282,7 +326,7 @@
           <div class="document-format-toolbar" id="documentFormatToolbar">
             <label class="document-heading-control"><select id="documentHeading" aria-label="段落格式"><option value="p">正文</option><option value="h1">标题 1</option><option value="h2">标题 2</option><option value="h3">标题 3</option><option value="h4">标题 4</option></select></label>
             <span class="document-tool-group"><button type="button" data-document-command="bold" title="加粗 Ctrl+B"><b>B</b></button><button type="button" data-document-command="italic" title="斜体 Ctrl+I"><i>I</i></button><button type="button" data-document-command="underline" title="下划线"><u>U</u></button><button type="button" data-document-command="strikeThrough" title="删除线"><s>S</s></button></span>
-            <span class="document-tool-group"><button type="button" id="documentLink" title="插入链接"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1"/></svg></button><button type="button" id="documentCodeBlock" title="在光标位置插入代码块"><svg viewBox="0 0 24 24"><path d="m8 9-3 3 3 3M16 9l3 3-3 3M14 5l-4 14"/></svg></button><span class="document-color-split"><button type="button" class="document-color-apply text-color" data-document-color-apply="foreColor" title="应用上次字体颜色"><span>A</span></button><button type="button" class="document-color-menu" data-document-color-menu="foreColor" title="选择字体颜色">⌄</button></span><span class="document-color-split"><button type="button" class="document-color-apply fill-color" data-document-color-apply="hiliteColor" title="应用上次背景颜色"><span>A</span></button><button type="button" class="document-color-menu" data-document-color-menu="hiliteColor" title="选择背景颜色">⌄</button></span></span>
+            <span class="document-tool-group"><button type="button" id="documentLink" title="插入链接"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1"/></svg></button><label class="document-code-language" title="选择新代码块或当前代码块的语言"><select id="documentCodeLanguage" aria-label="代码语言"><option value="txt">TXT</option><option value="javascript">JavaScript</option><option value="typescript">TypeScript</option><option value="python">Python</option><option value="java">Java</option><option value="c">C</option><option value="cpp">C++</option><option value="csharp">C#</option><option value="go">Go</option><option value="rust">Rust</option><option value="html">HTML</option><option value="css">CSS</option><option value="json">JSON</option><option value="sql">SQL</option><option value="shell">Shell</option><option value="markdown">Markdown</option><option value="yaml">YAML</option></select></label><button type="button" id="documentCodeBlock" title="使用所选语言插入代码块；连续三次回车退出，Ctrl+Enter 立即退出"><svg viewBox="0 0 24 24"><path d="m8 9-3 3 3 3M16 9l3 3-3 3M14 5l-4 14"/></svg></button><span class="document-color-split"><button type="button" class="document-color-apply text-color" data-document-color-apply="foreColor" title="应用上次字体颜色"><span>A</span></button><button type="button" class="document-color-menu" data-document-color-menu="foreColor" title="选择字体颜色">⌄</button></span><span class="document-color-split"><button type="button" class="document-color-apply fill-color" data-document-color-apply="hiliteColor" title="应用上次背景颜色"><span>A</span></button><button type="button" class="document-color-menu" data-document-color-menu="hiliteColor" title="选择背景颜色">⌄</button></span></span>
             <span class="document-tool-group"><button type="button" data-document-command="insertUnorderedList" title="无序列表（空行回车退出）"><svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg></button><button type="button" data-document-command="insertOrderedList" title="编号列表（空行回车退出）"><svg viewBox="0 0 24 24"><path d="M10 6h10M10 12h10M10 18h10M4 5h1v3M4 11h2l-2 3h2M4 17h2v3H4"/></svg></button><button type="button" id="documentChecklist" title="任务列表"><svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M3 6l1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2"/></svg></button><button type="button" data-document-block="blockquote" title="引用（空行回车或再次点击退出）"><svg viewBox="0 0 24 24"><path d="M7 17H4a2 2 0 0 1-2-2v-3a6 6 0 0 1 6-6v2a4 4 0 0 0-4 4h3v5ZM19 17h-3a2 2 0 0 1-2-2v-3a6 6 0 0 1 6-6v2a4 4 0 0 0-4 4h3v5Z"/></svg></button></span>
             <span class="document-tool-group"><button type="button" data-document-command="justifyLeft" title="左对齐"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 10h11M4 14h16M4 18h9"/></svg></button><button type="button" data-document-command="justifyCenter" title="居中"><svg viewBox="0 0 24 24"><path d="M4 6h16M7 10h10M4 14h16M8 18h8"/></svg></button><button type="button" data-document-command="justifyRight" title="右对齐"><svg viewBox="0 0 24 24"><path d="M4 6h16M9 10h11M4 14h16M11 18h9"/></svg></button><button type="button" data-document-command="removeFormat" title="清除格式"><svg viewBox="0 0 24 24"><path d="m3 3 18 18M5 6h11M12 6l-4 12M5 18h9"/></svg></button></span>
           </div>
@@ -303,6 +347,7 @@
   <div class="toast" id="toast"><span>✓</span><div><strong>已创建记录</strong><small>Markdown 文件已保存到项目目录</small></div></div>
   <div class="context-menu" id="kanbanContextMenu" aria-hidden="true"></div>
   <div class="timeline-filter-popover" id="timelineFilterPopover" role="dialog" aria-label="记录筛选" aria-hidden="true"></div>
-  <script src="app.js?v=20260831-4"></script>
+  <script src="app.js?v=20260901-10"></script>
+  <script src="concept-map.js?v=20260901-18"></script>
 </body>
 </html>

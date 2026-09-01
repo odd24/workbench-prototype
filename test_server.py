@@ -342,6 +342,16 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(refreshed_record["attachments"], [])
         self.assertNotIn("record.txt", refreshed_record["body"])
 
+    def test_pasted_image_upload_can_register_without_replacing_unsaved_body(self):
+        project = self.repo.create_project({"name": "粘贴图片项目"})
+        record = self.repo.create_record({"type": "issue", "title": "粘贴图片", "project_id": project["id"], "body": "输入后保留的正文"})
+        image = self.repo.add_record_attachment_stream(record["id"], "clipboard.png", io.BytesIO(b"png-data"), 8, append_to_body=False)
+        refreshed = self.repo.get_record(record["id"])[0]
+        self.assertEqual(refreshed["body"], "输入后保留的正文")
+        self.assertEqual(image["name"], "clipboard.png")
+        self.assertEqual(image["mime"], "image/png")
+        self.assertEqual(len(refreshed["attachments"]), 1)
+
     def test_export_location_is_validated_persisted_and_written(self):
         self.repo.create_record({"type": "idea", "title": "导出位置测试"})
         with tempfile.TemporaryDirectory() as destination_parent:
@@ -441,6 +451,84 @@ class RepositoryTests(unittest.TestCase):
             self.assertEqual(len(archive.namelist()), 1)
             self.assertNotIn(second["id"], archive.namelist()[0])
 
+    def test_concept_map_create_update_and_trash(self):
+        created = self.repo.create_concept_map({"title": "产品方向", "focus_question": "下一步做什么？"})
+        self.assertEqual(created["id"], "CMAP-0001")
+        self.assertEqual(created["version"], 2)
+        self.assertEqual(created["nodes"][0]["text"], "产品方向")
+        self.assertEqual(created["nodes"][0]["type"], "concept")
+        self.assertEqual(created["nodes"][0]["height"], 38.0)
+        self.assertEqual(created["nodes"][0]["border_color"], "#9eb4c7")
+        self.assertEqual(created["category"], "未分类")
+        self.assertEqual(created["nodes"][0]["x"], (12_000 - created["nodes"][0]["width"]) / 2)
+        self.assertEqual(created["nodes"][0]["y"], (8_000 - created["nodes"][0]["height"]) / 2)
+        updated = self.repo.update_concept_map(created["id"], {
+            "nodes": [
+                {"id": "root", "text": "产品方向", "x": 100, "y": 80, "color": "#e8f0ff"},
+                {"id": "link", "type": "linking_phrase", "text": "通过", "x": 260, "y": 145, "width": 36, "height": 22},
+                {"id": "child", "text": "用户研究", "x": 380, "y": 210, "shape": "pill"},
+            ],
+            "edges": [
+                {"id": "relation-in", "from": "root", "to": "link", "label": "", "arrowhead": "none"},
+                {"id": "relation-out", "from": "link", "to": "child", "label": "", "arrowhead": "none"},
+            ],
+            "viewport": {"x": 25, "y": -10, "zoom": 1.25},
+        })
+        self.assertEqual(len(updated["nodes"]), 3)
+        self.assertEqual(updated["nodes"][1]["type"], "linking_phrase")
+        self.assertEqual(updated["nodes"][1]["height"], 22.0)
+        self.assertEqual(updated["edges"][0]["arrowhead"], "none")
+        self.assertEqual(updated["edges"][1]["arrowhead"], "to")
+        summary = self.repo.list_concept_maps()[0]
+        self.assertEqual(summary["node_count"], 2)
+        self.assertEqual(summary["relation_count"], 1)
+        self.assertEqual(summary["edge_count"], 2)
+        reloaded, path = self.repo.get_concept_map(created["id"])
+        self.assertEqual(reloaded["viewport"]["zoom"], 1.25)
+        self.assertTrue(path.is_file())
+        trashed = self.repo.delete_concept_map(created["id"])
+        self.assertEqual(trashed["kind"], "concept-map")
+        self.assertIsNone(self.repo.get_concept_map(created["id"])[0])
+
+    def test_concept_map_categories_can_be_created_assigned_and_renamed(self):
+        self.assertEqual(self.repo.save_concept_map_categories(["产品规划", "空分类"]), ["产品规划", "空分类"])
+        first = self.repo.create_concept_map({"title": "增长路径", "category": "产品规划"})
+        second = self.repo.create_concept_map({"title": "技术选型", "category": "技术研究"})
+        self.assertEqual(first["category"], "产品规划")
+        self.assertIn("技术研究", self.repo.concept_map_categories())
+        moved = self.repo.update_concept_map(second["id"], {"category": "产品规划"})
+        self.assertEqual(moved["category"], "产品规划")
+        self.assertIsNone(moved["project_id"])
+        renamed = self.repo.rename_concept_map_category("产品规划", "产品路线")
+        self.assertEqual(renamed["updated_maps"], 2)
+        self.assertIn("空分类", renamed["categories"])
+        self.assertNotIn("产品规划", renamed["categories"])
+        self.assertEqual(self.repo.get_concept_map(first["id"])[0]["category"], "产品路线")
+        self.assertEqual(self.repo.get_concept_map(second["id"])[0]["category"], "产品路线")
+
+    def test_concept_map_category_delete_moves_maps_to_uncategorized(self):
+        self.repo.save_concept_map_categories(["待整理", "空分类"])
+        concept_map = self.repo.create_concept_map({"title": "用户路径", "category": "待整理"})
+        deleted = self.repo.delete_concept_map_category("待整理")
+        self.assertEqual(deleted["updated_maps"], 1)
+        self.assertNotIn("待整理", deleted["categories"])
+        self.assertIn("未分类", deleted["categories"])
+        self.assertEqual(self.repo.get_concept_map(concept_map["id"])[0]["category"], "未分类")
+        with self.assertRaises(ValueError):
+            self.repo.delete_concept_map_category("未分类")
+
+    def test_concept_map_rejects_invalid_or_oversized_data(self):
+        with self.assertRaises(ValueError):
+            self.repo.create_concept_map({"title": ""})
+        with self.assertRaises(ValueError):
+            self.repo.create_concept_map({"title": "过大", "nodes": [{}] * 501})
+        created = self.repo.create_concept_map({
+            "title": "清理关系",
+            "nodes": [{"id": "node-a", "text": "A"}],
+            "edges": [{"id": "bad", "from": "node-a", "to": "missing"}],
+        })
+        self.assertEqual(created["edges"], [])
+
     def test_document_sort_supports_separate_category_and_file_orders(self):
         first = self.repo.create_document({"title": "乙文档", "category": "技术"})
         second = self.repo.create_document({"title": "甲文档", "category": "技术"})
@@ -493,6 +581,19 @@ class RepositoryTests(unittest.TestCase):
         self.assertTrue(all(document["category"] == "研发资料" for document in self.repo.list_documents()))
         with self.assertRaises(ValueError):
             self.repo.rename_document_category("研发资料", "空分类")
+
+    def test_document_category_delete_moves_documents_to_uncategorized(self):
+        self.repo.save_document_categories(["产品资料", "空分类"])
+        document = self.repo.create_document({"title": "需求说明", "category": "产品资料"})
+        self.repo.save_document_sort({"category_mode": "manual", "category_order": ["产品资料", "空分类"], "file_modes": {"产品资料": "manual"}})
+        deleted = self.repo.delete_document_category("产品资料")
+        self.assertEqual(deleted["updated_documents"], 1)
+        self.assertNotIn("产品资料", deleted["categories"])
+        self.assertIn("未分类", deleted["categories"])
+        self.assertEqual(self.repo.get_document(document["id"])[0]["category"], "未分类")
+        self.assertNotIn("产品资料", deleted["document_sort"]["category_order"])
+        with self.assertRaises(ValueError):
+            self.repo.delete_document_category("未分类")
 
 
 if __name__ == "__main__":

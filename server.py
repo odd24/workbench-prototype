@@ -31,9 +31,11 @@ DEFAULT_DATA_DIR = APP_DIR / "workbench-data"
 LOCATION_FILE = APP_DIR / ".workbench-location.json"
 EXPORT_LOCATION_FILE = APP_DIR / ".workbench-export.json"
 EXTERNAL_EDITOR_FILE = APP_DIR / ".workbench-editor.json"
-APP_VERSION = "2026.08.31.3"
+APP_VERSION = "2026.09.01.3"
 TYPE_DIRS = {"issue": "issues", "todo": "todos", "idea": "ideas", "info": "infos"}
 TYPE_PREFIXES = {"issue": "ISSUE", "todo": "TODO", "idea": "IDEA", "info": "INFO"}
+CONCEPT_MAP_WIDTH = 12_000.0
+CONCEPT_MAP_HEIGHT = 8_000.0
 
 
 def _environment_path(variable: str, *parts: str) -> str | None:
@@ -222,10 +224,11 @@ class Repository:
         self.global_ideas_dir = self.root / "ideas"
         self.global_assets_dir = self.root / "assets"
         self.documents_dir = self.root / "documents"
+        self.concept_maps_dir = self.root / "concept-maps"
         self.trash_dir = self.root / ".trash"
         self.history_dir = self.root / "history"
         self.config_dir = self.root / "config"
-        for directory in (self.projects_dir, self.global_ideas_dir, self.global_assets_dir, self.documents_dir, self.trash_dir, self.history_dir, self.config_dir):
+        for directory in (self.projects_dir, self.global_ideas_dir, self.global_assets_dir, self.documents_dir, self.concept_maps_dir, self.trash_dir, self.history_dir, self.config_dir):
             directory.mkdir(parents=True, exist_ok=True)
         self._ensure_config()
         self.cleanup_trash()
@@ -270,6 +273,9 @@ class Repository:
         document_categories = self.config_dir / "document-categories.json"
         if not document_categories.exists():
             document_categories.write_text("[]", encoding="utf-8")
+        concept_map_categories = self.config_dir / "concept-map-categories.json"
+        if not concept_map_categories.exists():
+            concept_map_categories.write_text("[]", encoding="utf-8")
         trash_index = self.trash_dir / "index.json"
         if not trash_index.exists():
             trash_index.write_text("{}", encoding="utf-8")
@@ -283,6 +289,7 @@ class Repository:
             "project_sort": self.project_sort(),
             "document_sort": self.document_sort(),
             "document_categories": self.document_categories(),
+            "concept_map_categories": self.concept_map_categories(),
         }
 
     def project_sort(self) -> dict:
@@ -451,6 +458,35 @@ class Repository:
         file_orders = dict(sorting.get("file_orders", {}))
         if old_name in file_orders:
             file_orders[new_name] = file_orders.pop(old_name)
+        saved_sort = self.save_document_sort({**sorting, "category_order": category_order, "file_modes": file_modes, "file_orders": file_orders})
+        return {"categories": saved_categories, "document_sort": saved_sort, "updated_documents": changed}
+
+    def delete_document_category(self, name: str) -> dict:
+        name = str(name).strip()
+        categories = self.document_categories()
+        if name not in categories:
+            raise FileNotFoundError(name)
+        if name == "未分类":
+            raise ValueError("“未分类”是系统默认分类，不能删除")
+        changed = 0
+        for document in self.list_documents():
+            if str(document.get("category") or "未分类") != name:
+                continue
+            path = Path(document["file_path"])
+            meta = {key: value for key, value in document.items() if key not in {"body", "file_path", "file_mtime"}}
+            meta["category"], meta["updated"] = "未分类", now_iso()
+            path.write_text(dump_markdown(meta, document.get("body", "")), encoding="utf-8")
+            changed += 1
+        remaining = [category for category in categories if category != name]
+        if "未分类" not in remaining:
+            remaining.append("未分类")
+        saved_categories = self.save_document_categories(remaining)
+        sorting = self.document_sort()
+        category_order = [category for category in sorting.get("category_order", []) if category != name]
+        if "未分类" not in category_order:
+            category_order.append("未分类")
+        file_modes = {category: mode for category, mode in sorting.get("file_modes", {}).items() if category != name}
+        file_orders = {category: order for category, order in sorting.get("file_orders", {}).items() if category != name}
         saved_sort = self.save_document_sort({**sorting, "category_order": category_order, "file_modes": file_modes, "file_orders": file_orders})
         return {"categories": saved_categories, "document_sort": saved_sort, "updated_documents": changed}
 
@@ -812,6 +848,257 @@ class Repository:
             documents.append({**meta, "body": body, "file_path": str(path), "file_mtime": path.stat().st_mtime_ns})
         return sorted(documents, key=lambda item: item.get("updated", ""), reverse=True)
 
+    @staticmethod
+    def _concept_map_number(value, default=0.0) -> float:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return float(default)
+        return number if abs(number) <= 100_000 else float(default)
+
+    def _normalize_concept_map(self, payload: dict, current: dict | None = None) -> dict:
+        if not isinstance(payload, dict):
+            raise ValueError("概念图数据无效")
+        base = current or {}
+        title = str(payload.get("title", base.get("title", ""))).strip()[:120]
+        if not title:
+            raise ValueError("概念图标题不能为空")
+        raw_nodes = payload.get("nodes", base.get("nodes", []))
+        raw_edges = payload.get("edges", base.get("edges", []))
+        if not isinstance(raw_nodes, list) or len(raw_nodes) > 500:
+            raise ValueError("概念图节点数量无效")
+        if not isinstance(raw_edges, list) or len(raw_edges) > 1000:
+            raise ValueError("概念图关系数量无效")
+        nodes, node_ids, node_types = [], set(), {}
+        for index, raw in enumerate(raw_nodes):
+            if not isinstance(raw, dict):
+                continue
+            node_id = str(raw.get("id", "")).strip()
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", node_id) or node_id in node_ids:
+                node_id = f"node-{index + 1}"
+                while node_id in node_ids:
+                    node_id += "x"
+            node_ids.add(node_id)
+            node_type = str(raw.get("type", "concept"))
+            if node_type not in {"concept", "linking_phrase"}:
+                node_type = "concept"
+            node_types[node_id] = node_type
+            shape = str(raw.get("shape", "rounded"))
+            if shape not in {"rounded", "rectangle", "pill", "ellipse"}:
+                shape = "rounded"
+            default_fill = "#eef0f2" if node_type == "linking_phrase" else "#ffffff"
+            default_border = "#eef0f2" if node_type == "linking_phrase" else "#9eb4c7"
+            color = str(raw.get("color", default_fill))
+            if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+                color = default_fill
+            border_color = str(raw.get("border_color", default_border))
+            if not re.fullmatch(r"#[0-9a-fA-F]{6}", border_color):
+                border_color = default_border
+            text_color = str(raw.get("text_color", "#213044"))
+            if not re.fullmatch(r"#[0-9a-fA-F]{6}", text_color):
+                text_color = "#213044"
+            font_weight = int(raw.get("font_weight", 400)) if str(raw.get("font_weight", 400)).isdigit() else 400
+            if font_weight not in {400, 600, 700}:
+                font_weight = 400
+            min_width, min_height = (30, 22) if node_type == "linking_phrase" else (72, 30)
+            nodes.append({
+                "id": node_id, "text": str(raw.get("text", "新概念")).strip()[:500] or "新概念",
+                "type": node_type,
+                "note": str(raw.get("note", ""))[:5000],
+                "x": self._concept_map_number(raw.get("x")), "y": self._concept_map_number(raw.get("y")),
+                "width": min(420, max(min_width, self._concept_map_number(raw.get("width"), 120))),
+                "height": min(260, max(min_height, self._concept_map_number(raw.get("height"), 38))),
+                "color": color.lower(), "border_color": border_color.lower(), "text_color": text_color.lower(),
+                "font_size": min(32, max(10, int(self._concept_map_number(raw.get("font_size"), 13)))),
+                "font_weight": font_weight, "shape": shape,
+            })
+        edges, edge_ids = [], set()
+        for index, raw in enumerate(raw_edges):
+            if not isinstance(raw, dict) or raw.get("from") not in node_ids or raw.get("to") not in node_ids or raw.get("from") == raw.get("to"):
+                continue
+            edge_id = str(raw.get("id", "")).strip()
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", edge_id) or edge_id in edge_ids:
+                edge_id = f"edge-{index + 1}"
+                while edge_id in edge_ids:
+                    edge_id += "x"
+            edge_ids.add(edge_id)
+            color = str(raw.get("color", "#64748b"))
+            if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+                color = "#64748b"
+            default_arrowhead = "none" if node_types.get(raw["to"]) == "linking_phrase" else "to"
+            arrowhead = str(raw.get("arrowhead", default_arrowhead))
+            if arrowhead not in {"none", "to", "from", "both"}:
+                arrowhead = default_arrowhead
+            if node_types.get(raw["to"]) == "linking_phrase":
+                arrowhead = "none"
+            elif node_types.get(raw["from"]) == "linking_phrase" and node_types.get(raw["to"]) == "concept":
+                arrowhead = "to"
+            edges.append({
+                "id": edge_id, "from": raw["from"], "to": raw["to"],
+                "label": str(raw.get("label", "相关于")).strip()[:120],
+                "color": color.lower(), "dashed": bool(raw.get("dashed", False)), "arrowhead": arrowhead,
+            })
+        viewport = payload.get("viewport", base.get("viewport", {}))
+        if not isinstance(viewport, dict):
+            viewport = {}
+        zoom = min(3, max(.2, self._concept_map_number(viewport.get("zoom"), 1)))
+        return {
+            "version": 2, "title": title,
+            "project_id": str(payload.get("project_id", base.get("project_id", "")) or "").strip()[:80] or None,
+            "category": str(payload.get("category", base.get("category", "未分类"))).strip()[:80] or "未分类",
+            "focus_question": str(payload.get("focus_question", base.get("focus_question", ""))).strip()[:500],
+            "theme": str(payload.get("theme", base.get("theme", "light"))) if str(payload.get("theme", base.get("theme", "light"))) in {"light", "paper", "dots"} else "light",
+            "viewport": {"x": self._concept_map_number(viewport.get("x")), "y": self._concept_map_number(viewport.get("y")), "zoom": zoom},
+            "nodes": nodes, "edges": edges,
+        }
+
+    def list_concept_maps(self) -> list[dict]:
+        maps = []
+        for path in self.concept_maps_dir.glob("CMAP-*.json"):
+            try:
+                item = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(item, dict):
+                continue
+            concept_count = sum(1 for node in item.get("nodes", []) if node.get("type", "concept") != "linking_phrase")
+            relation_count = sum(1 for node in item.get("nodes", []) if node.get("type") == "linking_phrase")
+            if not relation_count:
+                relation_count = sum(1 for edge in item.get("edges", []) if edge.get("label"))
+            maps.append({key: item.get(key) for key in ("id", "title", "project_id", "focus_question", "category", "created", "updated")} | {"category": str(item.get("category") or "未分类"), "node_count": concept_count, "relation_count": relation_count, "edge_count": len(item.get("edges", []))})
+        return sorted(maps, key=lambda item: item.get("updated", ""), reverse=True)
+
+    def concept_map_categories(self) -> list[str]:
+        path = self.config_dir / "concept-map-categories.json"
+        try:
+            configured = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            configured = []
+        if not isinstance(configured, list):
+            configured = []
+        categories = list(dict.fromkeys(str(item).strip() for item in configured if str(item).strip()))
+        for concept_map in self.list_concept_maps():
+            category = str(concept_map.get("category") or "未分类").strip() or "未分类"
+            if category not in categories:
+                categories.append(category)
+        return categories
+
+    def save_concept_map_categories(self, categories: list) -> list[str]:
+        if not isinstance(categories, list):
+            raise ValueError("概念图分类格式无效")
+        cleaned = []
+        for value in categories:
+            name = str(value).strip()
+            if not name:
+                continue
+            if len(name) > 80:
+                raise ValueError("分类名称不能超过 80 个字符")
+            if name not in cleaned:
+                cleaned.append(name)
+        for concept_map in self.list_concept_maps():
+            category = str(concept_map.get("category") or "未分类").strip() or "未分类"
+            if category not in cleaned:
+                cleaned.append(category)
+        (self.config_dir / "concept-map-categories.json").write_text(json.dumps(cleaned, ensure_ascii=False, indent=2), encoding="utf-8")
+        return cleaned
+
+    def ensure_concept_map_category(self, category: str) -> str:
+        name = str(category or "未分类").strip() or "未分类"
+        if len(name) > 80:
+            raise ValueError("分类名称不能超过 80 个字符")
+        categories = self.concept_map_categories()
+        if name not in categories:
+            categories.append(name)
+            self.save_concept_map_categories(categories)
+        return name
+
+    def rename_concept_map_category(self, old_name: str, new_name: str) -> dict:
+        old_name, new_name = str(old_name).strip(), str(new_name).strip()
+        categories = self.concept_map_categories()
+        if old_name not in categories:
+            raise FileNotFoundError(old_name)
+        if not new_name:
+            raise ValueError("分类名称不能为空")
+        if len(new_name) > 80:
+            raise ValueError("分类名称不能超过 80 个字符")
+        if new_name != old_name and new_name in categories:
+            raise ValueError("分类名称已存在")
+        changed = 0
+        for summary in self.list_concept_maps():
+            if summary.get("category") != old_name:
+                continue
+            item, path = self.get_concept_map(summary["id"])
+            if item and path:
+                item["category"], item["updated"] = new_name, now_iso()
+                self._write_concept_map(path, item); changed += 1
+        renamed = [new_name if category == old_name else category for category in categories]
+        return {"categories": self.save_concept_map_categories(list(dict.fromkeys(renamed))), "updated_maps": changed}
+
+    def delete_concept_map_category(self, name: str) -> dict:
+        name = str(name).strip()
+        categories = self.concept_map_categories()
+        if name not in categories:
+            raise FileNotFoundError(name)
+        if name == "未分类":
+            raise ValueError("“未分类”是系统默认分类，不能删除")
+        changed = 0
+        for summary in self.list_concept_maps():
+            if summary.get("category") != name:
+                continue
+            item, path = self.get_concept_map(summary["id"])
+            if item and path:
+                item["category"], item["updated"] = "未分类", now_iso()
+                self._write_concept_map(path, item); changed += 1
+        remaining = [category for category in categories if category != name]
+        if "未分类" not in remaining:
+            remaining.append("未分类")
+        return {"categories": self.save_concept_map_categories(remaining), "updated_maps": changed}
+
+    def get_concept_map(self, map_id: str) -> tuple[dict, Path] | tuple[None, None]:
+        if not re.fullmatch(r"CMAP-\d+", str(map_id)):
+            return None, None
+        path = self.concept_maps_dir / f"{map_id}.json"
+        if not path.is_file():
+            return None, None
+        try:
+            item = json.loads(path.read_text(encoding="utf-8"))
+            return (item, path) if isinstance(item, dict) else (None, None)
+        except json.JSONDecodeError:
+            return None, None
+
+    def _write_concept_map(self, path: Path, item: dict) -> dict:
+        temporary = path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(item, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.replace(path)
+        return item
+
+    def create_concept_map(self, payload: dict) -> dict:
+        with self._record_id_lock:
+            used = [int(match.group(1)) for path in self.concept_maps_dir.glob("CMAP-*.json") if (match := re.fullmatch(r"CMAP-(\d+)", path.stem))]
+            map_id, stamp = f"CMAP-{max(used, default=0) + 1:04d}", now_iso()
+            normalized = self._normalize_concept_map(payload)
+            normalized["category"] = self.ensure_concept_map_category(normalized["category"])
+            if not normalized["nodes"]:
+                width, height = float(min(240, max(90, len(normalized["title"]) * 14 + 22))), 38.0
+                normalized["nodes"] = [{"id": "node-1", "type": "concept", "text": normalized["title"], "note": "", "x": (CONCEPT_MAP_WIDTH - width) / 2, "y": (CONCEPT_MAP_HEIGHT - height) / 2, "width": width, "height": height, "color": "#f4f8fa", "border_color": "#9eb4c7", "text_color": "#213044", "font_size": 13, "font_weight": 400, "shape": "rounded"}]
+            item = {"id": map_id, **normalized, "created": stamp, "updated": stamp}
+            return self._write_concept_map(self.concept_maps_dir / f"{map_id}.json", item)
+
+    def update_concept_map(self, map_id: str, payload: dict) -> dict:
+        current, path = self.get_concept_map(map_id)
+        if not current or not path:
+            raise FileNotFoundError(map_id)
+        normalized = self._normalize_concept_map(payload, current)
+        normalized["category"] = self.ensure_concept_map_category(normalized["category"])
+        item = {**current, **normalized, "id": map_id, "updated": now_iso()}
+        return self._write_concept_map(path, item)
+
+    def delete_concept_map(self, map_id: str) -> dict:
+        item, path = self.get_concept_map(map_id)
+        if not item or not path:
+            raise FileNotFoundError(map_id)
+        return self._move_to_trash(path, map_id, "concept-map", item.get("title", map_id))
+
     def get_document(self, document_id: str) -> tuple[dict, Path] | tuple[None, None]:
         for document in self.list_documents():
             if document.get("id") == document_id:
@@ -1153,18 +1440,20 @@ class Repository:
             counter += 1
         return candidate
 
-    def _register_record_attachment(self, record: dict, record_path: Path, candidate: Path, size: int) -> dict:
+    def _register_record_attachment(self, record: dict, record_path: Path, candidate: Path, size: int, append_to_body: bool = True) -> dict:
         relative = Path(os.path.relpath(candidate, record_path.parent)).as_posix()
         attachments = list(record.get("attachments") or [])
         attachment = {"name": candidate.name, "path": relative, "size": size, "mime": mimetypes.guess_type(candidate.name)[0] or "application/octet-stream", "category": ""}
         attachments.append(json.dumps(attachment, ensure_ascii=False, separators=(",", ":")))
-        image = attachment["mime"].startswith("image/")
-        label = f"![{candidate.name}]({relative})" if image else f"[{candidate.name}]({relative})"
-        body = record["body"].rstrip() + f"\n\n{label}\n"
-        self.update_record(record["id"], {"attachments": attachments, "body": body})
+        changes = {"attachments": attachments}
+        if append_to_body:
+            image = attachment["mime"].startswith("image/")
+            label = f"![{candidate.name}]({relative})" if image else f"[{candidate.name}]({relative})"
+            changes["body"] = record["body"].rstrip() + f"\n\n{label}\n"
+        self.update_record(record["id"], changes)
         return attachment
 
-    def add_record_attachment_stream(self, record_id: str, filename: str, stream, length: int) -> dict:
+    def add_record_attachment_stream(self, record_id: str, filename: str, stream, length: int, append_to_body: bool = True) -> dict:
         record, record_path = self.get_record(record_id)
         if not record:
             raise FileNotFoundError(record_id)
@@ -1180,7 +1469,7 @@ class Repository:
                     if not chunk:
                         raise ValueError("附件上传不完整")
                     output.write(chunk); written += len(chunk); remaining -= len(chunk)
-            return self._register_record_attachment(record, record_path, candidate, written)
+            return self._register_record_attachment(record, record_path, candidate, written, append_to_body)
         except Exception:
             candidate.unlink(missing_ok=True)
             raise
@@ -1789,6 +2078,13 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             if path.startswith("/api/documents/"):
                 document, _ = self.repository.get_document(path.rsplit("/", 1)[-1])
                 return self._json(document) if document else self._json({"error": "文档不存在"}, HTTPStatus.NOT_FOUND)
+            if path == "/api/concept-maps":
+                return self._json(self.repository.list_concept_maps())
+            if path == "/api/concept-map-categories":
+                return self._json(self.repository.concept_map_categories())
+            if path.startswith("/api/concept-maps/"):
+                concept_map, _ = self.repository.get_concept_map(path.rsplit("/", 1)[-1])
+                return self._json(concept_map) if concept_map else self._json({"error": "概念图不存在"}, HTTPStatus.NOT_FOUND)
             if path == "/api/export":
                 project_id = (query.get("project") or [None])[0]
                 return self._bytes(self.repository.export_zip(project_id), "application/zip", "workbench-export.zip")
@@ -1869,6 +2165,8 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                 return self._json(self.repository.import_document(self._body()), HTTPStatus.CREATED)
             if path == "/api/documents":
                 return self._json(self.repository.create_document(self._body()), HTTPStatus.CREATED)
+            if path == "/api/concept-maps":
+                return self._json(self.repository.create_concept_map(self._body()), HTTPStatus.CREATED)
             if path.startswith("/api/documents/") and path.endswith("/open-external"):
                 document_id = path.strip("/").split("/")[-2]
                 return self._json(self.repository.open_document_external(document_id))
@@ -1904,7 +2202,8 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                 if len(parts) == 5 and parts[-2:] == ["attachments", "upload"]:
                     length = int(self.headers.get("Content-Length", "0"))
                     filename = (query.get("name") or [""])[0]
-                    return self._json(self.repository.add_record_attachment_stream(parts[2], filename, self.rfile, length), HTTPStatus.CREATED)
+                    append_to_body = (query.get("append") or ["1"])[0] != "0"
+                    return self._json(self.repository.add_record_attachment_stream(parts[2], filename, self.rfile, length, append_to_body), HTTPStatus.CREATED)
                 if len(parts) == 4 and parts[-1] == "attachments":
                     payload = self._body()
                     return self._json(self.repository.add_attachment(parts[-2], payload.get("name", ""), payload.get("content", "")), HTTPStatus.CREATED)
@@ -1945,6 +2244,8 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                 return self._json(self.repository.save_document_sort(self._body()))
             if path == "/api/document-categories":
                 return self._json(self.repository.save_document_categories(self._body().get("categories", [])))
+            if path == "/api/concept-map-categories":
+                return self._json(self.repository.save_concept_map_categories(self._body().get("categories", [])))
             if path == "/api/status-templates":
                 return self._json(self.repository.save_status_templates(self._body()))
             if path == "/api/workflow-templates":
@@ -1966,8 +2267,13 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             if path == "/api/document-categories/rename":
                 payload = self._body()
                 return self._json(self.repository.rename_document_category(payload.get("old_name", ""), payload.get("new_name", "")))
+            if path == "/api/concept-map-categories/rename":
+                payload = self._body()
+                return self._json(self.repository.rename_concept_map_category(payload.get("old_name", ""), payload.get("new_name", "")))
             if path.startswith("/api/documents/"):
                 return self._json(self.repository.update_document(path.rsplit("/", 1)[-1], self._body()))
+            if path.startswith("/api/concept-maps/"):
+                return self._json(self.repository.update_concept_map(path.rsplit("/", 1)[-1], self._body()))
             if path.startswith("/api/projects/") and "/assets/" in path:
                 parts = path.strip("/").split("/")
                 if len(parts) != 5:
@@ -1989,8 +2295,14 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             if path == "/api/assets/batch":
                 payload = self._body()
                 return self._json(self.repository.batch_delete_assets(str(payload.get("project_id", "")), payload.get("selections", [])))
+            if path.startswith("/api/document-categories/"):
+                return self._json(self.repository.delete_document_category(path.rsplit("/", 1)[-1]))
+            if path.startswith("/api/concept-map-categories/"):
+                return self._json(self.repository.delete_concept_map_category(path.rsplit("/", 1)[-1]))
             if path.startswith("/api/documents/"):
                 return self._json(self.repository.delete_document(path.rsplit("/", 1)[-1]))
+            if path.startswith("/api/concept-maps/"):
+                return self._json(self.repository.delete_concept_map(path.rsplit("/", 1)[-1]))
             if path == "/api/trash/batch":
                 return self._json(self.repository.batch_purge_trash(self._body()))
             if path.startswith("/api/records/"):

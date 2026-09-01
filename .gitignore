@@ -3,6 +3,8 @@ workbench-data/
 .workbench-location.json
 .workbench-export.json
 .workbench-editor.json
+.workbench-restart.log
+.workbench-restart.err
 
 # Python caches and local test artifacts
 __pycache__/

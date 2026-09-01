@@ -36,6 +36,7 @@ function rememberRecentColor(storageKey, value) {
 let selectedType = '问题';
 let selectedProjectId = '';
 let projectTab = 'issues';
+let currentPage = 'home';
 let projectViewMode = 'board';
 let projectFilters = {status:'', tag:'', priority:''};
 let timelineFilters = {type:[], project:[], status:[], priority:[], tag:[]};
@@ -87,6 +88,8 @@ let trashSelection = new Set();
 let documents = [];
 let currentDocument = null;
 let documentMode = 'read';
+let documentDirty = false;
+let documentSaving = false;
 let documentFilters = {categoryQuery:''};
 let documentCategoryFileQueries = {};
 let documentOpenCategories = new Set();
@@ -96,6 +99,13 @@ let documentLastRange = null;
 let documentExpanded = false;
 let documentOutlineCollapsed = localStorage.getItem('workbench-document-outline-collapsed') === 'true';
 let documentOutlineTimer = null;
+let conceptMaps = [];
+let currentConceptMap = null;
+let conceptMapSelection = null;
+let conceptMapConnectSource = '';
+let conceptMapSaveTimer = null;
+let conceptMapSaving = false;
+let conceptMapSearch = '';
 
 const PROJECT_CARD_COLLAPSE_LIMIT = 5;
 const PROJECT_LIST_COLLAPSE_LIMIT = 12;
@@ -484,6 +494,7 @@ function typeIcon(record) {
 
 function inlineMarkdownToHtml(text) {
   let output = text;
+  output = output.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, source) => markdownImageHtml(unescapeHtml(alt), unescapeHtml(source)));
   output = output.replace(/\[\[([A-Za-z]+-\d+)\]\]/g, (_, id) => {
     const record = records.find(item => item.id.toLowerCase() === id.toLowerCase());
     const canonicalId = record?.id || id.toUpperCase();
@@ -502,6 +513,18 @@ function inlineMarkdownToHtml(text) {
     output = next;
   }
   return output;
+}
+
+function markdownImageHtml(alt, source) {
+  const normalized = String(source || '').trim().replace(/^<|>$/g, '');
+  let filename = normalized.split(/[\\/]/).at(-1) || '';
+  try { filename = decodeURIComponent(filename); } catch { /* 保留包含不完整百分号的原始文件名 */ }
+  filename = filename.replace(/[?#].*$/, '');
+  const attachment = currentRecord && parsedAttachments().find(item => item.name === filename || item.path === normalized);
+  let url = normalized;
+  if (attachment) url = `/api/attachments/${encodeURIComponent(currentRecord.id)}/${encodeURIComponent(attachment.name)}`;
+  else if (!/^(?:https?:\/\/|\/api\/attachments\/|\.{0,2}\/)/i.test(normalized)) return `![${escapeHtml(alt)}](${escapeHtml(normalized)})`;
+  return `<img class="editor-inline-image" src="${escapeHtml(url)}" alt="${escapeHtml(alt)}" data-markdown-src="${escapeHtml(normalized)}">`;
 }
 
 function unescapeHtml(value) {
@@ -623,6 +646,7 @@ function inlineNodeToMarkdown(node) {
   if (element.matches('.internal-link[data-reference-id]')) return `[[${element.dataset.referenceId}]]`;
   if (element.matches('.after-reference-paragraph')) return '';
   if (element.nodeName === 'INPUT') return '';
+  if (element.nodeName === 'IMG') return `![${element.getAttribute('alt') || ''}](${element.dataset.markdownSrc || element.getAttribute('src') || ''})`;
   if (element.nodeName === 'BR') return '\n';
   const content = [...element.childNodes].map(inlineNodeToMarkdown).join('');
   if (['STRONG', 'B'].includes(element.nodeName)) return `**${content}**`;
@@ -929,9 +953,25 @@ function updateEditorToolbarState() {
   });
 }
 
-function setPage(page) {
+function readNavigationState() {
+  try {
+    const value = JSON.parse(localStorage.getItem('workbench-navigation-state') || 'null');
+    return value && typeof value === 'object' ? value : {};
+  } catch { return {}; }
+}
+
+function persistNavigationState() {
+  try { localStorage.setItem('workbench-navigation-state', JSON.stringify({page:currentPage, projectId:selectedProjectId, projectTab})); }
+  catch { /* 存储受限时仍允许继续导航 */ }
+}
+
+function setPage(page, options = {}) {
   const managePages = ['status_templates', 'archive', 'documents', 'timeline', 'tags', 'trash', 'settings'];
-  if (!['home', 'project', ...managePages].includes(page)) page = 'home';
+  if (!['home', 'project', 'concept_maps', ...managePages].includes(page)) page = 'home';
+  if (page === 'project' && !projects.some(project => project.id === selectedProjectId)) page = 'home';
+  currentPage = page;
+  persistNavigationState();
+  if (!options.preserveHash && location.hash) history.replaceState(null, '', `${location.pathname}${location.search}`);
   if (!['tags', 'status_templates', 'settings'].includes(page) || page !== activeManagePage) savedManageSnapshot = null;
   $$('.page').forEach(node => node.classList.remove('active'));
   $$('.nav-item').forEach(node => node.classList.toggle('active', page === 'project' ? node.dataset.projectId === selectedProjectId : node.dataset.page === page));
@@ -939,6 +979,9 @@ function setPage(page) {
   else if (page === 'project') {
     $('#projectPage').classList.add('active');
     renderProjectPage();
+  } else if (page === 'concept_maps') {
+    $('#conceptMapPage').classList.add('active');
+    renderConceptMapLibrary().catch(error => notify('概念图加载失败', error.message, true));
   } else if (managePages.includes(page)) {
     $('#managePage').classList.add('active');
     activeManagePage = page;
@@ -1679,7 +1722,11 @@ async function renderManagePage(page) {
   if (page === 'documents') {
     $('#manageEyebrow').textContent = '知识沉淀'; $('#manageTitle').textContent = '知识库'; $('#manageDescription').textContent = '使用自定义分类集中收纳与维护文档。'; $('#manageActions').innerHTML = '<button class="secondary-button" id="importKnowledgeDocuments">导入文档</button><button class="secondary-button" id="startDocumentExport">导出</button><button class="secondary-button" id="newDocumentCategory">＋ 新建分类</button><button class="primary-button" id="newDocument">＋ 新建文档</button>';
     $('#manageContent').innerHTML = '<div class="empty-state">正在加载文档…</div>';
-    documents = await api('/documents');
+    try { documents = await api('/documents'); }
+    catch {
+      const index = documents.findIndex(item => item.id === saved.id);
+      if (index >= 0) documents[index] = saved; else documents.unshift(saved);
+    }
     if (activeManagePage !== page) return;
     renderDocumentsPage();
     return;
@@ -1748,6 +1795,8 @@ function renderDocumentsPage() {
     return {name, allItems, updated:Math.max(0, ...allItems.map(item => Date.parse(item.updated || '') || 0))};
   }).filter(entry => !categoryQuery || entry.name.toLowerCase().includes(categoryQuery));
   categoryEntries.sort((a,b) => {
+    if (a.name === '未分类') return 1;
+    if (b.name === '未分类') return -1;
     if (sortConfig.category_mode === 'manual') return (categoryIndex.get(a.name) ?? 999999) - (categoryIndex.get(b.name) ?? 999999) || a.name.localeCompare(b.name, 'zh-CN');
     if (sortConfig.category_mode === 'count') return b.allItems.length - a.allItems.length || a.name.localeCompare(b.name, 'zh-CN');
     if (sortConfig.category_mode === 'updated') return b.updated - a.updated || a.name.localeCompare(b.name, 'zh-CN');
@@ -1771,10 +1820,10 @@ function renderDocumentsPage() {
   const hasFileFilters = Object.values(documentCategoryFileQueries).some(value => value.trim());
   const categoryDrag = sortConfig.category_mode === 'manual' && !categoryQuery && !hasFileFilters && !documentExportMode;
   const documentDrag = !categoryQuery && !hasFileFilters && !documentExportMode;
-  const cardHtml = item => `<article class="document-card ${documentSelection.has(item.id) ? 'selected' : ''}" data-document-card="${escapeHtml(item.id)}" data-document-sort-id="${escapeHtml(item.id)}" draggable="${documentDrag}" title="${documentDrag ? '拖到其他分类条目可更改分类' : '清除筛选后可拖动文档'}">${documentExportMode ? `<label class="document-card-select" title="选择文档"><input type="checkbox" data-document-select="${escapeHtml(item.id)}" ${documentSelection.has(item.id) ? 'checked' : ''}><span>选择</span></label>` : ''}<button type="button" class="document-card-open" data-document-id="${escapeHtml(item.id)}"><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(markdownToPlainText(item.body, 110, item.title))}</p>${(item.tags || []).length ? `<div class="document-card-tags">${item.tags.map(tag => `<span style="--tag-color:${safeColor((configData.tags || []).find(item => item.name === tag)?.color, '#64748b')}">${escapeHtml(tag)}</span>`).join('')}</div>` : ''}<footer><span>${escapeHtml(item.id)}</span><time>${new Date(item.updated).toLocaleDateString('zh-CN')}</time></footer></button></article>`;
+  const cardHtml = item => `<article class="document-card ${documentSelection.has(item.id) ? 'selected' : ''}" data-document-card="${escapeHtml(item.id)}" data-document-sort-id="${escapeHtml(item.id)}" draggable="${documentDrag}" title="${documentDrag ? '拖到其他分类条目可更改分类' : '清除筛选后可拖动文档'}">${documentExportMode ? `<label class="document-card-select" title="选择文档"><input type="checkbox" data-document-select="${escapeHtml(item.id)}" ${documentSelection.has(item.id) ? 'checked' : ''}><span>选择</span></label>` : ''}<button type="button" class="document-card-open" data-document-id="${escapeHtml(item.id)}"><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(markdownToPlainText(item.body, 110, item.title))}</p>${(item.tags || []).length ? `<div class="document-card-tags">${item.tags.map(tag => `<span style="--tag-color:${safeColor((configData.tags || []).find(item => item.name === tag)?.color, '#64748b')}">${escapeHtml(tag)}</span>`).join('')}</div>` : ''}<footer><span>${escapeHtml(item.id)}</span><time>${new Date(item.updated).toLocaleDateString('zh-CN')}</time></footer></button><button type="button" class="document-card-more" data-document-card-menu="${escapeHtml(item.id)}" title="更多操作" aria-label="${escapeHtml(item.title)}的更多操作" draggable="false">•••</button></article>`;
   const categoryLabels = {manual:'手动排序', name:'分类名称', count:'文档数量', updated:'最近更新'};
   const fileLabels = {manual:'手动排序', updated:'最近更新', title:'文档标题', created:'最新创建'};
-  $('#manageContent').innerHTML = `<div class="knowledge-filter-panel category-only"><div class="knowledge-filter-row"><span class="knowledge-filter-level">分类</span><label class="document-search"><span>⌕</span><input id="documentCategorySearch" value="${escapeHtml(documentFilters.categoryQuery)}" placeholder="筛选分类名称"></label><button type="button" class="secondary-button document-sort-button ${sortConfig.category_mode === 'manual' ? '' : 'active'}" id="documentCategorySortButton" title="分类排序：${categoryLabels[sortConfig.category_mode]}">↕ <span>${categoryLabels[sortConfig.category_mode]}</span></button>${categoryQuery ? '<button type="button" class="knowledge-filter-clear" id="clearDocumentCategoryFilter">清除</button>' : ''}</div><p>分类名称旁可直接重命名；分类条目右侧可筛选、排序该分类内的文档。</p></div>${documentExportMode ? `<div class="document-batch-bar"><label><input type="checkbox" id="selectVisibleDocuments" data-visible-ids="${escapeHtml(visible.map(item => item.id).join(','))}"> 全选当前结果</label><span id="documentSelectionCount">已选择 ${documentSelection.size} 篇</span><button type="button" class="secondary-button" id="clearDocumentSelection" ${documentSelection.size ? '' : 'disabled'}>清除选择</button></div>` : ''}<div class="document-result-count">显示 ${categoryEntries.length} 个分类 · ${visible.length} / ${documents.length} 篇文档</div><div class="document-category-list">${categoryEntries.map(entry => { const open = documentExportMode || Boolean(entry.fileQuery) || documentOpenCategories.has(entry.name); return `<details class="document-category-group" data-document-category="${escapeHtml(entry.name)}" draggable="${categoryDrag}" ${open ? 'open' : ''}><summary><span class="document-category-drag" title="${categoryDrag ? '拖动分类调整顺序' : '切换为手动排序后可拖动'}">⠿</span><span class="document-category-chevron">›</span><span class="document-category-icon">▤</span><strong>${escapeHtml(entry.name)}</strong><button type="button" class="document-category-rename" data-rename-document-category="${escapeHtml(entry.name)}" title="重命名分类" aria-label="重命名分类 ${escapeHtml(entry.name)}">✎</button><em>${entry.items.length}${entry.fileQuery ? ` / ${entry.allItems.length}` : ''} 篇</em><div class="document-category-file-tools"><label><span>⌕</span><input data-document-file-search="${escapeHtml(entry.name)}" value="${escapeHtml(documentCategoryFileQueries[entry.name] || '')}" placeholder="筛选文档"></label>${entry.fileQuery ? `<button type="button" class="category-file-clear" data-clear-document-file-filter="${escapeHtml(entry.name)}" title="清除文档筛选">×</button>` : ''}<button type="button" class="category-file-sort ${entry.fileMode === 'manual' ? '' : 'active'}" data-document-file-sort="${escapeHtml(entry.name)}" title="文档排序：${fileLabels[entry.fileMode]}">↕ <span>${fileLabels[entry.fileMode]}</span></button></div><small class="document-category-drop-hint">拖入文档以分类</small></summary><div class="document-grid" data-document-category-grid="${escapeHtml(entry.name)}">${entry.items.map(cardHtml).join('') || '<div class="empty-state document-empty">此分类中没有符合条件的文档</div>'}</div></details>`; }).join('') || '<div class="empty-state document-empty">没有符合当前条件的分类</div>'}</div>`;
+  $('#manageContent').innerHTML = `<div class="knowledge-filter-panel category-only"><div class="knowledge-filter-row"><span class="knowledge-filter-level">分类</span><label class="document-search"><span>⌕</span><input id="documentCategorySearch" value="${escapeHtml(documentFilters.categoryQuery)}" placeholder="筛选分类名称"></label><button type="button" class="secondary-button document-sort-button ${sortConfig.category_mode === 'manual' ? '' : 'active'}" id="documentCategorySortButton" title="分类排序：${categoryLabels[sortConfig.category_mode]}">↕ <span>${categoryLabels[sortConfig.category_mode]}</span></button>${categoryQuery ? '<button type="button" class="knowledge-filter-clear" id="clearDocumentCategoryFilter">清除</button>' : ''}</div><p>分类条目支持新建、重命名和删除；删除分类后，其中的文档会移入“未分类”。</p></div>${documentExportMode ? `<div class="document-batch-bar"><label><input type="checkbox" id="selectVisibleDocuments" data-visible-ids="${escapeHtml(visible.map(item => item.id).join(','))}"> 全选当前结果</label><span id="documentSelectionCount">已选择 ${documentSelection.size} 篇</span><button type="button" class="secondary-button" id="clearDocumentSelection" ${documentSelection.size ? '' : 'disabled'}>清除选择</button></div>` : ''}<div class="document-result-count">显示 ${categoryEntries.length} 个分类 · ${visible.length} / ${documents.length} 篇文档</div><div class="document-category-list">${categoryEntries.map(entry => { const open = documentExportMode || Boolean(entry.fileQuery) || documentOpenCategories.has(entry.name); const actions = entry.name === '未分类' ? '<span class="category-entry-actions document-category-actions category-entry-actions-placeholder" aria-hidden="true"></span>' : `<span class="category-entry-actions document-category-actions"><button type="button" data-rename-document-category="${escapeHtml(entry.name)}">重命名</button><button type="button" class="danger" data-delete-document-category="${escapeHtml(entry.name)}">删除</button></span>`; const draggable = categoryDrag && entry.name !== '未分类'; return `<details class="category-entry document-category-group" data-document-category="${escapeHtml(entry.name)}" draggable="${draggable}" ${open ? 'open' : ''}><summary class="category-entry-summary"><span class="document-category-drag" title="${draggable ? '拖动分类调整顺序' : entry.name === '未分类' ? '未分类固定在最后' : '切换为手动排序后可拖动'}">⠿</span><span class="category-entry-chevron document-category-chevron">›</span><span class="category-entry-icon document-category-icon">▤</span><strong>${escapeHtml(entry.name)}</strong><em>${entry.items.length}${entry.fileQuery ? ` / ${entry.allItems.length}` : ''} 篇</em><div class="document-category-file-tools"><label><span>⌕</span><input data-document-file-search="${escapeHtml(entry.name)}" value="${escapeHtml(documentCategoryFileQueries[entry.name] || '')}" placeholder="筛选文档"></label>${entry.fileQuery ? `<button type="button" class="category-file-clear" data-clear-document-file-filter="${escapeHtml(entry.name)}" title="清除文档筛选">×</button>` : ''}<button type="button" class="category-file-sort ${entry.fileMode === 'manual' ? '' : 'active'}" data-document-file-sort="${escapeHtml(entry.name)}" title="文档排序：${fileLabels[entry.fileMode]}">↕ <span>${fileLabels[entry.fileMode]}</span></button></div><small class="document-category-drop-hint">拖入文档以分类</small>${actions}</summary><div class="document-grid" data-document-category-grid="${escapeHtml(entry.name)}">${entry.items.map(cardHtml).join('') || '<div class="empty-state document-empty">此分类中没有符合条件的文档</div>'}</div></details>`; }).join('') || '<div class="empty-state document-empty">没有符合当前条件的分类</div>'}</div>`;
   updateDocumentSelectionUI();
   bindKnowledgeDragAndDrop();
 }
@@ -1823,6 +1872,21 @@ async function renameDocumentCategory(oldName) {
   } catch (error) { notify('分类重命名失败', error.message, true); }
 }
 
+async function deleteDocumentCategory(name) {
+  const count = documents.filter(item => (item.category || '未分类') === name).length;
+  const approved = await appConfirm({title:`删除分类「${name}」？`, message:count ? `其中 ${count} 篇文档将移动到“未分类”。` : '这是一个空分类。', detail:'只删除分类，不会删除任何文档。', confirmText:'删除分类', danger:true});
+  if (!approved) return;
+  try {
+    const result = await api(`/document-categories/${encodeURIComponent(name)}`, {method:'DELETE'});
+    configData.document_categories = result.categories;
+    configData.document_sort = result.document_sort;
+    documents = await api('/documents');
+    delete documentCategoryFileQueries[name]; documentOpenCategories.delete(name);
+    renderDocumentsPage();
+    notify('分类已删除', result.updated_documents ? `${result.updated_documents} 篇文档已移动到“未分类”` : '文档内容未受影响');
+  } catch (error) { notify('删除分类失败', error.message, true); }
+}
+
 function knowledgeSortConfig() {
   const value = configData?.document_sort || {};
   return {category_mode:value.category_mode || 'manual', category_order:Array.isArray(value.category_order) ? value.category_order : [], file_mode:value.file_mode || value.mode || 'updated', file_modes:value.file_modes && typeof value.file_modes === 'object' ? value.file_modes : {}, file_orders:value.file_orders && typeof value.file_orders === 'object' ? value.file_orders : {}};
@@ -1842,6 +1906,29 @@ function openDocumentSortMenu(button) {
   showKanbanMenu(button, `<div class="context-menu-title">${escapeHtml(category)} · 文档排序</div><div class="context-menu-label">只调整这个分类中的文件顺序</div>${rules.map(([mode, icon, label]) => `<button data-menu-action="sort-documents" data-document-category="${escapeHtml(category)}" data-sort-mode="${mode}"><i class="sort-rule-icon">${icon}</i>${label}${current === mode ? '<span>✓</span>' : ''}</button>`).join('')}<div class="context-menu-note">选择手动排序后，可在该分类中拖动文档卡片。</div>`);
 }
 
+function openDocumentCardMenu(button, documentId) {
+  const item = documents.find(document => document.id === documentId); if (!item) return;
+  showKanbanMenu(button, `<button data-menu-action="open-document-card" data-document="${escapeHtml(documentId)}">打开文档</button><button data-menu-action="document-card-categories" data-document="${escapeHtml(documentId)}">所属分类</button><button class="danger-item" data-menu-action="delete-document-card" data-document="${escapeHtml(documentId)}">删除文档</button>`);
+}
+
+function showDocumentCategorySubmenu(trigger, documentId) {
+  $('.document-card-submenu')?.remove();
+  $('#kanbanContextMenu [data-menu-action="document-card-categories"]')?.classList.remove('submenu-open');
+  const item = documents.find(document => document.id === documentId), parent = $('#kanbanContextMenu');
+  if (!item || !parent.classList.contains('visible')) return;
+  trigger.classList.add('submenu-open');
+  const categories = [...new Set([...(configData?.document_categories || []), ...documents.map(document => document.category || '未分类')])];
+  const category = item.category || '未分类', submenu = document.createElement('div');
+  submenu.className = 'context-menu visible document-card-submenu'; submenu.setAttribute('aria-hidden', 'false');
+  submenu.innerHTML = `<div class="context-menu-label">选择分类</div>${categories.map(name => `<button data-menu-action="set-document-category" data-document="${escapeHtml(documentId)}" data-category="${escapeHtml(name)}" ${name === category ? 'disabled' : ''}>${escapeHtml(name)}${name === category ? '<span>当前</span>' : ''}</button>`).join('')}`;
+  document.body.appendChild(submenu);
+  const parentRect = parent.getBoundingClientRect(), submenuRect = submenu.getBoundingClientRect(), gap = 7;
+  const right = parentRect.right + gap;
+  const left = right + submenuRect.width <= innerWidth - 12 ? right : Math.max(12, parentRect.left - submenuRect.width - gap);
+  const top = Math.max(12, Math.min(parentRect.top, innerHeight - submenuRect.height - 12));
+  submenu.style.left = `${left}px`; submenu.style.top = `${top}px`;
+}
+
 async function saveKnowledgeSort(patch, title, detail) {
   try {
     configData.document_sort = await api('/document-sort', {method:'PUT', body:JSON.stringify({...knowledgeSortConfig(), ...patch})});
@@ -1858,6 +1945,7 @@ function bindKnowledgeDragAndDrop() {
   if (!filtersActive) {
     $$('[data-document-sort-id]').forEach(card => {
       card.addEventListener('dragstart', event => {
+        if (event.target.closest('.document-card-more')) { event.preventDefault(); return; }
         draggedDocument = card;
         sourceDocumentCategory = card.closest('[data-document-category-grid]')?.dataset.documentCategoryGrid || '';
         card.classList.add('dragging');
@@ -1931,13 +2019,15 @@ function bindKnowledgeDragAndDrop() {
       group.addEventListener('dragover', event => {
         if (!draggedCategory || draggedCategory === group) return;
         event.preventDefault();
+        if (group.dataset.documentCategory === '未分类') { group.parentElement.insertBefore(draggedCategory, group); return; }
         const rect = group.getBoundingClientRect();
         group.parentElement.insertBefore(draggedCategory, event.clientY < rect.top + rect.height / 2 ? group : group.nextSibling);
       });
       group.addEventListener('drop', async event => {
         if (!draggedCategory) return;
         event.preventDefault();
-        const order = $$('.document-category-group', $('#manageContent')).map(item => item.dataset.documentCategory);
+        const currentOrder = $$('.document-category-group', $('#manageContent')).map(item => item.dataset.documentCategory);
+        const order = [...currentOrder.filter(name => name !== '未分类'), ...currentOrder.filter(name => name === '未分类')];
         await saveKnowledgeSort({category_mode:'manual', category_order:order}, '分类顺序已保存', '可继续拖动分类调整位置');
       });
     });
@@ -2093,8 +2183,10 @@ function insertDocumentCodeBlock() {
   range.insertNode(marker);
   const pre = document.createElement('pre');
   const code = document.createElement('code');
-  code.dataset.language = 'txt';
-  code.textContent = selectedText || '在这里输入代码';
+  const language = normalizeCodeLanguage($('#documentCodeLanguage')?.value || 'txt');
+  code.dataset.language = language;
+  const initialCode = selectedText || '在这里输入代码';
+  code.innerHTML = syntaxHighlightCode(initialCode, language) || '<br>';
   pre.appendChild(code);
   const nearestBlock = closestEditorBlock(marker, editor);
   let topBlock = nearestBlock;
@@ -2123,7 +2215,7 @@ function insertDocumentCodeBlock() {
   if (selectedText) codeRange.collapse(false);
   selection.removeAllRanges(); selection.addRange(codeRange);
   captureDocumentSelection();
-  $('#documentSaveState').textContent = '有未保存的修改';
+  markDocumentChanged();
 }
 
 function renderDocumentTagOptions(selectedTags = []) {
@@ -2238,11 +2330,48 @@ function applyDocumentColor(value, command = $('#documentColorPalette').dataset.
   palette.hidden = true;
   if (hadSelectedText) moveCaretOutsideDocumentColor(command);
   else captureDocumentSelection();
-  $('#documentSaveState').textContent = '有未保存的修改';
+  markDocumentChanged();
+}
+
+function documentDraftKey(documentId = currentDocument?.id || 'new') {
+  return `workbench-document-draft:${documentId}`;
+}
+
+function clearDocumentDraft(documentId = currentDocument?.id || 'new') {
+  try { localStorage.removeItem(documentDraftKey(documentId)); }
+  catch { /* 存储受限时仍允许继续编辑 */ }
+}
+
+function persistDocumentDraft() {
+  if (!documentDirty || !$('#documentDialog')?.open) return;
+  try {
+    localStorage.setItem(documentDraftKey(), JSON.stringify({
+      title:$('#documentTitle').value,
+      category:$('#documentCategory').value,
+      tags:selectedDocumentTags(),
+      body:documentMarkdownContent(),
+      savedAt:new Date().toISOString(),
+    }));
+  } catch { /* 页面离开提示继续兜底 */ }
+}
+
+function readDocumentDraft(documentId = currentDocument?.id || 'new') {
+  try { return JSON.parse(localStorage.getItem(documentDraftKey(documentId)) || 'null'); }
+  catch { return null; }
+}
+
+function updateDocumentSaveState(message = '') {
+  const state = $('#documentSaveState');
+  if (state) state.textContent = message || (documentDirty ? '● 有未保存的修改' : '✓ 已保存');
+  if (state) state.classList.toggle('saving', documentDirty || documentSaving || /正在|失败/.test(message));
+  const button = $('#saveDocument');
+  if (button) button.disabled = !documentDirty || documentSaving;
 }
 
 function markDocumentChanged() {
-  $('#documentSaveState').textContent = '有未保存的修改';
+  documentDirty = true;
+  persistDocumentDraft();
+  updateDocumentSaveState();
   updateDocumentToolbarState();
   scheduleDocumentOutlineUpdate();
 }
@@ -2260,6 +2389,9 @@ function updateDocumentToolbarState() {
   const block = closestEditorBlock(selection.anchorNode, editor);
   const heading = ['H1','H2','H3','H4'].includes(block.nodeName) ? block.nodeName.toLowerCase() : 'p';
   $('#documentHeading').value = heading;
+  const code = block.nodeName === 'PRE' ? block.querySelector('code') : block.closest?.('pre')?.querySelector('code');
+  const codeLanguage = normalizeCodeLanguage(code?.dataset.language || 'txt');
+  if (code && [...$('#documentCodeLanguage').options].some(option => option.value === codeLanguage)) $('#documentCodeLanguage').value = codeLanguage;
   const quoteButton = $('[data-document-block="blockquote"]', $('#documentFormatToolbar'));
   if (quoteButton) quoteButton.setAttribute('aria-pressed', String(Boolean(block.closest?.('blockquote'))));
 }
@@ -2324,17 +2456,25 @@ function updateDocumentSelectionToolbar() {
 
 function openDocument(documentId = '') {
   currentDocument = documents.find(item => item.id === documentId) || null;
+  documentDirty = false;
+  documentSaving = false;
+  const draft = readDocumentDraft(currentDocument?.id || 'new');
+  const base = {title:currentDocument?.title || '', category:currentDocument?.category || '', tags:currentDocument?.tags || [], body:currentDocument?.body || ''};
+  const hasRecoveryDraft = Boolean(draft && (draft.title !== base.title || draft.category !== base.category || draft.body !== base.body || JSON.stringify(draft.tags || []) !== JSON.stringify(base.tags || [])));
+  const content = hasRecoveryDraft ? {...base, ...draft} : base;
+  if (draft && !hasRecoveryDraft) clearDocumentDraft(currentDocument?.id || 'new');
+  documentDirty = hasRecoveryDraft;
   $('#documentDialogTitle').textContent = currentDocument ? currentDocument.title : '新建文档';
-  $('#documentTitle').value = currentDocument?.title || '';
-  $('#documentCategory').value = currentDocument?.category || '';
-  renderDocumentTagOptions(currentDocument?.tags || []);
-  $('#documentBody').value = currentDocument?.body || '';
-  $('#documentVisualEditor').innerHTML = markdownToHtml(currentDocument?.body || '', true);
+  $('#documentTitle').value = content.title;
+  $('#documentCategory').value = content.category;
+  renderDocumentTagOptions(content.tags || []);
+  $('#documentBody').value = content.body;
+  $('#documentVisualEditor').innerHTML = markdownToHtml(content.body || '', true);
   $('#documentCategoryOptions').innerHTML = [...new Set([...(configData?.document_categories || []), ...documents.map(item => item.category).filter(Boolean)])].map(value => `<option value="${escapeHtml(value)}"></option>`).join('');
   $('#deleteDocument').style.display = currentDocument ? '' : 'none';
   $('#exportDocument').style.display = currentDocument ? '' : 'none';
   $('.document-external-editor').style.display = currentDocument ? 'inline-flex' : 'none';
-  $('#documentSaveState').textContent = currentDocument ? `更新于 ${new Date(currentDocument.updated).toLocaleString('zh-CN')}` : '将保存为本地 Markdown';
+  updateDocumentSaveState(documentDirty ? '' : currentDocument ? `✓ 已保存 · ${new Date(currentDocument.updated).toLocaleString('zh-CN')}` : '将保存为本地 Markdown');
   documentExpanded = false;
   $('#documentDialog').classList.remove('expanded');
   $('#documentDialog').classList.toggle('outline-collapsed', documentOutlineCollapsed);
@@ -2343,31 +2483,50 @@ function openDocument(documentId = '') {
   $('#documentDialog').showModal();
   requestAnimationFrame(updateDocumentOutline);
   if (!currentDocument) setTimeout(() => $('#documentTitle').focus(), 30);
+  if (hasRecoveryDraft) notify('已恢复未保存的文档草稿', '草稿尚未写入 Markdown，请检查后手动保存');
 }
 
-async function saveDocument({readAfterSave = true, notifyUser = true} = {}) {
+async function saveDocument({readAfterSave = false, notifyUser = true} = {}) {
+  if (documentSaving) return null;
+  if (!documentDirty && currentDocument) return currentDocument;
   const title = $('#documentTitle').value.trim();
   if (!title) { $('#documentTitle').focus(); notify('文档标题不能为空', '请输入标题后再保存', true); return null; }
   const payload = {title, category:$('#documentCategory').value.trim() || '未分类', tags:selectedDocumentTags(), body:documentMarkdownContent()};
+  const previousDraftId = currentDocument?.id || 'new';
+  documentSaving = true;
+  updateDocumentSaveState('正在保存…');
   try {
     const saved = await api(currentDocument ? `/documents/${encodeURIComponent(currentDocument.id)}` : '/documents', {method:currentDocument ? 'PATCH' : 'POST', body:JSON.stringify(payload)});
     currentDocument = saved;
+    documentDirty = false;
+    clearDocumentDraft(previousDraftId);
+    clearDocumentDraft(saved.id);
     documents = await api('/documents');
     renderDocumentsPage();
     if (readAfterSave) setDocumentMode('read');
     $('#documentDialogTitle').textContent = saved.title;
     $('#documentOutlineTitle').textContent = saved.title;
     $('#deleteDocument').style.display = '';
-    $('#documentSaveState').textContent = '已保存';
+    $('#exportDocument').style.display = '';
+    $('.document-external-editor').style.display = 'inline-flex';
+    updateDocumentSaveState('✓ 已保存 · 刚刚');
     if (notifyUser) notify('文档已保存', saved.category);
     return saved;
-  } catch (error) { notify('文档保存失败', error.message, true); return null; }
+  } catch (error) {
+    documentDirty = true;
+    persistDocumentDraft();
+    updateDocumentSaveState('保存失败，请重试');
+    notify('文档保存失败', error.message, true);
+    return null;
+  } finally {
+    documentSaving = false;
+    updateDocumentSaveState($('#documentSaveState').textContent);
+  }
 }
 
 async function openCurrentDocumentExternal() {
   if (!currentDocument) return;
-  const dirty = $('#documentSaveState').textContent === '有未保存的修改';
-  if (dirty && !await saveDocument({readAfterSave:false, notifyUser:false})) return;
+  if (documentDirty && !await saveDocument({readAfterSave:false, notifyUser:false})) return;
   const button = $('#openDocumentExternal');
   const label = $('#documentExternalEditorLabel');
   const original = label.textContent;
@@ -2380,11 +2539,16 @@ async function openCurrentDocumentExternal() {
 }
 
 function documentHasUnsavedChanges() {
-  return $('#documentSaveState').textContent === '有未保存的修改';
+  return documentDirty;
 }
 
 async function closeDocumentEditor() {
-  if (documentHasUnsavedChanges() && !await appConfirm({title:'放弃未保存的文档修改？', message:'当前编辑内容尚未写入 Markdown 文件。', detail:'选择放弃后，本次修改无法恢复。', confirmText:'放弃修改', danger:true})) return false;
+  if (documentHasUnsavedChanges()) {
+    const choice = await askUnsavedChanges(`文档「${$('#documentTitle').value.trim() || '未命名文档'}」`);
+    if (choice === 'cancel') return false;
+    if (choice === 'save' && !await saveDocument({readAfterSave:false, notifyUser:false})) return false;
+    if (choice === 'discard') { clearDocumentDraft(); documentDirty = false; }
+  }
   $('#documentDialog').close();
   $('#documentColorPalette').hidden = true;
   documentLastRange = null;
@@ -2394,6 +2558,8 @@ async function closeDocumentEditor() {
 function reloadCurrentDocumentFromDisk(latest) {
   if (!latest || !currentDocument || latest.id !== currentDocument.id) return;
   currentDocument = latest;
+  documentDirty = false;
+  clearDocumentDraft(latest.id);
   $('#documentDialogTitle').textContent = latest.title;
   $('#documentTitle').value = latest.title;
   $('#documentCategory').value = latest.category || '';
@@ -2402,7 +2568,7 @@ function reloadCurrentDocumentFromDisk(latest) {
   $('#documentVisualEditor').innerHTML = markdownToHtml(latest.body || '', true);
   if (documentMode === 'read') $('#documentReadPane').innerHTML = markdownToHtml(latest.body || '');
   scheduleDocumentOutlineUpdate();
-  $('#documentSaveState').textContent = `已同步外部修改 · ${new Date(latest.updated).toLocaleTimeString('zh-CN')}`;
+  updateDocumentSaveState(`✓ 已同步外部修改 · ${new Date(latest.updated).toLocaleTimeString('zh-CN')}`);
   delete $('#documentDialog').dataset.pendingExternalMtime;
   notify('已同步外部 Markdown 修改', latest.title);
 }
@@ -2411,6 +2577,7 @@ async function deleteDocument() {
   if (!currentDocument || !await appConfirm({title:'将文档移入回收站？', message:`「${currentDocument.title}」`, detail:'稍后可以在回收站中恢复。', confirmText:'移入回收站', danger:true})) return;
   try {
     await api(`/documents/${encodeURIComponent(currentDocument.id)}`, {method:'DELETE'});
+    clearDocumentDraft(currentDocument.id); documentDirty = false;
     $('#documentDialog').close(); currentDocument = null; documents = await api('/documents'); renderDocumentsPage(); notify('文档已移入回收站');
   } catch (error) { notify('文档删除失败', error.message, true); }
 }
@@ -2462,7 +2629,7 @@ async function importKnowledgeDocuments(files) {
 function renderTrashPage() {
   const selectedCount = trashSelection.size;
   $('#manageActions').innerHTML = trashItems.length ? `<span class="trash-selection-count" id="trashSelectionCount">已选择 ${selectedCount} 项</span><button class="secondary-button" id="batchRestoreTrash" ${selectedCount ? '' : 'disabled'}>批量恢复</button><button class="secondary-button danger-button" id="batchPurgeTrash" ${selectedCount ? '' : 'disabled'}>批量永久删除</button>` : '';
-  $('#manageContent').innerHTML = trashItems.length ? `<div class="trash-table-wrap"><table class="data-table trash-table"><thead><tr><th class="trash-select-cell"><input type="checkbox" id="selectAllTrash" aria-label="全选回收站内容" ${selectedCount === trashItems.length ? 'checked' : ''}></th><th>名称</th><th>类型</th><th>删除时间</th><th>操作</th></tr></thead><tbody>${trashItems.map(item => `<tr data-trash-row="${escapeHtml(item.token)}" class="${trashSelection.has(item.token) ? 'selected' : ''}"><td class="trash-select-cell"><input type="checkbox" data-trash-select="${escapeHtml(item.token)}" aria-label="选择 ${escapeHtml(item.title)}" ${trashSelection.has(item.token) ? 'checked' : ''}></td><td><strong>${escapeHtml(item.title)}</strong><br><small>${escapeHtml(item.id)}</small></td><td>${item.kind === 'project' ? '项目' : '记录'}</td><td>${new Date(item.deleted_at).toLocaleString('zh-CN')}</td><td class="trash-row-actions"><button class="secondary-button" data-restore-trash="${escapeHtml(item.token)}">恢复</button><button class="secondary-button danger-button" data-purge-trash="${escapeHtml(item.token)}">永久删除</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-state">回收站为空</div>';
+  $('#manageContent').innerHTML = trashItems.length ? `<div class="trash-table-wrap"><table class="data-table trash-table"><thead><tr><th class="trash-select-cell"><input type="checkbox" id="selectAllTrash" aria-label="全选回收站内容" ${selectedCount === trashItems.length ? 'checked' : ''}></th><th>名称</th><th>类型</th><th>删除时间</th><th>操作</th></tr></thead><tbody>${trashItems.map(item => `<tr data-trash-row="${escapeHtml(item.token)}" class="${trashSelection.has(item.token) ? 'selected' : ''}"><td class="trash-select-cell"><input type="checkbox" data-trash-select="${escapeHtml(item.token)}" aria-label="选择 ${escapeHtml(item.title)}" ${trashSelection.has(item.token) ? 'checked' : ''}></td><td><strong>${escapeHtml(item.title)}</strong><br><small>${escapeHtml(item.id)}</small></td><td>${item.kind === 'project' ? '项目' : item.kind === 'document' ? '文档' : item.kind === 'concept-map' ? '概念图' : '记录'}</td><td>${new Date(item.deleted_at).toLocaleString('zh-CN')}</td><td class="trash-row-actions"><button class="secondary-button" data-restore-trash="${escapeHtml(item.token)}">恢复</button><button class="secondary-button danger-button" data-purge-trash="${escapeHtml(item.token)}">永久删除</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-state">回收站为空</div>';
   updateTrashSelectionUI();
 }
 
@@ -2833,17 +3000,68 @@ async function showHistory() {
   } catch (error) { notify('历史记录加载失败', error.message, true); }
 }
 
-async function uploadAttachment(file) {
+function createPastedImageInsertion(target) {
+  if (target.closest('.editor')) {
+    const editor = $('.editor');
+    editor.focus();
+    const selection = selectionInsideEditor(editor);
+    if (!selection) placeCaret(editor, false);
+    const activeSelection = selectionInsideEditor(editor), range = activeSelection.getRangeAt(0);
+    const placeholder = document.createElement('span');
+    placeholder.className = 'editor-image-uploading'; placeholder.contentEditable = 'false'; placeholder.textContent = '图片上传中…';
+    range.deleteContents(); range.insertNode(placeholder); range.setStartAfter(placeholder); range.collapse(true);
+    activeSelection.removeAllRanges(); activeSelection.addRange(range);
+    return {mode:'visual', placeholder};
+  }
+  const source = $('.markdown-source'), token = `{{WORKBENCH_IMAGE_${Date.now()}_${Math.random().toString(36).slice(2)}}}`;
+  const start = source.selectionStart ?? source.value.length, end = source.selectionEnd ?? start;
+  source.value = `${source.value.slice(0, start)}${token}${source.value.slice(end)}`;
+  source.selectionStart = source.selectionEnd = start + token.length;
+  return {mode:'markdown', source, token};
+}
+
+function finishPastedImageInsertion(insertion, attachment) {
+  const markdown = `![${attachment.name}](${attachment.path})`;
+  if (insertion.mode === 'visual') {
+    const wrapper = document.createElement('div'); wrapper.innerHTML = markdownToHtml(markdown, true);
+    insertion.placeholder.replaceWith(wrapper.querySelector('img'));
+  } else {
+    insertion.source.value = insertion.source.value.replace(insertion.token, markdown);
+    $('.markdown-preview').innerHTML = markdownToHtml(insertion.source.value);
+    const position = insertion.source.value.indexOf(markdown) + markdown.length;
+    insertion.source.selectionStart = insertion.source.selectionEnd = position;
+  }
+  markEditorChanged();
+}
+
+function cancelPastedImageInsertion(insertion) {
+  if (!insertion) return;
+  if (insertion.mode === 'visual') insertion.placeholder.remove();
+  else insertion.source.value = insertion.source.value.replace(insertion.token, '');
+}
+
+async function uploadAttachment(file, options = {}) {
   if (!currentRecord || !file) return;
+  const insertion = options.insertion || null;
+  if (!insertion && editorDirty && !await saveEditorNow()) return;
   try {
-    const response = await fetch(`/api/records/${encodeURIComponent(currentRecord.id)}/attachments/upload?name=${encodeURIComponent(file.name)}`, {method:'POST', headers:{'Content-Type':file.type || 'application/octet-stream'}, body:file});
+    const append = insertion ? '0' : '1';
+    const response = await fetch(`/api/records/${encodeURIComponent(currentRecord.id)}/attachments/upload?name=${encodeURIComponent(file.name)}&append=${append}`, {method:'POST', headers:{'Content-Type':file.type || 'application/octet-stream'}, body:file});
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || `上传失败 (${response.status})`);
-    currentRecord = await api(`/records/${currentRecord.id}`);
-    $('.editor').innerHTML = markdownToHtml(currentRecord.body, true);
+    const latest = await api(`/records/${currentRecord.id}`);
+    if (insertion) {
+      currentRecord.attachments = latest.attachments;
+      finishPastedImageInsertion(insertion, result);
+    } else {
+      currentRecord = latest;
+      $('.editor').innerHTML = markdownToHtml(currentRecord.body, true);
+      $('.markdown-source').value = currentRecord.body;
+      $('.markdown-preview').innerHTML = markdownToHtml(currentRecord.body);
+    }
     renderAttachments();
-    notify(`附件已保存：${file.name}`, 'Markdown 正文已加入相对路径引用');
-  } catch (error) { notify('附件上传失败', error.message, true); }
+    notify(`附件已保存：${file.name}`, insertion ? '图片已插入当前光标位置，保存正文后写入 Markdown' : 'Markdown 正文已加入相对路径引用');
+  } catch (error) { cancelPastedImageInsertion(insertion); notify('附件上传失败', error.message, true); }
 }
 
 async function uploadProjectAssets(files) {
@@ -3000,9 +3218,10 @@ async function refreshData() {
   projects = loaded[0];
   records = loaded[1].filter(record => record.type !== 'idea');
   lastRecordSignature = recordSignature(records);
-  if (!selectedProjectId && projects.length) selectedProjectId = projects[0].id;
+  if (!projects.some(project => project.id === selectedProjectId)) selectedProjectId = projects.find(project => project.status !== 'archived')?.id || projects[0]?.id || '';
   renderNavigation(); renderDashboard();
   if ($('#projectPage').classList.contains('active')) renderProjectPage();
+  persistNavigationState();
 }
 
 function recordSignature(items) {
@@ -3086,9 +3305,11 @@ function renderSearchResults(results) {
 function closeKanbanMenu() {
   const menu = $('#kanbanContextMenu');
   menu.classList.remove('visible'); menu.setAttribute('aria-hidden', 'true'); menu.innerHTML = '';
+  $('.document-card-submenu')?.remove();
 }
 
 function showKanbanMenu(anchor, html) {
+  $('.document-card-submenu')?.remove();
   const menu = $('#kanbanContextMenu');
   menu.innerHTML = html; menu.classList.add('visible'); menu.setAttribute('aria-hidden', 'false');
   const anchorRect = anchor.getBoundingClientRect();
@@ -3329,7 +3550,7 @@ document.addEventListener('click', async event => {
     const input = $$('#documentTagOptions input').find(item => item.value === removeDocumentTag.dataset.removeDocumentTag);
     if (input) input.checked = false;
     updateDocumentTagSummary();
-    $('#documentSaveState').textContent = '有未保存的修改';
+    markDocumentChanged();
     return;
   }
   if (!event.target.closest('.document-tag-picker') && $('#documentTagOptions')) $('#documentTagOptions').hidden = true;
@@ -3339,12 +3560,16 @@ document.addEventListener('click', async event => {
   if (event.target.closest('#newDocumentCategory')) { await createDocumentCategory(); return; }
   const renameDocumentCategoryButton = event.target.closest('[data-rename-document-category]');
   if (renameDocumentCategoryButton) { event.preventDefault(); await renameDocumentCategory(renameDocumentCategoryButton.dataset.renameDocumentCategory); return; }
+  const deleteDocumentCategoryButton = event.target.closest('[data-delete-document-category]');
+  if (deleteDocumentCategoryButton) { event.preventDefault(); await deleteDocumentCategory(deleteDocumentCategoryButton.dataset.deleteDocumentCategory); return; }
   if (event.target.closest('#importKnowledgeDocuments')) { $('#knowledgeImportInput').click(); return; }
   if (event.target.closest('#startDocumentExport')) { documentExportMode = true; documentSelection.clear(); renderDocumentsPage(); return; }
   if (event.target.closest('#cancelDocumentExport')) { documentExportMode = false; documentSelection.clear(); renderDocumentsPage(); return; }
   if (event.target.closest('#exportSelectedKnowledge')) { await exportSelectedDocuments(); return; }
   if (event.target.closest('#clearDocumentSelection')) { documentSelection.clear(); $$('[data-document-select]').forEach(input => { input.checked = false; }); updateDocumentSelectionUI(); return; }
   if (event.target.closest('#exportDocument') && currentDocument) { downloadKnowledgeFile(`/documents/${encodeURIComponent(currentDocument.id)}/export`); notify('正在导出文档', `${currentDocument.title}.md`); return; }
+  const documentCardMenu = event.target.closest('[data-document-card-menu]');
+  if (documentCardMenu) { event.preventDefault(); event.stopPropagation(); openDocumentCardMenu(documentCardMenu, documentCardMenu.dataset.documentCardMenu); return; }
   const documentCard = event.target.closest('[data-document-id]');
   if (documentCard) {
     if (documentExportMode) {
@@ -3544,7 +3769,26 @@ document.addEventListener('click', async event => {
   if (menuAction) {
     const action = menuAction.dataset.menuAction;
     const recordId = menuAction.dataset.record;
+    const menuDocumentId = menuAction.dataset.document;
+    if (action === 'document-card-categories') { showDocumentCategorySubmenu(menuAction, menuDocumentId); return; }
     closeKanbanMenu();
+    if (action === 'open-document-card') { openDocument(menuDocumentId); return; }
+    if (action === 'set-document-category') {
+      const category = menuAction.dataset.category;
+      try {
+        await api(`/documents/${encodeURIComponent(menuDocumentId)}`, {method:'PATCH', body:JSON.stringify({category})});
+        documents = await api('/documents'); documentOpenCategories.add(category); renderDocumentsPage(); notify('文档分类已更新', `已移动到「${category}」`);
+      } catch (error) { notify('文档分类更新失败', error.message, true); }
+      return;
+    }
+    if (action === 'delete-document-card') {
+      const item = documents.find(document => document.id === menuDocumentId);
+      if (item && await appConfirm({title:'将文档移入回收站？', message:`「${item.title}」`, detail:'稍后可以在回收站中恢复。', confirmText:'移入回收站', danger:true})) {
+        try { await api(`/documents/${encodeURIComponent(menuDocumentId)}`, {method:'DELETE'}); documentSelection.delete(menuDocumentId); documents = await api('/documents'); renderDocumentsPage(); notify('文档已移入回收站'); }
+        catch (error) { notify('文档删除失败', error.message, true); }
+      }
+      return;
+    }
     if (action === 'sort-projects') {
       const mode = menuAction.dataset.sortMode;
       const existingOrder = configData?.project_sort?.order?.length ? configData.project_sort.order : projects.map(project => project.id);
@@ -3635,7 +3879,7 @@ document.addEventListener('click', async event => {
     }
     return;
   }
-  if (!event.target.closest('#kanbanContextMenu')) closeKanbanMenu();
+  if (!event.target.closest('#kanbanContextMenu,.document-card-submenu')) closeKanbanMenu();
   const pageButton = event.target.closest('[data-page]');
   if (pageButton) {
     if ($('#managePage').classList.contains('active') && pageButton.dataset.page === activeManagePage && !pageButton.dataset.projectId) return;
@@ -3798,7 +4042,7 @@ document.addEventListener('click', async event => {
     }).catch(error => notify('恢复失败', error.message, true));
   }
   const projectTabButton = event.target.closest('[data-project-tab]');
-  if (projectTabButton) { projectTab = projectTabButton.dataset.projectTab; renderProjectPage(); }
+  if (projectTabButton) { projectTab = projectTabButton.dataset.projectTab; persistNavigationState(); renderProjectPage(); }
   const viewButton = event.target.closest('[data-view-mode]');
   if (viewButton) { projectViewMode = viewButton.dataset.viewMode; renderProjectPage(); }
   const editorButton = event.target.closest('[data-editor-mode]');
@@ -4196,6 +4440,7 @@ async function dismissDialogFromBackdrop(dialog) {
     else if (choice === 'discard') { projectEditSnapshot = null; dialog.close('cancel'); }
     return;
   }
+  if (dialog.id === 'documentDialog') { await closeDocumentEditor(); return; }
   if (dialog.id === 'usageDialog') closeUsageDialog();
   else dialog.close('cancel');
 }
@@ -4359,11 +4604,27 @@ $('.editor-area').addEventListener('paste', event => {
   if (image) {
     event.preventDefault();
     const named = new File([image], `screenshot-${Date.now()}.${image.type.split('/')[1] || 'png'}`, {type:image.type});
-    uploadAttachment(named);
+    uploadAttachment(named, {insertion:createPastedImageInsertion(event.target)});
   } else if (event.target.closest('.editor') && event.clipboardData?.types.includes('text/html')) {
     event.preventDefault();
     document.execCommand('insertText', false, event.clipboardData.getData('text/plain'));
   }
+});
+$('#documentCodeLanguage').addEventListener('change', event => {
+  const editor = $('#documentVisualEditor');
+  editor.focus();
+  restoreDocumentSelection();
+  const selection = selectionInsideEditor(editor);
+  const element = selection && (selection.anchorNode.nodeType === Node.ELEMENT_NODE ? selection.anchorNode : selection.anchorNode.parentElement);
+  const code = element?.closest('pre')?.querySelector('code');
+  if (!code) return;
+  const language = normalizeCodeLanguage(event.target.value);
+  const rawCode = codeElementToText(code);
+  code.dataset.language = language;
+  code.innerHTML = syntaxHighlightCode(rawCode, language) || '<br>';
+  placeCaret(code, false);
+  captureDocumentSelection();
+  markDocumentChanged();
 });
 $('#documentVisualEditor').addEventListener('keydown', event => {
   if (handleDocumentTaskListEnter(event)) return;
@@ -4422,7 +4683,7 @@ document.addEventListener('change', async event => {
   }
   if (event.target.id === 'documentHeading') { $('#documentVisualEditor').focus(); restoreDocumentSelection(); document.execCommand('formatBlock', false, event.target.value); markDocumentChanged(); return; }
   if (event.target.matches('[data-selection-heading]')) { $('#documentVisualEditor').focus(); restoreDocumentSelection(); document.execCommand('formatBlock', false, event.target.value); markDocumentChanged(); return; }
-  if (event.target.matches('#documentTagOptions input')) { updateDocumentTagSummary(); $('#documentSaveState').textContent = '有未保存的修改'; return; }
+  if (event.target.matches('#documentTagOptions input')) { updateDocumentTagSummary(); markDocumentChanged(); return; }
   if (event.target.id === 'projectAssetInput') {
     const files = [...event.target.files]; event.target.value = '';
     await uploadProjectAssets(files); return;
@@ -4494,12 +4755,21 @@ async function initialize() {
     apiAvailable = health.ok;
     configData = config;
     window.workbenchDataDir = config.data_dir;
+    const navigation = readNavigationState();
+    selectedProjectId = typeof navigation.projectId === 'string' ? navigation.projectId : '';
+    const storedProjectId = selectedProjectId;
+    if (['overview','issues','todos','mixed','infos','assets'].includes(navigation.projectTab)) projectTab = navigation.projectTab;
     await refreshData();
     await loadExternalEditors();
     updateDocumentColorButtons();
     const requestedPage = location.hash.replace('#', '');
-    if (requestedPage.startsWith('record/')) { setPage('home'); openDrawer(requestedPage.slice(7)); }
+    if (requestedPage.startsWith('record/')) { setPage('home', {preserveHash:true}); openDrawer(requestedPage.slice(7)); }
     else if (requestedPage) setPage(requestedPage);
+    else {
+      const storedPage = typeof navigation.page === 'string' ? navigation.page : 'home';
+      const missingStoredProject = storedPage === 'project' && storedProjectId && !projects.some(project => project.id === storedProjectId);
+      setPage(missingStoredProject ? 'home' : storedPage);
+    }
     setInterval(async () => {
       if (!apiAvailable || document.hidden) return;
       try {
@@ -4536,6 +4806,8 @@ async function initialize() {
   } catch (error) {
     apiAvailable = false;
     notify('当前为静态预览模式', '请运行 python server.py --seed-demo 启用 Markdown 文件保存', true);
+  } finally {
+    requestAnimationFrame(() => document.documentElement.classList.remove('navigation-restoring'));
   }
 }
 
@@ -4545,7 +4817,7 @@ document.addEventListener('input', event => {
   if (event.target.id === 'documentCategorySearch') { documentFilters.categoryQuery = event.target.value; renderDocumentsPage(); const input = $('#documentCategorySearch'); input?.focus(); input?.setSelectionRange(input.value.length, input.value.length); return; }
   if (event.target.matches('[data-document-file-search]')) { const category = event.target.dataset.documentFileSearch; documentCategoryFileQueries[category] = event.target.value; documentOpenCategories.add(category); renderDocumentsPage(); const input = $(`[data-document-file-search="${CSS.escape(category)}"]`); input?.focus(); input?.setSelectionRange(input.value.length, input.value.length); return; }
   if (['documentVisualEditor','documentBody','documentTitle','documentCategory'].includes(event.target.id)) {
-    $('#documentSaveState').textContent = '有未保存的修改';
+    markDocumentChanged();
     if (event.target.id === 'documentTitle') $('#documentOutlineTitle').textContent = event.target.value.trim() || '新建文档';
     if (['documentVisualEditor','documentBody'].includes(event.target.id)) scheduleDocumentOutlineUpdate();
     return;
@@ -4572,6 +4844,7 @@ document.addEventListener('input', event => {
 
 window.addEventListener('beforeunload', event => {
   persistEditorDraft();
+  persistDocumentDraft();
   if (editorDirty && autoSaveOnLeaveEnabled() && currentRecord) {
     fetch(`/api/records/${encodeURIComponent(currentRecord.id)}`, {
       method:'PATCH',
@@ -4580,11 +4853,11 @@ window.addEventListener('beforeunload', event => {
       keepalive:true
     }).catch(() => {});
   }
-  if (!(editorDirty && !autoSaveOnLeaveEnabled()) && !hasUnsavedManageChanges() && !hasUnsavedProjectEdit()) return;
+  if (!(editorDirty && !autoSaveOnLeaveEnabled()) && !documentDirty && !hasUnsavedManageChanges() && !hasUnsavedProjectEdit()) return;
   event.preventDefault();
   event.returnValue = '';
 });
 
-window.addEventListener('pagehide', persistEditorDraft);
+window.addEventListener('pagehide', () => { persistEditorDraft(); persistDocumentDraft(); });
 
 initialize();

@@ -106,6 +106,15 @@ let conceptMapConnectSource = '';
 let conceptMapSaveTimer = null;
 let conceptMapSaving = false;
 let conceptMapSearch = '';
+const HOME_LAYOUT_STORAGE_KEY = 'workbench-home-layout-v2';
+const HOME_LAYOUT_LEGACY_KEY = 'workbench-home-layout-v1';
+let homeLayout = loadHomeLayout();
+let homeLayoutDraft = null;
+let draggedHomeItem = null;
+let draggedHomeColumn = null;
+let homeLayoutTargetColumnId = '';
+let homeLayoutVisibleRecordIds = [];
+const expandedHomeColumns = new Set();
 
 const PROJECT_CARD_COLLAPSE_LIMIT = 5;
 const PROJECT_LIST_COLLAPSE_LIMIT = 12;
@@ -1092,13 +1101,187 @@ function bindProjectNavigationDrag() {
   });
 }
 
+function loadHomeLayout() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(HOME_LAYOUT_STORAGE_KEY) || 'null');
+    if (saved && Array.isArray(saved.columns)) return normalizeHomeLayout(saved);
+    const legacy = JSON.parse(localStorage.getItem(HOME_LAYOUT_LEGACY_KEY) || '[]');
+    const items = Array.isArray(legacy) ? legacy.filter(item => item && typeof item.id === 'string').map(item => item.id) : [];
+    return {columns:[{id:'home_focus', title:'重点工作', items:[...new Set(items)]}]};
+  } catch { return {columns:[{id:'home_focus', title:'重点工作', items:[]}]}; }
+}
+
+function normalizeHomeLayout(layout) {
+  const usedColumns = new Set(), usedItems = new Set();
+  const columns = (layout?.columns || []).filter(column => column && typeof column.id === 'string').map((column, index) => {
+    let id = column.id;
+    if (usedColumns.has(id)) id = `${id}_${index}`;
+    usedColumns.add(id);
+    const items = (Array.isArray(column.items) ? column.items : []).filter(item => typeof item === 'string' && !usedItems.has(item) && usedItems.add(item));
+    return {id, title:String(column.title || `分栏 ${index + 1}`).trim().slice(0, 30) || `分栏 ${index + 1}`, items};
+  });
+  return {columns};
+}
+
+function saveHomeLayout() {
+  localStorage.setItem(HOME_LAYOUT_STORAGE_KEY, JSON.stringify(homeLayout));
+}
+
+function createHomeColumnId() {
+  return `home_column_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function homeLayoutItemCount(layout = homeLayout) {
+  return (layout?.columns || []).reduce((count, column) => count + column.items.length, 0);
+}
+
+function homeRecordIsOverdue(record) {
+  if (!record.due || record.completed) return false;
+  const today = new Date();
+  const localToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  return record.due < localToday;
+}
+
+function homeItemHtml(record) {
+  const priorityClass = record.priority === '紧急' ? 'urgent' : record.priority === '高' ? 'high' : 'normal';
+  const project = projects.find(item => item.id === record.project_id);
+  const dueClass = homeRecordIsOverdue(record) ? ' overdue' : '';
+  const completeButton = record.type === 'todo' ? `<button type="button" class="home-card-check" data-home-complete="${escapeHtml(record.id)}" aria-label="${record.completed ? '恢复待办' : '完成待办'}" title="${record.completed ? '恢复待办' : '标记为完成'}">✓</button>` : '';
+  return `<div class="home-list-item ${record.completed ? 'completed' : ''}" draggable="true" data-record-id="${escapeHtml(record.id)}" data-home-item="${escapeHtml(record.id)}"><span class="home-item-grip" title="拖动条目">⠿</span>${completeButton || typeIcon(record)}<span class="home-item-content"><strong>${escapeHtml(record.title)}</strong><small><span><i class="project-dot" style="background:${safeColor(project?.color, '#4d78e8')}"></i>${escapeHtml(project?.name || '未归属')}</span><span class="home-item-due${dueClass}">◷ ${escapeHtml(formatDate(record.due))}</span></small></span><span class="priority ${priorityClass}">${escapeHtml(record.priority || '普通')}</span><button type="button" class="home-item-remove" data-home-remove="${escapeHtml(record.id)}" aria-label="移出首页" title="移出首页">×</button></div>`;
+}
+
+function bindHomeLayoutDrag() {
+  const board = $('#homeLayoutGrid');
+  const persistFromBoard = () => {
+    const titles = new Map(homeLayout.columns.map(column => [column.id, column.title]));
+    const originalItems = new Map(homeLayout.columns.map(column => [column.id, column.items]));
+    const visibleIds = new Set($$('[data-home-item]', board).map(item => item.dataset.homeItem));
+    homeLayout = {columns:$$('[data-home-column]', board).map(column => {
+      const visible = $$('[data-home-item]', column).map(item => item.dataset.homeItem);
+      const hidden = (originalItems.get(column.dataset.homeColumn) || []).filter(id => !visibleIds.has(id));
+      return {id:column.dataset.homeColumn, title:titles.get(column.dataset.homeColumn) || '未命名分栏', items:[...visible, ...hidden]};
+    })};
+    saveHomeLayout();
+  };
+  $$('[data-home-item]', board).forEach(item => {
+    item.addEventListener('dragstart', event => {
+      if (event.target.closest('button')) { event.preventDefault(); return; }
+      draggedHomeItem = item;
+      item.classList.add('dragging');
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', item.dataset.homeItem);
+    });
+    item.addEventListener('dragover', event => {
+      event.preventDefault();
+      if (!draggedHomeItem || draggedHomeItem === item) return;
+      const rect = item.getBoundingClientRect();
+      if (event.clientY > rect.top + rect.height / 2) item.after(draggedHomeItem); else item.before(draggedHomeItem);
+    });
+    item.addEventListener('dragend', () => {
+      $$('.home-list-item', board).forEach(row => row.classList.remove('dragging'));
+      persistFromBoard(); draggedHomeItem = null;
+      renderDashboard();
+    });
+  });
+  $$('[data-home-column-items]', board).forEach(list => {
+    list.addEventListener('dragover', event => { if (draggedHomeItem) { event.preventDefault(); list.classList.add('drag-over'); if (!event.target.closest('[data-home-item]')) list.append(draggedHomeItem); } });
+    list.addEventListener('dragleave', event => { if (!list.contains(event.relatedTarget)) list.classList.remove('drag-over'); });
+    list.addEventListener('drop', event => { event.preventDefault(); list.classList.remove('drag-over'); });
+  });
+  $$('[data-home-column-drag]', board).forEach(handle => {
+    const column = handle.closest('[data-home-column]');
+    handle.addEventListener('dragstart', event => { if (event.target.closest('button')) { event.preventDefault(); return; } draggedHomeColumn = column; column.classList.add('dragging'); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', column.dataset.homeColumn); });
+    handle.addEventListener('dragend', () => { $$('.home-column', board).forEach(item => item.classList.remove('dragging', 'drag-target')); persistFromBoard(); draggedHomeColumn = null; renderDashboard(); });
+  });
+  $$('[data-home-column]', board).forEach(column => column.addEventListener('dragover', event => {
+    if (!draggedHomeColumn || draggedHomeColumn === column || draggedHomeItem) return;
+    event.preventDefault(); column.classList.add('drag-target');
+    const rect = column.getBoundingClientRect();
+    const after = event.clientY > rect.top + rect.height / 2 || (Math.abs(event.clientY - (rect.top + rect.height / 2)) < rect.height * .4 && event.clientX > rect.left + rect.width / 2);
+    if (after) column.after(draggedHomeColumn); else column.before(draggedHomeColumn);
+  }));
+}
+
 function renderDashboard() {
-  const todos = records.filter(record => record.type === 'todo' && !record.completed).slice(0, 5);
-  $('#todayTodoList').innerHTML = todos.length ? todos.map(record => `<label class="todo-row" data-record-id="${record.id}"><input type="checkbox"><span class="checkmark"></span><span class="todo-content"><strong>${escapeHtml(record.title)}</strong><small><i class="project-dot blue"></i>${escapeHtml(projectName(record.project_id))}</small></span><time>${formatDate(record.due)}</time><span class="priority ${record.priority === '紧急' ? 'urgent' : record.priority === '高' ? 'high' : 'normal'}">${escapeHtml(record.priority)}</span></label>`).join('') : '<div class="empty-state">暂无未完成待办</div>';
-  $('#recentList').innerHTML = records.slice(0, 6).map(record => `<button class="activity-row" data-record-id="${record.id}">${typeIcon(record)}<span><strong>${escapeHtml(record.title)}</strong><small>${escapeHtml(projectName(record.project_id))} · ${typeNames[record.type]}</small></span><em class="status-pill blue-pill">${escapeHtml(record.type === 'info' ? '项目信息' : record.status)}</em><time>${new Date(record.updated).toLocaleDateString('zh-CN')}</time></button>`).join('');
-  const panel = $('#activeProjectsPanel');
-  $$('.project-card', panel).forEach(node => node.remove());
-  $('.panel-header', panel).insertAdjacentHTML('afterend', projects.filter(project => project.status !== 'archived').map((project, index) => { const projectRecords = records.filter(item => item.project_id === project.id); const completed = projectRecords.filter(item => item.completed).length; const progress = projectRecords.length ? Math.round(completed / projectRecords.length * 100) : 0; return `<button class="project-card" data-page="project" data-project-id="${escapeHtml(project.id)}"><span class="project-avatar ${index % 2 ? 'violet-bg' : 'blue-bg'}">${escapeHtml(project.name.slice(0,1))}</span><span><strong>${escapeHtml(project.name)}</strong><small>${projectRecords.filter(item=>item.type==='issue').length} 个问题 · ${projectRecords.filter(item=>item.type==='todo'&&!item.completed).length} 个待办</small><i><b style="width:${progress}%"></b></i></span><em>${progress}%</em></button>`; }).join(''));
+  const available = new Map(records.filter(record => ['issue', 'todo'].includes(record.type)).map(record => [record.id, record]));
+  const selected = homeLayout.columns.flatMap(column => column.items.map(id => available.get(id)).filter(Boolean));
+  const now = new Date();
+  $('#homeDateLabel').textContent = new Intl.DateTimeFormat('zh-CN', {year:'numeric', month:'long', day:'numeric', weekday:'long'}).format(now);
+  const overdue = selected.filter(homeRecordIsOverdue).length;
+  const unfinished = selected.filter(record => !record.completed).length;
+  $('#homeSummary').textContent = selected.length ? `首页放置了 ${selected.length} 项工作，${unfinished} 项尚未完成${overdue ? `，其中 ${overdue} 项已逾期` : ''}。` : '把重要的问题和待办放在这里，集中处理。';
+  $('#homeLayoutCount').textContent = `${selected.length} 项内容`;
+  $('#homeLayoutGrid').innerHTML = homeLayout.columns.map(column => {
+    const columnRecords = column.items.map(id => available.get(id)).filter(Boolean);
+    const expanded = expandedHomeColumns.has(column.id);
+    const visibleRecords = expanded ? columnRecords : columnRecords.slice(0, 5);
+    const remaining = Math.max(0, columnRecords.length - 5);
+    const toggle = remaining ? `<button type="button" class="home-column-toggle" data-home-column-toggle="${escapeHtml(column.id)}" aria-expanded="${expanded}">${expanded ? '收起，仅显示前 5 条' : `展开其余 ${remaining} 条`}<span>${expanded ? '↑' : '↓'}</span></button>` : '';
+    return `<section class="home-column ${expanded ? 'expanded' : ''}" data-home-column="${escapeHtml(column.id)}"><header draggable="true" data-home-column-drag><span class="home-column-grip">⠿</span><h3>${escapeHtml(column.title)}</h3><em>${columnRecords.length}</em><button type="button" class="home-column-add" data-home-column-add="${escapeHtml(column.id)}" aria-label="向此分栏添加条目" title="添加条目">＋</button><button type="button" class="column-menu-button home-column-menu" data-home-column-menu="${escapeHtml(column.id)}" aria-label="分栏操作" title="分栏操作">•••</button></header><div class="home-column-items" data-home-column-items="${escapeHtml(column.id)}">${visibleRecords.map(homeItemHtml).join('') || '<div class="home-column-empty">拖动条目到这里，或点击标题栏的“＋”添加</div>'}</div>${toggle}</section>`;
+  }).join('');
+  $('#homeLayoutGrid').hidden = !homeLayout.columns.length;
+  $('#homeLayoutEmpty').hidden = Boolean(homeLayout.columns.length);
+  bindHomeLayoutDrag();
+}
+
+function renderHomeLayoutPicker() {
+  const query = $('#homeLayoutSearch').value.trim().toLowerCase();
+  const type = $('#homeLayoutType').value;
+  const projectId = $('#homeLayoutProject').value;
+  const eligible = records.filter(record => ['issue', 'todo'].includes(record.type) && (!type || record.type === type) && (!projectId || record.project_id === projectId) && (!query || `${record.title} ${record.id}`.toLowerCase().includes(query)));
+  if (!homeLayoutDraft.columns.some(column => column.id === homeLayoutTargetColumnId)) homeLayoutTargetColumnId = homeLayoutDraft.columns[0]?.id || '';
+  homeLayoutVisibleRecordIds = eligible.map(record => record.id);
+  const assignment = new Map(homeLayoutDraft.columns.flatMap(column => column.items.map(id => [id, column.id])));
+  const columnNames = new Map(homeLayoutDraft.columns.map(column => [column.id, column.title]));
+  $('#homeLayoutTargetTabs').innerHTML = homeLayoutDraft.columns.map(column => `<button type="button" class="${column.id === homeLayoutTargetColumnId ? 'active' : ''}" data-home-target-column="${escapeHtml(column.id)}"><span>${escapeHtml(column.title)}</span><em>${column.items.length}</em></button>`).join('');
+  $('#homeLayoutSelectedCount').textContent = `首页已选择 ${homeLayoutItemCount(homeLayoutDraft)} 项`;
+  $('#homeLayoutVisibleCount').textContent = `当前显示 ${eligible.length} 项，点击整行即可快速选择`;
+  $('#assignVisibleHomeItems').disabled = !eligible.length || !homeLayoutTargetColumnId;
+  $('#removeVisibleHomeItems').disabled = !eligible.some(record => assignment.has(record.id));
+  $('#homeLayoutPicker').innerHTML = eligible.length ? eligible.map(record => {
+    const columnId = assignment.get(record.id) || '';
+    const inTarget = columnId === homeLayoutTargetColumnId;
+    return `<label class="home-layout-option ${columnId ? 'selected' : ''} ${inTarget ? 'target-selected' : ''}"><input type="checkbox" data-home-quick-pick="${escapeHtml(record.id)}" ${inTarget ? 'checked' : ''}>${typeIcon(record)}<span><strong>${escapeHtml(record.title)}</strong><small>${escapeHtml(record.id)} · ${escapeHtml(projectName(record.project_id))} · ${escapeHtml(record.status || '')}</small></span><span class="home-layout-option-state"><em>${record.completed ? '已完成' : escapeHtml(record.priority || '普通')}</em><b>${columnId ? escapeHtml(columnNames.get(columnId) || '其他分栏') : '未加入'}</b></span></label>`;
+  }).join('') : '<div class="empty-state">没有符合条件的问题或待办</div>';
+}
+
+function openHomeLayoutDialog(preferredColumnId = '') {
+  if (!homeLayout.columns.length) { notify('请先新建分栏', '建立分栏后才能向首页添加内容', true); return; }
+  homeLayoutDraft = JSON.parse(JSON.stringify(homeLayout));
+  homeLayoutTargetColumnId = homeLayoutDraft.columns.some(column => column.id === preferredColumnId) ? preferredColumnId : (homeLayoutDraft.columns[0]?.id || '');
+  $('#homeLayoutSearch').value = '';
+  $('#homeLayoutType').value = '';
+  $('#homeLayoutProject').innerHTML = `<option value="">全部项目</option>${projects.filter(project => project.status !== 'archived').map(project => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)}</option>`).join('')}`;
+  renderHomeLayoutPicker();
+  $('#homeLayoutDialog').showModal();
+  setTimeout(() => $('#homeLayoutSearch').focus(), 20);
+}
+
+async function addHomeColumn() {
+  const title = await appPrompt({title:'新增首页分栏', message:'分栏用于归纳不同阶段或主题的工作。', confirmText:'创建分栏', input:{label:'分栏名称', placeholder:'例如：本周重点、等待处理'}});
+  if (!title?.trim()) return;
+  homeLayout.columns.push({id:createHomeColumnId(), title:title.trim().slice(0, 30), items:[]});
+  saveHomeLayout(); renderDashboard(); notify(`已创建分栏：${title.trim()}`, '可通过“自定义布局”向分栏添加内容');
+}
+
+function openHomeColumnMenu(button, columnId) {
+  const column = homeLayout.columns.find(item => item.id === columnId);
+  if (!column) return;
+  showKanbanMenu(button, `<div class="context-menu-title">${escapeHtml(column.title)}</div><button data-home-menu-action="rename" data-home-menu-column="${escapeHtml(column.id)}"><i class="sort-rule-icon">✎</i>重命名分栏</button><div class="context-menu-separator"></div><button class="danger-item" data-home-menu-action="delete" data-home-menu-column="${escapeHtml(column.id)}">删除分栏</button>`);
+}
+
+async function renameHomeColumn(columnId) {
+  const column = homeLayout.columns.find(item => item.id === columnId);
+  if (!column) return;
+  const title = await appPrompt({title:'重命名首页分栏', confirmText:'保存名称', input:{label:'分栏名称', value:column.title}});
+  if (title?.trim()) { column.title = title.trim().slice(0, 30); saveHomeLayout(); renderDashboard(); }
+}
+
+async function deleteHomeColumn(columnId) {
+  const column = homeLayout.columns.find(item => item.id === columnId);
+  if (!column) return;
+  const confirmed = await appConfirm({title:`删除分栏「${column.title}」？`, message:column.items.length ? `其中 ${column.items.length} 项内容将同时从首页移出。` : '这个分栏当前没有内容。', detail:'问题和待办记录本身不会被删除。', confirmText:'删除分栏', danger:true});
+  if (confirmed) { homeLayout.columns = homeLayout.columns.filter(item => item.id !== column.id); expandedHomeColumns.delete(column.id); saveHomeLayout(); renderDashboard(); notify('首页分栏已删除', '记录本身未受影响'); }
 }
 
 function markdownToPlainText(markdown = '', maxLength = 110, title = '') {
@@ -3537,6 +3720,68 @@ function bindDragAndDrop() {
 }
 
 document.addEventListener('click', async event => {
+  if (event.target.closest('#manageHome')) { openHomeLayoutDialog(); return; }
+  if (event.target.closest('#addHomeColumn') || event.target.closest('#emptyAddHomeColumn')) { await addHomeColumn(); return; }
+  const homeColumnAdd = event.target.closest('[data-home-column-add]');
+  if (homeColumnAdd) { event.preventDefault(); event.stopPropagation(); closeKanbanMenu(); openHomeLayoutDialog(homeColumnAdd.dataset.homeColumnAdd); return; }
+  const homeColumnToggle = event.target.closest('[data-home-column-toggle]');
+  if (homeColumnToggle) {
+    const columnId = homeColumnToggle.dataset.homeColumnToggle;
+    if (expandedHomeColumns.has(columnId)) expandedHomeColumns.delete(columnId); else expandedHomeColumns.add(columnId);
+    renderDashboard();
+    return;
+  }
+  const homeColumnMenu = event.target.closest('[data-home-column-menu]');
+  if (homeColumnMenu) { event.preventDefault(); event.stopPropagation(); openHomeColumnMenu(homeColumnMenu, homeColumnMenu.dataset.homeColumnMenu); return; }
+  const homeMenuAction = event.target.closest('[data-home-menu-action]');
+  if (homeMenuAction) {
+    const columnId = homeMenuAction.dataset.homeMenuColumn;
+    closeKanbanMenu();
+    if (homeMenuAction.dataset.homeMenuAction === 'rename') await renameHomeColumn(columnId);
+    if (homeMenuAction.dataset.homeMenuAction === 'delete') await deleteHomeColumn(columnId);
+    return;
+  }
+  const homeTargetColumn = event.target.closest('[data-home-target-column]');
+  if (homeTargetColumn) { homeLayoutTargetColumnId = homeTargetColumn.dataset.homeTargetColumn; renderHomeLayoutPicker(); return; }
+  if (event.target.closest('#assignVisibleHomeItems')) {
+    const target = homeLayoutDraft.columns.find(column => column.id === homeLayoutTargetColumnId);
+    if (!target) return;
+    homeLayoutVisibleRecordIds.forEach(id => {
+      homeLayoutDraft.columns.forEach(column => { if (column.id !== target.id) column.items = column.items.filter(item => item !== id); });
+      if (!target.items.includes(id)) target.items.push(id);
+    });
+    renderHomeLayoutPicker();
+    return;
+  }
+  if (event.target.closest('#removeVisibleHomeItems')) {
+    const visible = new Set(homeLayoutVisibleRecordIds);
+    homeLayoutDraft.columns.forEach(column => { column.items = column.items.filter(id => !visible.has(id)); });
+    renderHomeLayoutPicker();
+    return;
+  }
+  if (event.target.closest('#closeHomeLayout') || event.target.closest('#cancelHomeLayout')) { $('#homeLayoutDialog').close('cancel'); return; }
+  if (event.target.closest('#clearHomeLayout')) { homeLayoutDraft.columns.forEach(column => { column.items = []; }); renderHomeLayoutPicker(); return; }
+  if (event.target.closest('#saveHomeLayout')) {
+    homeLayout = normalizeHomeLayout(homeLayoutDraft);
+    saveHomeLayout();
+    $('#homeLayoutDialog').close('confirm');
+    renderDashboard();
+    notify('首页布局已保存', `已放置 ${homeLayoutItemCount()} 项内容`);
+    return;
+  }
+  const homeRemove = event.target.closest('[data-home-remove]');
+  if (homeRemove) {
+    event.preventDefault(); event.stopPropagation();
+    homeLayout.columns.forEach(column => { column.items = column.items.filter(id => id !== homeRemove.dataset.homeRemove); });
+    saveHomeLayout(); renderDashboard(); notify('已从首页移出', '记录本身不会被删除'); return;
+  }
+  const homeComplete = event.target.closest('[data-home-complete]');
+  if (homeComplete) {
+    event.preventDefault(); event.stopPropagation();
+    const record = records.find(item => item.id === homeComplete.dataset.homeComplete);
+    if (record) await updateRecord(record.id, {completed:!record.completed, status:record.completed ? '待办' : '已完成'}, record.completed ? '待办已恢复' : '待办已完成');
+    return;
+  }
   const documentColorMenu = event.target.closest('[data-document-color-menu]');
   if (documentColorMenu) { openDocumentColorPalette(documentColorMenu, documentColorMenu.dataset.documentColorMenu); return; }
   const documentColorApply = event.target.closest('[data-document-color-apply]');
@@ -4503,11 +4748,6 @@ document.addEventListener('keydown', event => {
   if (event.key === 'Escape') { closeSearch(); if (detailDrawer.classList.contains('visible')) closeRecordView(); sidebar.classList.remove('mobile-open'); }
 });
 
-$('#todayTodoList').addEventListener('change', async event => {
-  const row = event.target.closest('[data-record-id]');
-  if (event.target.matches('input[type="checkbox"]') && row) await updateRecord(row.dataset.recordId, {completed:event.target.checked, status:event.target.checked ? '已完成' : '待办'}, event.target.checked ? '待办已完成' : '待办已恢复');
-});
-
 let searchTimer;
 $('#searchInput').addEventListener('input', event => {
   updateSearchClearButton();
@@ -4664,6 +4904,18 @@ $('#documentSelectionToolbar').addEventListener('mousedown', event => { if (even
 $('#documentColorPalette').addEventListener('mousedown', event => { if (event.target.closest('button')) event.preventDefault(); });
 $('#documentDialog').addEventListener('cancel', event => { event.preventDefault(); closeDocumentEditor(); });
 document.addEventListener('change', async event => {
+  if (event.target.matches('[data-home-quick-pick]')) {
+    const id = event.target.dataset.homeQuickPick;
+    const assignedColumn = homeLayoutDraft.columns.find(column => column.items.includes(id));
+    if (event.target.checked) {
+      homeLayoutDraft.columns.forEach(column => { column.items = column.items.filter(item => item !== id); });
+      const target = homeLayoutDraft.columns.find(column => column.id === homeLayoutTargetColumnId);
+      if (target) target.items.push(id);
+    } else if (assignedColumn?.id === homeLayoutTargetColumnId) assignedColumn.items = assignedColumn.items.filter(item => item !== id);
+    renderHomeLayoutPicker();
+    return;
+  }
+  if (['homeLayoutType','homeLayoutProject'].includes(event.target.id)) { renderHomeLayoutPicker(); return; }
   if (event.target.id === 'knowledgeImportInput') { const files = [...event.target.files]; event.target.value = ''; await importKnowledgeDocuments(files); return; }
   if (event.target.id === 'selectAllStatuses') { $$('[data-status-select]').forEach(input => { input.checked = event.target.checked; }); updateStatusBatchUI(); return; }
   if (event.target.matches('[data-status-select]')) { updateStatusBatchUI(); return; }
@@ -4812,6 +5064,7 @@ async function initialize() {
 }
 
 document.addEventListener('input', event => {
+  if (event.target.id === 'homeLayoutSearch') { renderHomeLayoutPicker(); return; }
   if (event.target.matches('.tag-edit input[type="text"]')) { updateTagRowDirtyState(event.target.closest('.tag-edit')); return; }
   if (event.target.matches('.status-edit-row input[type="text"]')) { updateStatusRowDirtyState(event.target.closest('.status-edit-row')); return; }
   if (event.target.id === 'documentCategorySearch') { documentFilters.categoryQuery = event.target.value; renderDocumentsPage(); const input = $('#documentCategorySearch'); input?.focus(); input?.setSelectionRange(input.value.length, input.value.length); return; }

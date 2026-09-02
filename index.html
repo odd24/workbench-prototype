@@ -15,7 +15,7 @@
       } catch { /* 使用默认首页 */ }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260901-10">
+  <link rel="stylesheet" href="styles.css?v=20260902-5">
 </head>
 <body>
   <div class="app-shell">
@@ -61,9 +61,9 @@
       </header>
 
       <section class="page active" id="homePage">
-        <div class="page-heading">
-          <div><p class="eyebrow">2026年8月27日 · 星期四</p><h1>早上好，今天从哪里开始？</h1><p>3 项工作需要留意，其中 2 项已经逾期。</p></div>
-          <div class="heading-actions"><button class="secondary-button">管理首页</button></div>
+        <div class="page-heading home-heading">
+          <div><p class="eyebrow" id="homeDateLabel">今天</p><h1>我的工作台</h1><p id="homeSummary">把重要的问题和待办放在这里，集中处理。</p></div>
+          <div class="heading-actions"><button class="secondary-button" id="manageHome">自定义首页</button></div>
         </div>
 
         <div class="quick-actions">
@@ -73,37 +73,13 @@
           <button data-create-type="项目"><span class="quick-icon green-bg">□</span><strong>新建项目</strong><small>创建独立工作空间</small></button>
         </div>
 
-        <div class="dashboard-grid">
-          <section class="panel span-2">
-            <div class="panel-header"><div><h2>今日待办</h2><span class="count-badge">5</span></div><button data-page-link="project">查看全部 →</button></div>
-            <div class="todo-list" id="todayTodoList">
-              <label class="todo-row"><input type="checkbox"><span class="checkmark"></span><span class="todo-content"><strong>完成搜索接口检查</strong><small><i class="project-dot blue"></i>网站重构</small></span><time>10:30</time><span class="priority high">高</span></label>
-              <label class="todo-row"><input type="checkbox"><span class="checkmark"></span><span class="todo-content"><strong>更新项目说明文档</strong><small><i class="project-dot violet"></i>客户交付平台</small></span><time>14:00</time><span class="priority normal">普通</span></label>
-              <label class="todo-row"><input type="checkbox"><span class="checkmark"></span><span class="todo-content"><strong>回复登录问题的客户反馈</strong><small><i class="project-dot blue"></i>网站重构</small></span><time>今天</time><span class="priority urgent">紧急</span></label>
-            </div>
-          </section>
-
-          <section class="panel attention-panel">
-            <div class="panel-header"><div><h2>需要关注</h2></div></div>
-            <button class="attention-item"><span class="attention-icon red">!</span><span><strong>2 项已逾期</strong><small>最早逾期 2 天</small></span><b>→</b></button>
-            <button class="attention-item"><span class="attention-icon orange">◆</span><span><strong>3 个紧急问题</strong><small>1 个今天更新</small></span><b>→</b></button>
-            <button class="attention-item" data-page-link="documents"><span class="attention-icon purple">▤</span><span><strong>知识库</strong><small>整理技术与说明文档</small></span><b>→</b></button>
-          </section>
-
-          <section class="panel span-2">
-            <div class="panel-header"><div><h2>最近更新</h2></div><button>查看全部 →</button></div>
-            <div class="activity-list" id="recentList">
-              <button class="activity-row open-detail"><span class="type-icon issue">!</span><span><strong>登录页面偶尔请求失败</strong><small>网站重构 · 问题</small></span><em class="status-pill orange-pill">处理中</em><time>10分钟前</time></button>
-              <button class="activity-row"><span class="type-icon todo">✓</span><span><strong>检查 Markdown 导入格式</strong><small>客户交付平台 · 待办</small></span><em class="status-pill blue-pill">进行中</em><time>1小时前</time></button>
-            </div>
-          </section>
-
-          <section class="panel" id="activeProjectsPanel">
-            <div class="panel-header"><div><h2>活跃项目</h2></div><button data-page-link="project">全部项目 →</button></div>
-            <button class="project-card" data-page-link="project"><span class="project-avatar blue-bg">网</span><span><strong>网站重构</strong><small>12 个问题 · 5 个待办</small><i><b style="width:68%"></b></i></span><em>68%</em></button>
-            <button class="project-card"><span class="project-avatar violet-bg">客</span><span><strong>客户交付平台</strong><small>4 个问题 · 2 个待办</small><i><b style="width:42%"></b></i></span><em>42%</em></button>
-          </section>
-        </div>
+        <section class="home-layout-section" aria-labelledby="homeLayoutTitle">
+          <div class="home-layout-heading"><div><h2 id="homeLayoutTitle">我的布局</h2><span class="count-badge" id="homeLayoutCount">0 项内容</span></div><div class="home-layout-heading-actions"><small>拖动分栏调整顺序，条目可跨栏移动</small><button type="button" class="secondary-button" id="addHomeColumn">＋ 新增分栏</button></div></div>
+          <div class="home-column-board" id="homeLayoutGrid"></div>
+          <div class="home-layout-empty" id="homeLayoutEmpty" hidden>
+            <span>▥</span><h2>还没有首页分栏</h2><p>先建立一个分栏，再把正在跟进的问题或待办放进去。</p><button class="primary-button" id="emptyAddHomeColumn">新建分栏</button>
+          </div>
+        </section>
       </section>
 
       <section class="page" id="projectPage" data-project-id="">
@@ -194,6 +170,15 @@
       <label id="createBodyField"><span>补充说明（可选）</span><textarea placeholder="输入 / 可以插入格式和内容块"></textarea></label>
       <footer><small>创建后立即生成 Markdown 文件</small><div><button value="cancel" class="secondary-button">取消</button><button type="button" class="primary-button" id="createSubmit">立即创建</button></div></footer>
     </form>
+  </dialog>
+
+  <dialog class="history-dialog home-layout-dialog" id="homeLayoutDialog">
+    <header><div><p class="eyebrow">首页配置</p><h2>选择分栏内容</h2><small>先选择目标分栏，再点击条目或使用批量操作快速添加。</small></div><button class="icon-button dialog-close" id="closeHomeLayout" aria-label="关闭" title="关闭">✕</button></header>
+    <div class="home-layout-toolbar"><label><span>搜索</span><input id="homeLayoutSearch" placeholder="搜索标题或记录编号" autocomplete="off"></label><label><span>类型</span><select id="homeLayoutType"><option value="">全部</option><option value="issue">问题</option><option value="todo">待办</option></select></label><label><span>项目</span><select id="homeLayoutProject"><option value="">全部项目</option></select></label></div>
+    <div class="home-layout-target-bar"><span>快速添加到</span><div id="homeLayoutTargetTabs"></div><button type="button" id="assignVisibleHomeItems">添加当前结果</button><button type="button" id="removeVisibleHomeItems">移出当前结果</button></div>
+    <div class="home-layout-picker-summary"><span id="homeLayoutSelectedCount">首页已选择 0 项</span><small id="homeLayoutVisibleCount">当前显示 0 项，点击整行即可快速选择</small></div>
+    <div class="home-layout-picker" id="homeLayoutPicker"></div>
+    <footer><button type="button" class="secondary-button danger-button" id="clearHomeLayout">清空选择</button><div><button type="button" class="secondary-button" id="cancelHomeLayout">取消</button><button type="button" class="primary-button" id="saveHomeLayout">保存布局</button></div></footer>
   </dialog>
 
   <div class="search-panel" id="searchPanel" aria-hidden="true">
@@ -347,7 +332,7 @@
   <div class="toast" id="toast"><span>✓</span><div><strong>已创建记录</strong><small>Markdown 文件已保存到项目目录</small></div></div>
   <div class="context-menu" id="kanbanContextMenu" aria-hidden="true"></div>
   <div class="timeline-filter-popover" id="timelineFilterPopover" role="dialog" aria-label="记录筛选" aria-hidden="true"></div>
-  <script src="app.js?v=20260901-10"></script>
+  <script src="app.js?v=20260902-5"></script>
   <script src="concept-map.js?v=20260901-18"></script>
 </body>
 </html>

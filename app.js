@@ -372,8 +372,27 @@ function projectTagHtml(tagName) {
   return `<span class="project-tag color-tag" style="--tag-color:${color}" title="${escapeHtml(tagName)} · ${color.toUpperCase()}">${escapeHtml(tagName)}</span>`;
 }
 
+function recordStatusMeta(record, statusName = record.status) {
+  return statusesFor(record.type, record.project_id).find(item => item.name === statusName);
+}
+
 function recordStatusColor(record) {
-  return safeColor(statusesFor(record.type, record.project_id).find(item => item.name === record.status)?.color);
+  return safeColor(recordStatusMeta(record)?.color);
+}
+
+function overviewStatusMeta(statusName, projectRecords, index) {
+  const configured = projectRecords
+    .filter(record => record.status === statusName)
+    .map(record => recordStatusMeta(record, statusName))
+    .filter(Boolean);
+  const colorCounts = new Map();
+  configured.forEach(status => {
+    const color = safeColor(status.color);
+    colorCounts.set(color, (colorCounts.get(color) || 0) + 1);
+  });
+  const color = [...colorCounts].sort((a, b) => b[1] - a[1])[0]?.[0]
+    || ['#87919e', '#4d78e8', '#e08b38', '#2ba477', '#7856c8'][index % 5];
+  return {name:statusName, color, completed:configured.some(status => status.completed)};
 }
 
 function statusChipHtml(record) {
@@ -784,6 +803,36 @@ function insertTextAtSelection(text, editor = $('.editor')) {
   return true;
 }
 
+function pastePlainTextAtSelection(text, editor = $('.editor')) {
+  if (!editor || typeof text !== 'string') return false;
+  editor.focus();
+  if (document.execCommand('insertText', false, text)) return true;
+  const selection = selectionInsideEditor(editor);
+  if (!selection) return false;
+  const range = selection.getRangeAt(0);
+  range.deleteContents();
+  const fragment = document.createDocumentFragment();
+  const lines = text.replace(/\r\n?/g, '\n').split('\n');
+  let caretNode = null;
+  lines.forEach((line, index) => {
+    if (index) { caretNode = document.createElement('br'); fragment.appendChild(caretNode); }
+    if (line) { caretNode = document.createTextNode(line); fragment.appendChild(caretNode); }
+  });
+  if (!caretNode) { caretNode = document.createTextNode(''); fragment.appendChild(caretNode); }
+  range.insertNode(fragment);
+  range.setStartAfter(caretNode); range.collapse(true);
+  selection.removeAllRanges(); selection.addRange(range);
+  return true;
+}
+
+function wrapTextareaSelection(textarea, before, after = before) {
+  const start = textarea.selectionStart ?? 0, end = textarea.selectionEnd ?? start;
+  const selected = textarea.value.slice(start, end);
+  textarea.setRangeText(`${before}${selected}${after}`, start, end, 'end');
+  if (selected) { textarea.selectionStart = start + before.length; textarea.selectionEnd = start + before.length + selected.length; }
+  textarea.dispatchEvent(new InputEvent('input', {bubbles:true, inputType:'insertText', data:selected}));
+}
+
 function insertCodeLineBreakAtSelection(editor = $('.editor')) {
   const selection = selectionInsideEditor(editor);
   if (!selection) return false;
@@ -946,7 +995,7 @@ function updateEditorToolbarState() {
   if (!editor || !selectionInsideEditor(editor)) return;
   $$('[data-editor-command]', $('.editor-toolbar')).forEach(button => {
     const command = button.dataset.editorCommand;
-    const stateful = ['bold', 'italic', 'insertUnorderedList', 'insertOrderedList'].includes(command);
+    const stateful = ['bold', 'italic', 'underline', 'strikeThrough', 'insertUnorderedList', 'insertOrderedList'].includes(command);
     if (stateful) button.setAttribute('aria-pressed', String(document.queryCommandState(command)));
   });
   const selection = window.getSelection();
@@ -1224,11 +1273,63 @@ function renderDashboard() {
   bindHomeLayoutDrag();
 }
 
+function globalStatusGroups(recordType) {
+  const typeRecords = records.filter(record => record.type === recordType);
+  const groups = new Map();
+  typeRecords.forEach(record => {
+    const name = record.status || '未设置状态';
+    const current = groups.get(name) || {name, count:0, colors:new Map()};
+    const color = recordStatusColor(record);
+    current.count += 1;
+    current.colors.set(color, (current.colors.get(color) || 0) + 1);
+    groups.set(name, current);
+  });
+  return [...groups.values()].map(group => ({
+    name:group.name,
+    count:group.count,
+    color:[...group.colors].sort((a, b) => b[1] - a[1])[0]?.[0] || '#64748b',
+    percent:typeRecords.length ? Math.round(group.count / typeRecords.length * 100) : 0,
+  })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'zh-CN'));
+}
+
+function renderGlobalStats() {
+  const workRecords = records.filter(record => ['issue', 'todo'].includes(record.type));
+  const completed = workRecords.filter(record => record.completed).length;
+  const completionRate = workRecords.length ? Math.round(completed / workRecords.length * 100) : 0;
+  const activeProjects = projects.filter(project => project.status !== 'archived').length;
+  const projectStatus = status => ({active:'进行中', paused:'已暂停', archived:'已归档'}[status] || status || '进行中');
+  const projectStatusClass = status => status === 'archived' ? 'archived' : status === 'paused' ? 'paused' : 'active';
+  const projectRows = projects.map(project => {
+    const items = records.filter(record => record.project_id === project.id && ['issue', 'todo'].includes(record.type));
+    const issueCount = items.filter(record => record.type === 'issue').length;
+    const todoCount = items.filter(record => record.type === 'todo').length;
+    const doneCount = items.filter(record => record.completed).length;
+    const progress = items.length ? Math.round(doneCount / items.length * 100) : 0;
+    return `<button type="button" class="global-project-row" data-global-stats-project="${escapeHtml(project.id)}"><span class="project-avatar" style="--project-color:${safeColor(project.color)}">${escapeHtml(project.name.slice(0, 1))}</span><span class="global-project-copy"><span><strong>${escapeHtml(project.name)}</strong><em class="global-project-status ${projectStatusClass(project.status)}">${escapeHtml(projectStatus(project.status))}</em></span><small>${issueCount} 个问题 · ${todoCount} 个待办 · ${doneCount} 项已完成</small><i><b style="width:${progress}%"></b></i></span><span class="global-project-progress"><strong>${progress}%</strong><small>完成度</small></span><span class="global-project-open">›</span></button>`;
+  }).join('') || '<div class="global-stats-empty">还没有项目</div>';
+  const statusSection = (recordType, title) => {
+    const groups = globalStatusGroups(recordType);
+    return `<section class="global-status-panel"><header><h3>${title}</h3><span>${groups.reduce((sum, group) => sum + group.count, 0)} 条</span></header><div>${groups.map(group => `<div class="global-status-row" style="--status-color:${safeColor(group.color)}"><span><i></i><strong>${escapeHtml(group.name)}</strong></span><b><i style="width:${group.percent}%"></i></b><em>${group.count}</em><small>${group.percent}%</small></div>`).join('') || '<div class="global-stats-empty">暂无记录</div>'}</div></section>`;
+  };
+  $('#globalStatsContent').innerHTML = `<div class="global-stats-summary"><div><strong>${projects.length}</strong><span>全部项目</span><small>${activeProjects} 个未归档</small></div><div><strong>${workRecords.filter(record => record.type === 'issue').length}</strong><span>问题</span><small>${workRecords.filter(record => record.type === 'issue' && !record.completed).length} 个未完成</small></div><div><strong>${workRecords.filter(record => record.type === 'todo').length}</strong><span>待办</span><small>${workRecords.filter(record => record.type === 'todo' && !record.completed).length} 个未完成</small></div><div><strong>${completionRate}%</strong><span>整体完成度</span><small>${completed} / ${workRecords.length} 项</small></div></div><section class="global-project-panel"><header><h3>项目情况</h3><span>点击项目查看详情</span></header><div class="global-project-list">${projectRows}</div></section><div class="global-status-grid">${statusSection('issue', '问题状态')}${statusSection('todo', '待办状态')}</div>`;
+}
+
+function openGlobalStats() {
+  renderGlobalStats();
+  $('#globalStatsDialog').showModal();
+}
+
 function renderHomeLayoutPicker() {
   const query = $('#homeLayoutSearch').value.trim().toLowerCase();
   const type = $('#homeLayoutType').value;
   const projectId = $('#homeLayoutProject').value;
-  const eligible = records.filter(record => ['issue', 'todo'].includes(record.type) && (!type || record.type === type) && (!projectId || record.project_id === projectId) && (!query || `${record.title} ${record.id}`.toLowerCase().includes(query)));
+  const statusSelect = $('#homeLayoutStatus');
+  const previousStatus = statusSelect.value;
+  const availableStatuses = [...new Set(records.filter(record => ['issue', 'todo'].includes(record.type) && (!projectId || record.project_id === projectId) && (!type || record.type === type)).map(record => record.status).filter(Boolean))];
+  statusSelect.innerHTML = `<option value="">全部状态</option>${availableStatuses.map(status => `<option value="${escapeHtml(status)}">${escapeHtml(status)}</option>`).join('')}`;
+  statusSelect.value = availableStatuses.includes(previousStatus) ? previousStatus : '';
+  const status = statusSelect.value;
+  const eligible = records.filter(record => ['issue', 'todo'].includes(record.type) && (!projectId || record.project_id === projectId) && (!type || record.type === type) && (!status || record.status === status) && (!query || `${record.title} ${record.id}`.toLowerCase().includes(query)));
   if (!homeLayoutDraft.columns.some(column => column.id === homeLayoutTargetColumnId)) homeLayoutTargetColumnId = homeLayoutDraft.columns[0]?.id || '';
   homeLayoutVisibleRecordIds = eligible.map(record => record.id);
   const assignment = new Map(homeLayoutDraft.columns.flatMap(column => column.items.map(id => [id, column.id])));
@@ -1236,8 +1337,11 @@ function renderHomeLayoutPicker() {
   $('#homeLayoutTargetTabs').innerHTML = homeLayoutDraft.columns.map(column => `<button type="button" class="${column.id === homeLayoutTargetColumnId ? 'active' : ''}" data-home-target-column="${escapeHtml(column.id)}"><span>${escapeHtml(column.title)}</span><em>${column.items.length}</em></button>`).join('');
   $('#homeLayoutSelectedCount').textContent = `首页已选择 ${homeLayoutItemCount(homeLayoutDraft)} 项`;
   $('#homeLayoutVisibleCount').textContent = `当前显示 ${eligible.length} 项，点击整行即可快速选择`;
-  $('#assignVisibleHomeItems').disabled = !eligible.length || !homeLayoutTargetColumnId;
-  $('#removeVisibleHomeItems').disabled = !eligible.some(record => assignment.has(record.id));
+  const selectAll = $('#selectAllHomeItems');
+  const assignedToTarget = eligible.filter(record => assignment.get(record.id) === homeLayoutTargetColumnId).length;
+  selectAll.checked = Boolean(eligible.length) && assignedToTarget === eligible.length;
+  selectAll.indeterminate = assignedToTarget > 0 && assignedToTarget < eligible.length;
+  selectAll.disabled = !eligible.length || !homeLayoutTargetColumnId;
   $('#homeLayoutPicker').innerHTML = eligible.length ? eligible.map(record => {
     const columnId = assignment.get(record.id) || '';
     const inTarget = columnId === homeLayoutTargetColumnId;
@@ -1251,6 +1355,7 @@ function openHomeLayoutDialog(preferredColumnId = '') {
   homeLayoutTargetColumnId = homeLayoutDraft.columns.some(column => column.id === preferredColumnId) ? preferredColumnId : (homeLayoutDraft.columns[0]?.id || '');
   $('#homeLayoutSearch').value = '';
   $('#homeLayoutType').value = '';
+  $('#homeLayoutStatus').innerHTML = '<option value="">全部状态</option>';
   $('#homeLayoutProject').innerHTML = `<option value="">全部项目</option>${projects.filter(project => project.status !== 'archived').map(project => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)}</option>`).join('')}`;
   renderHomeLayoutPicker();
   $('#homeLayoutDialog').showModal();
@@ -1311,15 +1416,15 @@ function markdownToPlainText(markdown = '', maxLength = 110, title = '') {
 function cardHtml(record, extraClass = '') {
   const priorityClass = record.priority === '紧急' ? 'urgent' : record.priority === '高' ? 'high' : 'normal';
   const summary = markdownToPlainText(record.body_preview ?? record.body, 110, record.title);
-  return `<article class="kanban-card ${extraClass}" draggable="true" data-record-id="${record.id}"><div class="card-top"><span class="priority ${priorityClass}">${escapeHtml(record.priority)}</span><button type="button" class="card-menu-button" data-card-menu="${escapeHtml(record.id)}" aria-label="记录操作" title="记录操作">•••</button></div><h3>${escapeHtml(record.title)}</h3>${summary ? `<p>${escapeHtml(summary)}</p>` : ''}<div class="tag-row">${(record.tags || []).map(projectTagHtml).join('')}</div><footer><span class="${record.due ? 'overdue' : ''}">◷ ${formatDate(record.due)}</span><span>${record.id}</span></footer></article>`;
+  return `<article class="kanban-card ${extraClass}" draggable="true" style="--status-color:${recordStatusColor(record)}" data-record-id="${record.id}"><div class="card-top"><span class="priority ${priorityClass}">${escapeHtml(record.priority)}</span><button type="button" class="card-menu-button" data-card-menu="${escapeHtml(record.id)}" aria-label="记录操作" title="记录操作">•••</button></div><h3>${escapeHtml(record.title)}</h3>${summary ? `<p>${escapeHtml(summary)}</p>` : ''}<div class="tag-row">${(record.tags || []).map(projectTagHtml).join('')}</div><footer><span class="${record.due ? 'overdue' : ''}">◷ ${formatDate(record.due)}</span><span>${record.id}</span></footer></article>`;
 }
 
 function recordSortKeys(tab = projectTab) {
   return {
+    overview:{sort:'mixed_record_sort', order:'mixed_record_order', statusSorts:'mixed_status_record_sorts'},
     issues:{sort:'issue_record_sort', order:'issue_record_order', statusSorts:'issue_status_record_sorts'},
     todos:{sort:'todo_record_sort', order:'todo_record_order', statusSorts:'todo_status_record_sorts'},
     infos:{sort:'info_record_sort', order:'info_record_order', statusSorts:null},
-    mixed:{sort:'mixed_record_sort', order:'mixed_record_order', statusSorts:'mixed_status_record_sorts'},
   }[tab] || null;
 }
 
@@ -1517,9 +1622,9 @@ function renderProjectPage() {
   });
   const typeForTab = {issues:'issue', todos:'todo', infos:'info'};
   let projectRecords = typeForTab[projectTab] ? allProjectRecords.filter(item => item.type === typeForTab[projectTab]) : allProjectRecords;
-  if (projectTab === 'mixed') projectRecords = projectRecords.filter(item => item.type !== 'info');
+  if (projectTab === 'overview') projectRecords = projectRecords.filter(item => ['issue', 'todo'].includes(item.type));
   const toolbar = $('.board-toolbar');
-  toolbar.style.display = ['overview', 'assets'].includes(projectTab) ? 'none' : 'flex';
+  toolbar.style.display = projectTab === 'assets' ? 'none' : 'flex';
   $$('.view-switch [data-view-mode]').forEach(button => button.classList.toggle('active', button.dataset.viewMode === projectViewMode));
   const createLabel = projectTab === 'todos' ? '待办' : projectTab === 'infos' ? '信息' : '问题';
   const createButton = $('.board-toolbar [data-create-type]');
@@ -1543,11 +1648,9 @@ function renderProjectPage() {
     recordSortButton.title = `记录排序：${{manual:'手动排序',updated:'最近更新优先',priority:'优先级',due:'截止日期',title:'标题',created:'最新创建优先'}[recordSortMode] || '手动排序'}`;
   }
   const content = $('#kanban');
-  content.classList.toggle('list-layout', projectViewMode === 'list' || ['overview', 'assets', 'infos'].includes(projectTab));
-  if (projectTab === 'overview') {
-    content.innerHTML = `<div class="stat-grid"><div class="stat-card"><strong>${counts.issues}</strong><span>问题</span></div><div class="stat-card"><strong>${counts.todos}</strong><span>待办</span></div><div class="stat-card"><strong>${counts.infos}</strong><span>信息</span></div><div class="stat-card"><strong>${allProjectRecords.filter(item => item.completed).length}</strong><span>已完成</span></div></div>`;
-    return;
-  }
+  const overviewHeading = projectTab === 'overview' ? `<div class="project-overview-board-heading"><div><h2>问题与待办</h2><p>在一个视图中按状态跟进项目记录</p></div><span>${projectRecords.length} 条记录</span></div>` : '';
+  content.classList.toggle('project-overview-layout', projectTab === 'overview');
+  content.classList.toggle('list-layout', projectViewMode === 'list' || ['assets', 'infos'].includes(projectTab));
   if (projectTab === 'assets') {
     if (projectAssetProjectId !== project.id) {
       content.innerHTML = '<div class="empty-state">正在读取项目附件…</div>';
@@ -1567,19 +1670,19 @@ function renderProjectPage() {
   }
   if (projectViewMode === 'list') {
     const hasMore = projectRecords.length > PROJECT_LIST_COLLAPSE_LIMIT;
-    content.innerHTML = `<div class="collapsible-record-list"><table class="data-table"><thead><tr><th>类型</th><th>标题</th><th>状态</th><th>优先级</th><th>截止日期</th><th>标签</th></tr></thead><tbody>${projectRecords.map((record, index) => `<tr class="${index >= PROJECT_LIST_COLLAPSE_LIMIT ? 'auto-collapsed-record' : ''}" data-record-id="${record.id}"><td>${typeChipHtml(record)}</td><td><strong>${escapeHtml(record.title)}</strong></td><td>${statusChipHtml(record)}</td><td>${priorityChipHtml(record.priority)}</td><td>${formatDate(record.due)}</td><td><div class="tag-row">${(record.tags || []).map(projectTagHtml).join('')}</div></td></tr>`).join('')}</tbody></table>${hasMore ? `<button type="button" class="records-expand-toggle" aria-expanded="false">展开其余 ${projectRecords.length - PROJECT_LIST_COLLAPSE_LIMIT} 条记录⌄</button>` : ''}</div>`;
+    content.innerHTML = `${overviewHeading}<div class="collapsible-record-list"><table class="data-table"><thead><tr><th>类型</th><th>标题</th><th>状态</th><th>优先级</th><th>截止日期</th><th>标签</th></tr></thead><tbody>${projectRecords.map((record, index) => `<tr class="${index >= PROJECT_LIST_COLLAPSE_LIMIT ? 'auto-collapsed-record' : ''}" data-record-id="${record.id}"><td>${typeChipHtml(record)}</td><td><strong>${escapeHtml(record.title)}</strong></td><td>${statusChipHtml(record)}</td><td>${priorityChipHtml(record.priority)}</td><td>${formatDate(record.due)}</td><td><div class="tag-row">${(record.tags || []).map(projectTagHtml).join('')}</div></td></tr>`).join('')}</tbody></table>${hasMore ? `<button type="button" class="records-expand-toggle" aria-expanded="false">展开其余 ${projectRecords.length - PROJECT_LIST_COLLAPSE_LIMIT} 条记录⌄</button>` : ''}</div>`;
     return;
   }
   let statuses;
-  if (projectTab === 'mixed') {
-    statuses = [...new Set(projectRecords.map(item => item.status))].map((name, index) => ({name, color:['#87919e','#4d78e8','#e08b38','#2ba477','#7856c8'][index % 5]}));
+  if (projectTab === 'overview') {
+    statuses = [...new Set(projectRecords.map(item => item.status))].map((name, index) => overviewStatusMeta(name, projectRecords, index));
   } else {
     const configuredStatuses = statusesFor(typeForTab[projectTab], project.id);
     const configuredNames = new Set(configuredStatuses.map(item => item.name));
     const unconfiguredStatuses = rawStatuses.filter(name => !configuredNames.has(name)).map(name => ({name, color:'#64748b', unconfigured:true}));
     statuses = [...configuredStatuses, ...unconfiguredStatuses];
   }
-  const orderKey = {issues:'issue_status_order', todos:'todo_status_order', mixed:'mixed_status_order'}[projectTab];
+  const orderKey = {overview:'mixed_status_order', issues:'issue_status_order', todos:'todo_status_order'}[projectTab];
   const savedOrder = orderKey && Array.isArray(project[orderKey]) ? project[orderKey] : [];
   if (savedOrder.length) statuses = [...statuses].sort((a, b) => { const ai = savedOrder.indexOf(a.name), bi = savedOrder.indexOf(b.name); return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi); });
   content.dataset.orderKey = orderKey || '';
@@ -1589,7 +1692,7 @@ function renderProjectPage() {
   content.dataset.recordSortMode = recordSortMode;
   const statusSorts = recordKeys && project[recordKeys.statusSorts] && typeof project[recordKeys.statusSorts] === 'object' ? project[recordKeys.statusSorts] : {};
   const sortLabels = {manual:'手动',updated:'最近更新',priority:'优先级',due:'截止日期',title:'标题',created:'最新创建'};
-  content.innerHTML = statuses.map(status => {
+  const boardColumns = statuses.map(status => {
     const statusMode = statusSorts[status.name] || recordSortMode;
     const group = sortRecordsByMode(projectRecords.filter(record => record.status === status.name), statusMode, recordKeys && Array.isArray(project[recordKeys.order]) ? project[recordKeys.order] : []);
     const indicator = status.unconfigured ? '<span class="unconfigured-status-badge" title="此状态已不在当前模板中；记录仍被完整保留，可移动到其他状态">模板外</span>' : statusMode !== 'manual' ? `<span class="column-sort-indicator" title="当前按${sortLabels[statusMode]}排序">↕ ${sortLabels[statusMode]}</span>` : '';
@@ -1598,6 +1701,7 @@ function renderProjectPage() {
     const cards = group.map((record, index) => cardHtml(record, index >= PROJECT_CARD_COLLAPSE_LIMIT ? 'auto-collapsed-record' : '')).join('');
     return `<section class="kanban-column ${status.unconfigured ? 'unconfigured-status-column' : ''}" style="--status-color:${color}" data-status="${escapeHtml(status.name)}" data-completed="${Boolean(status.completed)}" data-record-sort-mode="${statusMode}"><header draggable="${!status.unconfigured}" title="${status.unconfigured ? '此状态已从模板移除，但其中记录仍被保留' : '拖动调整状态顺序'}"><span class="column-grip" aria-hidden="true">${status.unconfigured ? '!' : '⠿'}</span><span class="column-dot" style="background:${color}"></span><strong>${escapeHtml(status.name)}</strong><em>${group.length}</em>${indicator}<button type="button" draggable="false" class="column-menu-button" data-column-menu="${escapeHtml(status.name)}" aria-label="状态操作与排序" title="状态操作与排序">•••</button></header><div class="card-stack">${cards}</div>${hiddenCount ? `<button type="button" class="records-expand-toggle" aria-expanded="false">展开其余 ${hiddenCount} 条记录⌄</button>` : ''}${status.unconfigured ? '<div class="unconfigured-status-help">记录未被删除，请移动到现有状态</div>' : `<button class="add-card" data-create-type="${createLabel}">＋ 添加${createLabel}</button>`}</section>`;
   }).join('');
+  content.innerHTML = overviewHeading + (boardColumns || '<div class="project-overview-empty empty-state"><strong>还没有问题或待办</strong><p>使用上方新建按钮添加第一条项目记录。</p></div>');
   bindDragAndDrop();
 }
 
@@ -3569,7 +3673,7 @@ async function persistRecordOrder(visibleOrder, manualStatuses = [], quiet = fal
   const displayed = visibleOrder || $$('.kanban-card', board).map(card => card.dataset.recordId);
   const visibleSet = new Set(displayed);
   const tabType = {issues:'issue', todos:'todo'}[projectTab];
-  const eligible = records.filter(record => record.project_id === selectedProjectId && (!tabType || record.type === tabType)).map(record => record.id);
+  const eligible = records.filter(record => record.project_id === selectedProjectId && (projectTab === 'overview' ? ['issue', 'todo'].includes(record.type) : (!tabType || record.type === tabType))).map(record => record.id);
   const eligibleSet = new Set(eligible);
   const base = [...(Array.isArray(project[orderKey]) ? project[orderKey] : []), ...eligible].filter((id, index, list) => eligibleSet.has(id) && list.indexOf(id) === index);
   let cursor = 0;
@@ -3713,13 +3817,25 @@ function bindDragAndDrop() {
       const visibleOrder = $$('.kanban-card', $('#kanban')).map(card => card.dataset.recordId);
       try {
         await persistRecordOrder(visibleOrder, [draggedCardSourceStatus, column.dataset.status], true);
-        await updateRecord(id, {status:column.dataset.status, completed:column.dataset.completed === 'true'}, `位置与状态已更新为「${column.dataset.status}」`);
+        const record = records.find(item => item.id === id);
+        const targetStatus = record && recordStatusMeta(record, column.dataset.status);
+        await updateRecord(id, {status:column.dataset.status, completed:targetStatus ? Boolean(targetStatus.completed) : column.dataset.completed === 'true'}, `位置与状态已更新为「${column.dataset.status}」`);
       } catch (error) { notify('记录排序保存失败', error.message, true); renderProjectPage(); }
     });
   });
 }
 
 document.addEventListener('click', async event => {
+  if (event.target.closest('#openGlobalStats')) { openGlobalStats(); return; }
+  if (event.target.closest('#closeGlobalStats') || event.target.closest('#dismissGlobalStats')) { $('#globalStatsDialog').close(); return; }
+  const globalStatsProject = event.target.closest('[data-global-stats-project]');
+  if (globalStatsProject) {
+    $('#globalStatsDialog').close();
+    selectedProjectId = globalStatsProject.dataset.globalStatsProject;
+    projectTab = 'overview';
+    setPage('project');
+    return;
+  }
   if (event.target.closest('#manageHome')) { openHomeLayoutDialog(); return; }
   if (event.target.closest('#addHomeColumn') || event.target.closest('#emptyAddHomeColumn')) { await addHomeColumn(); return; }
   const homeColumnAdd = event.target.closest('[data-home-column-add]');
@@ -3743,22 +3859,6 @@ document.addEventListener('click', async event => {
   }
   const homeTargetColumn = event.target.closest('[data-home-target-column]');
   if (homeTargetColumn) { homeLayoutTargetColumnId = homeTargetColumn.dataset.homeTargetColumn; renderHomeLayoutPicker(); return; }
-  if (event.target.closest('#assignVisibleHomeItems')) {
-    const target = homeLayoutDraft.columns.find(column => column.id === homeLayoutTargetColumnId);
-    if (!target) return;
-    homeLayoutVisibleRecordIds.forEach(id => {
-      homeLayoutDraft.columns.forEach(column => { if (column.id !== target.id) column.items = column.items.filter(item => item !== id); });
-      if (!target.items.includes(id)) target.items.push(id);
-    });
-    renderHomeLayoutPicker();
-    return;
-  }
-  if (event.target.closest('#removeVisibleHomeItems')) {
-    const visible = new Set(homeLayoutVisibleRecordIds);
-    homeLayoutDraft.columns.forEach(column => { column.items = column.items.filter(id => !visible.has(id)); });
-    renderHomeLayoutPicker();
-    return;
-  }
   if (event.target.closest('#closeHomeLayout') || event.target.closest('#cancelHomeLayout')) { $('#homeLayoutDialog').close('cancel'); return; }
   if (event.target.closest('#clearHomeLayout')) { homeLayoutDraft.columns.forEach(column => { column.items = []; }); renderHomeLayoutPicker(); return; }
   if (event.target.closest('#saveHomeLayout')) {
@@ -4065,7 +4165,7 @@ document.addEventListener('click', async event => {
         const tabType = {issues:'issue', todos:'todo'}[projectTab];
         const existingOrder = Array.isArray(project[keys.order]) && project[keys.order].length
           ? project[keys.order]
-          : records.filter(record => record.project_id === selectedProjectId && (!tabType || record.type === tabType)).map(record => record.id);
+          : records.filter(record => record.project_id === selectedProjectId && (projectTab === 'overview' ? ['issue', 'todo'].includes(record.type) : (!tabType || record.type === tabType))).map(record => record.id);
         try {
           const updated = await api(`/projects/${encodeURIComponent(selectedProjectId)}`, {method:'PATCH', body:JSON.stringify({[keys.sort]:mode, [keys.order]:existingOrder, [keys.statusSorts]:{}})});
           const index = projects.findIndex(item => item.id === selectedProjectId);
@@ -4633,12 +4733,12 @@ $('#drawerDue').addEventListener('change', event => { if (currentRecord) updateR
 $('#convertRecord').addEventListener('click', async () => {
   if (!currentRecord) return;
   const targetType = currentRecord.type === 'todo' ? 'issue' : 'todo';
-  const projectId = currentRecord.project_id || projects.find(item => item.status !== 'archived')?.id;
-  if (!projectId) return notify('无法转换', '请先创建一个项目', true);
+  if (editorDirty && !await saveEditorNow()) return;
+  const recordId = currentRecord.id;
   try {
-    const converted = await api('/records', {method:'POST', body:JSON.stringify({type:targetType, title:currentRecord.title, project_id:projectId, priority:currentRecord.priority, tags:currentRecord.tags || [], body:currentRecord.body, links:[currentRecord.id]})});
-    await updateRecord(currentRecord.id, {links:[...new Set([...(currentRecord.links || []), converted.id])]}, `已转换为${typeNames[targetType]}`);
+    const converted = await api(`/records/${encodeURIComponent(recordId)}/convert`, {method:'POST', body:JSON.stringify({type:targetType})});
     await refreshData(); await openDrawer(converted.id);
+    notify(`已转换为${typeNames[targetType]}`, `${converted.status || '原状态'}已保留`);
   } catch (error) { notify('转换失败', error.message, true); }
 });
 $('#deleteRecord').addEventListener('click', async () => {
@@ -4815,10 +4915,19 @@ $('.editor').addEventListener('keydown', event => {
   const commands = {
     b:'bold',
     i:'italic',
+    u:'underline',
     '7':event.shiftKey ? 'insertOrderedList' : '',
     '8':event.shiftKey ? 'insertUnorderedList' : ''
   };
-  if (event.shiftKey && key === 'q') {
+  if (key === 'z' || key === 'y') {
+    event.preventDefault();
+    document.execCommand(key === 'y' || (key === 'z' && event.shiftKey) ? 'redo' : 'undo', false);
+    markEditorChanged();
+  } else if (event.shiftKey && key === 'x') {
+    event.preventDefault();
+    document.execCommand('strikeThrough', false);
+    markEditorChanged();
+  } else if (event.shiftKey && key === 'q') {
     event.preventDefault();
     toggleBlockquote();
   } else if (commands[key]) {
@@ -4830,6 +4939,16 @@ $('.editor').addEventListener('keydown', event => {
 $('.editor').addEventListener('input', markEditorChanged);
 $('.editor').addEventListener('change', event => { if (event.target.matches('input[type="checkbox"]')) { editorDirty = true; scheduleEditorSave(); } });
 $('.markdown-source').addEventListener('input', event => { editorDirty = true; $('.markdown-preview').innerHTML = markdownToHtml(event.target.value); scheduleEditorSave(); });
+$('.markdown-source').addEventListener('keydown', event => {
+  if (!(event.ctrlKey || event.metaKey) || event.isComposing) return;
+  const key = event.key.toLowerCase();
+  const wrappers = {b:['**','**'], i:['*','*'], u:['<u>','</u>']};
+  if (event.shiftKey && key === 'x') {
+    event.preventDefault(); wrapTextareaSelection(event.currentTarget, '~~', '~~');
+  } else if (wrappers[key]) {
+    event.preventDefault(); wrapTextareaSelection(event.currentTarget, ...wrappers[key]);
+  }
+});
 $('.editor-area').addEventListener('focusin', event => {
   if (event.target.matches('.editor, .markdown-source')) expandEditorContent();
 });
@@ -4845,9 +4964,9 @@ $('.editor-area').addEventListener('paste', event => {
     event.preventDefault();
     const named = new File([image], `screenshot-${Date.now()}.${image.type.split('/')[1] || 'png'}`, {type:image.type});
     uploadAttachment(named, {insertion:createPastedImageInsertion(event.target)});
-  } else if (event.target.closest('.editor') && event.clipboardData?.types.includes('text/html')) {
+  } else if (event.target.closest('.editor') && Array.from(event.clipboardData?.types || []).some(type => type === 'text/plain' || type === 'text/html')) {
     event.preventDefault();
-    document.execCommand('insertText', false, event.clipboardData.getData('text/plain'));
+    if (pastePlainTextAtSelection(event.clipboardData.getData('text/plain'))) markEditorChanged();
   }
 });
 $('#documentCodeLanguage').addEventListener('change', event => {
@@ -4904,6 +5023,19 @@ $('#documentSelectionToolbar').addEventListener('mousedown', event => { if (even
 $('#documentColorPalette').addEventListener('mousedown', event => { if (event.target.closest('button')) event.preventDefault(); });
 $('#documentDialog').addEventListener('cancel', event => { event.preventDefault(); closeDocumentEditor(); });
 document.addEventListener('change', async event => {
+  if (event.target.id === 'selectAllHomeItems') {
+    const target = homeLayoutDraft.columns.find(column => column.id === homeLayoutTargetColumnId);
+    if (!target) return;
+    const visible = new Set(homeLayoutVisibleRecordIds);
+    if (event.target.checked) {
+      homeLayoutVisibleRecordIds.forEach(id => {
+        homeLayoutDraft.columns.forEach(column => { column.items = column.items.filter(item => item !== id); });
+        target.items.push(id);
+      });
+    } else target.items = target.items.filter(id => !visible.has(id));
+    renderHomeLayoutPicker();
+    return;
+  }
   if (event.target.matches('[data-home-quick-pick]')) {
     const id = event.target.dataset.homeQuickPick;
     const assignedColumn = homeLayoutDraft.columns.find(column => column.items.includes(id));
@@ -4915,7 +5047,7 @@ document.addEventListener('change', async event => {
     renderHomeLayoutPicker();
     return;
   }
-  if (['homeLayoutType','homeLayoutProject'].includes(event.target.id)) { renderHomeLayoutPicker(); return; }
+  if (['homeLayoutProject','homeLayoutType','homeLayoutStatus'].includes(event.target.id)) { renderHomeLayoutPicker(); return; }
   if (event.target.id === 'knowledgeImportInput') { const files = [...event.target.files]; event.target.value = ''; await importKnowledgeDocuments(files); return; }
   if (event.target.id === 'selectAllStatuses') { $$('[data-status-select]').forEach(input => { input.checked = event.target.checked; }); updateStatusBatchUI(); return; }
   if (event.target.matches('[data-status-select]')) { updateStatusBatchUI(); return; }
@@ -5010,7 +5142,8 @@ async function initialize() {
     const navigation = readNavigationState();
     selectedProjectId = typeof navigation.projectId === 'string' ? navigation.projectId : '';
     const storedProjectId = selectedProjectId;
-    if (['overview','issues','todos','mixed','infos','assets'].includes(navigation.projectTab)) projectTab = navigation.projectTab;
+    if (navigation.projectTab === 'mixed') projectTab = 'overview';
+    else if (['overview','issues','todos','infos','assets'].includes(navigation.projectTab)) projectTab = navigation.projectTab;
     await refreshData();
     await loadExternalEditors();
     updateDocumentColorButtons();

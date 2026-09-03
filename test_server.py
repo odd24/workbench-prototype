@@ -81,6 +81,39 @@ class RepositoryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "不支持的记录排序规则"):
             self.repo.update_project(project["id"], {"issue_record_sort": "random"})
 
+    def test_convert_record_moves_type_without_resetting_status(self):
+        project = self.repo.create_project({"name": "记录转换项目"})
+        issue = self.repo.create_record({
+            "type": "issue", "title": "保留处理进度", "project_id": project["id"],
+            "status": "处理中", "completed": True, "priority": "高",
+            "tags": ["转换"], "due": "2026-09-10", "body": "# 保留处理进度\n\n正文",
+        })
+        issue_path = Path(issue["file_path"])
+
+        converted = self.repo.convert_record(issue["id"], "todo")
+
+        self.assertEqual(converted["id"], issue["id"])
+        self.assertEqual(converted["type"], "todo")
+        self.assertEqual(converted["status"], "处理中")
+        self.assertTrue(converted["completed"])
+        self.assertEqual(converted["priority"], "高")
+        self.assertEqual(converted["tags"], ["转换"])
+        self.assertEqual(converted["due"], "2026-09-10")
+        self.assertIn("正文", converted["body"])
+        self.assertFalse(issue_path.exists())
+        self.assertEqual(Path(converted["file_path"]).parent.name, "todos")
+        self.assertEqual(self.repo.list_records(project["id"], "issue"), [])
+        self.assertEqual([item["id"] for item in self.repo.list_records(project["id"], "todo")], [issue["id"]])
+        self.assertEqual(len(self.repo.list_history(issue["id"])), 1)
+
+        restored_type = self.repo.convert_record(issue["id"], "issue")
+        self.assertEqual(restored_type["status"], "处理中")
+        self.assertEqual(Path(restored_type["file_path"]).parent.name, "issues")
+        self.assertEqual(len(self.repo.list_history(issue["id"])), 2)
+
+        with self.assertRaisesRegex(ValueError, "只能在问题和待办之间转换"):
+            self.repo.convert_record(issue["id"], "info")
+
     def test_global_idea_is_allowed(self):
         idea = self.repo.create_record({"type": "idea", "title": "未归属想法"})
         self.assertIsNone(idea["project_id"])

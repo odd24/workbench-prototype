@@ -31,7 +31,7 @@ DEFAULT_DATA_DIR = APP_DIR / "workbench-data"
 LOCATION_FILE = APP_DIR / ".workbench-location.json"
 EXPORT_LOCATION_FILE = APP_DIR / ".workbench-export.json"
 EXTERNAL_EDITOR_FILE = APP_DIR / ".workbench-editor.json"
-APP_VERSION = "2026.09.01.3"
+APP_VERSION = "2026.09.03.1"
 TYPE_DIRS = {"issue": "issues", "todo": "todos", "idea": "ideas", "info": "infos"}
 TYPE_PREFIXES = {"issue": "ISSUE", "todo": "TODO", "idea": "IDEA", "info": "INFO"}
 CONCEPT_MAP_WIDTH = 12_000.0
@@ -1374,6 +1374,43 @@ class Repository:
         self._forget_record(path)
         return self._load_record(path)
 
+    def convert_record(self, record_id: str, target_type: str) -> dict:
+        if target_type not in {"issue", "todo"}:
+            raise ValueError("只能在问题和待办之间转换")
+        record, source = self.get_record(record_id)
+        if not record or not source:
+            raise FileNotFoundError(record_id)
+        if record.get("type") not in {"issue", "todo"}:
+            raise ValueError("只能在问题和待办之间转换")
+        if record.get("type") == target_type:
+            return record
+
+        project_id = record.get("project_id")
+        if not project_id or not self.project(project_id):
+            raise ValueError("问题和待办必须归属于有效项目")
+        destination_dir = self.projects_dir / project_id / TYPE_DIRS[target_type]
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        destination = destination_dir / source.name
+        if destination.exists():
+            raise ValueError("目标类型目录中已存在同名记录")
+
+        body = record.get("body", "")
+        metadata = {
+            key: value for key, value in record.items()
+            if key not in {"body", "file_path", "file_mtime"}
+        }
+        metadata["type"] = target_type
+        metadata["updated"] = now_iso()
+        self._save_history(record_id, source)
+        self._forget_record(source)
+        shutil.move(str(source), str(destination))
+        try:
+            destination.write_text(dump_markdown(metadata, body), encoding="utf-8")
+        except Exception:
+            shutil.move(str(destination), str(source))
+            raise
+        return self._load_record(destination)
+
     def open_record_external(self, record_id: str) -> dict:
         record, path = self.get_record(record_id)
         if not record or not path:
@@ -2197,6 +2234,8 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                 return self._json(self.repository.restore_trash(token))
             if path.startswith("/api/records/"):
                 parts = path.strip("/").split("/")
+                if len(parts) == 4 and parts[-1] == "convert":
+                    return self._json(self.repository.convert_record(parts[-2], str(self._body().get("type", ""))))
                 if len(parts) == 4 and parts[-1] == "open-external":
                     return self._json(self.repository.open_record_external(parts[-2]))
                 if len(parts) == 5 and parts[-2:] == ["attachments", "upload"]:

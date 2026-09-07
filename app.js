@@ -96,9 +96,9 @@ let documentOpenCategories = new Set();
 let documentSelection = new Set();
 let documentExportMode = false;
 let documentLastRange = null;
-let documentExpanded = false;
 let documentOutlineCollapsed = localStorage.getItem('workbench-document-outline-collapsed') === 'true';
 let documentOutlineTimer = null;
+let documentSaveTimer = null;
 let conceptMaps = [];
 let currentConceptMap = null;
 let conceptMapSelection = null;
@@ -522,6 +522,7 @@ function typeIcon(record) {
 
 function inlineMarkdownToHtml(text) {
   let output = text;
+  output = output.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
   output = output.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, source) => markdownImageHtml(unescapeHtml(alt), unescapeHtml(source)));
   output = output.replace(/\[\[([A-Za-z]+-\d+)\]\]/g, (_, id) => {
     const record = records.find(item => item.id.toLowerCase() === id.toLowerCase());
@@ -609,6 +610,50 @@ function syntaxHighlightCode(code, language = 'txt') {
   return output + escapeHtml(code.slice(cursor));
 }
 
+function splitMarkdownTableRow(line) {
+  let source = String(line || '').trim();
+  if (source.startsWith('|')) source = source.slice(1);
+  if (source.endsWith('|') && !source.endsWith('\\|')) source = source.slice(0, -1);
+  const cells = [];
+  let cell = '';
+  for (let index = 0; index < source.length; index++) {
+    if (source[index] === '\\' && source[index + 1] === '|') { cell += '|'; index++; continue; }
+    if (source[index] === '|') { cells.push(cell.trim()); cell = ''; continue; }
+    cell += source[index];
+  }
+  cells.push(cell.trim());
+  return cells;
+}
+
+function markdownTableAlignment(cell) {
+  const marker = unescapeHtml(cell).trim();
+  if (!/^:?-{3,}:?$/.test(marker)) return '';
+  if (marker.startsWith(':') && marker.endsWith(':')) return 'center';
+  if (marker.endsWith(':')) return 'right';
+  return 'left';
+}
+
+function markdownTableHtml(lines, startIndex) {
+  if (startIndex + 1 >= lines.length || !lines[startIndex].includes('|')) return null;
+  const headers = splitMarkdownTableRow(lines[startIndex]);
+  const separators = splitMarkdownTableRow(lines[startIndex + 1]);
+  if (headers.length < 2 || separators.length !== headers.length) return null;
+  const alignments = separators.map(markdownTableAlignment);
+  if (alignments.some(value => !value)) return null;
+  const rows = [];
+  let index = startIndex + 2;
+  while (index < lines.length && lines[index].trim() && lines[index].includes('|')) {
+    const cells = splitMarkdownTableRow(lines[index]);
+    if (cells.length !== headers.length) break;
+    rows.push(cells);
+    index++;
+  }
+  const cellHtml = (tag, value, column) => `<${tag} style="text-align:${alignments[column]}">${value ? inlineMarkdownToHtml(value) : '<br>'}</${tag}>`;
+  const head = `<thead><tr>${headers.map((cell, column) => cellHtml('th', cell, column)).join('')}</tr></thead>`;
+  const body = `<tbody>${rows.map(row => `<tr>${row.map((cell, column) => cellHtml('td', cell, column)).join('')}</tr>`).join('')}</tbody>`;
+  return {html:`<div class="editor-table-wrap"><table>${head}${body}</table></div>`, endIndex:index - 1};
+}
+
 function markdownToHtml(markdown = '', interactive = false) {
   const lines = escapeHtml(markdown).split('\n');
   const output = [];
@@ -616,6 +661,13 @@ function markdownToHtml(markdown = '', interactive = false) {
   const closeList = () => { if (listType) output.push(`</${listType}>`); listType = ''; };
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index];
+    const table = markdownTableHtml(lines, index);
+    if (table) {
+      closeList();
+      output.push(table.html);
+      index = table.endIndex;
+      continue;
+    }
     if (line.startsWith('```')) {
       closeList();
       const language = normalizeCodeLanguage(unescapeHtml(line.slice(3).trim()));
@@ -629,13 +681,13 @@ function markdownToHtml(markdown = '', interactive = false) {
       output.push(`<pre><code data-language="${language}">${rawCode ? syntaxHighlightCode(rawCode, language) : '<br>'}</code></pre>`);
       continue;
     }
-    const task = line.match(/^- \[([ xX])\] (.*)$/);
+    const task = line.match(/^- \[([ xX])\](?: (.*))?$/);
     const unordered = line.match(/^- (.*)$/);
     const ordered = line.match(/^\d+\. (.*)$/);
     if (task || unordered || ordered) {
       const nextType = ordered ? 'ol' : 'ul';
       if (listType !== nextType) { closeList(); output.push(`<${nextType}>`); listType = nextType; }
-      if (task) output.push(`<li class="task-item"><input type="checkbox" ${interactive ? '' : 'disabled'} ${task[1].toLowerCase() === 'x' ? 'checked' : ''}>${inlineMarkdownToHtml(task[2])}</li>`);
+      if (task) output.push(`<li class="task-item"><input type="checkbox" ${interactive ? '' : 'disabled'} ${task[1].toLowerCase() === 'x' ? 'checked' : ''}>${task[2] ? inlineMarkdownToHtml(task[2]) : '<br>'}</li>`);
       else output.push(`<li>${inlineMarkdownToHtml((ordered || unordered)[1])}</li>`);
       continue;
     }
@@ -728,9 +780,32 @@ function codeElementToText(root) {
   return output.join('').replace(/\u200B/g, '').replace(/\r\n?/g, '\n');
 }
 
-function editorToMarkdown(editor) {
+function tableElementToMarkdown(table) {
+  const rows = [...table.rows];
+  if (!rows.length) return '';
+  const columnCount = Math.max(...rows.map(row => row.cells.length));
+  const values = rows.map(row => Array.from({length:columnCount}, (_, column) => {
+    const cell = row.cells[column];
+    return cell ? inlineNodeToMarkdown(cell).trim().replace(/\|/g, '\\|').replace(/\n+/g, '<br>') : '';
+  }));
+  const headerRow = values[0];
+  const firstCells = [...rows[0].cells];
+  const separators = Array.from({length:columnCount}, (_, column) => {
+    const alignment = firstCells[column]?.style.textAlign || '';
+    return alignment === 'center' ? ':---:' : alignment === 'right' ? '---:' : ':---';
+  });
+  return [headerRow, separators, ...values.slice(1)].map(row => `| ${row.join(' | ')} |`).join('\n');
+}
+
+function serializeEditorNodesToMarkdown(editor) {
   const blocks = [];
   editor.childNodes.forEach(node => {
+    const table = node.nodeName === 'TABLE' ? node : node.nodeType === Node.ELEMENT_NODE && node.classList.contains('editor-table-wrap') ? node.querySelector('table') : null;
+    if (table) {
+      const markdown = tableElementToMarkdown(table);
+      if (markdown) blocks.push(markdown);
+      return;
+    }
     if (node.nodeName === 'PRE') {
       const code = node.querySelector('code');
       const language = code?.dataset.language || '';
@@ -746,6 +821,23 @@ function editorToMarkdown(editor) {
       if (content) blocks.push(content);
       return;
     }
+    if (node.nodeName === 'UL') {
+      const lines = [...node.children].map(item => {
+        const content = inlineNodeToMarkdown(item).trim();
+        if (item.classList.contains('task-item')) return `- [${$('input', item)?.checked ? 'x' : ' '}]${content ? ` ${content}` : ''}`;
+        return `-${content ? ` ${content}` : ''}`;
+      });
+      if (lines.length) blocks.push(lines.join('\n'));
+      return;
+    }
+    if (node.nodeName === 'OL') {
+      const lines = [...node.children].map((item, index) => {
+        const content = inlineNodeToMarkdown(item).trim();
+        return `${index + 1}.${content ? ` ${content}` : ''}`;
+      });
+      if (lines.length) blocks.push(lines.join('\n'));
+      return;
+    }
     const text = inlineNodeToMarkdown(node).trim();
     if (!text) return;
     if (node.nodeName === 'H1') blocks.push(`# ${text}`);
@@ -754,12 +846,301 @@ function editorToMarkdown(editor) {
     else if (node.nodeName === 'H4') blocks.push(`#### ${text}`);
     else if (node.nodeName === 'H5') blocks.push(`##### ${text}`);
     else if (node.nodeName === 'H6') blocks.push(`###### ${text}`);
-    else if (node.nodeName === 'UL') blocks.push([...node.children].map(item => `${item.classList.contains('task-item') ? `- [${$('input', item)?.checked ? 'x' : ' '}]` : '-'} ${inlineNodeToMarkdown(item).trim()}`).join('\n'));
-    else if (node.nodeName === 'OL') blocks.push([...node.children].map((item, index) => `${index + 1}. ${inlineNodeToMarkdown(item).trim()}`).join('\n'));
     else if (node.nodeName === 'DIV' && ['left','center','right'].includes(node.style?.textAlign)) blocks.push(`<div align="${node.style.textAlign}">${text}</div>`);
     else blocks.push(text);
   });
   return blocks.join('\n\n');
+}
+
+let editorBlockSequence = 0;
+
+function editorBlockType(node) {
+  if (node?.nodeType === Node.TEXT_NODE) return 'paragraph';
+  if (node?.nodeType !== Node.ELEMENT_NODE) return 'unknown';
+  if (node.nodeName === 'TABLE' || node.classList.contains('editor-table-wrap')) return 'table';
+  if (/^H[1-6]$/.test(node.nodeName)) return 'heading';
+  if (node.nodeName === 'UL') return [...node.children].some(item => item.classList.contains('task-item')) ? 'task-list' : 'bullet-list';
+  if (node.nodeName === 'OL') return 'number-list';
+  if (node.nodeName === 'BLOCKQUOTE') return 'quote';
+  if (node.nodeName === 'PRE') return 'code';
+  if (node.nodeName === 'HR') return 'divider';
+  return 'paragraph';
+}
+
+function nextEditorBlockId() {
+  editorBlockSequence += 1;
+  return `block-${Date.now().toString(36)}-${editorBlockSequence.toString(36)}`;
+}
+
+function hydrateEditorBlocks(editor) {
+  if (!editor) return;
+  [...editor.children].forEach(block => {
+    block.dataset.editorBlockType = editorBlockType(block);
+    if (!block.dataset.editorBlockId) block.dataset.editorBlockId = nextEditorBlockId();
+    if (['UL','OL'].includes(block.nodeName)) {
+      [...block.children].forEach(item => {
+        if (!item.dataset.editorBlockId) item.dataset.editorBlockId = nextEditorBlockId();
+        if (item.classList.contains('task-item')) {
+          item.dataset.editorBlockType = 'task';
+          const checkbox = $('input[type="checkbox"]', item);
+          if (checkbox) checkbox.contentEditable = 'false';
+        } else item.dataset.editorBlockType = 'list-item';
+      });
+    }
+  });
+}
+
+function editorModelBlock(node, inheritedId = '') {
+  const wrapper = document.createElement('article');
+  wrapper.appendChild(node.cloneNode(true));
+  const markdown = serializeEditorNodesToMarkdown(wrapper);
+  if (!markdown) return null;
+  const element = node.nodeType === Node.ELEMENT_NODE ? node : null;
+  const type = editorBlockType(node);
+  const block = {id:element?.dataset.editorBlockId || inheritedId || nextEditorBlockId(), type, markdown};
+  if (type === 'heading') block.level = Number(node.nodeName.slice(1));
+  if (type === 'task-list') {
+    block.items = [...node.children].map(item => ({
+      id:item.dataset.editorBlockId || nextEditorBlockId(),
+      checked:Boolean($('input[type="checkbox"]', item)?.checked),
+      content:inlineNodeToMarkdown(item).trim(),
+    }));
+  }
+  return block;
+}
+
+function editorNodeToModelBlocks(node) {
+  const element = node.nodeType === Node.ELEMENT_NODE ? node : null;
+  const canContainAccidentalBlocks = element && ['P','DIV'].includes(element.nodeName) && !element.classList.contains('editor-table-wrap');
+  const structuralChild = child => child.nodeType === Node.ELEMENT_NODE && (
+    ['P','DIV','UL','OL','PRE','BLOCKQUOTE','HR','TABLE','H1','H2','H3','H4','H5','H6'].includes(child.nodeName)
+    || child.classList.contains('editor-table-wrap')
+  );
+  if (!canContainAccidentalBlocks || ![...element.childNodes].some(structuralChild)) {
+    const block = editorModelBlock(node);
+    return block ? [block] : [];
+  }
+
+  const blocks = [];
+  let inlineNodes = [];
+  const flushInline = () => {
+    if (!inlineNodes.length) return;
+    const container = element.cloneNode(false);
+    inlineNodes.forEach(child => container.appendChild(child.cloneNode(true)));
+    const block = editorModelBlock(container, element.dataset.editorBlockId);
+    if (block) blocks.push(block);
+    inlineNodes = [];
+  };
+  [...element.childNodes].forEach(child => {
+    if (structuralChild(child)) {
+      flushInline();
+      blocks.push(...editorNodeToModelBlocks(child));
+    } else inlineNodes.push(child);
+  });
+  flushInline();
+  return blocks;
+}
+
+function editorToDocumentModel(editor) {
+  hydrateEditorBlocks(editor);
+  return [...editor.childNodes].flatMap(editorNodeToModelBlocks);
+}
+
+function documentModelToMarkdown(model) {
+  return model.map(block => block.markdown).filter(Boolean).join('\n\n');
+}
+
+function editorToMarkdown(editor) {
+  return documentModelToMarkdown(editorToDocumentModel(editor));
+}
+
+function renderMarkdownEditor(editor, markdown, interactive = true) {
+  editor.innerHTML = markdownToHtml(markdown, interactive);
+  hydrateEditorBlocks(editor);
+}
+
+const slashCommands = [
+  {id:'text', icon:'T', label:'正文', hint:'普通文本段落', keywords:'正文 文本 paragraph'},
+  {id:'h1', icon:'H1', label:'一级标题', hint:'文档主章节', keywords:'标题 heading h1'},
+  {id:'h2', icon:'H2', label:'二级标题', hint:'章节标题', keywords:'标题 heading h2'},
+  {id:'h3', icon:'H3', label:'三级标题', hint:'小节标题', keywords:'标题 heading h3'},
+  {id:'bullet', icon:'•', label:'无序列表', hint:'创建项目符号列表', keywords:'列表 无序 bullet list'},
+  {id:'number', icon:'1.', label:'有序列表', hint:'创建编号列表', keywords:'列表 有序 编号 number list'},
+  {id:'task', icon:'✓', label:'任务列表', hint:'创建可勾选事项', keywords:'任务 待办 checklist todo'},
+  {id:'quote', icon:'❝', label:'引用', hint:'突出引用内容', keywords:'引用 quote'},
+  {id:'code', icon:'</>', label:'代码块', hint:'插入 TXT 代码块', keywords:'代码 code'},
+  {id:'divider', icon:'—', label:'分割线', hint:'分隔上下文', keywords:'分割线 横线 divider hr'},
+  {id:'table', icon:'▦', label:'表格', hint:'插入 3 × 3 表格', keywords:'表格 table'},
+];
+
+let slashCommandState = null;
+
+function slashCommandContext(editor) {
+  const selection = selectionInsideEditor(editor);
+  if (!selection || !selection.getRangeAt(0).collapsed) return null;
+  const anchorElement = selection.anchorNode?.nodeType === Node.ELEMENT_NODE ? selection.anchorNode : selection.anchorNode?.parentElement;
+  let block = anchorElement === editor ? editor : closestEditorBlock(selection.anchorNode, editor);
+  while (block && block !== editor && block.parentElement !== editor) block = block.parentElement;
+  if (!block) return null;
+  if (block === editor) {
+    const rootIsPlainText = [...editor.childNodes].every(node => node.nodeType === Node.TEXT_NODE || node.nodeName === 'BR');
+    if (!rootIsPlainText) return null;
+  } else if (!['P','DIV','H1','H2','H3','H4'].includes(block.nodeName)) return null;
+  const match = block.textContent.replace(/\u200b/g, '').trim().match(/^\/([^\n]*)$/);
+  if (!match) return null;
+  const caretRect = selection.getRangeAt(0).getBoundingClientRect();
+  const editorRect = editor.getBoundingClientRect();
+  const anchorRect = caretRect.width || caretRect.height
+    ? caretRect
+    : block === editor
+      ? {left:editorRect.left + 30, top:editorRect.top + 34, bottom:editorRect.top + 56}
+      : block.getBoundingClientRect();
+  return {editor, block, anchorRect, query:match[1].trim().toLowerCase()};
+}
+
+function hideSlashCommandMenu() {
+  const menu = $('#slashCommandMenu');
+  if (menu) menu.hidden = true;
+  slashCommandState = null;
+}
+
+function updateSlashCommandActive() {
+  if (!slashCommandState) return;
+  $$('[data-slash-command]', $('#slashCommandMenu')).forEach((button, index) => {
+    button.classList.toggle('active', index === slashCommandState.index);
+    button.setAttribute('aria-selected', String(index === slashCommandState.index));
+  });
+}
+
+function showSlashCommandMenu(editor) {
+  const context = slashCommandContext(editor);
+  if (!context) return hideSlashCommandMenu();
+  const items = slashCommands.filter(item => !context.query || `${item.label} ${item.keywords}`.toLowerCase().includes(context.query));
+  if (!items.length) return hideSlashCommandMenu();
+  const menu = $('#slashCommandMenu');
+  const host = editor.id === 'documentVisualEditor' ? $('#documentDialog') : document.body;
+  if (menu.parentElement !== host) host.appendChild(menu);
+  slashCommandState = {...context, items, index:0};
+  menu.innerHTML = `<header><strong>快速插入</strong><span>↑↓ 选择 · Enter 插入</span></header>${items.map(item => `<button type="button" role="option" data-slash-command="${item.id}"><i>${item.icon}</i><span><strong>${item.label}</strong><small>${item.hint}</small></span></button>`).join('')}`;
+  menu.hidden = false;
+  const rect = context.anchorRect;
+  const width = Math.min(320, window.innerWidth - 20);
+  const height = Math.min(menu.scrollHeight, 390);
+  menu.style.width = `${width}px`;
+  menu.style.left = `${Math.max(10, Math.min(window.innerWidth - width - 10, rect.left))}px`;
+  menu.style.top = `${rect.bottom + height + 10 < window.innerHeight ? rect.bottom + 6 : Math.max(10, rect.top - height - 6)}px`;
+  updateSlashCommandActive();
+}
+
+function applySlashCommand(commandId) {
+  const state = slashCommandState;
+  if (!state?.block?.isConnected) return hideSlashCommandMenu();
+  const {editor, block} = state;
+  const createBlock = (tag, className = '') => {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    element.appendChild(document.createElement('br'));
+    return element;
+  };
+  let target;
+  let nodes = [];
+  if (['text','h1','h2','h3'].includes(commandId)) {
+    target = createBlock(commandId === 'text' ? 'p' : commandId);
+    nodes = [target];
+  } else if (commandId === 'bullet' || commandId === 'number') {
+    const list = document.createElement(commandId === 'bullet' ? 'ul' : 'ol');
+    target = createBlock('li'); list.appendChild(target); nodes = [list];
+  } else if (commandId === 'task') {
+    const list = document.createElement('ul');
+    target = document.createElement('li'); target.className = 'task-item';
+    const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.contentEditable = 'false';
+    target.append(checkbox, document.createTextNode(' '), document.createElement('br')); list.appendChild(target); nodes = [list];
+  } else if (commandId === 'quote') {
+    const quote = document.createElement('blockquote'); target = createBlock('p'); quote.appendChild(target); nodes = [quote];
+  } else if (commandId === 'code') {
+    const pre = document.createElement('pre'); target = document.createElement('code'); target.dataset.language = 'txt'; target.appendChild(document.createElement('br')); pre.appendChild(target); nodes = [pre];
+  } else if (commandId === 'divider') {
+    target = createBlock('p'); nodes = [document.createElement('hr'), target];
+  } else if (commandId === 'table') {
+    const wrap = document.createElement('div'); wrap.className = 'editor-table-wrap';
+    wrap.innerHTML = '<table><thead><tr><th><br></th><th><br></th><th><br></th></tr></thead><tbody><tr><td><br></td><td><br></td><td><br></td></tr><tr><td><br></td><td><br></td><td><br></td></tr></tbody></table>';
+    target = wrap.querySelector('th'); nodes = [wrap, createBlock('p')];
+  }
+  if (!nodes.length || !target) return hideSlashCommandMenu();
+  if (block === editor) editor.replaceChildren(...nodes);
+  else block.replaceWith(...nodes);
+  hideSlashCommandMenu();
+  placeCaret(target, true);
+  if (editor.id === 'documentVisualEditor') markDocumentChanged();
+  else markEditorChanged();
+}
+
+function handleSlashCommandKeydown(event) {
+  if (!slashCommandState || slashCommandState.editor !== event.currentTarget) return false;
+  if (event.key === 'Escape') { event.preventDefault(); hideSlashCommandMenu(); return true; }
+  if (!['ArrowDown','ArrowUp','Enter'].includes(event.key)) return false;
+  event.preventDefault();
+  if (event.key === 'Enter') applySlashCommand(slashCommandState.items[slashCommandState.index].id);
+  else {
+    const direction = event.key === 'ArrowDown' ? 1 : -1;
+    slashCommandState.index = (slashCommandState.index + direction + slashCommandState.items.length) % slashCommandState.items.length;
+    updateSlashCommandActive();
+    $('[data-slash-command].active', $('#slashCommandMenu'))?.scrollIntoView({block:'nearest'});
+  }
+  return true;
+}
+
+function insertTaskListBlock(editor, markChanged) {
+  editor.focus();
+  let selection = selectionInsideEditor(editor);
+  if (!selection) {
+    placeCaret(editor, false);
+    selection = selectionInsideEditor(editor);
+  }
+  if (!selection?.rangeCount) return false;
+  const selectedText = selection.toString().trim();
+  const range = selection.getRangeAt(0);
+  range.deleteContents();
+  const marker = document.createElement('span');
+  marker.dataset.taskInsertMarker = 'true';
+  range.insertNode(marker);
+
+  const list = document.createElement('ul');
+  const item = document.createElement('li');
+  item.className = 'task-item';
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.contentEditable = 'false';
+  const label = document.createTextNode(selectedText || '待办项');
+  item.append(checkbox, document.createTextNode(' '), label);
+  list.appendChild(item);
+  const after = document.createElement('p');
+  after.appendChild(document.createElement('br'));
+
+  let topBlock = marker.parentElement;
+  while (topBlock && topBlock !== editor && topBlock.parentElement !== editor) topBlock = topBlock.parentElement;
+  const canSplit = topBlock && topBlock !== editor && ['P','DIV','H1','H2','H3','H4','H5','H6'].includes(topBlock.nodeName);
+  if (canSplit) {
+    const tailRange = document.createRange();
+    tailRange.setStartAfter(marker);
+    tailRange.setEnd(topBlock, topBlock.childNodes.length);
+    const remainder = tailRange.extractContents();
+    marker.remove();
+    if (remainder.textContent || remainder.querySelector?.('img,br,.internal-link')) after.replaceChildren(remainder);
+    if (isEmptyEditorBlock(topBlock)) topBlock.replaceWith(list, after);
+    else topBlock.after(list, after);
+  } else {
+    marker.remove();
+    if (topBlock && topBlock !== editor) topBlock.after(list, after);
+    else editor.append(list, after);
+  }
+
+  const labelRange = document.createRange();
+  labelRange.selectNodeContents(label);
+  selection.removeAllRanges();
+  selection.addRange(labelRange);
+  markChanged();
+  return true;
 }
 
 function selectionInsideEditor(editor = $('.editor')) {
@@ -769,7 +1150,7 @@ function selectionInsideEditor(editor = $('.editor')) {
 
 function closestEditorBlock(node, editor = $('.editor')) {
   const element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
-  return element?.closest('p, div, h1, h2, h3, h4, h5, h6, pre, blockquote, li') || editor;
+  return element?.closest('p, div, h1, h2, h3, h4, h5, h6, pre, blockquote, li, td, th') || editor;
 }
 
 function restoreLastEditorSelection() {
@@ -854,6 +1235,7 @@ function isEmptyEditorBlock(node) {
 }
 
 function markEditorChanged() {
+  hydrateEditorBlocks($('.editor'));
   editorDirty = true;
   scheduleEditorSave();
   updateEditorToolbarState();
@@ -1841,11 +2223,11 @@ async function openDrawer(recordId, options = {}) {
     $('#drawerProject').textContent = projectName(currentRecord.project_id);
     $('#drawerDue').value = (currentRecord.due || '').slice(0, 10);
     $('#drawerTags').innerHTML = `${(currentRecord.tags || []).map(drawerTagHtml).join('')}<button id="addRecordTag">＋ 添加标签</button>`;
-    $('.editor').innerHTML = markdownToHtml(currentRecord.body, true);
+    renderMarkdownEditor($('.editor'), currentRecord.body, true);
     $('.markdown-source').value = currentRecord.body;
     $('.markdown-preview').innerHTML = markdownToHtml(currentRecord.body);
     setEditorMode(editorMode);
-    $('#saveOnLeave').checked = localStorage.getItem('workbench-save-on-leave') === 'true';
+    $('#saveOnLeave').checked = localStorage.getItem('workbench-save-on-leave') !== 'false';
     updateSaveIndicator();
     $('#convertRecord').textContent = currentRecord.type === 'todo' ? '转换为问题' : '转换为待办';
     $('#convertRecord').style.display = isInfo ? 'none' : '';
@@ -1860,7 +2242,7 @@ async function openDrawer(recordId, options = {}) {
 function setEditorMode(mode) {
   editorMode = mode;
   const area = $('.editor-area');
-  area.className = `editor-area ${mode === 'wysiwyg' ? '' : mode}`.trim();
+  area.className = `editor-area unified-editor-canvas ${mode === 'wysiwyg' ? '' : mode}`.trim();
   $$('.editor-tabs [data-editor-mode]').forEach(button => button.classList.toggle('active', button.dataset.editorMode === mode));
   $('.editor-toolbar').classList.toggle('hidden', mode !== 'wysiwyg');
   if (mode !== 'wysiwyg') {
@@ -2366,14 +2748,6 @@ function updateDocumentSelectionUI() {
 }
 
 function documentOutlineItems() {
-  if (documentMode === 'markdown') {
-    const source = $('#documentBody').value;
-    const items = [];
-    const pattern = /^(#{1,4})\s+(.+)$/gm;
-    let match;
-    while ((match = pattern.exec(source))) items.push({level:match[1].length, text:match[2].replace(/[*_`~\[\]]/g, '').trim(), offset:match.index});
-    return items;
-  }
   const container = documentMode === 'read' ? $('#documentReadPane') : $('#documentVisualEditor');
   return $$('h1,h2,h3,h4', container).map((heading, index) => {
     heading.dataset.documentOutlineIndex = String(index);
@@ -2402,21 +2776,14 @@ function scheduleDocumentOutlineUpdate() {
 
 function navigateDocumentOutline(button) {
   const index = Number(button.dataset.documentOutlineIndex);
-  if (documentMode === 'markdown') {
-    const textarea = $('#documentBody');
-    const offset = Number(button.dataset.documentOutlineOffset || 0);
-    textarea.focus(); textarea.setSelectionRange(offset, offset);
-    textarea.scrollTop = textarea.scrollHeight * (offset / Math.max(1, textarea.value.length));
-    return;
-  }
   const container = documentMode === 'read' ? $('#documentReadPane') : $('#documentVisualEditor');
   const heading = $(`[data-document-outline-index="${index}"]`, container);
   heading?.scrollIntoView({behavior:'smooth', block:'start'});
 }
 
 function setDocumentMode(mode) {
+  mode = mode === 'read' ? 'read' : 'visual';
   if (documentMode === 'visual' && mode !== 'visual') $('#documentBody').value = editorToMarkdown($('#documentVisualEditor'));
-  if (documentMode === 'markdown' && mode !== 'markdown') $('#documentVisualEditor').innerHTML = markdownToHtml($('#documentBody').value, true);
   documentMode = mode;
   $('#documentSelectionToolbar').classList.remove('visible');
   $('#documentColorPalette').hidden = true;
@@ -2427,10 +2794,8 @@ function setDocumentMode(mode) {
   $('#saveDocument').style.display = reading ? 'none' : '';
   $('#toggleDocumentMode').textContent = reading ? '编辑模式' : '阅读模式';
   $('#documentVisualEditor').style.display = mode === 'visual' ? 'block' : 'none';
-  $('#documentBody').style.display = mode === 'markdown' ? 'block' : 'none';
-  $('#documentInlinePreview').style.display = 'none';
+  $('#documentBody').style.display = 'none';
   $('#documentFormatToolbar').style.display = mode === 'visual' ? 'flex' : 'none';
-  $$('.document-editor-tabs [data-document-mode]').forEach(button => button.classList.toggle('active', button.dataset.documentMode === mode));
   if (reading) $('#documentReadPane').innerHTML = markdownToHtml($('#documentBody').value || currentDocument?.body || '');
   requestAnimationFrame(updateDocumentOutline);
 }
@@ -2656,11 +3021,14 @@ function updateDocumentSaveState(message = '') {
 }
 
 function markDocumentChanged() {
+  hydrateEditorBlocks($('#documentVisualEditor'));
   documentDirty = true;
   persistDocumentDraft();
   updateDocumentSaveState();
   updateDocumentToolbarState();
   scheduleDocumentOutlineUpdate();
+  clearTimeout(documentSaveTimer);
+  if (currentDocument) documentSaveTimer = setTimeout(() => saveDocument({readAfterSave:false, notifyUser:false}), 1400);
 }
 
 function updateDocumentToolbarState() {
@@ -2683,7 +3051,7 @@ function updateDocumentToolbarState() {
   if (quoteButton) quoteButton.setAttribute('aria-pressed', String(Boolean(block.closest?.('blockquote'))));
 }
 
-function handleDocumentTaskListEnter(event) {
+function handleTaskListEnter(event, markChanged) {
   if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return false;
   const editor = event.currentTarget;
   const selection = selectionInsideEditor(editor);
@@ -2707,11 +3075,11 @@ function handleDocumentTaskListEnter(event) {
     tailRange.setEnd(item, item.childNodes.length);
     const tail = tailRange.extractContents();
     const next = document.createElement('li'); next.className = 'task-item';
-    const checkbox = document.createElement('input'); checkbox.type = 'checkbox';
+    const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.contentEditable = 'false';
     next.append(checkbox, document.createTextNode(' '), tail);
     item.after(next); placeCaret(next, false);
   }
-  markDocumentChanged();
+  markChanged();
   return true;
 }
 
@@ -2756,16 +3124,14 @@ function openDocument(documentId = '') {
   $('#documentCategory').value = content.category;
   renderDocumentTagOptions(content.tags || []);
   $('#documentBody').value = content.body;
-  $('#documentVisualEditor').innerHTML = markdownToHtml(content.body || '', true);
+  renderMarkdownEditor($('#documentVisualEditor'), content.body || '', true);
   $('#documentCategoryOptions').innerHTML = [...new Set([...(configData?.document_categories || []), ...documents.map(item => item.category).filter(Boolean)])].map(value => `<option value="${escapeHtml(value)}"></option>`).join('');
   $('#deleteDocument').style.display = currentDocument ? '' : 'none';
   $('#exportDocument').style.display = currentDocument ? '' : 'none';
   $('.document-external-editor').style.display = currentDocument ? 'inline-flex' : 'none';
   updateDocumentSaveState(documentDirty ? '' : currentDocument ? `✓ 已保存 · ${new Date(currentDocument.updated).toLocaleString('zh-CN')}` : '将保存为本地 Markdown');
-  documentExpanded = false;
   $('#documentDialog').classList.remove('expanded');
   $('#documentDialog').classList.toggle('outline-collapsed', documentOutlineCollapsed);
-  $('#toggleDocumentExpand span').textContent = '展开编辑';
   setDocumentMode(currentDocument ? 'read' : 'visual');
   $('#documentDialog').showModal();
   requestAnimationFrame(updateDocumentOutline);
@@ -2774,6 +3140,7 @@ function openDocument(documentId = '') {
 }
 
 async function saveDocument({readAfterSave = false, notifyUser = true} = {}) {
+  clearTimeout(documentSaveTimer);
   if (documentSaving) return null;
   if (!documentDirty && currentDocument) return currentDocument;
   const title = $('#documentTitle').value.trim();
@@ -2830,6 +3197,7 @@ function documentHasUnsavedChanges() {
 }
 
 async function closeDocumentEditor() {
+  clearTimeout(documentSaveTimer);
   if (documentHasUnsavedChanges()) {
     const choice = await askUnsavedChanges(`文档「${$('#documentTitle').value.trim() || '未命名文档'}」`);
     if (choice === 'cancel') return false;
@@ -2852,7 +3220,7 @@ function reloadCurrentDocumentFromDisk(latest) {
   $('#documentCategory').value = latest.category || '';
   renderDocumentTagOptions(latest.tags || []);
   $('#documentBody').value = latest.body || '';
-  $('#documentVisualEditor').innerHTML = markdownToHtml(latest.body || '', true);
+  renderMarkdownEditor($('#documentVisualEditor'), latest.body || '', true);
   if (documentMode === 'read') $('#documentReadPane').innerHTML = markdownToHtml(latest.body || '');
   scheduleDocumentOutlineUpdate();
   updateDocumentSaveState(`✓ 已同步外部修改 · ${new Date(latest.updated).toLocaleTimeString('zh-CN')}`);
@@ -2916,7 +3284,7 @@ async function importKnowledgeDocuments(files) {
 function renderTrashPage() {
   const selectedCount = trashSelection.size;
   $('#manageActions').innerHTML = trashItems.length ? `<span class="trash-selection-count" id="trashSelectionCount">已选择 ${selectedCount} 项</span><button class="secondary-button" id="batchRestoreTrash" ${selectedCount ? '' : 'disabled'}>批量恢复</button><button class="secondary-button danger-button" id="batchPurgeTrash" ${selectedCount ? '' : 'disabled'}>批量永久删除</button>` : '';
-  $('#manageContent').innerHTML = trashItems.length ? `<div class="trash-table-wrap"><table class="data-table trash-table"><thead><tr><th class="trash-select-cell"><input type="checkbox" id="selectAllTrash" aria-label="全选回收站内容" ${selectedCount === trashItems.length ? 'checked' : ''}></th><th>名称</th><th>类型</th><th>删除时间</th><th>操作</th></tr></thead><tbody>${trashItems.map(item => `<tr data-trash-row="${escapeHtml(item.token)}" class="${trashSelection.has(item.token) ? 'selected' : ''}"><td class="trash-select-cell"><input type="checkbox" data-trash-select="${escapeHtml(item.token)}" aria-label="选择 ${escapeHtml(item.title)}" ${trashSelection.has(item.token) ? 'checked' : ''}></td><td><strong>${escapeHtml(item.title)}</strong><br><small>${escapeHtml(item.id)}</small></td><td>${item.kind === 'project' ? '项目' : item.kind === 'document' ? '文档' : item.kind === 'concept-map' ? '概念图' : '记录'}</td><td>${new Date(item.deleted_at).toLocaleString('zh-CN')}</td><td class="trash-row-actions"><button class="secondary-button" data-restore-trash="${escapeHtml(item.token)}">恢复</button><button class="secondary-button danger-button" data-purge-trash="${escapeHtml(item.token)}">永久删除</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-state">回收站为空</div>';
+  $('#manageContent').innerHTML = trashItems.length ? `<div class="trash-table-wrap"><table class="data-table trash-table"><thead><tr><th class="trash-select-cell"><input type="checkbox" id="selectAllTrash" aria-label="全选回收站内容" ${selectedCount === trashItems.length ? 'checked' : ''}></th><th>名称</th><th>类型</th><th>删除时间</th><th>操作</th></tr></thead><tbody>${trashItems.map(item => `<tr data-trash-row="${escapeHtml(item.token)}" class="${trashSelection.has(item.token) ? 'selected' : ''}"><td class="trash-select-cell"><input type="checkbox" data-trash-select="${escapeHtml(item.token)}" aria-label="选择 ${escapeHtml(item.title)}" ${trashSelection.has(item.token) ? 'checked' : ''}></td><td><strong>${escapeHtml(item.title)}</strong><br><small>${escapeHtml(item.id)}</small></td><td>${item.kind === 'project' ? '项目' : item.kind === 'document' ? '文档' : item.kind === 'concept-map' ? '概念图' : '记录'}</td><td>${new Date(item.deleted_at).toLocaleString('zh-CN')}</td><td><div class="trash-row-actions"><button class="secondary-button" data-restore-trash="${escapeHtml(item.token)}">恢复</button><button class="secondary-button danger-button" data-purge-trash="${escapeHtml(item.token)}">永久删除</button></div></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-state">回收站为空</div>';
   updateTrashSelectionUI();
 }
 
@@ -3342,7 +3710,7 @@ async function uploadAttachment(file, options = {}) {
       finishPastedImageInsertion(insertion, result);
     } else {
       currentRecord = latest;
-      $('.editor').innerHTML = markdownToHtml(currentRecord.body, true);
+      renderMarkdownEditor($('.editor'), currentRecord.body, true);
       $('.markdown-source').value = currentRecord.body;
       $('.markdown-preview').innerHTML = markdownToHtml(currentRecord.body);
     }
@@ -3420,6 +3788,7 @@ function scheduleEditorSave() {
   clearTimeout(editorSaveTimer);
   persistEditorDraft();
   updateSaveIndicator();
+  if (autoSaveOnLeaveEnabled() && currentRecord && !conflictRecord) editorSaveTimer = setTimeout(() => saveEditorNow(), 1400);
 }
 
 async function saveEditorNow() {
@@ -3931,23 +4300,14 @@ document.addEventListener('click', async event => {
     updateDocumentOutline();
     return;
   }
-  const documentOutlineLink = event.target.closest('[data-document-outline-index]');
+  const documentOutlineLink = event.target.closest('#documentOutlineNav [data-document-outline-index]');
   if (documentOutlineLink) { navigateDocumentOutline(documentOutlineLink); return; }
   if (event.target.closest('#closeDocumentDialog')) { await closeDocumentEditor(); return; }
-  if (event.target.closest('#toggleDocumentExpand')) {
-    if (documentMode === 'read') setDocumentMode('visual');
-    documentExpanded = !documentExpanded;
-    $('#documentDialog').classList.toggle('expanded', documentExpanded);
-    $('#toggleDocumentExpand span').textContent = documentExpanded ? '退出展开' : '展开编辑';
-    return;
-  }
   if (event.target.closest('#toggleDocumentMode')) { setDocumentMode(documentMode === 'read' ? 'visual' : 'read'); return; }
-  const documentModeButton = event.target.closest('[data-document-mode]');
-  if (documentModeButton) { setDocumentMode(documentModeButton.dataset.documentMode); return; }
   const documentCommand = event.target.closest('[data-document-command]');
   if (documentCommand) { $('#documentVisualEditor').focus(); restoreDocumentSelection(); document.execCommand(documentCommand.dataset.documentCommand, false); markDocumentChanged(); return; }
   if (event.target.closest('[data-document-block="blockquote"]')) { $('#documentVisualEditor').focus(); restoreDocumentSelection(); toggleBlockquote($('#documentVisualEditor'), markDocumentChanged); return; }
-  if (event.target.closest('#documentChecklist')) { $('#documentVisualEditor').focus(); restoreDocumentSelection(); document.execCommand('insertHTML', false, '<ul><li class="task-item"><input type="checkbox"> 待办项</li></ul><p><br></p>'); markDocumentChanged(); return; }
+  if (event.target.closest('#documentChecklist')) { $('#documentVisualEditor').focus(); restoreDocumentSelection(); insertTaskListBlock($('#documentVisualEditor'), markDocumentChanged); return; }
   if (event.target.closest('#documentCodeBlock')) {
     insertDocumentCodeBlock(); return;
   }
@@ -4393,7 +4753,7 @@ document.addEventListener('click', async event => {
   const editorButton = event.target.closest('[data-editor-mode]');
   if (editorButton) {
     if (editorMode === 'wysiwyg') { currentRecord.body = editorToMarkdown($('.editor')); $('.markdown-source').value = currentRecord.body; }
-    else { currentRecord.body = $('.markdown-source').value; $('.editor').innerHTML = markdownToHtml(currentRecord.body, true); }
+    else { currentRecord.body = $('.markdown-source').value; renderMarkdownEditor($('.editor'), currentRecord.body, true); }
     setEditorMode(editorButton.dataset.editorMode);
   }
   const editorCommand = event.target.closest('[data-editor-command]');
@@ -4416,8 +4776,8 @@ document.addEventListener('click', async event => {
   }
   if (event.target.closest('#insertChecklist')) {
     $('.editor').focus();
-    document.execCommand('insertHTML', false, '<ul><li class="task-item"><input type="checkbox"> 待办项</li></ul><p><br></p>');
-    markEditorChanged();
+    restoreLastEditorSelection();
+    insertTaskListBlock($('.editor'), markEditorChanged);
   }
   if (event.target.closest('#insertCodeBlock')) {
     $('.editor').focus();
@@ -4717,7 +5077,9 @@ $('#saveExternalEditor').addEventListener('click', async () => {
 });
 $('#saveOnLeave').addEventListener('change', event => {
   localStorage.setItem('workbench-save-on-leave', String(event.target.checked));
-  notify(event.target.checked ? '已开启离开时自动保存' : '已关闭离开时自动保存', event.target.checked ? '关闭记录或切换记录时会自动保存修改' : '未保存修改离开前会询问你');
+  if (event.target.checked && editorDirty) scheduleEditorSave();
+  else clearTimeout(editorSaveTimer);
+  notify(event.target.checked ? '已开启自动保存' : '已关闭自动保存', event.target.checked ? '停止输入片刻后会自动写入 Markdown' : '未保存修改离开前会询问你');
 });
 $('#showHistory').addEventListener('click', showHistory);
 $('#closeHistory').addEventListener('click', () => $('#historyDialog').close());
@@ -4892,6 +5254,8 @@ $('#codeLanguage').addEventListener('change', event => {
   markEditorChanged();
 });
 $('.editor').addEventListener('keydown', event => {
+  if (handleSlashCommandKeydown(event)) return;
+  if (handleTaskListEnter(event, markEditorChanged)) return;
   if (handleCodeBlockEnter(event)) return;
   if (handleQuoteEnter(event)) return;
   if (event.key === 'Tab' && !event.isComposing) {
@@ -4936,7 +5300,7 @@ $('.editor').addEventListener('keydown', event => {
     markEditorChanged();
   }
 });
-$('.editor').addEventListener('input', markEditorChanged);
+$('.editor').addEventListener('input', event => { markEditorChanged(); showSlashCommandMenu(event.currentTarget); });
 $('.editor').addEventListener('change', event => { if (event.target.matches('input[type="checkbox"]')) { editorDirty = true; scheduleEditorSave(); } });
 $('.markdown-source').addEventListener('input', event => { editorDirty = true; $('.markdown-preview').innerHTML = markdownToHtml(event.target.value); scheduleEditorSave(); });
 $('.markdown-source').addEventListener('keydown', event => {
@@ -4986,7 +5350,8 @@ $('#documentCodeLanguage').addEventListener('change', event => {
   markDocumentChanged();
 });
 $('#documentVisualEditor').addEventListener('keydown', event => {
-  if (handleDocumentTaskListEnter(event)) return;
+  if (handleSlashCommandKeydown(event)) return;
+  if (handleTaskListEnter(event, markDocumentChanged)) return;
   if (handleCodeBlockEnter(event, markDocumentChanged)) return;
   if (handleQuoteEnter(event, markDocumentChanged)) return;
   if (event.key === 'Tab' && !event.isComposing) {
@@ -5009,7 +5374,7 @@ $('#documentVisualEditor').addEventListener('keydown', event => {
     event.preventDefault(); document.execCommand(commands[key], false); markDocumentChanged();
   }
 });
-$('#documentVisualEditor').addEventListener('input', () => { finishDocumentColorBoundaryInput(); markDocumentChanged(); });
+$('#documentVisualEditor').addEventListener('input', event => { finishDocumentColorBoundaryInput(); markDocumentChanged(); showSlashCommandMenu(event.currentTarget); });
 $('#documentVisualEditor').addEventListener('change', event => { if (event.target.matches('input[type="checkbox"]')) markDocumentChanged(); });
 document.addEventListener('selectionchange', () => {
   const selection = selectionInsideEditor();
@@ -5021,6 +5386,14 @@ document.addEventListener('selectionchange', () => requestAnimationFrame(() => {
 $('#documentFormatToolbar').addEventListener('mousedown', event => { if (event.target.closest('button')) event.preventDefault(); });
 $('#documentSelectionToolbar').addEventListener('mousedown', event => { if (event.target.closest('button')) event.preventDefault(); });
 $('#documentColorPalette').addEventListener('mousedown', event => { if (event.target.closest('button')) event.preventDefault(); });
+$('#slashCommandMenu').addEventListener('mousedown', event => event.preventDefault());
+$('#slashCommandMenu').addEventListener('click', event => {
+  const button = event.target.closest('[data-slash-command]');
+  if (button) applySlashCommand(button.dataset.slashCommand);
+});
+document.addEventListener('pointerdown', event => {
+  if (!event.target.closest('#slashCommandMenu, .editor, #documentVisualEditor')) hideSlashCommandMenu();
+});
 $('#documentDialog').addEventListener('cancel', event => { event.preventDefault(); closeDocumentEditor(); });
 document.addEventListener('change', async event => {
   if (event.target.id === 'selectAllHomeItems') {

@@ -630,3 +630,62 @@ html:has(#documentDialog[open]),body:has(#documentDialog[open]){overflow:hidden}
 .slash-command-menu>button strong{font-size:12px;font-weight:650}
 .slash-command-menu>button small{color:var(--muted);font-size:10px}
 @media(max-width:760px){.slash-command-menu{max-height:min(330px,calc(100vh - 16px))}.slash-command-menu>header span{display:none}}
+
+/* Give structured information notes a readable, multiline row instead of a clipped input. */
+.info-field-row{grid-template-columns:28px minmax(140px,.34fr) minmax(260px,.66fr) 76px 28px;align-items:start;padding:8px 6px 9px;border-bottom:1px solid color-mix(in srgb,var(--line) 72%,transparent);border-radius:0}
+.info-field-row:last-child{border-bottom-color:transparent}
+.info-field-row:hover{background:color-mix(in srgb,var(--surface-2) 58%,transparent)}
+.info-field-row .info-field-drag{grid-column:1;grid-row:1/3;margin-top:2px}
+.info-field-row [data-info-field-name]{grid-column:2;grid-row:1}
+.info-field-row [data-info-field-value]{grid-column:3;grid-row:1;max-height:140px;white-space:pre-wrap;overflow-wrap:anywhere}
+.info-field-row .insert-info-field{grid-column:4;grid-row:1}
+.info-field-row>[data-remove-info-field]{grid-column:5;grid-row:1}
+.info-field-note-wrap{grid-column:2/5;grid-row:2;display:grid;grid-template-columns:72px minmax(0,1fr);align-items:start;gap:9px;margin-top:2px}
+.info-field-note-wrap>span{padding-top:9px;color:var(--muted);font-size:11px;font-weight:600;white-space:nowrap}
+.info-field-row .info-field-note-wrap>[data-info-field-note]{grid-column:2;width:100%;min-height:54px!important;max-height:220px;padding:8px 10px!important;resize:vertical;white-space:pre-wrap;overflow-wrap:anywhere}
+.info-field-row .info-field-note-wrap>[data-info-field-note]:focus{max-height:none}
+.info-fields-panel{overflow:visible}
+.create-info-fields .info-field-note-wrap{grid-column:2/4;grid-row:2;grid-template-columns:72px minmax(0,1fr)}
+
+@media(max-width:900px){
+  .info-field-row{grid-template-columns:28px minmax(0,1fr) 76px 28px}
+  .info-field-row [data-info-field-name]{grid-column:2;grid-row:1}
+  .info-field-row [data-info-field-value]{grid-column:2/4;grid-row:2}
+  .info-field-row .info-field-note-wrap{grid-column:2/4;grid-row:3}
+  .info-field-row .insert-info-field{grid-column:3;grid-row:1}
+  .info-field-row>[data-remove-info-field]{grid-column:4;grid-row:1}
+  .info-field-row .info-field-drag{grid-row:1/4}
+}
+@media(max-width:620px){
+  .info-field-row{grid-template-columns:26px minmax(0,1fr) 28px}
+  .info-field-row [data-info-field-name],.info-field-row [data-info-field-value],.info-field-row .info-field-note-wrap,.info-field-row .insert-info-field{grid-column:2}
+  .info-field-row [data-info-field-name]{grid-row:1}
+  .info-field-row [data-info-field-value]{grid-row:2}
+  .info-field-row .info-field-note-wrap{grid-row:3;grid-template-columns:1fr;gap:3px}
+  .info-field-note-wrap>span{padding-top:2px}
+  .info-field-row .info-field-note-wrap>[data-info-field-note]{grid-column:1!important;grid-row:auto!important}
+  .info-field-row .insert-info-field{grid-row:4;width:100%;border:1px dashed var(--line)}
+  .info-field-row>[data-remove-info-field]{grid-column:3;grid-row:1}
+  .info-field-row .info-field-drag{grid-row:1/5}
+}
+
+/* Group each structured field and its note as one clear information card. */
+#drawerInfoFieldList,#createInfoFieldList{display:grid;gap:11px}
+.info-field-row{position:relative;margin-top:0;padding:11px 9px 12px;overflow:hidden;border:1px solid color-mix(in srgb,var(--line) 88%,var(--text))!important;border-radius:11px;background:var(--surface);box-shadow:0 2px 7px rgba(25,38,57,.045);transition:border-color .15s ease,box-shadow .15s ease,background .15s ease}
+.info-field-row::before{content:"";position:absolute;left:0;top:9px;bottom:9px;width:3px;border-radius:0 3px 3px 0;background:color-mix(in srgb,var(--accent) 72%,#35a99a);opacity:.72;transition:opacity .15s ease}
+.info-field-row:last-child{border-bottom-color:color-mix(in srgb,var(--line) 88%,var(--text))!important}
+.info-field-row:hover{border-color:color-mix(in srgb,var(--accent) 32%,var(--line))!important;background:color-mix(in srgb,var(--accent-soft) 12%,var(--surface));box-shadow:0 4px 13px rgba(25,38,57,.08)}
+.info-field-row:focus-within{border-color:color-mix(in srgb,var(--accent) 58%,var(--line))!important;background:var(--surface);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 9%,transparent),0 5px 16px rgba(25,38,57,.09)}
+.info-field-row:hover::before,.info-field-row:focus-within::before{opacity:1}
+.info-field-note-wrap{padding:5px 6px 5px 8px;border:1px solid color-mix(in srgb,var(--line) 74%,transparent);border-radius:8px;background:color-mix(in srgb,var(--surface-2) 72%,var(--surface))}
+.info-field-note-wrap>span{padding-left:2px}
+.info-field-row.dragging{border-color:var(--accent)!important;background:var(--accent-soft);box-shadow:0 8px 20px rgba(25,38,57,.12)}
+.info-fields-panel{padding:15px 14px 16px}
+@media(max-width:620px){.info-field-row{padding:10px 8px 11px}.info-field-note-wrap{padding:6px 7px}}
+
+/* Information colors follow record tags; multiple tags become segmented bars. */
+.info-display-card::before{background:var(--info-color-bar,var(--info-color,#35a99a))}
+.info-field-row::before{width:4px;background:var(--info-row-bar,var(--info-row-color,#35a99a));opacity:.86}
+.info-fields-actions #infoColorPicker.tag-driven .color-picker-trigger{cursor:default}
+.info-fields-actions #infoColorPicker.tag-driven .color-picker-trigger:disabled{opacity:1}
+.info-fields-actions #infoColorPicker.tag-driven .color-picker-trigger i{width:24px;height:24px}

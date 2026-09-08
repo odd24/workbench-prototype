@@ -362,6 +362,51 @@ function tagColor(tagName) {
   return safeColor(configured);
 }
 
+function segmentedColorGradient(colors, direction = 'to bottom') {
+  const palette = colors.length ? colors.map(color => safeColor(color)) : ['#35a99a'];
+  if (palette.length === 1) return palette[0];
+  const stops = palette.flatMap((color, index) => {
+    const start = (index / palette.length * 100).toFixed(2);
+    const end = ((index + 1) / palette.length * 100).toFixed(2);
+    return [`${color} ${start}%`, `${color} ${end}%`];
+  });
+  return `linear-gradient(${direction},${stops.join(',')})`;
+}
+
+function infoRecordPalette(record) {
+  const tags = [...new Set(record?.tags || [])];
+  const tagColors = tags.map(tagColor);
+  const colors = tagColors.length ? tagColors : [safeColor(record?.info_color, '#35a99a')];
+  return {
+    colors,
+    primary:colors[0],
+    bar:segmentedColorGradient(colors),
+    swatch:segmentedColorGradient(colors, 'to right'),
+    tagDriven:Boolean(tagColors.length),
+  };
+}
+
+function applyInfoRecordPalette(record = currentRecord) {
+  if (!record || record.type !== 'info') return;
+  const palette = infoRecordPalette(record);
+  const list = $('#drawerInfoFieldList');
+  if (list) {
+    list.style.setProperty('--info-row-color', palette.primary);
+    list.style.setProperty('--info-row-bar', palette.bar);
+  }
+  const label = $('.info-color-label', $('#infoFieldsPanel'));
+  if (label) label.textContent = palette.tagDriven ? `标签配色 · ${palette.colors.length}` : '备用色条';
+  const picker = $('#infoColorPicker');
+  const trigger = $('.color-picker-trigger', picker);
+  const swatch = $('.color-picker-trigger i', picker);
+  if (picker) picker.classList.toggle('tag-driven', palette.tagDriven);
+  if (trigger) {
+    trigger.disabled = palette.tagDriven;
+    trigger.title = palette.tagDriven ? '色条由当前标签颜色自动生成；移除全部标签后可设置备用颜色' : '设置无标签时使用的备用色条颜色';
+  }
+  if (swatch) swatch.style.background = palette.swatch;
+}
+
 function drawerTagHtml(tagName) {
   const color = tagColor(tagName);
   return `<span class="record-tag color-tag" style="--tag-color:${color}" title="标签颜色：${color.toUpperCase()}">${escapeHtml(tagName)} <button data-remove-tag="${escapeHtml(tagName)}" aria-label="移除标签 ${escapeHtml(tagName)}">×</button></span>`;
@@ -411,7 +456,7 @@ function typeChipHtml(record) {
 
 function infoFieldRowHtml(field = {}, scope = 'drawer') {
   const insertLabel = scope === 'create' ? '插入到补充说明' : '插入正文';
-  return `<div class="info-field-row" data-info-field-row><button type="button" class="info-field-drag" draggable="true" aria-label="拖动调整字段顺序" title="拖动调整顺序">⠿</button><input data-info-field-name value="${escapeHtml(field.name || '')}" placeholder="字段名称，如：服务器地址" aria-label="信息字段名称"><textarea data-info-field-value placeholder="字段内容" aria-label="信息字段内容">${escapeHtml(field.value || '')}</textarea><input data-info-field-note value="${escapeHtml(field.note || '')}" placeholder="字段说明（可选）" aria-label="信息字段说明"><button type="button" class="insert-info-field" data-insert-info-field title="将该键值对及说明插入正文">${insertLabel}</button><button type="button" data-remove-info-field aria-label="删除字段" title="删除字段">×</button></div>`;
+  return `<div class="info-field-row info-field-row-${scope}" data-info-field-row><button type="button" class="info-field-drag" draggable="true" aria-label="拖动调整字段顺序" title="拖动调整顺序">⠿</button><input data-info-field-name value="${escapeHtml(field.name || '')}" placeholder="字段名称，如：服务器地址" aria-label="信息字段名称"><textarea data-info-field-value rows="1" placeholder="字段内容" aria-label="信息字段内容">${escapeHtml(field.value || '')}</textarea><label class="info-field-note-wrap"><span>补充说明</span><textarea data-info-field-note rows="1" placeholder="填写用途、限制或其他说明（可选）" aria-label="信息字段补充说明">${escapeHtml(field.note || '')}</textarea></label><button type="button" class="insert-info-field" data-insert-info-field title="将该键值对及说明插入正文">${insertLabel}</button><button type="button" data-remove-info-field aria-label="删除字段" title="删除字段">×</button></div>`;
 }
 
 function infoFieldsFrom(root) {
@@ -438,19 +483,22 @@ function renderDrawerInfoFields(fields = []) {
 }
 
 function autoSizeInfoFieldTextareas(root = document) {
-  $$('[data-info-field-value]', root).forEach(textarea => {
-    textarea.style.height = '39px';
-    const height = Math.min(Math.max(textarea.scrollHeight, 39), 120);
+  $$('[data-info-field-value], [data-info-field-note]', root).forEach(textarea => {
+    const note = textarea.matches('[data-info-field-note]');
+    const minimum = note ? 54 : 39;
+    const maximum = note ? 220 : 140;
+    textarea.style.height = `${minimum}px`;
+    const height = Math.min(Math.max(textarea.scrollHeight, minimum), maximum);
     textarea.style.height = `${height}px`;
-    textarea.style.overflowY = textarea.scrollHeight > 120 ? 'auto' : 'hidden';
+    textarea.style.overflowY = textarea.scrollHeight > maximum ? 'auto' : 'hidden';
   });
 }
 
 function infoCardHtml(record, index = 0) {
   const fields = record.info_fields || [];
   const visibleFields = fields.slice(0, 8);
-  const color = safeColor(record.info_color, '#35a99a');
-  return `<article class="info-display-card ${index >= PROJECT_LIST_COLLAPSE_LIMIT ? 'auto-collapsed-record' : ''}" draggable="true" style="--card-order:${index};--info-color:${color}" data-record-id="${escapeHtml(record.id)}"><div class="info-card-title-row"><span class="info-card-drag" aria-hidden="true">⠿</span><h3>${escapeHtml(record.title)}</h3></div><div class="info-card-fields">${visibleFields.map(field => `<div class="info-card-field"><span title="${escapeHtml(field.name)}">${escapeHtml(field.name)}</span><div><strong title="${escapeHtml(`${field.value || ''}${field.note ? `\n说明：${field.note}` : ''}`)}">${escapeHtml(field.value || '—')}</strong><button type="button" data-copy-info-value="${encodeURIComponent(field.value || '')}" aria-label="复制 ${escapeHtml(field.name)}" title="复制字段内容">⧉</button></div></div>`).join('') || '<div class="info-card-empty">尚未填写结构化字段</div>'}${fields.length > visibleFields.length ? `<button type="button" class="info-more-fields" data-record-id="${escapeHtml(record.id)}">还有 ${fields.length - visibleFields.length} 个字段，查看全部</button>` : ''}</div></article>`;
+  const palette = infoRecordPalette(record);
+  return `<article class="info-display-card ${index >= PROJECT_LIST_COLLAPSE_LIMIT ? 'auto-collapsed-record' : ''}" draggable="true" style="--card-order:${index};--info-color:${palette.primary};--info-color-bar:${palette.bar}" data-record-id="${escapeHtml(record.id)}"><div class="info-card-title-row"><span class="info-card-drag" aria-hidden="true">⠿</span><h3>${escapeHtml(record.title)}</h3></div><div class="info-card-fields">${visibleFields.map(field => `<div class="info-card-field"><span title="${escapeHtml(field.name)}">${escapeHtml(field.name)}</span><div><strong title="${escapeHtml(`${field.value || ''}${field.note ? `\n说明：${field.note}` : ''}`)}">${escapeHtml(field.value || '—')}</strong><button type="button" data-copy-info-value="${encodeURIComponent(field.value || '')}" aria-label="复制 ${escapeHtml(field.name)}" title="复制字段内容">⧉</button></div></div>`).join('') || '<div class="info-card-empty">尚未填写结构化字段</div>'}${fields.length > visibleFields.length ? `<button type="button" class="info-more-fields" data-record-id="${escapeHtml(record.id)}">还有 ${fields.length - visibleFields.length} 个字段，查看全部</button>` : ''}</div></article>`;
 }
 
 function timelineFilterOptions(field) {
@@ -2213,6 +2261,7 @@ async function openDrawer(recordId, options = {}) {
     if (isInfo) {
       renderDrawerInfoFields(currentRecord.info_fields || []);
       $('#infoColorPicker').innerHTML = colorPickerHtml(currentRecord.info_color || '#35a99a', '信息卡色条颜色');
+      applyInfoRecordPalette(currentRecord);
     }
     else {
       const statusList = statusesFor(currentRecord.type, currentRecord.project_id);
@@ -4449,7 +4498,10 @@ document.addEventListener('click', async event => {
     updateStatusRowDirtyState(picker.closest('.status-edit-row'));
     picker.classList.remove('open');
     $('.color-picker-trigger', picker).setAttribute('aria-expanded', 'false');
-    if (picker.closest('#infoColorPicker')) markEditorChanged();
+    if (picker.closest('#infoColorPicker')) {
+      applyInfoRecordPalette({...currentRecord, info_color:drawerInfoColor()});
+      markEditorChanged();
+    }
     return;
   }
   if (!event.target.closest('[data-color-picker]')) {
@@ -5587,13 +5639,16 @@ document.addEventListener('input', event => {
     projectAssetSearchTimer = setTimeout(() => { if (projectTab === 'assets') renderProjectPage(); }, 120);
     return;
   }
-  if (event.target.matches('[data-info-field-value]')) autoSizeInfoFieldTextareas(event.target.closest('[data-info-field-row]'));
+  if (event.target.matches('[data-info-field-value], [data-info-field-note]')) autoSizeInfoFieldTextareas(event.target.closest('[data-info-field-row]'));
   if (event.target.matches('[data-color-picker] input[type="color"]')) {
     syncColorPicker(event.target.closest('[data-color-picker]'), event.target.value);
     rememberRecentColor('workbench-recent-management-colors', event.target.value);
     updateTagRowDirtyState(event.target.closest('.tag-edit'));
     updateStatusRowDirtyState(event.target.closest('.status-edit-row'));
-    if (event.target.closest('#infoColorPicker')) markEditorChanged();
+    if (event.target.closest('#infoColorPicker')) {
+      applyInfoRecordPalette({...currentRecord, info_color:drawerInfoColor()});
+      markEditorChanged();
+    }
   }
   if (event.target.id === 'timelineFilterSearch') {
     const needle = event.target.value.trim().toLowerCase();

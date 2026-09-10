@@ -188,6 +188,25 @@ class RepositoryTests(unittest.TestCase):
         self.assertNotIn("status", updated)
         self.assertTrue(any(item["id"] == record["id"] for item in self.repo.search("v2")))
 
+    def test_information_fields_store_multiple_multiline_commands(self):
+        project = self.repo.create_project({"name": "常用信息项目"})
+        record = self.repo.create_record({
+            "type": "info", "title": "展锐调试命令", "project_id": project["id"], "tags": ["展锐", "ADB"],
+            "info_fields": [
+                {"name": "进入 ICAP", "value": "adb root\nadb shell am start -n com.sprd.camta/.MainActivity", "note": "按顺序执行"},
+                {"name": "导出 ICAP 数据", "value": "adb pull data/vendor/icap\nadb shell ls data/vendor/icap"},
+            ],
+        })
+        self.assertNotIn("info_kind", record)
+        self.assertNotIn("command_platform", record)
+        self.assertEqual(record["tags"], ["展锐", "ADB"])
+        self.assertEqual(len(record["info_fields"]), 2)
+        loaded, _ = self.repo.get_record(record["id"])
+        self.assertEqual(loaded["info_fields"], record["info_fields"])
+        self.assertIn("\n", loaded["info_fields"][0]["value"])
+        self.assertIn("\n", loaded["info_fields"][1]["value"])
+        self.assertTrue(any(item["id"] == record["id"] for item in self.repo.search("adb root")))
+
     def test_record_can_open_in_external_markdown_editor(self):
         project = self.repo.create_project({"name": "外部编辑项目"})
         record = self.repo.create_record({"type": "issue", "title": "Typora 测试", "project_id": project["id"]})

@@ -111,10 +111,13 @@ const HOME_LAYOUT_LEGACY_KEY = 'workbench-home-layout-v1';
 let homeLayout = loadHomeLayout();
 let homeLayoutDraft = null;
 let draggedHomeItem = null;
+let draggedStatusWatchRecordId = '';
 let draggedHomeColumn = null;
 let homeLayoutTargetColumnId = '';
 let homeLayoutVisibleRecordIds = [];
 const expandedHomeColumns = new Set();
+let statusWatchDraft = new Set();
+let statusWatchExpanded = false;
 
 const PROJECT_CARD_COLLAPSE_LIMIT = 5;
 const PROJECT_LIST_COLLAPSE_LIMIT = 12;
@@ -417,6 +420,29 @@ function projectTagHtml(tagName) {
   return `<span class="project-tag color-tag" style="--tag-color:${color}" title="${escapeHtml(tagName)} · ${color.toUpperCase()}">${escapeHtml(tagName)}</span>`;
 }
 
+function selectedCreateTags() {
+  return $$('#createTagOptions input:checked').map(input => input.value);
+}
+
+function updateCreateTagSummary() {
+  const selected = selectedCreateTags();
+  $('#createSelectedTags').innerHTML = selected.map(name => {
+    const color = safeColor((configData?.tags || []).find(tag => tag.name === name)?.color, '#64748b');
+    return `<button type="button" class="document-selected-tag" data-remove-create-tag="${escapeHtml(name)}" style="--tag-color:${color}" title="移除标签"><i></i>${escapeHtml(name)}<b>×</b></button>`;
+  }).join('');
+  $('#toggleCreateTags').textContent = selected.length ? `＋ 继续选择 (${selected.length})` : '＋ 选择标签';
+}
+
+function renderCreateTagOptions(selectedTags = []) {
+  const selected = new Set(selectedTags || []);
+  const tags = configData?.tags || [];
+  $('#createTagOptions').innerHTML = tags.length
+    ? tags.map(tag => `<label class="document-tag-option" style="--tag-color:${safeColor(tag.color, '#64748b')}"><input type="checkbox" value="${escapeHtml(tag.name)}" ${selected.has(tag.name) ? 'checked' : ''}><span>${escapeHtml(tag.name)}</span></label>`).join('')
+    : '<em>标签库中还没有标签，可在“标签管理”中创建</em>';
+  $('#createTagOptions').hidden = true;
+  updateCreateTagSummary();
+}
+
 function recordStatusMeta(record, statusName = record.status) {
   return statusesFor(record.type, record.project_id).find(item => item.name === statusName);
 }
@@ -456,7 +482,7 @@ function typeChipHtml(record) {
 
 function infoFieldRowHtml(field = {}, scope = 'drawer') {
   const insertLabel = scope === 'create' ? '插入到补充说明' : '插入正文';
-  return `<div class="info-field-row info-field-row-${scope}" data-info-field-row><button type="button" class="info-field-drag" draggable="true" aria-label="拖动调整字段顺序" title="拖动调整顺序">⠿</button><input data-info-field-name value="${escapeHtml(field.name || '')}" placeholder="字段名称，如：服务器地址" aria-label="信息字段名称"><textarea data-info-field-value rows="1" placeholder="字段内容" aria-label="信息字段内容">${escapeHtml(field.value || '')}</textarea><label class="info-field-note-wrap"><span>补充说明</span><textarea data-info-field-note rows="1" placeholder="填写用途、限制或其他说明（可选）" aria-label="信息字段补充说明">${escapeHtml(field.note || '')}</textarea></label><button type="button" class="insert-info-field" data-insert-info-field title="将该键值对及说明插入正文">${insertLabel}</button><button type="button" data-remove-info-field aria-label="删除字段" title="删除字段">×</button></div>`;
+  return `<div class="info-field-row info-field-row-${scope}" data-info-field-row><button type="button" class="info-field-drag" draggable="true" aria-label="拖动调整字段顺序" title="拖动调整顺序">⠿</button><input data-info-field-name value="${escapeHtml(field.name || '')}" placeholder="字段名称，如：开启 ATCI、服务器地址" aria-label="信息字段名称"><textarea data-info-field-value rows="1" placeholder="字段内容，可输入多行命令或文本" aria-label="信息字段内容" spellcheck="false">${escapeHtml(field.value || '')}</textarea><label class="info-field-note-wrap"><span>补充说明</span><textarea data-info-field-note rows="1" placeholder="填写用途、限制或其他说明（可选）" aria-label="信息字段补充说明">${escapeHtml(field.note || '')}</textarea></label><button type="button" class="insert-info-field" data-insert-info-field title="将该字段及说明插入正文">${insertLabel}</button><button type="button" data-remove-info-field aria-label="删除字段" title="删除字段">×</button></div>`;
 }
 
 function infoFieldsFrom(root) {
@@ -472,13 +498,18 @@ function drawerInfoColor() {
   return $('#infoColorPicker input[type="color"]')?.value || currentRecord?.info_color || '#35a99a';
 }
 
+function drawerInfoPayload() {
+  return {info_fields:infoFieldsFrom($('#drawerInfoFieldList')), info_color:drawerInfoColor()};
+}
+
 function renderCreateInfoFields(fields = [{name:'', value:''}]) {
-  $('#createInfoFieldList').innerHTML = fields.map(field => infoFieldRowHtml(field, 'create')).join('');
+  const visibleFields = fields.length ? fields : [{name:'', value:''}];
+  $('#createInfoFieldList').innerHTML = visibleFields.map(field => infoFieldRowHtml(field, 'create')).join('');
   requestAnimationFrame(() => autoSizeInfoFieldTextareas($('#createInfoFieldList')));
 }
 
 function renderDrawerInfoFields(fields = []) {
-  $('#drawerInfoFieldList').innerHTML = (fields.length ? fields : [{name:'', value:''}]).map(field => infoFieldRowHtml(field)).join('');
+  $('#drawerInfoFieldList').innerHTML = (fields.length ? fields : [{name:'', value:''}]).map(field => infoFieldRowHtml(field, 'drawer')).join('');
   requestAnimationFrame(() => autoSizeInfoFieldTextareas($('#drawerInfoFieldList')));
 }
 
@@ -486,7 +517,7 @@ function autoSizeInfoFieldTextareas(root = document) {
   $$('[data-info-field-value], [data-info-field-note]', root).forEach(textarea => {
     const note = textarea.matches('[data-info-field-note]');
     const minimum = note ? 54 : 39;
-    const maximum = note ? 220 : 140;
+    const maximum = note ? 220 : 180;
     textarea.style.height = `${minimum}px`;
     const height = Math.min(Math.max(textarea.scrollHeight, minimum), maximum);
     textarea.style.height = `${height}px`;
@@ -496,9 +527,11 @@ function autoSizeInfoFieldTextareas(root = document) {
 
 function infoCardHtml(record, index = 0) {
   const fields = record.info_fields || [];
-  const visibleFields = fields.slice(0, 8);
   const palette = infoRecordPalette(record);
-  return `<article class="info-display-card ${index >= PROJECT_LIST_COLLAPSE_LIMIT ? 'auto-collapsed-record' : ''}" draggable="true" style="--card-order:${index};--info-color:${palette.primary};--info-color-bar:${palette.bar}" data-record-id="${escapeHtml(record.id)}"><div class="info-card-title-row"><span class="info-card-drag" aria-hidden="true">⠿</span><h3>${escapeHtml(record.title)}</h3></div><div class="info-card-fields">${visibleFields.map(field => `<div class="info-card-field"><span title="${escapeHtml(field.name)}">${escapeHtml(field.name)}</span><div><strong title="${escapeHtml(`${field.value || ''}${field.note ? `\n说明：${field.note}` : ''}`)}">${escapeHtml(field.value || '—')}</strong><button type="button" data-copy-info-value="${encodeURIComponent(field.value || '')}" aria-label="复制 ${escapeHtml(field.name)}" title="复制字段内容">⧉</button></div></div>`).join('') || '<div class="info-card-empty">尚未填写结构化字段</div>'}${fields.length > visibleFields.length ? `<button type="button" class="info-more-fields" data-record-id="${escapeHtml(record.id)}">还有 ${fields.length - visibleFields.length} 个字段，查看全部</button>` : ''}</div></article>`;
+  const cardClass = index >= PROJECT_LIST_COLLAPSE_LIMIT ? ' auto-collapsed-record' : '';
+  const style = `--card-order:${index};--info-color:${palette.primary};--info-color-bar:${palette.bar}`;
+  const visibleFields = fields.slice(0, 8);
+  return `<article class="info-display-card${cardClass}" draggable="true" style="${style}" data-record-id="${escapeHtml(record.id)}"><div class="info-card-title-row"><span class="info-card-drag" aria-hidden="true">⠿</span><h3>${escapeHtml(record.title)}</h3></div><div class="info-card-fields">${visibleFields.map(field => `<div class="info-card-field"><span title="${escapeHtml(field.name)}">${escapeHtml(field.name)}</span><div><strong title="${escapeHtml(`${field.value || ''}${field.note ? `\n说明：${field.note}` : ''}`)}">${escapeHtml(field.value || '—')}</strong><button type="button" data-copy-info-value="${encodeURIComponent(field.value || '')}" aria-label="复制 ${escapeHtml(field.name)}" title="复制字段内容">⧉</button></div></div>`).join('') || '<div class="info-card-empty">尚未填写结构化字段</div>'}${fields.length > visibleFields.length ? `<button type="button" class="info-more-fields" data-record-id="${escapeHtml(record.id)}">还有 ${fields.length - visibleFields.length} 个字段，查看全部</button>` : ''}</div></article>`;
 }
 
 function timelineFilterOptions(field) {
@@ -716,13 +749,19 @@ function markdownToHtml(markdown = '', interactive = false) {
       index = table.endIndex;
       continue;
     }
-    if (line.startsWith('```')) {
+    const fence = line.match(/^([ \t]*)(`{3,}|~{3,})(.*)$/);
+    if (fence && !(fence[2][0] === '`' && fence[3].includes('`'))) {
       closeList();
-      const language = normalizeCodeLanguage(unescapeHtml(line.slice(3).trim()));
+      const indentation = fence[1].length;
+      const marker = fence[2][0];
+      const minimumFenceLength = fence[2].length;
+      const language = normalizeCodeLanguage(unescapeHtml(fence[3].trim()));
       const codeLines = [];
       index++;
-      while (index < lines.length && !lines[index].startsWith('```')) {
-        codeLines.push(lines[index]);
+      while (index < lines.length) {
+        const closingFence = lines[index].match(/^([ \t]*)(`{3,}|~{3,})\s*$/);
+        if (closingFence && closingFence[2][0] === marker && closingFence[2].length >= minimumFenceLength) break;
+        codeLines.push(lines[index].replace(new RegExp(`^[ \\t]{0,${indentation}}`), ''));
         index++;
       }
       const rawCode = unescapeHtml(codeLines.join('\n'));
@@ -1599,7 +1638,8 @@ function normalizeHomeLayout(layout) {
     const items = (Array.isArray(column.items) ? column.items : []).filter(item => typeof item === 'string' && !usedItems.has(item) && usedItems.add(item));
     return {id, title:String(column.title || `分栏 ${index + 1}`).trim().slice(0, 30) || `分栏 ${index + 1}`, items};
   });
-  return {columns};
+  const statusWatch = [...new Set((Array.isArray(layout?.statusWatch) ? layout.statusWatch : []).filter(status => typeof status === 'string').map(status => status.trim()).filter(Boolean))];
+  return {columns, statusWatch};
 }
 
 function saveHomeLayout() {
@@ -1629,19 +1669,77 @@ function homeItemHtml(record) {
   return `<div class="home-list-item ${record.completed ? 'completed' : ''}" draggable="true" data-record-id="${escapeHtml(record.id)}" data-home-item="${escapeHtml(record.id)}"><span class="home-item-grip" title="拖动条目">⠿</span>${completeButton || typeIcon(record)}<span class="home-item-content"><strong>${escapeHtml(record.title)}</strong><small><span><i class="project-dot" style="background:${safeColor(project?.color, '#4d78e8')}"></i>${escapeHtml(project?.name || '未归属')}</span><span class="home-item-due${dueClass}">◷ ${escapeHtml(formatDate(record.due))}</span></small></span><span class="priority ${priorityClass}">${escapeHtml(record.priority || '普通')}</span><button type="button" class="home-item-remove" data-home-remove="${escapeHtml(record.id)}" aria-label="移出首页" title="移出首页">×</button></div>`;
 }
 
+function statusWatchItemHtml(record) {
+  const project = projects.find(item => item.id === record.project_id);
+  const dueClass = homeRecordIsOverdue(record) ? ' overdue' : '';
+  return `<div class="home-list-item status-watch-item ${record.completed ? 'completed' : ''}" draggable="true" data-record-id="${escapeHtml(record.id)}" data-status-watch-item="${escapeHtml(record.id)}" title="拖到右侧分栏，将此条目添加到首页布局"><span class="home-item-grip" aria-hidden="true">⠿</span>${typeIcon(record)}<span class="home-item-content"><strong>${escapeHtml(record.title)}</strong><small><span><i class="project-dot" style="background:${safeColor(project?.color, '#4d78e8')}"></i>${escapeHtml(project?.name || '未归属')}</span><span class="home-item-due${dueClass}">◷ ${escapeHtml(formatDate(record.due))}</span></small></span>${statusChipHtml(record)}</div>`;
+}
+
+function statusWatchOptions() {
+  const options = new Map();
+  const activeProjectIds = new Set(projects.filter(project => project.status !== 'archived').map(project => project.id));
+  const add = (name, color = '#64748b') => {
+    const normalized = String(name || '').trim();
+    if (!normalized) return;
+    const option = options.get(normalized) || {name:normalized, colors:new Map(), count:0};
+    const safe = safeColor(color);
+    option.colors.set(safe, (option.colors.get(safe) || 0) + 1);
+    options.set(normalized, option);
+  };
+  (configData?.workflow_templates || []).forEach(workflow => {
+    ['issue','todo'].forEach(type => (workflow.statuses?.[type] || []).forEach(status => add(status.name, status.color)));
+  });
+  records.filter(record => ['issue','todo'].includes(record.type) && activeProjectIds.has(record.project_id)).forEach(record => {
+    add(record.status, recordStatusColor(record));
+    if (record.status && options.has(record.status)) options.get(record.status).count += 1;
+  });
+  (homeLayout.statusWatch || []).forEach(status => add(status));
+  return [...options.values()].map(option => ({
+    name:option.name,
+    count:option.count,
+    color:[...option.colors].sort((a, b) => b[1] - a[1])[0]?.[0] || '#64748b',
+  })).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+}
+
+function updateStatusWatchSelectionCount() {
+  const selected = $$('#statusWatchOptions input:checked').length;
+  $('#statusWatchSelectionCount').textContent = `已选择 ${selected} 个状态`;
+}
+
+function openStatusWatchDialog() {
+  statusWatchDraft = new Set(homeLayout.statusWatch || []);
+  const options = statusWatchOptions();
+  $('#statusWatchOptions').innerHTML = options.length ? options.map(option => `<label class="status-watch-option" style="--status-color:${option.color}"><input type="checkbox" value="${escapeHtml(option.name)}" ${statusWatchDraft.has(option.name) ? 'checked' : ''}><i></i><span><strong>${escapeHtml(option.name)}</strong><small>${option.count} 个条目</small></span></label>`).join('') : '<div class="empty-state">还没有可选择的问题或待办状态</div>';
+  updateStatusWatchSelectionCount();
+  $('#statusWatchDialog').showModal();
+}
+
 function bindHomeLayoutDrag() {
   const board = $('#homeLayoutGrid');
   const persistFromBoard = () => {
     const titles = new Map(homeLayout.columns.map(column => [column.id, column.title]));
     const originalItems = new Map(homeLayout.columns.map(column => [column.id, column.items]));
     const visibleIds = new Set($$('[data-home-item]', board).map(item => item.dataset.homeItem));
-    homeLayout = {columns:$$('[data-home-column]', board).map(column => {
+    homeLayout = {...homeLayout, columns:$$('[data-home-column]', board).map(column => {
       const visible = $$('[data-home-item]', column).map(item => item.dataset.homeItem);
       const hidden = (originalItems.get(column.dataset.homeColumn) || []).filter(id => !visibleIds.has(id));
       return {id:column.dataset.homeColumn, title:titles.get(column.dataset.homeColumn) || '未命名分栏', items:[...visible, ...hidden]};
     })};
     saveHomeLayout();
   };
+  $$('[data-status-watch-item]', board).forEach(item => {
+    item.addEventListener('dragstart', event => {
+      draggedStatusWatchRecordId = item.dataset.statusWatchItem;
+      item.classList.add('dragging');
+      event.dataTransfer.effectAllowed = 'copy';
+      event.dataTransfer.setData('text/plain', draggedStatusWatchRecordId);
+    });
+    item.addEventListener('dragend', () => {
+      item.classList.remove('dragging');
+      $$('[data-home-column-items]', board).forEach(list => list.classList.remove('drag-over'));
+      draggedStatusWatchRecordId = '';
+    });
+  });
   $$('[data-home-item]', board).forEach(item => {
     item.addEventListener('dragstart', event => {
       if (event.target.closest('button')) { event.preventDefault(); return; }
@@ -1663,9 +1761,35 @@ function bindHomeLayoutDrag() {
     });
   });
   $$('[data-home-column-items]', board).forEach(list => {
-    list.addEventListener('dragover', event => { if (draggedHomeItem) { event.preventDefault(); list.classList.add('drag-over'); if (!event.target.closest('[data-home-item]')) list.append(draggedHomeItem); } });
+    list.addEventListener('dragover', event => {
+      if (draggedStatusWatchRecordId) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+        list.classList.add('drag-over');
+        return;
+      }
+      if (draggedHomeItem) { event.preventDefault(); list.classList.add('drag-over'); if (!event.target.closest('[data-home-item]')) list.append(draggedHomeItem); }
+    });
     list.addEventListener('dragleave', event => { if (!list.contains(event.relatedTarget)) list.classList.remove('drag-over'); });
-    list.addEventListener('drop', event => { event.preventDefault(); list.classList.remove('drag-over'); });
+    list.addEventListener('drop', event => {
+      event.preventDefault();
+      list.classList.remove('drag-over');
+      if (!draggedStatusWatchRecordId) return;
+      const recordId = draggedStatusWatchRecordId;
+      const targetColumn = homeLayout.columns.find(column => column.id === list.dataset.homeColumnItems);
+      if (!targetColumn) return;
+      homeLayout.columns.forEach(column => { column.items = column.items.filter(id => id !== recordId); });
+      const targetItem = event.target.closest('[data-home-item]');
+      const targetIndex = targetItem ? targetColumn.items.indexOf(targetItem.dataset.homeItem) : -1;
+      if (targetIndex >= 0) {
+        const rect = targetItem.getBoundingClientRect();
+        targetColumn.items.splice(targetIndex + (event.clientY > rect.top + rect.height / 2 ? 1 : 0), 0, recordId);
+      } else targetColumn.items.push(recordId);
+      draggedStatusWatchRecordId = '';
+      saveHomeLayout();
+      renderDashboard();
+      notify('已添加到首页分栏', `条目已放入「${targetColumn.title}」，状态关注栏保持不变`);
+    });
   });
   $$('[data-home-column-drag]', board).forEach(handle => {
     const column = handle.closest('[data-home-column]');
@@ -1684,13 +1808,22 @@ function bindHomeLayoutDrag() {
 function renderDashboard() {
   const available = new Map(records.filter(record => ['issue', 'todo'].includes(record.type)).map(record => [record.id, record]));
   const selected = homeLayout.columns.flatMap(column => column.items.map(id => available.get(id)).filter(Boolean));
+  const watchedStatuses = new Set(homeLayout.statusWatch || []);
+  const activeProjectIds = new Set(projects.filter(project => project.status !== 'archived').map(project => project.id));
+  const projectPositions = new Map(projects.map((project, index) => [project.id, index]));
+  const watchedRecords = records.filter(record => ['issue','todo'].includes(record.type) && activeProjectIds.has(record.project_id) && watchedStatuses.has(record.status)).sort((a, b) => (projectPositions.get(a.project_id) ?? 999999) - (projectPositions.get(b.project_id) ?? 999999) || String(b.updated || '').localeCompare(String(a.updated || '')));
   const now = new Date();
   $('#homeDateLabel').textContent = new Intl.DateTimeFormat('zh-CN', {year:'numeric', month:'long', day:'numeric', weekday:'long'}).format(now);
   const overdue = selected.filter(homeRecordIsOverdue).length;
   const unfinished = selected.filter(record => !record.completed).length;
   $('#homeSummary').textContent = selected.length ? `首页放置了 ${selected.length} 项工作，${unfinished} 项尚未完成${overdue ? `，其中 ${overdue} 项已逾期` : ''}。` : '把重要的问题和待办放在这里，集中处理。';
   $('#homeLayoutCount').textContent = `${selected.length} 项内容`;
-  $('#homeLayoutGrid').innerHTML = homeLayout.columns.map(column => {
+  const watchedVisible = statusWatchExpanded ? watchedRecords : watchedRecords.slice(0, 8);
+  const watchedRemaining = Math.max(0, watchedRecords.length - 8);
+  const watchedToggle = watchedRemaining ? `<button type="button" class="home-column-toggle" id="toggleStatusWatch" aria-expanded="${statusWatchExpanded}">${statusWatchExpanded ? '收起，仅显示前 8 条' : `展开其余 ${watchedRemaining} 条`}<span>${statusWatchExpanded ? '↑' : '↓'}</span></button>` : '';
+  const watchedEmpty = watchedStatuses.size ? '当前没有符合所选状态的条目' : '选择需要关注的状态，自动汇总所有项目中的匹配条目';
+  const watchedColumn = `<section class="home-column status-watch-column"><header><span class="status-watch-pin" aria-hidden="true">⌖</span><h3>状态关注</h3><em>${watchedRecords.length}</em><button type="button" class="secondary-button status-watch-configure" id="configureStatusWatch">配置状态</button></header><div class="status-watch-tags">${(homeLayout.statusWatch || []).map(status => `<span>${escapeHtml(status)}</span>`).join('') || '<small>尚未选择状态</small>'}</div><div class="home-column-items">${watchedVisible.map(statusWatchItemHtml).join('') || `<div class="home-column-empty">${watchedEmpty}<button type="button" class="secondary-button" id="emptyConfigureStatusWatch">立即配置</button></div>`}</div>${watchedToggle}</section>`;
+  $('#homeLayoutGrid').innerHTML = watchedColumn + homeLayout.columns.map(column => {
     const columnRecords = column.items.map(id => available.get(id)).filter(Boolean);
     const expanded = expandedHomeColumns.has(column.id);
     const visibleRecords = expanded ? columnRecords : columnRecords.slice(0, 5);
@@ -1698,8 +1831,8 @@ function renderDashboard() {
     const toggle = remaining ? `<button type="button" class="home-column-toggle" data-home-column-toggle="${escapeHtml(column.id)}" aria-expanded="${expanded}">${expanded ? '收起，仅显示前 5 条' : `展开其余 ${remaining} 条`}<span>${expanded ? '↑' : '↓'}</span></button>` : '';
     return `<section class="home-column ${expanded ? 'expanded' : ''}" data-home-column="${escapeHtml(column.id)}"><header draggable="true" data-home-column-drag><span class="home-column-grip">⠿</span><h3>${escapeHtml(column.title)}</h3><em>${columnRecords.length}</em><button type="button" class="home-column-add" data-home-column-add="${escapeHtml(column.id)}" aria-label="向此分栏添加条目" title="添加条目">＋</button><button type="button" class="column-menu-button home-column-menu" data-home-column-menu="${escapeHtml(column.id)}" aria-label="分栏操作" title="分栏操作">•••</button></header><div class="home-column-items" data-home-column-items="${escapeHtml(column.id)}">${visibleRecords.map(homeItemHtml).join('') || '<div class="home-column-empty">拖动条目到这里，或点击标题栏的“＋”添加</div>'}</div>${toggle}</section>`;
   }).join('');
-  $('#homeLayoutGrid').hidden = !homeLayout.columns.length;
-  $('#homeLayoutEmpty').hidden = Boolean(homeLayout.columns.length);
+  $('#homeLayoutGrid').hidden = false;
+  $('#homeLayoutEmpty').hidden = true;
   bindHomeLayoutDrag();
 }
 
@@ -2156,10 +2289,12 @@ function renderCreateStatusOptions(preferredStatus = '') {
 function updateCreateFormForType() {
   const isProject = selectedType === '项目';
   const isInfo = selectedType === '信息';
+  createDialog.classList.toggle('info-create-dialog', isInfo);
   $('#createInfoFields').style.display = isInfo ? 'block' : 'none';
+  if (!isInfo) $('#createTagOptions').hidden = true;
   $('#createPriorityField').style.display = isProject || isInfo ? 'none' : 'flex';
   $('#createBodyField span').textContent = isInfo ? '补充说明（可选）' : '补充说明（可选）';
-  $('#createTitle').placeholder = isProject ? '输入项目名称' : isInfo ? '输入信息名称，如：生产环境配置' : '用一句话描述这条记录';
+  $('#createTitle').placeholder = isProject ? '输入项目名称' : isInfo ? '输入信息名称，如：展锐调试命令、生产环境配置' : '用一句话描述这条记录';
   if (isInfo && !$('#createInfoFieldList').children.length) renderCreateInfoFields();
 }
 
@@ -2176,6 +2311,8 @@ function openCreate(type = '问题', options = {}) {
   $('#projectSelect').closest('label').style.display = isProject ? 'none' : 'flex';
   $('#projectSelect').closest('label').style.opacity = '1';
   $('.create-dialog h2').textContent = isProject ? '新建项目' : '新建记录';
+  renderCreateTagOptions();
+  if (type === '信息') renderCreateInfoFields();
   updateCreateFormForType();
   renderNavigation();
   if (createContext.projectId && projects.some(project => project.id === createContext.projectId)) $('#projectSelect').value = createContext.projectId;
@@ -3860,6 +3997,10 @@ async function saveEditorNow() {
   $('#saveRecord').disabled = true;
   try {
     await updateRecord(recordId, changes);
+    if (currentRecord?.type === 'info') {
+      $('#drawerTags').innerHTML = `${(currentRecord.tags || []).map(drawerTagHtml).join('')}<button id="addRecordTag">＋ 添加标签</button>`;
+      applyInfoRecordPalette(currentRecord);
+    }
     editorDirty = false;
     clearEditorDraft(recordId);
     updateSaveIndicator('✓ 已保存 · 刚刚');
@@ -3961,13 +4102,14 @@ async function createItem() {
       const payload = {type:recordType, title, project_id:$('#projectSelect').value || null, body:$('#createBodyField textarea').value};
       if (recordType === 'info') {
         payload.info_fields = infoFieldsFrom($('#createInfoFieldList'));
+        payload.tags = selectedCreateTags();
         if (!payload.info_fields.length) { notify('请填写至少一个信息字段', '输入字段名称和对应内容后再创建', true); $('[data-info-field-name]', $('#createInfoFieldList')).focus(); return; }
       }
       else Object.assign(payload, {status:$('#createStatus').value, completed:statusOption?.dataset.completed === 'true', priority:$('#createPriority').value});
       await api('/records', {method:'POST', body:JSON.stringify(payload)});
     }
     createDialog.close();
-    $('#createTitle').value = ''; $('#createBodyField textarea').value = ''; renderCreateInfoFields();
+    $('#createTitle').value = ''; $('#createBodyField textarea').value = ''; renderCreateInfoFields(); renderCreateTagOptions();
     await refreshData();
     notify(`已创建${selectedType}：${title}`, selectedType === '项目' ? '项目目录与 README.md 已生成' : 'Markdown 文件已保存到本地目录');
   } catch (error) { notify('创建失败', error.message, true); }
@@ -4255,6 +4397,23 @@ document.addEventListener('click', async event => {
     return;
   }
   if (event.target.closest('#manageHome')) { openHomeLayoutDialog(); return; }
+  if (event.target.closest('#configureStatusWatch') || event.target.closest('#emptyConfigureStatusWatch')) { openStatusWatchDialog(); return; }
+  if (event.target.closest('#closeStatusWatch') || event.target.closest('#cancelStatusWatch')) { $('#statusWatchDialog').close('cancel'); return; }
+  if (event.target.closest('#clearStatusWatch')) {
+    $$('#statusWatchOptions input').forEach(input => { input.checked = false; });
+    updateStatusWatchSelectionCount();
+    return;
+  }
+  if (event.target.closest('#saveStatusWatch')) {
+    homeLayout.statusWatch = $$('#statusWatchOptions input:checked').map(input => input.value);
+    saveHomeLayout();
+    $('#statusWatchDialog').close('confirm');
+    statusWatchExpanded = false;
+    renderDashboard();
+    notify('关注状态已保存', homeLayout.statusWatch.length ? `已关注 ${homeLayout.statusWatch.length} 个状态` : '固定栏已清空');
+    return;
+  }
+  if (event.target.closest('#toggleStatusWatch')) { statusWatchExpanded = !statusWatchExpanded; renderDashboard(); return; }
   if (event.target.closest('#addHomeColumn') || event.target.closest('#emptyAddHomeColumn')) { await addHomeColumn(); return; }
   const homeColumnAdd = event.target.closest('[data-home-column-add]');
   if (homeColumnAdd) { event.preventDefault(); event.stopPropagation(); closeKanbanMenu(); openHomeLayoutDialog(homeColumnAdd.dataset.homeColumnAdd); return; }
@@ -4317,6 +4476,15 @@ document.addEventListener('click', async event => {
     return;
   }
   if (!event.target.closest('.document-tag-picker') && $('#documentTagOptions')) $('#documentTagOptions').hidden = true;
+  if (event.target.closest('#toggleCreateTags')) { $('#createTagOptions').hidden = !$('#createTagOptions').hidden; return; }
+  const removeCreateTag = event.target.closest('[data-remove-create-tag]');
+  if (removeCreateTag) {
+    const input = $$('#createTagOptions input').find(item => item.value === removeCreateTag.dataset.removeCreateTag);
+    if (input) input.checked = false;
+    updateCreateTagSummary();
+    return;
+  }
+  if (!event.target.closest('.create-tag-picker') && $('#createTagOptions')) $('#createTagOptions').hidden = true;
   if (event.target.closest('#openDocumentExternal')) { await openCurrentDocumentExternal(); return; }
   if (event.target.closest('#chooseDocumentExternal')) { await openExternalEditorDialog(); return; }
   if (event.target.closest('#newDocument')) { openDocument(); return; }
@@ -4662,7 +4830,7 @@ document.addEventListener('click', async event => {
   if (removeInfoField) {
     const list = removeInfoField.closest('#createInfoFieldList, #drawerInfoFieldList');
     removeInfoField.closest('[data-info-field-row]').remove();
-    if (!list.children.length) list.insertAdjacentHTML('beforeend', infoFieldRowHtml());
+    if (!list.children.length) list.insertAdjacentHTML('beforeend', infoFieldRowHtml({}, list.id === 'createInfoFieldList' ? 'create' : 'drawer'));
     if (list.id === 'drawerInfoFieldList') markEditorChanged();
     return;
   }
@@ -5214,18 +5382,18 @@ $('#conflictExternal').addEventListener('click', async () => {
   if (!conflictRecord) return; const id = conflictRecord.id; editorDirty = false; $('#conflictDialog').close(); conflictRecord = null; await refreshData(); openDrawer(id); notify('已载入磁盘版本');
 });
 $('#conflictLocal').addEventListener('click', async () => {
-  if (!conflictRecord || !currentRecord) return; const id = currentRecord.id; const body = $('#localConflictContent').value; const changes = {body, ...(currentRecord.type === 'info' ? {info_fields:infoFieldsFrom($('#drawerInfoFieldList')), info_color:drawerInfoColor()} : {})}; $('#conflictDialog').close(); conflictRecord = null; editorDirty = false; await updateRecord(id, changes, '已保留工作台版本'); openDrawer(id);
+  if (!conflictRecord || !currentRecord) return; const id = currentRecord.id; const body = $('#localConflictContent').value; const changes = {body, ...(currentRecord.type === 'info' ? drawerInfoPayload() : {})}; $('#conflictDialog').close(); conflictRecord = null; editorDirty = false; await updateRecord(id, changes, '已保留工作台版本'); openDrawer(id);
 });
 $('#conflictCopy').addEventListener('click', async () => {
   if (!conflictRecord || !currentRecord) return;
   try {
-    const copyPayload = {type:currentRecord.type, title:`${currentRecord.title}（冲突副本）`, project_id:currentRecord.project_id, tags:currentRecord.tags || [], body:$('#localConflictContent').value, links:[currentRecord.id], ...(currentRecord.type === 'info' ? {info_fields:infoFieldsFrom($('#drawerInfoFieldList')), info_color:drawerInfoColor()} : {status:currentRecord.status, priority:currentRecord.priority})};
+    const copyPayload = {type:currentRecord.type, title:`${currentRecord.title}（冲突副本）`, project_id:currentRecord.project_id, tags:currentRecord.tags || [], body:$('#localConflictContent').value, links:[currentRecord.id], ...(currentRecord.type === 'info' ? drawerInfoPayload() : {status:currentRecord.status, priority:currentRecord.priority})};
     const copy = await api('/records', {method:'POST', body:JSON.stringify(copyPayload)});
     const originalId = conflictRecord.id; editorDirty = false; $('#conflictDialog').close(); conflictRecord = null; await refreshData(); openDrawer(originalId); notify(`已保留两个版本`, `工作台内容已另存为 ${copy.id}`);
   } catch (error) { notify('副本保存失败', error.message, true); }
 });
 $('#conflictMerged').addEventListener('click', async () => {
-  if (!conflictRecord || !currentRecord) return; const id = currentRecord.id; const body = $('#mergedConflictContent').value; const changes = {body, ...(currentRecord.type === 'info' ? {info_fields:infoFieldsFrom($('#drawerInfoFieldList')), info_color:drawerInfoColor()} : {})}; $('#conflictDialog').close(); conflictRecord = null; editorDirty = false; await updateRecord(id, changes, '合并结果已保存'); openDrawer(id);
+  if (!conflictRecord || !currentRecord) return; const id = currentRecord.id; const body = $('#mergedConflictContent').value; const changes = {body, ...(currentRecord.type === 'info' ? drawerInfoPayload() : {})}; $('#conflictDialog').close(); conflictRecord = null; editorDirty = false; await updateRecord(id, changes, '合并结果已保存'); openDrawer(id);
 });
 $('#confirmImport').addEventListener('click', async () => {
   if (!pendingImport) return;
@@ -5448,6 +5616,7 @@ document.addEventListener('pointerdown', event => {
 });
 $('#documentDialog').addEventListener('cancel', event => { event.preventDefault(); closeDocumentEditor(); });
 document.addEventListener('change', async event => {
+  if (event.target.matches('#statusWatchOptions input')) { updateStatusWatchSelectionCount(); return; }
   if (event.target.id === 'selectAllHomeItems') {
     const target = homeLayoutDraft.columns.find(column => column.id === homeLayoutTargetColumnId);
     if (!target) return;
@@ -5493,6 +5662,7 @@ document.addEventListener('change', async event => {
   if (event.target.id === 'documentHeading') { $('#documentVisualEditor').focus(); restoreDocumentSelection(); document.execCommand('formatBlock', false, event.target.value); markDocumentChanged(); return; }
   if (event.target.matches('[data-selection-heading]')) { $('#documentVisualEditor').focus(); restoreDocumentSelection(); document.execCommand('formatBlock', false, event.target.value); markDocumentChanged(); return; }
   if (event.target.matches('#documentTagOptions input')) { updateDocumentTagSummary(); markDocumentChanged(); return; }
+  if (event.target.matches('#createTagOptions input')) { updateCreateTagSummary(); return; }
   if (event.target.id === 'projectAssetInput') {
     const files = [...event.target.files]; event.target.value = '';
     await uploadProjectAssets(files); return;
@@ -5663,7 +5833,7 @@ window.addEventListener('beforeunload', event => {
     fetch(`/api/records/${encodeURIComponent(currentRecord.id)}`, {
       method:'PATCH',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({title:$('.drawer-title').value.trim() || currentRecord.title, body:localEditorContent(), ...(currentRecord.type === 'info' ? {info_fields:infoFieldsFrom($('#drawerInfoFieldList')), info_color:drawerInfoColor()} : {})}),
+      body:JSON.stringify({title:$('.drawer-title').value.trim() || currentRecord.title, body:localEditorContent(), ...(currentRecord.type === 'info' ? drawerInfoPayload() : {})}),
       keepalive:true
     }).catch(() => {});
   }

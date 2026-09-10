@@ -1361,6 +1361,8 @@ class Repository:
         editable = {"title", "status", "priority", "tags", "due", "completed", "links", "attachments", "info_fields", "info_color", "body"}
         if record.get("type") == "info":
             editable -= {"status", "priority", "due", "completed"}
+        else:
+            editable -= {"info_fields", "info_color"}
         if "info_fields" in payload:
             payload = {**payload, "info_fields": normalize_info_fields(payload["info_fields"])}
         if "info_color" in payload:

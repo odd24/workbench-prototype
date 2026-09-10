@@ -15,7 +15,7 @@
       } catch { /* 使用默认首页 */ }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260908-3">
+  <link rel="stylesheet" href="styles.css?v=20260909-5">
 </head>
 <body>
   <div class="app-shell">
@@ -166,7 +166,7 @@
       <div class="type-picker"><button type="button" class="active" data-type="问题"><span class="type-icon issue">!</span>问题</button><button type="button" data-type="待办"><span class="type-icon todo">✓</span>待办</button><button type="button" data-type="信息"><span class="type-icon info">i</span>信息</button></div>
       <label><span>标题</span><input id="createTitle" autocomplete="off" placeholder="用一句话描述这条记录"></label>
       <div class="form-grid create-context-grid"><label><span>所属项目</span><select id="projectSelect"><option>网站重构</option><option>客户交付平台</option></select></label><label id="createStatusField"><span>初始状态</span><select id="createStatus"></select></label><label id="createPriorityField"><span>优先级</span><select id="createPriority"><option>普通</option><option>高</option><option>紧急</option><option>低</option></select></label></div>
-      <section class="create-info-fields" id="createInfoFields"><header><div><strong>信息字段</strong><small>使用字段名称和内容结构化记录项目信息</small></div><button type="button" id="addCreateInfoField">＋ 添加字段</button></header><div id="createInfoFieldList"></div></section>
+      <section class="create-info-fields" id="createInfoFields"><div class="create-info-tags"><span>标签</span><div class="document-tag-picker create-tag-picker"><div class="document-selected-tags" id="createSelectedTags"></div><button type="button" class="document-tag-trigger" id="toggleCreateTags">＋ 选择标签</button><div class="document-tag-options" id="createTagOptions" hidden></div></div></div><header><div><strong>信息字段</strong><small>字段内容支持多行文本和命令，可添加任意多个字段</small></div><button type="button" id="addCreateInfoField">＋ 添加字段</button></header><div id="createInfoFieldList"></div></section>
       <label id="createBodyField"><span>补充说明（可选）</span><textarea placeholder="输入 / 可以插入格式和内容块"></textarea></label>
       <footer><small>创建后立即生成 Markdown 文件</small><div><button value="cancel" class="secondary-button">取消</button><button type="button" class="primary-button" id="createSubmit">立即创建</button></div></footer>
     </form>
@@ -179,6 +179,13 @@
     <div class="home-layout-picker-summary"><span id="homeLayoutSelectedCount">首页已选择 0 项</span><small id="homeLayoutVisibleCount">当前显示 0 项，点击整行即可快速选择</small></div>
     <div class="home-layout-picker" id="homeLayoutPicker"></div>
     <footer><div class="home-layout-footer-selection"><label title="将当前筛选结果全部加入所选分栏"><input type="checkbox" id="selectAllHomeItems"><span>全选当前结果</span></label><button type="button" class="secondary-button danger-button" id="clearHomeLayout">清空选择</button></div><div class="home-layout-footer-submit"><button type="button" class="secondary-button" id="cancelHomeLayout">取消</button><button type="button" class="primary-button" id="saveHomeLayout">保存布局</button></div></footer>
+  </dialog>
+
+  <dialog class="history-dialog status-watch-dialog" id="statusWatchDialog">
+    <header><div><p class="eyebrow">首页固定栏</p><h2>配置状态关注</h2><small>多选需要关注的状态，首页将跨所有项目自动汇总匹配条目。</small></div><button class="icon-button dialog-close" id="closeStatusWatch" aria-label="关闭" title="关闭">✕</button></header>
+    <div class="status-watch-summary"><strong id="statusWatchSelectionCount">已选择 0 个状态</strong><small>同名状态会合并显示</small></div>
+    <div class="status-watch-options" id="statusWatchOptions"></div>
+    <footer><button type="button" class="secondary-button danger-button" id="clearStatusWatch">清空选择</button><div><button type="button" class="secondary-button" id="cancelStatusWatch">取消</button><button type="button" class="primary-button" id="saveStatusWatch">保存关注状态</button></div></footer>
   </dialog>
 
   <dialog class="history-dialog global-stats-dialog" id="globalStatsDialog">
@@ -197,7 +204,7 @@
     <div class="drawer-content">
       <input class="drawer-title" id="drawerTitle" value="登录页面偶尔请求失败" aria-label="标题" spellcheck="false">
       <div class="meta-grid"><span class="non-info-meta">状态</span><select class="non-info-meta" id="drawerStatus"></select><span class="non-info-meta">优先级</span><select class="non-info-meta" id="drawerPriority"><option>低</option><option>普通</option><option>高</option><option>紧急</option></select><span>所属项目</span><button id="drawerProject">网站重构</button><span class="non-info-meta">截止日期</span><input class="non-info-meta" type="date" id="drawerDue"><span>标签</span><div class="tag-row" id="drawerTags"><button>＋ 添加标签</button></div></div>
-      <section class="info-fields-panel" id="infoFieldsPanel"><header><div><strong>信息字段</strong><small>拖动字段调整顺序，可补充说明或插入正文</small></div><div class="info-fields-actions"><span class="info-color-label">色条</span><div id="infoColorPicker"></div><button type="button" id="addDrawerInfoField">＋ 添加字段</button></div></header><div id="drawerInfoFieldList"></div></section>
+      <section class="info-fields-panel" id="infoFieldsPanel"><header><div><strong>信息字段</strong><small>拖动调整顺序；每个字段都可保存多行文本或命令并单独复制</small></div><div class="info-fields-actions"><span class="info-color-label">色条</span><div id="infoColorPicker"></div><button type="button" id="addDrawerInfoField">＋ 添加字段</button></div></header><div id="drawerInfoFieldList"></div></section>
       <div class="editor-tabs unified-editor-tabs"><button class="active" data-editor-mode="wysiwyg">可视化编辑</button><button data-editor-mode="markdown">Markdown 源码</button><button data-editor-mode="split">分栏预览</button><button id="toggleEditorExpand" class="editor-expand-button" aria-pressed="false" title="展开编辑区域">⛶ 展开编辑</button></div>
       <div class="editor-toolbar unified-editor-toolbar" role="toolbar" aria-label="正文格式工具栏">
         <span class="editor-tool-group"><button data-editor-command="undo" aria-label="撤销" aria-keyshortcuts="Control+Z" title="撤销（Ctrl+Z）">↶</button><button data-editor-command="redo" aria-label="重做" aria-keyshortcuts="Control+Y" title="重做（Ctrl+Y / Ctrl+Shift+Z）">↷</button></span>
@@ -344,7 +351,7 @@
   <div class="toast" id="toast"><span>✓</span><div><strong>已创建记录</strong><small>Markdown 文件已保存到项目目录</small></div></div>
   <div class="context-menu" id="kanbanContextMenu" aria-hidden="true"></div>
   <div class="timeline-filter-popover" id="timelineFilterPopover" role="dialog" aria-label="记录筛选" aria-hidden="true"></div>
-  <script src="app.js?v=20260908-3"></script>
+  <script src="app.js?v=20260909-5"></script>
   <script src="concept-map.js?v=20260901-18"></script>
 </body>
 </html>

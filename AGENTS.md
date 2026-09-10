@@ -23,6 +23,28 @@ Markdown is the durable local storage and interchange format, not the primary UI
 - A visual state that looks correct before saving is not sufficient. Every editor feature must survive visual editor → model → Markdown → reload → visual editor round trips.
 - Keep reading mode free of editing controls, and do not expose Markdown syntax in the default visual editing experience.
 
+## Structured Information Architecture
+
+Information records use one ordered `info_fields` structure for addresses, parameters, paths, commands, and other reusable snippets. Do not introduce a command subtype or a parallel command-only editing flow.
+
+- Treat a command description as the field name and store one or more command lines in the ordinary field value. A single information record may contain any number of these fields.
+- Use normal record tags for platform and category classification instead of dedicated platform metadata.
+- Preserve field line breaks, quoting, spacing, and order through create, edit, draft recovery, save, history, import, and reload workflows.
+- Keep per-field copy actions explicit and non-executing. The workbench must never run recorded commands automatically.
+- Keep old Markdown metadata readable, but render and edit its `info_fields` through the same ordinary information UI.
+
+## Global Copy & Visual Consistency
+
+All user-facing text and visual styling must feel like one coherent product. Before adding new wording, controls, or CSS, inspect comparable screens and reuse the established terminology, component structure, interaction pattern, and design tokens.
+
+- Use one term for the same concept everywhere. Match existing Chinese labels, tone, capitalization, punctuation, date/number formats, and action wording; do not introduce synonyms for an established object or operation.
+- Keep labels concise and action-oriented. Dialog titles, helper text, placeholders, confirmations, validation errors, empty states, notifications, and destructive warnings must follow the wording patterns already used by neighboring flows.
+- Reuse existing buttons, fields, menus, dialogs, cards, badges, tabs, toolbars, empty states, and feedback components before creating a new variant. Equivalent actions must have the same label, icon, placement, hierarchy, and interaction behavior across views.
+- Reuse CSS custom properties and existing utility/component classes for colors, typography, spacing, radii, borders, shadows, focus rings, and transitions. Do not add one-off literal values when an established token or pattern expresses the same role.
+- Preserve the established visual hierarchy: primary, secondary, quiet, and destructive actions must remain visually and behaviorally consistent. Do not use color alone to communicate meaning.
+- Any shared wording or appearance change must be applied to every equivalent surface, including record and knowledge-base editors, creation and editing flows, list and detail views, and confirmation and notification messages.
+- Verify UI changes in light and dark themes, normal and narrow widths, hover/focus/disabled/error states, and with realistic long Chinese text. Check nearby screens for regressions and include before/after screenshots when the change is visually meaningful.
+
 ## Build, Test, and Development Commands
 
 ```powershell

@@ -28,13 +28,13 @@
 
 | 项目 | 当前值 |
 | --- | --- |
-| 当前阶段 | 阶段 1：后端基础设施拆分 |
-| 当前工作项 | 无（RF-107 已完成） |
-| 最近完成 | RF-107 分离 HTTP 路由 |
-| 下一工作项 | RF-108 精简服务启动文件 |
+| 当前阶段 | 阶段 1：后端基础设施拆分（已完成） |
+| 当前工作项 | 无（RF-108 已完成） |
+| 最近完成 | RF-108 精简服务启动文件 |
+| 下一工作项 | RF-201 提取纯 Markdown 与引用能力 |
 | 已知阻塞 | 无 |
-| 后端测试基线 | 68 项通过 |
-| 下一阶段门禁 | RF-101 至 RF-108 全部完成 |
+| 后端测试基线 | 71 项通过 |
+| 下一阶段门禁 | RF-201 至 RF-205 全部完成 |
 
 ## 3. 工作项状态
 
@@ -58,7 +58,7 @@
 | RF-105 | 提取知识库与配置仓储 | 已完成 | 2026-09-16 | 2026-09-16 | Codex | 组合仓储提取完成，旧排序和空分类重载验证通过 |
 | RF-106 | 提取项目与记录仓储 | 已完成 | 2026-09-16 | 2026-09-16 | Codex | 组合仓储提取完成，缓存、并发、历史和回收站验证通过 |
 | RF-107 | 分离 HTTP 路由 | 已完成 | 2026-09-16 | 2026-09-16 | Codex | HTTP Server、响应工具和资源路由移入独立模块 |
-| RF-108 | 精简服务启动文件 | 待开始 |  |  |  | 依赖 RF-107 |
+| RF-108 | 精简服务启动文件 | 已完成 | 2026-09-16 | 2026-09-16 | Codex | Repository 门面已提取，启动文件收敛至 CLI 与生命周期 |
 
 ### 阶段 2：共享编辑器内核
 
@@ -128,6 +128,8 @@
 | 2026-09-16 | RF-106 | 进行中 → 已完成 | 新增 `workbench/projects.py`、`workbench/records.py` 和 `test_records.py`；项目 CRUD 与记录持久化、搜索、缓存、历史、类型转换及 Markdown 导入移入组合仓储；共享回收站和整库导出继续由 `Repository` 协调 | 项目/记录边界与重载 2 项、并发/缓存/外部修改/信息字段/转换/历史/回收站/附件引用专项 10 项、完整测试 65 项及全部语法/差异检查通过 | 数据格式、API、ID、缓存失效、历史和可恢复删除语义无变化；保留 `server.load_markdown`、编辑器和缓存字段兼容路径；DEC-008 继续适用；下一步 RF-107 |
 | 2026-09-16 | RF-107 | 待开始 → 进行中 | 计划新增 `workbench/http_api.py`，移动 `WorkbenchHTTPServer`、`WorkbenchHandler`、响应工具与 HTTP 动词入口，并按资源拆分内部路由；`server.py` 保留兼容导出和启动装配 | 计划扩展 HTTP 集成测试覆盖独立模块、成功、400、404、409、500、静态文件和流式/字节响应；运行完整门禁 | 风险：处理器类级仓储切换、静态目录、数据目录迁移、可 patch 配置/编辑器函数和错误映射均为兼容接口；通过依赖回调和兼容子类保持现有调用路径 |
 | 2026-09-16 | RF-107 | 进行中 → 已完成 | 新增 `workbench/http_api.py`，移动独占端口 Server、Handler、JSON/字节响应和全部动词路由；GET 按文档、概念图、项目附件和记录资源拆分；`server.py` 兼容导出原类和版本号 | HTTP 集成测试扩展至 8 项，覆盖模块兼容、成功、400/404/409/500、静态缓存头、ZIP 字节流和约 1MB 原始流上传/内联下载；完整测试 68 项及全部语法/差异检查通过 | URL 与成功响应结构无变化；新增 `FileExistsError → 409` 和 PUT/PATCH/DELETE 未处理异常 → 500 映射；类级仓储切换支持处理器子类；无数据/UI 影响；下一步 RF-108 |
+| 2026-09-16 | RF-108 | 待开始 → 进行中 | 计划新增 `workbench/repository.py`，移动兼容 `Repository` 门面、仓储装配、回收站、整库导出和演示数据；`server.py` 仅保留兼容导出、CLI 参数、旧进程替换和服务生命周期 | 计划新增启动文件边界与 CLI 参数测试，并运行仓储、HTTP、`--seed-demo`/自定义目录相关专项和完整门禁 | 风险：现有测试和本地调用可能 patch `server.load_markdown`、`server.open_markdown_external` 或从 `server` 导入常量/辅助函数；通过轻量装配子类与兼容再导出维持入口，不改变启动命令 |
+| 2026-09-16 | RF-108 | 进行中 → 已完成 | 新增 `workbench/repository.py` 和 `test_startup.py`；组合仓储门面、初始化、回收站、整库导出和演示数据移出启动文件；`server.py` 以轻量子类保留旧 patch 点，并新增可测试的 `build_argument_parser()`/`main(argv)` | 启动边界 3 项与兼容专项 4 项通过；完整测试 71 项、全部 Python/JavaScript 语法检查、`python server.py --help` 和差异检查通过；`server.py` 从约 658 行降至约 160 行 | 数据/API/启动命令无变化；`--seed-demo`、`--replace`、`--open`、自定义目录、主机和端口均由测试锁定；DEC-009 保留轻量兼容装配子类；阶段 1 门禁完成，下一步 RF-201 |
 
 ## 5. 验证记录
 
@@ -197,6 +199,13 @@
 | 2026-09-16 | RF-107 | `python -m py_compile`（根目录及 `workbench/` 全部 Python 文件） | 通过 | 新 HTTP 模块已纳入 |
 | 2026-09-16 | RF-107 | `node --check app.js`、`node --check concept-map.js` | 通过 | 无输出；前端未修改 |
 | 2026-09-16 | RF-107 | `git diff --check` | 通过 | 仅有 Windows LF/CRLF 提示，无内容错误 |
+| 2026-09-16 | RF-108 | `python -m unittest -v test_startup` | 通过，3 项 | 独立仓储入口、完整 CLI 参数和自定义目录/演示数据/替换/打开装配 |
+| 2026-09-16 | RF-108 | `python -m unittest -v test_markdown.MarkdownContractTests.test_server_keeps_compatible_markdown_helper_exports test_server.RepositoryTests.test_record_cache_reuses_parse_and_detects_external_edits test_server.RepositoryTests.test_record_can_open_in_external_markdown_editor test_http.HTTPIntegrationTests.test_server_keeps_compatible_extracted_http_exports` | 通过，4 项 | 旧 `server` 导入与动态 patch 点保持有效 |
+| 2026-09-16 | RF-108 | `python -m unittest -v` | 通过，71 项 | 阶段 1 完整门禁 |
+| 2026-09-16 | RF-108 | `python -m py_compile`（根目录及 `workbench/` 全部 Python 文件） | 通过 | 新仓储门面与启动测试已纳入 |
+| 2026-09-16 | RF-108 | `python server.py --help` | 通过 | 原主机、端口、数据目录、演示数据、打开和替换参数均存在 |
+| 2026-09-16 | RF-108 | `node --check app.js`、`node --check concept-map.js` | 通过 | 无输出；前端未修改 |
+| 2026-09-16 | RF-108 | `git diff --check` | 通过 | 仅有 Windows LF/CRLF 提示，无内容错误 |
 
 ## 6. 决策记录
 
@@ -212,6 +221,7 @@
 | DEC-006 | 2026-09-16 | 后端提取期间由 `server.py` 兼容导出已移动的公共辅助函数 | 现有测试和潜在本地调用方可能仍从 `server` 导入或 patch 这些名称 | 新模块成为实现位置，旧导入路径在相关调用方迁移前继续有效 |
 | DEC-007 | 2026-09-16 | 路径模块通过当前仓储实例的类型创建迁移后仓储，编辑器模块通过检测器参数接受环境能力 | `paths.py` 和 `external_editor.py` 不应反向导入集中式 `server.py`，同时旧 patch 路径需要继续工作 | 消除循环依赖；`server.py` 编辑器兼容门面仍可注入测试检测结果 |
 | DEC-008 | 2026-09-16 | 领域仓储拆分采用组合对象，`Repository` 保留委托门面 | 避免新模块继承集中式仓储或反向导入 `server.py`，同时维持 HTTP 和现有测试调用 | 概念图实现独立，外部仍使用原 `Repository` 契约；后续领域拆分沿用此模式 |
+| DEC-009 | 2026-09-16 | `server.Repository` 作为提取后门面的轻量装配子类保留 | 既要让 `workbench.repository.Repository` 可独立使用，又要兼容本地调用和测试对 `server.load_markdown`、外部编辑器入口的动态 patch | 启动文件不再承载仓储实现；旧入口继续有效，移除兼容层需另行评估 |
 
 ## 7. 风险记录
 

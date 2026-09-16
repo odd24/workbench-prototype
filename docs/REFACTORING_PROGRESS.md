@@ -29,9 +29,9 @@
 | 项目 | 当前值 |
 | --- | --- |
 | 当前阶段 | 阶段 2：共享编辑器内核 |
-| 当前工作项 | 无（RF-201 已完成） |
-| 最近完成 | RF-201 提取纯 Markdown 与引用能力 |
-| 下一工作项 | RF-202 提取统一文档模型 |
+| 当前工作项 | 无（RF-202 已完成） |
+| 最近完成 | RF-202 提取统一文档模型 |
+| 下一工作项 | RF-203 提取结构块与选区操作 |
 | 已知阻塞 | 无 |
 | 后端测试基线 | 71 项通过 |
 | 下一阶段门禁 | RF-201 至 RF-205 全部完成 |
@@ -65,7 +65,7 @@
 | ID | 工作项 | 状态 | 开始 | 完成 | 负责人/执行者 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
 | RF-201 | 提取纯 Markdown 与引用能力 | 已完成 | 2026-09-16 | 2026-09-16 | Codex | 纯模块与无浏览器契约测试已落地 |
-| RF-202 | 提取统一文档模型 | 待开始 |  |  |  | 依赖 RF-201 |
+| RF-202 | 提取统一文档模型 | 已完成 | 2026-09-16 | 2026-09-16 | Codex | 统一模型模块、稳定接口和浏览器契约矩阵已落地 |
 | RF-203 | 提取结构块与选区操作 | 待开始 |  |  |  | 依赖 RF-202 |
 | RF-204 | 统一记录与知识库编辑器 | 待开始 |  |  |  | 依赖 RF-203 |
 | RF-205 | 完善编辑器契约验证 | 待开始 |  |  |  | 依赖 RF-204 |
@@ -132,6 +132,8 @@
 | 2026-09-16 | RF-108 | 进行中 → 已完成 | 新增 `workbench/repository.py` 和 `test_startup.py`；组合仓储门面、初始化、回收站、整库导出和演示数据移出启动文件；`server.py` 以轻量子类保留旧 patch 点，并新增可测试的 `build_argument_parser()`/`main(argv)` | 启动边界 3 项与兼容专项 4 项通过；完整测试 71 项、全部 Python/JavaScript 语法检查、`python server.py --help` 和差异检查通过；`server.py` 从约 658 行降至约 160 行 | 数据/API/启动命令无变化；`--seed-demo`、`--replace`、`--open`、自定义目录、主机和端口均由测试锁定；DEC-009 保留轻量兼容装配子类；阶段 1 门禁完成，下一步 RF-201 |
 | 2026-09-16 | RF-201 | 待开始 → 进行中 | 计划新增 `js/editor/markdown.js` 和无浏览器纯函数测试；提取 HTML 转义、Markdown/表格渲染、引用解析、代码语言/高亮和颜色规范化；状态相关的引用目标与附件解析通过回调注入 | 计划运行固定 Markdown 输出、安全转义、表格、引用、语言/颜色专项，完整后端回归、全部 JavaScript 语法检查与临时数据浏览器验收；同步 `index.html` 加载顺序和缓存版本 | 风险：现有渲染器隐式读取 `currentRecord`、`referenceTargets`、文档和记录状态；纯模块不得读取 DOM、当前对象或固定 ID，`app.js` 仅保留状态适配器 |
 | 2026-09-16 | RF-201 | 进行中 → 已完成 | 新增 `js/editor/markdown.js` 和 `test_markdown_core.js`；HTML/颜色、Markdown/表格、引用、代码语言/高亮及纯文本能力移入 `Workbench.markdown`；`app.js` 保留状态适配器，`index.html` 在主应用前加载模块并更新缓存版本 | 纯函数固定输出与安全转义专项通过；完整后端 71 项、全部 Python/JavaScript 语法和差异检查通过；临时数据浏览器中完成记录与知识库、浅色/深色、桌面/窄屏验收且无控制台错误 | 数据、API、Markdown 输出和脚本先后契约不变；引用目标、引用 HTML 和图片 HTML 由回调注入，纯模块不读取当前记录、文档或 DOM；DEC-010；下一步 RF-202 |
+| 2026-09-16 | RF-202 | 待开始 → 进行中 | 计划新增 `js/editor/document-model.js`，移动 block type/ID、hydrate、行内与表格/代码序列化、DOM → model、model → Markdown 和编辑器 render；提供稳定 `render`、`serialize`、`normalize` 接口，`app.js` 保留薄适配器 | 计划覆盖段落、标题、列表、任务列表、引用、代码块、分隔线、表格和对齐块的 Markdown → DOM → model → Markdown 往返；运行完整回归、全部语法检查与临时数据浏览器验收；更新加载顺序和缓存版本 | 风险：模块依赖浏览器 DOM、编辑器块 ID 和 `Workbench.markdown`；不得读取 `currentRecord`、`currentDocument` 或固定 DOM ID，不提前迁移 RF-203 的选区/结构操作 |
+| 2026-09-16 | RF-202 | 进行中 → 已完成 | 新增 `js/editor/document-model.js`、`test_document_model.js` 和浏览器契约页；提取行内/代码/表格序列化、块类型与 ID、hydrate、DOM → model、model → Markdown；稳定导出 `render`、`serialize`、`normalize`，`app.js` 仅装配引用和图片回调 | 浏览器契约覆盖段落、标题、普通/任务/编号列表、引用、代码、分隔线、表格及对齐块并显示 PASS；记录和知识库编辑器临时数据验收正常且无控制台错误；Node 契约、完整后端 71 项、全部语法与差异检查通过 | 数据/API/已有 Markdown 兼容不变；补齐分隔线渲染与保存往返，避免原有 `<hr>` 保存丢失；模块不读取当前记录、当前文档或固定 DOM ID；DEC-011；下一步 RF-203 |
 
 ## 5. 验证记录
 
@@ -214,6 +216,13 @@
 | 2026-09-16 | RF-201 | `node --check`（根目录及 `js/` 全部 JavaScript 文件） | 通过 | 新纯模块、主应用、概念图与专项测试均无语法错误 |
 | 2026-09-16 | RF-201 | 临时数据浏览器验收 | 通过 | 记录与知识库渲染正常；表格对齐和引用块正常；浅色/深色、桌面/480px 窄屏无控制台错误 |
 | 2026-09-16 | RF-201 | `git diff --check` | 通过 | 仅有 Windows LF/CRLF 提示，无内容错误 |
+| 2026-09-16 | RF-202 | `node test_document_model.js`、`node test_markdown_core.js` | 通过 | 稳定接口、model → Markdown、分隔线渲染与纯 Markdown 契约通过 |
+| 2026-09-16 | RF-202 | 浏览器打开 `test_document_model.html` | 通过 | 页面显示 PASS；Markdown → DOM → model → Markdown 覆盖全部既有结构块，任务字段和块 ID 校验通过 |
+| 2026-09-16 | RF-202 | 临时数据浏览器验收 | 通过 | 记录可视化编辑器与知识库阅读/编辑模式均正常加载，分隔线和任务列表保留，控制台无错误 |
+| 2026-09-16 | RF-202 | `python -m unittest -v` | 通过，71 项 | 后端数据、仓储、HTTP 和启动行为完整回归 |
+| 2026-09-16 | RF-202 | `python -m py_compile`（根目录及 `workbench/` 全部 Python 文件） | 通过 | 无输出 |
+| 2026-09-16 | RF-202 | `node --check`（根目录及 `js/` 全部 JavaScript 文件） | 通过 | 新文档模型模块和契约测试均纳入 |
+| 2026-09-16 | RF-202 | `git diff --check` | 通过 | 仅有 Windows LF/CRLF 提示，无内容错误 |
 
 ## 6. 决策记录
 
@@ -231,6 +240,7 @@
 | DEC-008 | 2026-09-16 | 领域仓储拆分采用组合对象，`Repository` 保留委托门面 | 避免新模块继承集中式仓储或反向导入 `server.py`，同时维持 HTTP 和现有测试调用 | 概念图实现独立，外部仍使用原 `Repository` 契约；后续领域拆分沿用此模式 |
 | DEC-009 | 2026-09-16 | `server.Repository` 作为提取后门面的轻量装配子类保留 | 既要让 `workbench.repository.Repository` 可独立使用，又要兼容本地调用和测试对 `server.load_markdown`、外部编辑器入口的动态 patch | 启动文件不再承载仓储实现；旧入口继续有效，移除兼容层需另行评估 |
 | DEC-010 | 2026-09-16 | 纯 Markdown 模块通过回调接收引用目标、引用渲染和图片渲染能力 | 引用与附件 URL 依赖当前应用状态，直接读取全局对象会破坏纯函数边界并妨碍无浏览器测试 | `js/editor/markdown.js` 可独立测试和复用；`app.js` 负责把当前状态适配为回调，现有输出保持不变 |
+| DEC-011 | 2026-09-16 | 文档模型以 `render(editor, markdown, options)`、`normalize(editor)` 和 `serialize(editor)` 作为稳定入口 | 后续结构块操作和两个编辑器需要共享同一 DOM/模型边界，同时保留引用与附件的应用状态适配 | RF-203～RF-204 依赖统一入口，不再各自实现 DOM 序列化；底层辅助函数仅用于专项测试和渐进迁移 |
 
 ## 7. 风险记录
 

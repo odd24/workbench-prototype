@@ -221,6 +221,8 @@
       } else if (/^&lt;div align=&quot;(left|center|right)&quot;&gt;([\s\S]*)&lt;\/div&gt;$/.test(line)) {
         const match = line.match(/^&lt;div align=&quot;(left|center|right)&quot;&gt;([\s\S]*)&lt;\/div&gt;$/);
         output.push(`<div style="text-align:${match[1]}">${inlineMarkdownToHtml(match[2], options)}</div>`);
+      } else if (/^(?:-{3,}|_{3,}|\*{3,})$/.test(line.trim())) {
+        output.push('<hr>');
       } else if (line.trim()) output.push(`<p>${inlineMarkdownToHtml(line, options)}</p>`);
     }
     closeList();

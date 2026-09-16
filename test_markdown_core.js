@@ -31,6 +31,7 @@ assert.equal(markdown.cssColorToHex('rgba(1, 2, 3, 0)'), '');
 
 assert.equal(markdown.syntaxHighlightCode('<script>', 'txt'), '&lt;script&gt;');
 assert.match(markdown.syntaxHighlightCode('const value = 2;', 'javascript'), /token-keyword/);
+assert.equal(markdown.markdownToHtml('---'), '<hr>');
 assert.equal(
   markdown.markdownToPlainText('# 标题\n\n[[DOC-12]]', 110, '标题', id => ({id, type:'document', title:'说明'})),
   '说明'

@@ -1,78 +1,324 @@
-# Repository Guidelines
+# AGENTS.md — 本地工作台开发与重构规范
 
-## Project Structure & Module Organization
+本文件是修改本仓库时必须遵守的执行规范。它同时约束日常维护和重构工作。
 
-This repository is a compact local-first web application with no package manager or build step.
+重构相关文档：
 
-- `server.py` contains the HTTP API, Markdown repository logic, import/export, and CLI entry point.
-- `index.html`, `app.js`, and `styles.css` implement the browser UI using vanilla HTML, JavaScript, and CSS.
-- `test_server.py` contains backend and repository regression tests.
-- `workbench-data/` holds generated projects, records, attachments, configuration, and trash; it is local runtime data and is intentionally ignored by Git.
-- `preview*.png` files are local visual-review captures, not production assets.
+- 执行方案：[docs/REFACTORING_PLAN.md](docs/REFACTORING_PLAN.md)
+- 进度台账：[docs/REFACTORING_PROGRESS.md](docs/REFACTORING_PROGRESS.md)
 
-Keep backend behavior in `server.py` and UI behavior in `app.js`; avoid introducing generated artifacts or machine-specific configuration into commits.
+规则优先级：数据安全与兼容性 → 用户明确需求 → 本文件 → 重构计划 → 邻近代码惯例。若文档和代码事实冲突，先记录冲突，再以不损坏已有数据的方式处理并同步文档。
 
-## Document Editing Architecture
+## 1. 开始工作前
 
-Markdown is the durable local storage and interchange format, not the primary UI model. Both the record editor and the knowledge-base editor must share the same rendering, content-block normalization, and serialization helpers in `app.js`.
+每次修改前必须：
 
-- Treat paragraphs, headings, lists, task lists, quotes, code blocks, dividers, and tables as typed content blocks before serializing them.
-- Keep structural blocks as direct children of the editor. Do not use `execCommand('insertHTML')` to insert lists, tasks, tables, quotes, or code blocks because browsers can create invalid nested markup.
-- Convert editor DOM to the shared document model first, then serialize that model to Markdown. Convert imported or stored Markdown through the shared renderer and hydrate block metadata before editing.
-- Preserve standard Markdown whenever it can represent the content. Use compatible HTML or metadata extensions only for features that standard Markdown cannot represent without data loss.
-- A visual state that looks correct before saving is not sufficient. Every editor feature must survive visual editor → model → Markdown → reload → visual editor round trips.
-- Keep reading mode free of editing controls, and do not expose Markdown syntax in the default visual editing experience.
+1. 运行 `git status --short`，识别并保留用户已有修改。
+2. 阅读任务涉及的代码、测试和文档，使用 `rg` 找齐字段、API、选择器和函数的读写点。
+3. 判断任务是日常功能维护，还是重构方案中的 `RF-*` 工作项。
+4. 若属于重构：先阅读执行方案对应工作项，并在进度台账把状态更新为 `进行中`。
+5. 明确数据格式、API、草稿、历史、外部修改和 UI 的影响面后再编辑。
 
-## Structured Information Architecture
+禁止在没有工作项编号和台账记录的情况下进行计划内重构。普通缺陷和功能修改不强制创建 `RF-*` 编号，但若实际改变模块边界、公共契约或重构顺序，必须登记。
 
-Information records use one ordered `info_fields` structure for addresses, parameters, paths, commands, and other reusable snippets. Do not introduce a command subtype or a parallel command-only editing flow.
+## 2. 项目技术基线
 
-- Treat a command description as the field name and store one or more command lines in the ordinary field value. A single information record may contain any number of these fields.
-- Use normal record tags for platform and category classification instead of dedicated platform metadata.
-- Preserve field line breaks, quoting, spacing, and order through create, edit, draft recovery, save, history, import, and reload workflows.
-- Keep per-field copy actions explicit and non-executing. The workbench must never run recorded commands automatically.
-- Keep old Markdown metadata readable, but render and edit its `info_fields` through the same ordinary information UI.
+- 单用户、本地优先，默认监听 `127.0.0.1:4173`。
+- Python 标准库后端，原生 HTML/CSS/JavaScript 前端。
+- 没有包管理器、运行时第三方依赖或构建步骤。
+- Markdown 是项目、记录和知识库文档的事实源。
+- JSON 用于配置、排序、回收站索引和概念图。
+- DOM、JavaScript 全局状态和 `localStorage` 只属于交互层，不得成为唯一业务数据源。
+- 已有本地文件必须保持可读。不得为了简化代码擅自删除旧格式兼容逻辑。
 
-## Global Copy & Visual Consistency
-
-All user-facing text and visual styling must feel like one coherent product. Before adding new wording, controls, or CSS, inspect comparable screens and reuse the established terminology, component structure, interaction pattern, and design tokens.
-
-- Use one term for the same concept everywhere. Match existing Chinese labels, tone, capitalization, punctuation, date/number formats, and action wording; do not introduce synonyms for an established object or operation.
-- Keep labels concise and action-oriented. Dialog titles, helper text, placeholders, confirmations, validation errors, empty states, notifications, and destructive warnings must follow the wording patterns already used by neighboring flows.
-- Reuse existing buttons, fields, menus, dialogs, cards, badges, tabs, toolbars, empty states, and feedback components before creating a new variant. Equivalent actions must have the same label, icon, placement, hierarchy, and interaction behavior across views.
-- Reuse CSS custom properties and existing utility/component classes for colors, typography, spacing, radii, borders, shadows, focus rings, and transitions. Do not add one-off literal values when an established token or pattern expresses the same role.
-- Preserve the established visual hierarchy: primary, secondary, quiet, and destructive actions must remain visually and behaviorally consistent. Do not use color alone to communicate meaning.
-- Any shared wording or appearance change must be applied to every equivalent surface, including record and knowledge-base editors, creation and editing flows, list and detail views, and confirmation and notification messages.
-- Verify UI changes in light and dark themes, normal and narrow widths, hover/focus/disabled/error states, and with realistic long Chinese text. Check nearby screens for regressions and include before/after screenshots when the change is visually meaningful.
-
-## Build, Test, and Development Commands
+启动方式：
 
 ```powershell
 python server.py --seed-demo
+python server.py
+python server.py --data-dir <一次性目录> --port 4174
 ```
 
-Starts the app at `http://127.0.0.1:4173` and creates demo content only when no projects exist. Use `python server.py` for normal subsequent runs, or double-click `start-workbench.cmd` on Windows.
+测试或手工验收不得对真实 `workbench-data/` 执行迁移、清理、删除或压力测试。
+
+## 3. 当前代码边界
+
+- `server.py`
+  - Markdown 辅助函数、`Repository`、HTTP Handler、导入导出和 CLI 当前集中于此。
+  - 日常修改应把业务规则放在仓储层，HTTP 路由保持薄。
+  - 重构按计划逐步迁移到 `workbench/`，不得一次性重写。
+- `index.html`
+  - 页面、抽屉、对话框和工具栏的静态骨架。
+  - `app.js` 当前必须先于 `concept-map.js` 加载。
+- `app.js`
+  - 主应用状态、API、渲染、事件、记录、知识库、管理页和共享编辑器能力。
+  - Markdown 渲染和文档模型属于记录/知识库共享契约。
+- `concept-map.js`
+  - 概念图的图库、画布、撤销重做、自动保存和导出。
+  - 当前仍依赖 `app.js` 全局能力；依赖显式化前不要随意调整脚本顺序或全局名称。
+- `styles.css`
+  - 设计令牌、组件、页面和响应式规则。
+  - 存在后置覆盖，修改选择器前必须搜索全部定义。
+- `test_server.py`
+  - 当前 38 个测试主要覆盖仓储行为，不能替代 HTTP 和浏览器验收。
+- `docs/`
+  - 重构计划和进度记录。更新必须反映真实状态，不写预计结果。
+
+目标结构以重构方案为准。现状未完成迁移前，不得假装目标模块已经存在。
+
+## 4. 重构执行与记录
+
+### 4.1 工作项状态
+
+只使用以下状态：
+
+- `待开始`
+- `进行中`
+- `受阻`
+- `已完成`
+- `已取消`
+
+状态变化必须写入 `docs/REFACTORING_PROGRESS.md`。通常同一时间只主动推进一个高风险工作项；可以并行的文档或独立测试任务也必须分别记录。
+
+### 4.2 开始工作项
+
+在写代码前更新台账：
+
+- 工作项状态和开始日期；
+- 本次实施的精确范围；
+- 预计修改文件；
+- 计划运行的自动检查和手工验收；
+- 已知风险或依赖。
+
+### 4.3 完成工作项
+
+标记 `已完成` 前必须在台账记录：
+
+- 完成日期；
+- 实际修改文件；
+- 数据和 API 兼容影响；
+- 自动检查命令及实际结果；
+- 必要的手工验证结果；
+- 新增或解除的风险；
+- 关键决策编号；
+- 遗留问题和下一工作项。
+
+代码已编写但验证未完成时，状态仍为 `进行中`。只有明确的外部条件阻止继续推进时才标记 `受阻`，并写明解除条件。
+
+### 4.4 范围控制
+
+- 一个工作项只完成方案定义的一个边界。
+- 纯移动代码时不改变业务行为、文案或视觉。
+- 发现旁支缺陷时，能安全隔离就登记后继续；会影响当前正确性时增加测试并在台账说明范围变化。
+- 不把框架迁移、模块拆分、UI 重设计和数据格式升级塞进同一工作项。
+- 每个工作项都必须能独立回滚，不依赖清空用户数据。
+
+## 5. 持久化与兼容契约
+
+默认数据结构：
+
+```text
+workbench-data/
+├─ config/
+├─ projects/<project-id>/
+│  ├─ README.md
+│  ├─ issues/*.md
+│  ├─ todos/*.md
+│  ├─ ideas/*.md
+│  ├─ infos/*.md
+│  └─ assets/
+├─ documents/*.md
+├─ concept-maps/CMAP-*.json
+├─ ideas/
+├─ assets/
+├─ history/
+└─ .trash/
+```
+
+必须保持：
+
+- 项目、记录、文档和概念图 ID 是稳定标识，不能随标题变化。
+- `[[ID]]`、正文引用和附件引用依赖稳定 ID；调整语法需同时检查插入、渲染、反向链接、搜索和导入导出。
+- front matter 使用项目自带的轻量解析器，不是完整 YAML。新类型必须经过读写往返测试。
+- 写入保持 UTF-8、现有元数据语义和时间字段习惯。
+- 数据格式升级采用兼容读取，不强制批量原地迁移。
+- 记录缓存不能取代磁盘事实源；绕过现有写入方法时必须处理缓存失效。
+- 删除默认进入 `.trash`；只有明确的永久删除流程可以不可恢复地删除。
+- `settings.json` 和 `.workbench-*.json` 中的机器路径不得进入可移植数据或 Git。
+
+## 6. 领域不变量
+
+### 项目和记录
+
+- `issue`、`todo`、`info` 必须属于项目。
+- `idea` 仅为历史兼容，当前 UI 和普通新建流程不得重新暴露。
+- 状态来自工作流模板；状态重命名需迁移使用方，使用中的状态和标签不得直接删除。
+- 拖放排序必须写回持久配置，不能只改变 DOM。
+
+### 结构化信息
+
+- `info` 无状态，使用一个有序 `info_fields` 列表。
+- 不创建 command 子类型或命令专用平行编辑器。
+- `name` 是说明，`value` 可包含多行文本/命令，`note` 可选。
+- 创建、编辑、草稿、历史、导入和重载都要保留字段顺序、换行、引号和空格。
+- 应用只允许复制字段内容，永远不得执行记录中的命令。
+
+### 知识库
+
+- 文档只有分类，没有第二套文档类型。
+- 空分类、分类顺序和分类内文档顺序必须独立持久化。
+- 分类重命名需迁移文档和排序；删除分类只把文档移到“未分类”。
+
+### 概念图
+
+- 概念图持久化为 JSON，服务端归一化是可信边界。
+- 保持版本、节点/边 ID、节点类型、箭头和视口语义。
+- 不得无测试放宽节点数量、边数量、文本、坐标、尺寸、颜色和缩放限制。
+- 自动保存、关闭前 flush、撤销重做和原子写入必须一起验证。
+
+### 附件与导入导出
+
+- 大附件继续使用流式上传，不能退回整文件 JSON/base64。
+- 拼接后的路径必须位于预期数据目录内。
+- 不信任 ZIP 内路径、上传文件名、分类名或导出名。
+- 记录附件和项目独立附件索引不同，不得混用。
+- 孤儿清理只能删除确认无引用的文件。
+- 外部编辑器使用参数数组启动，不拼接 shell 命令。
+
+## 7. 编辑器与 Markdown 契约
+
+记录编辑器和知识库编辑器必须共享同一套渲染、归一化、文档模型和序列化能力。
+
+```text
+Markdown
+→ markdownToHtml
+→ hydrateEditorBlocks
+→ 编辑器 DOM
+→ editorToDocumentModel
+→ documentModelToMarkdown
+→ 保存并重新加载
+```
+
+规则：
+
+- 段落、标题、列表、任务列表、引用、代码块、分隔线和表格都是结构块。
+- 结构块应是编辑器直接子节点。
+- 禁止用 `execCommand('insertHTML')` 插入列表、任务项、表格、引用或代码块。
+- 标准 Markdown 能无损表达时优先使用标准 Markdown。
+- 行内扩展只能使用受控 HTML 白名单。
+- 代码高亮 DOM 不能污染保存内容，语言和原始代码必须保留。
+- 新增块类型必须同时覆盖渲染、识别、模型、序列化、光标、两个编辑器、阅读模式和保存重开。
+- 阅读模式不得出现编辑控件，默认可视化模式不得暴露 Markdown 标记。
+
+## 8. 保存、草稿、历史和外部修改
+
+- 记录和文档分别维护 dirty、saving、timer 和草稿状态。
+- 保存成功后才能清理草稿并更新签名/mtime；失败时保留用户输入。
+- 外部文件冲突必须允许选择磁盘版、工作台版或合并结果，禁止静默覆盖。
+- 15 秒轮询异常时保留当前内容，等待下次重试。
+- `beforeunload` keepalive 只是最后保障，不是主保存机制。
+- 修改保存链路时必须验证关闭、切页、刷新、草稿恢复、外部编辑和冲突。
+
+## 9. 后端与 HTTP 规范
+
+- 业务规则进入仓储或领域模块，HTTP 层只负责协议转换和错误映射。
+- API 至少正确区分 `400`、`404`、适用时的 `409` 和未处理的 `500`。
+- 路径参数必须在前后端对称编码/解码。
+- JSON 调用复用统一 API 客户端；上传和下载使用明确的字节流处理。
+- 新端点同时修改仓储、路由、前端调用、错误提示和测试。
+- 配置变更必须提供默认值和旧格式兼容读取。
+- 服务端是最终校验边界，前端限制不能替代服务端校验。
+
+## 10. 前端规范
+
+- 保持 2 空格缩进、单引号、`camelCase` 和原生浏览器 API。
+- 重构第一轮使用显式 `window.Workbench` 命名空间，不擅自引入框架或构建链。
+- 来自 API、文件或用户的数据进入 HTML 前必须 `escapeHtml`，颜色必须经过 `safeColor` 或等价白名单。
+- 异步结果落地前确认请求对象仍是当前记录、文档或项目。
+- render 会替换 DOM 时，事件绑定到稳定祖先或明确清理旧监听器。
+- `localStorage` 键是兼容接口，重命名需要迁移旧键。
+- 修改 JS/CSS 后更新 `index.html` 对应资源的 `?v=` 缓存版本。
+- 用户文案保持现有简体中文术语、语气和按钮层级。
+
+## 11. CSS 与视觉规范
+
+- 优先使用既有 CSS 变量和组件类，不新增等价的一次性变体。
+- 修改选择器前搜索所有定义、动态模板和 `classList` 使用。
+- CSS 拆分保持原加载和级联顺序，先验证再删除旧规则。
+- UI 修改至少验证浅色/深色、桌面/窄屏、hover/focus/disabled/error、长中文、空数据和大量数据。
+- 不能只用颜色传递状态；控件需有文字、图标或无障碍标签。
+- 视觉截图用于评审，不提交 `preview*.png`。
+
+## 12. 测试与验收
+
+基础门禁：
 
 ```powershell
 python -m unittest -v
 python -m py_compile server.py test_server.py
 node --check app.js
+node --check concept-map.js
+git diff --check
 ```
 
-The first command runs the full test suite; the second performs a quick Python syntax check. There is no compilation or dependency-install step.
+新增文件后扩展命令覆盖所有 Python 和 JavaScript 文件。
 
-## Coding Style & Naming Conventions
+测试要求：
 
-Use 4-space indentation and standard-library-first imports in Python. Follow `snake_case` for functions and variables, `PascalCase` for classes, and uppercase names for constants. In JavaScript and CSS, preserve the existing 2-space indentation, single-quoted JavaScript strings, `camelCase` identifiers, and kebab-case CSS classes. Keep functions focused and reuse existing repository/API helpers. No formatter or linter is configured, so match neighboring code closely.
+- 文件系统测试使用 `tempfile.TemporaryDirectory()`。
+- 同时覆盖成功、校验失败、缺失资源和旧格式。
+- 写入测试必须重新读取或重新实例化仓储，证明真正持久化。
+- 缓存、并发、外部修改、路径和流式上传不能只验证内存返回值。
+- UI 变更必须运行服务完成浏览器验收；当前仓储测试不能替代 UI 验收。
+- 编辑器变更必须在记录和知识库各完成一次可视化 → Markdown → 保存 → 重开。
 
-## Testing Guidelines
+安全的手工环境：
 
-Tests use Python's `unittest`. Add new cases to `test_server.py`, name methods `test_<behavior>`, and isolate filesystem operations with `tempfile.TemporaryDirectory`. Cover both successful workflows and validation/error paths. For UI changes, run the server and verify the affected view, persistence after reload, and narrow-window layout. For editor changes, test the same content in both record and knowledge-base editors and include at least one save-and-reopen round trip for every affected block type.
+```powershell
+$testData = Join-Path $env:TEMP ("workbench-agent-" + [guid]::NewGuid())
+python server.py --data-dir $testData --seed-demo --port 4174
+```
 
-## Commit & Pull Request Guidelines
+## 13. 文档与 Git
 
-Recent commits use short, imperative summaries such as `Enhance asset workflows and configuration management`. Keep each commit focused and avoid committing `workbench-data/`, caches, previews, or local `.workbench-*.json` settings. Pull requests should explain the user-visible change, list verification commands, note data-format or API changes, link relevant issues, and include before/after screenshots for visual changes.
+- 重构计划定义范围，进度台账记录事实，二者不得互相替代。
+- 功能、命令或用户可见目录变化时更新 `README.md`。
+- 架构、契约或执行规则变化时更新本文件和必要的重构文档。
+- 不提交 `workbench-data/`、`.workbench-*.json`、`preview*.png`、缓存、日志、个人附件、导出包或绝对机器路径。
 
-## Security & Configuration
+### 13.1 本地提交规则
 
-Use `WORKBENCH_DATA_DIR` to test against disposable data outside the repository. Do not include personal Markdown content, exported archives, credentials, or absolute machine paths in commits.
+- 一次完整、可独立验证的逻辑修改在完成并通过相应检查后，必须形成一笔本地 Git 提交；用户明确要求暂不提交时除外。
+- “一次完整修改”是一个缺陷修复、一个小型功能、一个文档治理变更，或一个可独立验收的 `RF-*` 工作项/子项，不是每次文件编辑。
+- 较小的 `RF-*` 工作项原则上对应一笔提交。较大的工作项可以拆成多笔提交，但每笔都必须保持应用可运行、已有数据可读且相关测试通过。
+- 纯重构、保护性测试、用户可见功能和无关格式整理应分开提交；测试若直接证明同一修复或重构行为，可以与实现放在同一提交。
+- 重构代码与该工作项的进度台账更新应放在同一笔提交中，确保提交本身包含真实状态和验证证据。
+- 不使用无法运行、未完成验证的 WIP 提交作为工作项终点。需要跨提交推进时，在台账中保持 `进行中`，直到最终验收提交完成。
+- 提交前必须检查 `git status --short`、目标 diff 和 `git diff --check`，确认没有夹带用户既有修改、运行数据、缓存、日志、预览图或机器配置。
+- 不修改、合并、重写、rebase 或 amend 用户已有提交，除非用户明确要求。
+- 提交标题使用简短的祈使式英文，例如 `Extract Markdown persistence helpers`。
+- 重构提交正文建议记录工作项、主要变化和验证命令，例如：
+
+```text
+Work item: RF-101
+
+- Extract Markdown parsing and serialization helpers
+- Preserve existing Repository behavior
+
+Verification:
+- python -m unittest -v
+- python -m py_compile server.py test_server.py
+```
+
+## 14. 完成标准
+
+任何修改交付前必须确认：
+
+- 数据和 API 兼容影响已经说明；
+- 成功、失败和重新加载路径已经验证；
+- 相关自动检查通过；
+- UI 影响完成必要的主题和宽度验证；
+- 没有形成第二套编辑器、仓储、API 或组件实现；
+- 缓存版本和相关文档已同步；
+- 若属于重构，进度台账已记录真实状态和验证证据；
+- 最终 diff 不包含本地数据、生成物、无关格式化或用户既有修改。

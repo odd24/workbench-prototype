@@ -3,6 +3,9 @@ const domCore = window.Workbench.dom;
 const apiCore = window.Workbench.api;
 const dialogCore = window.Workbench.dialogs;
 const stateCore = window.Workbench.state;
+const searchCore = window.Workbench.search;
+const trashCore = window.Workbench.trash;
+const manageCore = window.Workbench.manage;
 const {$, $$, escapeHtml, safeColor} = domCore;
 const api = apiCore.request;
 const notify = dialogCore.notify;
@@ -85,9 +88,6 @@ let draggedProjectLink = null;
 let cardOrderChanged = false;
 let cardDropHandled = false;
 let draggedCardSourceStatus = '';
-let lastSearchResults = [];
-let searchTypeFilter = '';
-let searchFilters = {project:'', tag:'', status:'', priority:''};
 let editorDirty = false;
 let conflictRecord = null;
 let selectedWorkflowId = 'standard';
@@ -97,16 +97,11 @@ let savedManageSnapshot = null;
 let projectEditSnapshot = null;
 let unsavedPromptPromise = null;
 let recordNavigationStack = [];
-let currentUsageView = null;
-let usageNavigationStack = [];
-let usageReturnContext = null;
 let editorSaveTimer = null;
 let editorExpanded = false;
 let editorContentExpanded = false;
 let createContext = {projectId:'', status:''};
 let lastRecordSignature = '';
-let trashItems = [];
-let trashSelection = new Set();
 let documents = [];
 let currentDocument = null;
 let documentMode = 'read';
@@ -1699,14 +1694,9 @@ function openCreate(type = '问题', options = {}) {
 }
 
 function closeSearch() {
-  searchPanel.classList.remove('visible');
-  searchPanel.setAttribute('aria-hidden', 'true');
-  hideOverlayIfClear();
+  searchFeature.close();
 }
-function updateSearchClearButton() {
-  $('#clearSearchInput').hidden = !$('#searchInput').value;
-}
-function openSearch() { showOverlay(); searchPanel.classList.add('visible'); searchPanel.setAttribute('aria-hidden', 'false'); updateSearchClearButton(); if (apiAvailable) api(`/search?q=${encodeURIComponent($('#searchInput').value)}`).then(renderSearchResults); setTimeout(() => $('#searchInput').focus(), 50); }
+function openSearch() { searchFeature.open(); }
 
 function updateExternalEditorButton() {
   const name = externalEditorData?.selected_name || '外部编辑器';
@@ -1752,7 +1742,7 @@ async function openDrawer(recordId, options = {}) {
     if (options.fromReference && currentRecord?.id && currentRecord.id !== recordId) recordNavigationStack.push(currentRecord.id);
     else if (!detailDrawer.classList.contains('visible')) {
       recordNavigationStack = [];
-      if (!options.fromUsage) usageReturnContext = null;
+      if (!options.fromUsage) usageFeature.clearReturnContext();
     }
     currentRecord = loadedRecord;
     editorDirty = false;
@@ -2193,11 +2183,7 @@ async function renderManagePage(page) {
   }
   if (page === 'trash') {
     $('#manageEyebrow').textContent = '数据保护'; $('#manageTitle').textContent = '回收站'; $('#manageDescription').textContent = '删除的项目和记录可以恢复，永久删除后无法找回。';
-    $('#manageContent').innerHTML = '<div class="empty-state">正在加载回收站…</div>';
-    trashItems = await api('/trash');
-    if (activeManagePage !== page) return;
-    trashSelection = new Set([...trashSelection].filter(token => trashItems.some(item => item.token === token)));
-    renderTrashPage();
+    await trashFeature.load();
     return;
   }
   if (page === 'settings') {
@@ -3002,48 +2988,17 @@ async function importKnowledgeDocuments(files, category = '未分类') {
   }
 }
 
-function renderTrashPage() {
-  const selectedCount = trashSelection.size;
-  $('#manageActions').innerHTML = trashItems.length ? `<span class="trash-selection-count" id="trashSelectionCount">已选择 ${selectedCount} 项</span><button class="secondary-button" id="batchRestoreTrash" ${selectedCount ? '' : 'disabled'}>批量恢复</button><button class="secondary-button danger-button" id="batchPurgeTrash" ${selectedCount ? '' : 'disabled'}>批量永久删除</button>` : '';
-  $('#manageContent').innerHTML = trashItems.length ? `<div class="trash-table-wrap"><table class="data-table trash-table"><thead><tr><th class="trash-select-cell"><input type="checkbox" id="selectAllTrash" aria-label="全选回收站内容" ${selectedCount === trashItems.length ? 'checked' : ''}></th><th>名称</th><th>类型</th><th>删除时间</th><th>操作</th></tr></thead><tbody>${trashItems.map(item => `<tr data-trash-row="${escapeHtml(item.token)}" class="${trashSelection.has(item.token) ? 'selected' : ''}"><td class="trash-select-cell"><input type="checkbox" data-trash-select="${escapeHtml(item.token)}" aria-label="选择 ${escapeHtml(item.title)}" ${trashSelection.has(item.token) ? 'checked' : ''}></td><td><strong>${escapeHtml(item.title)}</strong><br><small>${escapeHtml(item.id)}</small></td><td>${item.kind === 'project' ? '项目' : item.kind === 'document' ? '文档' : item.kind === 'concept-map' ? '概念图' : '记录'}</td><td>${new Date(item.deleted_at).toLocaleString('zh-CN')}</td><td><div class="trash-row-actions"><button class="secondary-button" data-restore-trash="${escapeHtml(item.token)}">恢复</button><button class="secondary-button danger-button" data-purge-trash="${escapeHtml(item.token)}">永久删除</button></div></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-state">回收站为空</div>';
-  updateTrashSelectionUI();
-}
-
-function updateTrashSelectionUI() {
-  const count = trashSelection.size;
-  const selectAll = $('#selectAllTrash');
-  if (selectAll) {
-    selectAll.checked = Boolean(trashItems.length) && count === trashItems.length;
-    selectAll.indeterminate = count > 0 && count < trashItems.length;
-  }
-  if ($('#trashSelectionCount')) $('#trashSelectionCount').textContent = `已选择 ${count} 项`;
-  if ($('#batchRestoreTrash')) $('#batchRestoreTrash').disabled = !count;
-  if ($('#batchPurgeTrash')) $('#batchPurgeTrash').disabled = !count;
-  $$('[data-trash-row]').forEach(row => row.classList.toggle('selected', trashSelection.has(row.dataset.trashRow)));
-}
-
-async function batchRestoreTrash() {
-  const tokens = [...trashSelection];
-  if (!tokens.length) return;
-  try {
-    const result = await api('/trash/batch/restore', {method:'POST', body:JSON.stringify({tokens})});
-    trashSelection.clear();
-    await refreshData();
-    await renderManagePage('trash');
-    notify(`已恢复 ${result.count} 项内容`);
-  } catch (error) { notify('批量恢复失败', error.message, true); }
-}
-
-async function batchPurgeTrash() {
-  const tokens = [...trashSelection];
-  if (!tokens.length || !await appConfirm({title:`永久删除所选 ${tokens.length} 项？`, message:'此操作无法撤销，删除后不能从回收站恢复。', confirmText:'批量永久删除', danger:true})) return;
-  try {
-    const result = await api('/trash/batch', {method:'DELETE', body:JSON.stringify({tokens})});
-    trashSelection.clear();
-    await renderManagePage('trash');
-    notify(`已永久删除 ${result.count} 项内容`);
-  } catch (error) { notify('批量删除失败', error.message, true); }
-}
+const trashFeature = trashCore.create({
+  root:$('#managePage'),
+  actions:$('#manageActions'),
+  content:$('#manageContent'),
+  api,
+  confirm:appConfirm,
+  notify,
+  escapeHtml,
+  refreshData,
+  isActive:() => activeManagePage === 'trash',
+});
 
 function tagUsageRecords(tagName) {
   return [
@@ -3063,74 +3018,29 @@ function statusTemplateColor(recordType, statusId, statusName) {
   return safeColor(workflow?.statuses?.[recordType]?.find(item => item.id === statusId || item.name === statusName)?.color);
 }
 
-function usageRecordRowsHtml(items) {
-  return items.length ? `<div class="usage-record-list">${items.map(record => `<button type="button" class="usage-record-row" ${record.type === 'document' ? `data-usage-document="${escapeHtml(record.id)}"` : `data-usage-record="${escapeHtml(record.id)}"`}><span class="type-icon ${escapeHtml(record.type)}">${record.type === 'document' ? '▤' : escapeHtml(typeIcons[record.type] || '•')}</span><span><strong>${escapeHtml(record.title)}</strong><small>${escapeHtml(record.id)} · ${record.type === 'document' ? `知识库文档 · ${escapeHtml(record.category || '未分类')}` : `${escapeHtml(typeNames[record.type] || record.type)} · ${escapeHtml(projectName(record.project_id))}${record.status ? ` · ${escapeHtml(record.status)}` : ''}`}</small></span><em>打开</em></button>`).join('')}</div>` : '<div class="usage-empty"><span>✓</span><strong>暂无内容使用</strong><small>当前可以安全删除这项配置</small></div>';
-}
+const usageFeature = manageCore.createUsageNavigator({
+  dialog:$('#usageDialog'),
+  manageRoot:$('#managePage'),
+  recordBackButton:$('#recordBack'),
+  escapeHtml,
+  typeIcons,
+  typeNames,
+  projectName,
+  tagColor,
+  statusColor:statusTemplateColor,
+  tagUsage:tagUsageRecords,
+  statusUsage:statusUsageRecords,
+  openRecord:recordId => openDrawer(recordId, {fromUsage:true}),
+  openDocument:documentId => openDocument(documentId),
+});
 
 function updateRecordBackButton() {
-  const button = $('#recordBack');
-  const returnsToUsage = recordNavigationStack.length === 0 && Boolean(usageReturnContext);
-  button.classList.toggle('available', recordNavigationStack.length > 0 || Boolean(usageReturnContext));
-  button.classList.toggle('usage-return', returnsToUsage);
-  button.innerHTML = returnsToUsage ? '<span aria-hidden="true">←</span><b>使用统计</b>' : '←';
-  const label = returnsToUsage ? '返回使用统计' : '返回上一条记录';
-  button.setAttribute('aria-label', label);
-  button.title = label;
+  usageFeature.updateRecordBack(recordNavigationStack.length);
 }
 
-function updateUsageDialogBackButton() {
-  const button = $('#usageDialogBack');
-  const hasParent = usageNavigationStack.length > 0;
-  const available = hasParent || currentUsageView?.view === 'detail';
-  button.classList.toggle('available', available);
-  button.tabIndex = available ? 0 : -1;
-  const destination = hasParent ? '使用统计' : currentUsageView?.kind === 'status' ? '状态模板' : '标签管理';
-  button.setAttribute('aria-label', `返回${destination}`);
-  button.title = `返回${destination}`;
-}
-
-function openUsageDetail({kind, name, recordType = '', statusId = ''}, options = {}) {
-  if (!options.preserveStack) usageNavigationStack = [];
-  currentUsageView = {view:'detail', kind, name, recordType, statusId};
-  const items = kind === 'tag' ? tagUsageRecords(name) : statusUsageRecords(recordType, name, statusId);
-  $('#usageDialogEyebrow').textContent = kind === 'tag' ? '标签使用情况' : `${typeNames[recordType] || recordType}状态使用情况`;
-  $('#usageDialogTitle').textContent = `「${name}」`;
-  $('#usageDialogSummary').innerHTML = `<strong>${items.length}</strong><span>条内容正在使用</span>${items.length ? '<small>需要先在下列记录或文档中移除或更改，才能删除此配置。</small>' : '<small>这项配置目前未被使用，可以安全删除。</small>'}`;
-  $('#usageDialogContent').innerHTML = usageRecordRowsHtml(items);
-  updateUsageDialogBackButton();
-  if (!$('#usageDialog').open) $('#usageDialog').showModal();
-}
-
-function openUsageOverview(kind, options = {}) {
-  if (!options.preserveStack) usageNavigationStack = [];
-  currentUsageView = {view:'overview', kind};
-  const isTag = kind === 'tag';
-  const items = isTag
-    ? $$('.tag-edit').map(row => { const name = row.dataset.originalName || $('input[type="text"]', row).value.trim(); return {name, count:tagUsageRecords(name).length}; })
-    : $$('.status-edit-row').map(row => { const recordType = row.closest('.template-panel').dataset.templateType; const name = $('input[type="text"]', row).value.trim(); const statusId = row.dataset.statusId || ''; return {name, recordType, statusId, count:statusUsageRecords(recordType, name, statusId).length}; });
-  const totalUsage = items.reduce((sum, item) => sum + item.count, 0);
-  $('#usageDialogEyebrow').textContent = isTag ? '标签使用统计' : '状态使用统计';
-  $('#usageDialogTitle').textContent = isTag ? '全部标签' : '当前工作流状态';
-  $('#usageDialogSummary').innerHTML = `<strong>${items.length}</strong><span>项配置</span><small>合计 ${totalUsage} 次内容引用；点击任一项查看具体记录或文档。</small>`;
-  $('#usageDialogContent').innerHTML = `<div class="usage-overview-list">${items.map(item => `<button type="button" data-usage-detail-kind="${kind}" data-usage-detail-name="${escapeHtml(item.name)}" ${item.recordType ? `data-usage-detail-type="${escapeHtml(item.recordType)}" data-usage-detail-status-id="${escapeHtml(item.statusId)}"` : ''}><span><i style="background:${isTag ? tagColor(item.name) : statusTemplateColor(item.recordType, item.statusId, item.name)}"></i><strong>${escapeHtml(item.name)}</strong>${item.recordType ? `<small>${escapeHtml(typeNames[item.recordType] || item.recordType)}</small>` : ''}</span><em class="${item.count ? 'in-use' : ''}">${item.count} 条</em><b>查看 ›</b></button>`).join('') || '<div class="usage-empty"><strong>暂无配置</strong></div>'}</div>`;
-  updateUsageDialogBackButton();
-  if (!$('#usageDialog').open) $('#usageDialog').showModal();
-}
-
-function returnWithinUsageDialog() {
-  const previous = usageNavigationStack.pop();
-  if (!previous) { closeUsageDialog(); return; }
-  if (previous.view === 'overview') openUsageOverview(previous.kind, {preserveStack:true});
-  else openUsageDetail(previous, {preserveStack:true});
-  requestAnimationFrame(() => { $('#usageDialogContent').scrollTop = previous.scrollTop || 0; });
-}
-
-function closeUsageDialog() {
-  currentUsageView = null;
-  usageNavigationStack = [];
-  usageReturnContext = null;
-  $('#usageDialog').close('cancel');
-}
+function openUsageDetail(detail, options = {}) { usageFeature.openDetail(detail, options); }
+function openUsageOverview(kind, options = {}) { usageFeature.openOverview(kind, options); }
+function closeUsageDialog() { usageFeature.close(); }
 
 function tagEditorHtml(tag) {
   const usageName = tag.original_name ?? tag.name ?? '';
@@ -3593,26 +3503,20 @@ async function closeDrawer(options = {}) {
   $('#toggleEditorExpand').textContent = '⛶ 展开编辑';
   $('#toggleEditorExpand').title = '展开编辑区域';
   recordNavigationStack = [];
-  if (!options.preserveUsageContext) usageReturnContext = null;
+  if (!options.preserveUsageContext) usageFeature.clearReturnContext();
   updateRecordBackButton();
   hideOverlayIfClear();
   return true;
 }
 
 async function returnToUsage() {
-  if (!usageReturnContext) return closeDrawer();
-  const context = usageReturnContext;
+  if (!usageFeature.hasReturnContext()) return closeDrawer();
   if (!await closeDrawer({preserveUsageContext:true})) return false;
-  usageReturnContext = null;
-  usageNavigationStack = (context.navigationStack || []).map(item => ({...item}));
-  if (context.view?.view === 'overview') openUsageOverview(context.view.kind, {preserveStack:true});
-  else if (context.view) openUsageDetail(context.view, {preserveStack:true});
-  requestAnimationFrame(() => { $('#usageDialogContent').scrollTop = context.scrollTop || 0; });
-  return true;
+  return usageFeature.restoreReturnContext();
 }
 
 async function closeRecordView() {
-  return usageReturnContext ? returnToUsage() : closeDrawer();
+  return usageFeature.hasReturnContext() ? returnToUsage() : closeDrawer();
 }
 
 async function refreshData() {
@@ -3690,20 +3594,23 @@ function prepareImportPreview(name, content) {
   $('#importPreviewDialog').showModal();
 }
 
-function renderSearchResults(results) {
-  results = results.filter(record => record.type !== 'idea');
-  lastSearchResults = results;
-  $$('[data-search-type]').forEach(button => { button.classList.toggle('active', button.dataset.searchType === searchTypeFilter); const count = $('span', button); if (count) count.textContent = results.filter(item => !button.dataset.searchType || item.type === button.dataset.searchType).length; });
-  const selectOptions = (selector, values, emptyLabel) => { const select = $(selector); const current = searchFilters[select.dataset.filterKey]; select.innerHTML = `<option value="">${emptyLabel}</option>${values.map(([value,label]) => `<option value="${escapeHtml(value)}" ${value === current ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('')}`; };
-  $('#searchProjectFilter').dataset.filterKey = 'project'; $('#searchTagFilter').dataset.filterKey = 'tag'; $('#searchStatusFilter').dataset.filterKey = 'status';
-  selectOptions('#searchProjectFilter', [["__none__","未归属"], ...projects.map(item => [item.id, item.name])], '全部项目');
-  selectOptions('#searchTagFilter', [...new Set(results.flatMap(item => item.tags || []))].map(value => [value,value]), '全部标签');
-  selectOptions('#searchStatusFilter', [...new Set(results.map(item => item.status).filter(Boolean))].map(value => [value,value]), '全部状态');
-  $('#searchPriorityFilter').value = searchFilters.priority;
-  results = results.filter(record => (!searchTypeFilter || record.type === searchTypeFilter) && (!searchFilters.project || (searchFilters.project === '__none__' ? !record.project_id : record.project_id === searchFilters.project)) && (!searchFilters.tag || (record.tags || []).includes(searchFilters.tag)) && (!searchFilters.status || record.status === searchFilters.status) && (!searchFilters.priority || record.priority === searchFilters.priority));
-  const section = $('.search-body section');
-  section.innerHTML = `<div class="search-caption">找到 ${results.length} 条记录</div>${results.map(record => `<button class="search-result" data-record-id="${record.id}">${typeIcon(record)}<span><strong>${escapeHtml(record.title)}</strong><small>${escapeHtml(record.project_name || projectName(record.project_id))} · ${typeNames[record.type]} · ${escapeHtml(record.type === 'info' ? (record.info_fields || []).map(field => `${field.name}：${field.value}`).join(' · ').slice(0, 65) : markdownToPlainText(record.body, 65, record.title))}</small></span><em>${escapeHtml(record.type === 'info' ? '信息' : record.status)}</em></button>`).join('') || '<div class="empty-state">没有找到匹配记录</div>'}`;
-}
+const searchFeature = searchCore.create({
+  panel:searchPanel,
+  trigger:$('#searchTrigger'),
+  api,
+  notify,
+  escapeHtml,
+  getProjects:() => projects,
+  projectName,
+  typeNames,
+  typeIcon,
+  summary:record => record.type === 'info'
+    ? (record.info_fields || []).map(field => `${field.name}：${field.value}`).join(' · ').slice(0, 65)
+    : markdownToPlainText(record.body, 65, record.title),
+  showOverlay,
+  hideOverlay:hideOverlayIfClear,
+  isAvailable:() => apiAvailable,
+});
 
 function closeKanbanMenu() {
   const menu = $('#kanbanContextMenu');
@@ -4115,20 +4022,6 @@ document.addEventListener('click', async event => {
   }
   if (event.target.closest('#saveDocument')) { await saveDocument(); return; }
   if (event.target.closest('#deleteDocument')) { await deleteDocument(); return; }
-  if (event.target.id === 'selectAllTrash') {
-    trashSelection = event.target.checked ? new Set(trashItems.map(item => item.token)) : new Set();
-    $$('[data-trash-select]').forEach(input => { input.checked = event.target.checked; });
-    updateTrashSelectionUI();
-    return;
-  }
-  if (event.target.matches('[data-trash-select]')) {
-    const token = event.target.dataset.trashSelect;
-    if (event.target.checked) trashSelection.add(token); else trashSelection.delete(token);
-    updateTrashSelectionUI();
-    return;
-  }
-  if (event.target.closest('#batchRestoreTrash')) { await batchRestoreTrash(); return; }
-  if (event.target.closest('#batchPurgeTrash')) { await batchPurgeTrash(); return; }
   const manageSave = event.target.closest('[data-save-manage]');
   if (manageSave) {
     if (manageSave.disabled) return;
@@ -4512,7 +4405,6 @@ document.addEventListener('click', async event => {
     return;
   }
   if (event.target.closest('#batchDeleteStatuses')) { await deleteSelectedStatuses(); return; }
-  if (event.target.closest('#statusUsageOverview')) { openUsageOverview('status'); return; }
   if (event.target.closest('#saveTemplates')) { await saveTemplates(); return; }
   if (event.target.closest('#newWorkflow')) {
     if (!await confirmLeaveManagePage()) return;
@@ -4605,17 +4497,13 @@ document.addEventListener('click', async event => {
       if (!await confirmLeaveRecord()) return;
       const previousId = recordNavigationStack.pop();
       await openDrawer(previousId, {preserveStack:true});
-    } else if (usageReturnContext) await returnToUsage();
+    } else if (usageFeature.hasReturnContext()) await returnToUsage();
     return;
   }
   const openProject = event.target.closest('[data-open-project]');
   if (openProject) { selectedProjectId = openProject.dataset.openProject; setPage('project'); }
   const restoreProject = event.target.closest('[data-restore-project]');
   if (restoreProject) api(`/projects/${encodeURIComponent(restoreProject.dataset.restoreProject)}`, {method:'PATCH', body:JSON.stringify({status:'active'})}).then(async () => { await refreshData(); renderManagePage('archive'); notify('项目已恢复'); }).catch(error => notify('恢复失败', error.message, true));
-  const restoreTrash = event.target.closest('[data-restore-trash]');
-  if (restoreTrash) api(`/trash/${encodeURIComponent(restoreTrash.dataset.restoreTrash)}/restore`, {method:'POST'}).then(async () => { await refreshData(); renderManagePage('trash'); notify('已从回收站恢复'); }).catch(error => notify('恢复失败', error.message, true));
-  const purgeTrash = event.target.closest('[data-purge-trash]');
-  if (purgeTrash && await appConfirm({title:'永久删除这条内容？', message:'此操作无法撤销，删除后不能从回收站恢复。', confirmText:'永久删除', danger:true})) api(`/trash/${encodeURIComponent(purgeTrash.dataset.purgeTrash)}`, {method:'DELETE'}).then(() => { renderManagePage('trash'); notify('已永久删除'); }).catch(error => notify('删除失败', error.message, true));
   if (event.target.closest('#addGlobalTag')) {
     const manager = $('.tag-manager');
     $('#addGlobalTag').insertAdjacentHTML('beforebegin', tagEditorHtml({name:'新标签', color:'#60748a', original_name:''}));
@@ -4664,29 +4552,7 @@ document.addEventListener('click', async event => {
     return;
   }
   if (event.target.closest('#batchDeleteTags')) { await deleteSelectedTags(); return; }
-  if (event.target.closest('#tagUsageOverview')) { openUsageOverview('tag'); return; }
-  const usageDetail = event.target.closest('[data-usage-detail-kind]');
-  if (usageDetail) {
-    if (currentUsageView) usageNavigationStack.push({...currentUsageView, scrollTop:$('#usageDialogContent').scrollTop});
-    openUsageDetail({kind:usageDetail.dataset.usageDetailKind, name:usageDetail.dataset.usageDetailName, recordType:usageDetail.dataset.usageDetailType || '', statusId:usageDetail.dataset.usageDetailStatusId || ''}, {preserveStack:true});
-    return;
-  }
-  const usageRecord = event.target.closest('[data-usage-record]');
-  if (usageRecord) {
-    usageReturnContext = {view:{...currentUsageView}, navigationStack:usageNavigationStack.map(item => ({...item})), scrollTop:$('#usageDialogContent').scrollTop};
-    $('#usageDialog').close();
-    await openDrawer(usageRecord.dataset.usageRecord, {fromUsage:true});
-    return;
-  }
-  const usageDocument = event.target.closest('[data-usage-document]');
-  if (usageDocument) {
-    $('#usageDialog').close();
-    openDocument(usageDocument.dataset.usageDocument);
-    return;
-  }
   if (event.target.closest('#saveTags')) { await saveTags(); return; }
-  const searchType = event.target.closest('[data-search-type]');
-  if (searchType) { searchTypeFilter = searchType.dataset.searchType; renderSearchResults(lastSearchResults); }
   if (event.target.closest('#saveDataDirectory')) {
     await applyDataDirectory();
     return;
@@ -4802,7 +4668,6 @@ document.addEventListener('dragend', () => {
 $('#projectSelect').addEventListener('change', () => renderCreateStatusOptions());
 createDialog.addEventListener('close', hideOverlayIfClear);
 $('#createSubmit').addEventListener('click', createItem);
-$('#searchTrigger').addEventListener('click', openSearch);
 $('#chooseExportLocation').addEventListener('click', chooseExportDirectory);
 $('#saveExportLocation').addEventListener('click', saveChosenExportDirectory);
 $('#browseExportLocation').addEventListener('click', browseExportDirectory);
@@ -4870,8 +4735,6 @@ $('#saveOnLeave').addEventListener('change', event => {
 });
 $('#showHistory').addEventListener('click', showHistory);
 $('#closeHistory').addEventListener('click', () => $('#historyDialog').close());
-$('#usageDialogBack').addEventListener('click', returnWithinUsageDialog);
-$('#closeUsageDialog').addEventListener('click', closeUsageDialog);
 $('#closeRelation').addEventListener('click', () => $('#relationDialog').close());
 $('#relationSearch').addEventListener('input', event => renderRelationResults(event.target.value));
 $('#relationTypeFilter').addEventListener('change', event => {
@@ -5016,27 +4879,6 @@ document.addEventListener('keydown', event => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'n') { event.preventDefault(); openCreate(); }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's' && detailDrawer.classList.contains('visible')) { event.preventDefault(); saveEditorNow().then(saved => { if (saved) notify('记录内容已保存', '标题和正文已写入 Markdown 文件'); }); }
   if (event.key === 'Escape') { closeSearch(); if (detailDrawer.classList.contains('visible')) closeRecordView(); sidebar.classList.remove('mobile-open'); }
-});
-
-let searchTimer;
-$('#searchInput').addEventListener('input', event => {
-  updateSearchClearButton();
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(async () => {
-    if (!apiAvailable) return;
-    try { renderSearchResults(await api(`/search?q=${encodeURIComponent(event.target.value)}`)); }
-    catch (error) { notify('搜索失败', error.message, true); }
-  }, 180);
-});
-$('#clearSearchInput').addEventListener('click', async () => {
-  clearTimeout(searchTimer);
-  const input = $('#searchInput');
-  input.value = '';
-  updateSearchClearButton();
-  input.focus();
-  if (!apiAvailable) return;
-  try { renderSearchResults(await api('/search?q=')); }
-  catch (error) { notify('搜索失败', error.message, true); }
 });
 
 $('.drawer-title').addEventListener('input', markEditorChanged);
@@ -5301,9 +5143,6 @@ document.addEventListener('change', async event => {
     selectedWorkflowId = nextWorkflowId;
     renderManagePage('status_templates');
     return;
-  }
-  if (['searchProjectFilter','searchTagFilter','searchStatusFilter','searchPriorityFilter'].includes(event.target.id)) {
-    searchFilters = {project:$('#searchProjectFilter').value, tag:$('#searchTagFilter').value, status:$('#searchStatusFilter').value, priority:$('#searchPriorityFilter').value}; renderSearchResults(lastSearchResults); return;
   }
   if (event.target.id === 'filterStatus' || event.target.id === 'filterTag' || event.target.id === 'filterPriority') {
     projectFilters = {status:$('#filterStatus').value, tag:$('#filterTag').value, priority:$('#filterPriority').value}; renderProjectPage(); return;

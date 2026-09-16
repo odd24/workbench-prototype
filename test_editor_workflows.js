@@ -135,9 +135,10 @@ async function main() {
       dom:Workbench.dom.$ === $ && Workbench.dom.$$ === $$ && Workbench.dom.escapeHtml === escapeHtml && Workbench.dom.safeColor === safeColor,
       api:Workbench.api.request === api,
       dialogs:Workbench.dialogs.notify === notify && Workbench.dialogs.open === openAppDialog && Workbench.dialogs.confirm === appConfirm && Workbench.dialogs.prompt === appPrompt,
-      state:Workbench.state.groups.join(',') === 'serverData,uiState,editorState,draftState' && Workbench.appState.serverData.projects === projects && Workbench.appState.uiState.selectedProjectId === selectedProjectId
+      state:Workbench.state.groups.join(',') === 'serverData,uiState,editorState,draftState' && Workbench.appState.serverData.projects === projects && Workbench.appState.uiState.selectedProjectId === selectedProjectId,
+      features:Workbench.search && Workbench.trash && Workbench.manage && searchFeature.diagnostics().bindCount === 1 && trashFeature.diagnostics().bindCount === 1 && usageFeature.diagnostics().bindCount === 1
     })`);
-    assert.deepEqual(result, {dom:true, api:true, dialogs:true, state:true});
+    assert.deepEqual(result, {dom:true, api:true, dialogs:true, state:true, features:true});
     result = await client.evaluate(`(async () => {
       notify('核心通知', '错误详情', true);
       const toastState = {title:$('.toast strong').textContent, detail:$('.toast small').textContent, error:$('#toast').classList.contains('error')};
@@ -181,6 +182,10 @@ async function main() {
     const raceDocument = await request('/documents', {method:'POST', body:{
       title:'RF-302 后发文档', category:'验收', tags:[], body:'后发文档正文'
     }});
+    const trashRecord = await request('/records', {method:'POST', body:{
+      type:'todo', title:'RF-303 回收站记录', project_id:project.id, status:'待处理', priority:'普通', body:'等待恢复'
+    }});
+    await request(`/records/${trashRecord.id}`, {method:'DELETE'});
 
     const recordId = JSON.stringify(record.id);
     const raceRecordId = JSON.stringify(raceRecord.id);
@@ -241,6 +246,44 @@ async function main() {
       } finally { window.fetch = nativeFetch; }
     })()`);
     assert.deepEqual(result, {id:raceDocument.id, title:'RF-302 后发文档', dirty:false, stateId:raceDocument.id});
+
+    result = await client.evaluate(`(async () => {
+      await refreshData();
+      activeManagePage = 'status_templates';
+      selectedWorkflowId = projects.find(item => item.id === ${projectId})?.workflow_template || 'standard';
+      await renderManagePage('status_templates');
+      await renderManagePage('status_templates');
+      openUsageOverview('status');
+      const overview = $('#usageDialogContent').querySelector('button .in-use')?.closest('button');
+      overview?.click();
+      const usageRecordButton = $('#usageDialogContent').querySelector('[data-usage-record]');
+      usageRecordButton?.click();
+      const deadline = Date.now() + 4000;
+      while (!detailDrawer.classList.contains('visible') && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
+      const openedRecord = currentRecord?.id || '';
+      await returnToUsage();
+      const returnedView = usageFeature.diagnostics().view;
+      usageFeature.back();
+      const overviewView = usageFeature.diagnostics().view;
+      activeManagePage = 'trash';
+      await renderManagePage('trash');
+      await renderManagePage('trash');
+      const checkbox = $('#manageContent').querySelector('[data-trash-select]');
+      if (checkbox) { checkbox.checked = true; checkbox.dispatchEvent(new Event('change', {bubbles:true})); }
+      $('#searchTrigger').click();
+      await new Promise(resolve => setTimeout(resolve, 250));
+      return {
+        openedRecord,
+        returnedView,
+        overviewView,
+        trashSelected:trashFeature.diagnostics().selectedCount,
+        searchVisible:searchPanel.classList.contains('visible'),
+        bindings:[searchFeature.diagnostics().bindCount, trashFeature.diagnostics().bindCount, usageFeature.diagnostics().bindCount],
+      };
+    })()`);
+    assert.ok(result.openedRecord);
+    assert.deepEqual({...result, openedRecord:'opened'}, {openedRecord:'opened', returnedView:'detail', overviewView:'overview', trashSelected:1, searchVisible:true, bindings:[1, 1, 1]});
+    await client.evaluate(`(() => { closeSearch(); usageFeature.close(); return true; })()`);
 
     result = await client.evaluate(`(async () => {
       await refreshData();
@@ -374,8 +417,8 @@ async function main() {
     browser?.kill();
     server.kill();
     await delay(100);
-    fs.rmSync(profileDirectory, {recursive:true, force:true});
-    fs.rmSync(dataDirectory, {recursive:true, force:true});
+    fs.rmSync(profileDirectory, {recursive:true, force:true, maxRetries:5, retryDelay:200});
+    fs.rmSync(dataDirectory, {recursive:true, force:true, maxRetries:5, retryDelay:200});
   }
 }
 

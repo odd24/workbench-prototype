@@ -1,11 +1,17 @@
-const $ = (selector, root = document) => root.querySelector(selector);
-const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const markdownCore = window.Workbench.markdown;
+const domCore = window.Workbench.dom;
+const apiCore = window.Workbench.api;
+const dialogCore = window.Workbench.dialogs;
+const {$, $$, escapeHtml, safeColor} = domCore;
+const api = apiCore.request;
+const notify = dialogCore.notify;
+const openAppDialog = dialogCore.open;
+const appConfirm = dialogCore.confirm;
+const appPrompt = dialogCore.prompt;
 const documentModelCore = window.Workbench.documentModel;
 const editorSelectionCore = window.Workbench.editorSelection;
 const editorBlocksCore = window.Workbench.editorBlocks;
 const editorHostCore = window.Workbench.editorHost;
-const escapeHtml = markdownCore.escapeHtml;
 
 const recordEditorHost = editorHostCore.create({
   editor:$('.editor'),
@@ -25,7 +31,6 @@ const overlay = $('#modalOverlay');
 const createDialog = $('#createDialog');
 const searchPanel = $('#searchPanel');
 const detailDrawer = $('#detailDrawer');
-const toast = $('#toast');
 const typeMap = {'问题':'issue', '待办':'todo', '信息':'info'};
 const typeNames = {issue:'问题', todo:'待办', info:'信息'};
 const typeIcons = {issue:'!', todo:'✓', info:'i'};
@@ -142,82 +147,6 @@ let statusWatchExpanded = false;
 const PROJECT_CARD_COLLAPSE_LIMIT = 5;
 const PROJECT_LIST_COLLAPSE_LIMIT = 12;
 const EDITOR_COLLAPSE_HEIGHT = 420;
-
-async function api(path, options = {}) {
-  const response = await fetch(`/api${path}`, {
-    ...options,
-    headers: {'Content-Type':'application/json', ...(options.headers || {})},
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || `请求失败 (${response.status})`);
-  return payload;
-}
-
-function notify(title, detail = '对应 Markdown 文件已自动更新', error = false) {
-  $('.toast > span').textContent = error ? '!' : '✓';
-  $('.toast strong').textContent = title;
-  $('.toast small').textContent = detail;
-  toast.classList.toggle('error', error);
-  toast.classList.add('visible');
-  clearTimeout(notify.timer);
-  notify.timer = setTimeout(() => toast.classList.remove('visible'), 3000);
-}
-
-function openAppDialog({title, message = '', detail = '', confirmText = '确认', cancelText = '取消', danger = false, input = null}) {
-  const dialog = $('#appDialog');
-  if (dialog.open) dialog.close('cancel');
-  dialog.classList.toggle('danger', danger);
-  dialog.classList.toggle('input-mode', Boolean(input));
-  $('.app-dialog-icon', dialog).textContent = danger ? '!' : '?';
-  $('#appDialogEyebrow').textContent = input ? '填写信息' : danger ? '危险操作' : '请确认操作';
-  $('#appDialogTitle').textContent = title;
-  $('#appDialogMessage').textContent = message;
-  $('#appDialogDetail').textContent = detail;
-  $('#appDialogConfirm').textContent = confirmText;
-  $('button[value="cancel"]:not(.dialog-close)', dialog).textContent = cancelText;
-  const field = $('#appDialogInput');
-  const options = $('#appDialogOptions');
-  if (input) {
-    $('#appDialogInputLabel').textContent = input.label || '请输入内容';
-    field.type = input.type || 'text';
-    field.value = input.value || '';
-    field.placeholder = input.placeholder || '';
-    field.required = input.required !== false;
-    field.readOnly = Boolean(input.readOnly);
-    const choices = Array.isArray(input.choices) ? input.choices.filter(choice => choice?.value || choice?.label) : [];
-    options.hidden = !choices.length;
-    options.innerHTML = choices.map(choice => `<button type="button" data-app-dialog-choice="${escapeHtml(choice.value || choice.label)}" style="--choice-color:${safeColor(choice.color)}"><i></i><span>${escapeHtml(choice.label || choice.value)}</span></button>`).join('');
-    options.onclick = event => {
-      const choice = event.target.closest('[data-app-dialog-choice]');
-      if (!choice) return;
-      field.value = choice.dataset.appDialogChoice;
-      dialog.close('confirm');
-    };
-  } else {
-    field.value = '';
-    field.required = false;
-    field.readOnly = false;
-    options.hidden = true;
-    options.innerHTML = '';
-    options.onclick = null;
-  }
-  dialog.returnValue = 'cancel';
-  dialog.showModal();
-  setTimeout(() => {
-    if (input) { field.focus(); if (input.select !== false) field.select(); }
-    else $('#appDialogConfirm').focus();
-  }, 20);
-  return new Promise(resolve => dialog.addEventListener('close', () => resolve({confirmed:dialog.returnValue === 'confirm', value:field.value}), {once:true}));
-}
-
-async function appConfirm(options) {
-  return (await openAppDialog(options)).confirmed;
-}
-
-async function appPrompt(options) {
-  const result = await openAppDialog({...options, input:options.input || {label:options.label, value:options.value, placeholder:options.placeholder, type:options.type}});
-  return result.confirmed ? result.value : null;
-}
 
 function safeExportName(value) {
   return String(value || 'workbench').replace(/[<>:"/\\|?*\x00-\x1F]/g, '-').replace(/[. ]+$/g, '').trim() || 'workbench';
@@ -374,10 +303,6 @@ function projectChipHtml(projectId) {
   const project = projects.find(item => item.id === projectId);
   const color = safeColor(project?.color);
   return `<span class="project-color-chip" style="--project-color:${color}"><i></i>${escapeHtml(project?.name || '未归属')}</span>`;
-}
-
-function safeColor(value, fallback = '#64748b') {
-  return markdownCore.safeColor(value, fallback);
 }
 
 function tagColor(tagName) {
@@ -4765,12 +4690,6 @@ $('#projectSelect').addEventListener('change', () => renderCreateStatusOptions()
 createDialog.addEventListener('close', hideOverlayIfClear);
 $('#createSubmit').addEventListener('click', createItem);
 $('#searchTrigger').addEventListener('click', openSearch);
-$('#appDialogInput').addEventListener('keydown', event => {
-  if (event.key !== 'Enter' || event.isComposing) return;
-  event.preventDefault();
-  if (event.currentTarget.reportValidity()) $('#appDialog').close('confirm');
-});
-
 $('#chooseExportLocation').addEventListener('click', chooseExportDirectory);
 $('#saveExportLocation').addEventListener('click', saveChosenExportDirectory);
 $('#browseExportLocation').addEventListener('click', browseExportDirectory);

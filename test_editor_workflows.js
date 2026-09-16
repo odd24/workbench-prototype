@@ -131,6 +131,24 @@ async function main() {
     await client.call('Runtime.enable');
     await waitForPage(client, `typeof apiAvailable !== 'undefined' && apiAvailable && projects.length > 0`);
 
+    let result = await client.evaluate(`({
+      dom:Workbench.dom.$ === $ && Workbench.dom.$$ === $$ && Workbench.dom.escapeHtml === escapeHtml && Workbench.dom.safeColor === safeColor,
+      api:Workbench.api.request === api,
+      dialogs:Workbench.dialogs.notify === notify && Workbench.dialogs.open === openAppDialog && Workbench.dialogs.confirm === appConfirm && Workbench.dialogs.prompt === appPrompt
+    })`);
+    assert.deepEqual(result, {dom:true, api:true, dialogs:true});
+    result = await client.evaluate(`(async () => {
+      notify('核心通知', '错误详情', true);
+      const toastState = {title:$('.toast strong').textContent, detail:$('.toast small').textContent, error:$('#toast').classList.contains('error')};
+      const pending = appPrompt({title:'核心输入', input:{label:'选择', choices:[{value:'unsafe-value', label:'<不安全>', color:'#123456'}]}});
+      const escaped = $('#appDialogOptions').innerHTML.includes('&lt;不安全&gt;');
+      $('[data-app-dialog-choice]').click();
+      const value = await pending;
+      await renderConceptMapLibrary();
+      return {toastState, escaped, value, conceptMapLibrary:Boolean($('#conceptMapLibrary .concept-map-library-header'))};
+    })()`);
+    assert.deepEqual(result, {toastState:{title:'核心通知', detail:'错误详情', error:true}, escaped:true, value:'unsafe-value', conceptMapLibrary:true});
+
     const request = async (resource, options = {}) => {
       const response = await fetch(`${baseUrl}/api${resource}`, {
         method:options.method || 'GET',
@@ -158,7 +176,7 @@ async function main() {
 
     const recordId = JSON.stringify(record.id);
     const documentId = JSON.stringify(documentItem.id);
-    let result = await client.evaluate(`(async () => {
+    result = await client.evaluate(`(async () => {
       await refreshData();
       await openDrawer(${recordId});
       recordEditorHost.render('# 自动保存\\n\\n- [x] 记录', true);

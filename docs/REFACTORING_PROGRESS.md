@@ -29,11 +29,11 @@
 | 项目 | 当前值 |
 | --- | --- |
 | 当前阶段 | 阶段 1：后端基础设施拆分 |
-| 当前工作项 | 无（RF-103 已完成） |
-| 最近完成 | RF-103 提取概念图仓储 |
-| 下一工作项 | RF-104 提取附件仓储 |
+| 当前工作项 | 无（RF-104 已完成） |
+| 最近完成 | RF-104 提取附件仓储 |
+| 下一工作项 | RF-105 提取知识库与配置仓储 |
 | 已知阻塞 | 无 |
-| 后端测试基线 | 58 项通过 |
+| 后端测试基线 | 61 项通过 |
 | 下一阶段门禁 | RF-101 至 RF-108 全部完成 |
 
 ## 3. 工作项状态
@@ -54,7 +54,7 @@
 | RF-101 | 提取 Markdown 与时间/slug 工具 | 已完成 | 2026-09-16 | 2026-09-16 | Codex | 提取 `workbench/markdown_io.py`，保留 `server.py` 兼容导入 |
 | RF-102 | 提取路径和外部编辑器能力 | 已完成 | 2026-09-16 | 2026-09-16 | Codex | 提取路径/迁移/导出与外部编辑器模块，保留兼容门面 |
 | RF-103 | 提取概念图仓储 | 已完成 | 2026-09-16 | 2026-09-16 | Codex | 提取归一化、分类、原子写入和 CRUD，保留仓储门面 |
-| RF-104 | 提取附件仓储 | 待开始 |  |  |  | 依赖 RF-101、RF-102 |
+| RF-104 | 提取附件仓储 | 已完成 | 2026-09-16 | 2026-09-16 | Codex | 提取记录/项目附件、分类、批量操作和孤儿扫描 |
 | RF-105 | 提取知识库与配置仓储 | 待开始 |  |  |  | 依赖 RF-101 |
 | RF-106 | 提取项目与记录仓储 | 待开始 |  |  |  | 依赖 RF-101、RF-104、RF-105 |
 | RF-107 | 分离 HTTP 路由 | 待开始 |  |  |  | 依赖 RF-002、RF-103～RF-106 |
@@ -120,6 +120,8 @@
 | 2026-09-16 | RF-102 | 进行中 → 已完成 | 新增 `workbench/paths.py`、`workbench/external_editor.py` 和 `test_paths.py`；从 `server.py` 提取数据/导出目录、迁移、目录浏览、导出写入及编辑器发现/配置/启动；保留路径兼容导出和可 patch 的编辑器门面 | 路径与编辑器专项 5 项、完整测试 56 项、新增模块语法检查、两个 JavaScript 语法检查和 `git diff --check` 全部通过 | 数据/API/机器配置位置无变化；DEC-007 使用仓储类型构造和检测器注入避免反向依赖；下一步 RF-103 |
 | 2026-09-16 | RF-103 | 待开始 → 进行中 | 计划新增 `workbench/concept_maps.py`，以组合仓储提取概念图归一化、分类、原子写入和 CRUD；主 `Repository` 保留同名委托方法及现有目录属性 | 计划运行概念图专项、固定样本、回收站、HTTP 和完整门禁；新增模块纳入语法检查 | 风险：保持 500 节点/1000 边、文本/坐标/尺寸/颜色/缩放约束、连接短语箭头规则、稳定 ID、分类迁移和 `.trash` 语义 |
 | 2026-09-16 | RF-103 | 进行中 → 已完成 | 新增 `workbench/concept_maps.py` 和 `test_concept_maps.py`；归一化、分类、原子 JSON 写入及 CRUD 移入 `ConceptMapRepository`；主 `Repository` 通过同名方法委托并保留常量、目录和私有入口兼容 | 概念图边界/重载 2 项、既有概念图专项 4 项、固定旧 JSON、完整测试 58 项及全部语法/差异检查通过 | JSON 版本、ID、限制、箭头、视口、分类与回收站语义无变化；DEC-008 使用组合仓储；下一步 RF-104 |
+| 2026-09-16 | RF-104 | 待开始 → 进行中 | 计划新增 `workbench/assets.py`，以组合仓储提取记录附件、项目独立附件索引、分类、批量操作、流式上传和孤儿扫描；主 `Repository` 保留同名委托方法 | 计划运行附件专项、大文件流、重名/路径、批量分类删除、孤儿扫描、导出、HTTP 和完整门禁；新增模块纳入语法检查 | 风险：记录附件与项目附件索引不得混用；流式上传保持分块读取；所有解析路径继续限制在数据根或项目根；失败上传必须清理部分文件 |
+| 2026-09-16 | RF-104 | 进行中 → 已完成 | 新增 `workbench/assets.py` 和 `test_assets.py`；记录/项目附件、分类、批量操作、流式上传、路径解析和孤儿扫描移入 `AttachmentRepository`；主 `Repository` 保留公共与私有委托入口 | 附件边界专项 3 项、既有附件/引用专项 6 项、完整测试 61 项及全部语法/差异检查通过；10MB+ 流仍分块读取 | 数据/API/索引格式无变化；记录与项目附件继续独立，路径保持根目录约束，中断上传清理部分文件；下一步 RF-105 |
 
 ## 5. 验证记录
 
@@ -166,6 +168,12 @@
 | 2026-09-16 | RF-103 | `python -m py_compile server.py workbench/__init__.py workbench/markdown_io.py workbench/paths.py workbench/external_editor.py workbench/concept_maps.py test_server.py test_http.py test_markdown.py test_paths.py test_concept_maps.py` | 通过 | 新仓储模块与测试已纳入 |
 | 2026-09-16 | RF-103 | `node --check app.js`、`node --check concept-map.js` | 通过 | 无输出；前端未修改 |
 | 2026-09-16 | RF-103 | `git diff --check` | 通过 | 仅有 Windows LF/CRLF 提示，无内容错误 |
+| 2026-09-16 | RF-104 | `python -m unittest -v test_assets` | 通过，3 项 | 组合仓储、索引隔离、重名/路径和中断流清理 |
+| 2026-09-16 | RF-104 | `python -m unittest -v test_server.RepositoryTests.test_project_record_search_update_and_trash test_server.RepositoryTests.test_global_idea_is_allowed test_server.RepositoryTests.test_project_independent_assets_can_be_uploaded_and_categorized test_server.RepositoryTests.test_assets_support_unlimited_stream_batch_category_and_confirmable_delete_backend test_server.RepositoryTests.test_pasted_image_upload_can_register_without_replacing_unsaved_body test_server.RepositoryTests.test_reference_targets_include_documents_record_bodies_and_attachments` | 通过，6 项 | 记录/项目附件、10MB+ 流、批量、孤儿、引用和导出 |
+| 2026-09-16 | RF-104 | `python -m unittest -v` | 通过，61 项 | 完整回归 |
+| 2026-09-16 | RF-104 | `python -m py_compile server.py workbench/__init__.py workbench/markdown_io.py workbench/paths.py workbench/external_editor.py workbench/concept_maps.py workbench/assets.py test_server.py test_http.py test_markdown.py test_paths.py test_concept_maps.py test_assets.py` | 通过 | 新附件模块与测试已纳入 |
+| 2026-09-16 | RF-104 | `node --check app.js`、`node --check concept-map.js` | 通过 | 无输出；前端未修改 |
+| 2026-09-16 | RF-104 | `git diff --check` | 通过 | 仅有 Windows LF/CRLF 提示，无内容错误 |
 
 ## 6. 决策记录
 

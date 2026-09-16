@@ -9,6 +9,7 @@ let conceptMapMultiSelection = new Set();
 let conceptMapHistory = [];
 let conceptMapHistoryIndex = -1;
 let conceptMapClipboard = null;
+let conceptMapEdgeToolbarAnchor = null;
 let conceptMapCategories = [];
 let conceptMapCategoryFilter = '';
 const conceptMapCollapsedCategories = new Set((() => {
@@ -247,9 +248,43 @@ function recenterAllLinkingPhrases() {
   return currentConceptMap.nodes.filter(node => node.type === 'linking_phrase' && recenterLinkingPhrase(node));
 }
 
-function conceptEdgeHasArrow(edge) {
-  const from = conceptNode(edge.from), to = conceptNode(edge.to);
-  return (from?.type === 'linking_phrase' && to?.type === 'concept') || edge.arrowhead !== 'none';
+function conceptEdgeArrowEnds(edge) {
+  const arrowhead = edge.arrowhead || (conceptNode(edge.to)?.type === 'linking_phrase' ? 'none' : 'to');
+  return {from:arrowhead === 'from' || arrowhead === 'both', to:arrowhead === 'to' || arrowhead === 'both'};
+}
+
+function conceptRelationEdges(edge) {
+  if (!edge || !currentConceptMap) return [];
+  const phraseId = conceptNode(edge.from)?.type === 'linking_phrase' ? edge.from : conceptNode(edge.to)?.type === 'linking_phrase' ? edge.to : '';
+  return phraseId ? currentConceptMap.edges.filter(item => item.from === phraseId || item.to === phraseId) : [edge];
+}
+
+function conceptEdgeArrowType(edge) {
+  const relationEdges = conceptRelationEdges(edge);
+  if (relationEdges.length === 1 && !relationEdges.some(item => conceptNode(item.from)?.type === 'linking_phrase' || conceptNode(item.to)?.type === 'linking_phrase')) return relationEdges[0].arrowhead === 'both' ? 'both' : 'to';
+  return relationEdges.some(item => item.arrowhead === 'from' || item.arrowhead === 'both') ? 'both' : 'to';
+}
+
+function setConceptEdgeArrowType(edgeId, arrowType) {
+  const edge = conceptEdge(edgeId); if (!edge || !['to', 'both'].includes(arrowType)) return;
+  const relationEdges = conceptRelationEdges(edge), phrase = [conceptNode(edge.from), conceptNode(edge.to)].find(node => node?.type === 'linking_phrase');
+  if (!phrase) edge.arrowhead = arrowType;
+  else relationEdges.forEach(item => { item.arrowhead = item.to === phrase.id ? (arrowType === 'both' ? 'from' : 'none') : 'to'; });
+  renderConceptMapEdges(); showConceptEdgeToolbar(edgeId); scheduleConceptMapSave();
+}
+
+function showConceptEdgeToolbar(edgeId, clientX = null, clientY = null) {
+  const edge = conceptEdge(edgeId), shell = $('#conceptMapCanvasShell');
+  if (!edge || !shell) return;
+  if (clientX !== null && clientY !== null) conceptMapEdgeToolbarAnchor = {clientX, clientY};
+  if (!conceptMapEdgeToolbarAnchor) return;
+  $('#conceptEdgeToolbar')?.remove();
+  const rect = shell.getBoundingClientRect(), toolbar = document.createElement('div'), arrowType = conceptEdgeArrowType(edge);
+  toolbar.id = 'conceptEdgeToolbar'; toolbar.className = 'concept-edge-toolbar'; toolbar.setAttribute('role', 'toolbar'); toolbar.setAttribute('aria-label', '箭头类型');
+  toolbar.style.left = `${Math.max(92, Math.min(rect.width - 92, conceptMapEdgeToolbarAnchor.clientX - rect.left))}px`;
+  toolbar.style.top = `${Math.max(48, Math.min(rect.height - 12, conceptMapEdgeToolbarAnchor.clientY - rect.top - 12))}px`;
+  toolbar.innerHTML = `<button type="button" data-concept-edge-arrow="to" data-edge-id="${escapeHtml(edgeId)}" class="${arrowType === 'to' ? 'active' : ''}" aria-pressed="${arrowType === 'to'}">→ 单向箭头</button><button type="button" data-concept-edge-arrow="both" data-edge-id="${escapeHtml(edgeId)}" class="${arrowType === 'both' ? 'active' : ''}" aria-pressed="${arrowType === 'both'}">↔ 双向箭头</button>`;
+  shell.appendChild(toolbar);
 }
 
 function migrateConceptMapLinkingPhrases() {
@@ -279,9 +314,9 @@ function renderConceptMapEdges() {
   if (!currentConceptMap) return;
   $('#conceptMapEdges').innerHTML = currentConceptMap.edges.map(edge => {
     const path = conceptMapPath(edge); if (!path) return '';
-    const markerId = `concept-arrow-${edge.id}`;
-    const marker = conceptEdgeHasArrow(edge) ? ` marker-end="url(#${escapeHtml(markerId)})"` : '';
-    return `<g class="concept-map-edge-group ${conceptMapSelection?.type === 'edge' && conceptMapSelection.id === edge.id ? 'selected' : ''}" data-concept-edge="${escapeHtml(edge.id)}"><defs><marker id="${escapeHtml(markerId)}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0 L10 5 L0 10z" fill="${escapeHtml(edge.color)}"/></marker></defs><path class="concept-map-edge-hit" d="${path.d}"/><path class="concept-map-edge-line" d="${path.d}" stroke="${escapeHtml(edge.color)}" stroke-dasharray="${edge.dashed ? '6 5' : 'none'}"${marker}/></g>`;
+    const markerId = `concept-arrow-${edge.id}`, arrows = conceptEdgeArrowEnds(edge);
+    const markers = `${arrows.from ? ` marker-start="url(#${escapeHtml(markerId)}-from)"` : ''}${arrows.to ? ` marker-end="url(#${escapeHtml(markerId)}-to)"` : ''}`;
+    return `<g class="concept-map-edge-group ${conceptMapSelection?.type === 'edge' && conceptMapSelection.id === edge.id ? 'selected' : ''}" data-concept-edge="${escapeHtml(edge.id)}"><defs><marker id="${escapeHtml(markerId)}-from" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M10 0 L0 5 L10 10z" fill="${escapeHtml(edge.color)}"/></marker><marker id="${escapeHtml(markerId)}-to" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0 L10 5 L0 10z" fill="${escapeHtml(edge.color)}"/></marker></defs><path class="concept-map-edge-hit" d="${path.d}"/><path class="concept-map-edge-line" d="${path.d}" stroke="${escapeHtml(edge.color)}" stroke-dasharray="${edge.dashed ? '6 5' : 'none'}"${markers}/></g>`;
   }).join('');
 }
 
@@ -310,6 +345,7 @@ function updateConceptMapSelectionUi() {
     element.classList.toggle('multi-selected', conceptMapMultiSelection.has(element.dataset.conceptNode));
   });
   renderConceptMapEdges();
+  if (conceptMapSelection?.type !== 'edge') { $('#conceptEdgeToolbar')?.remove(); conceptMapEdgeToolbarAnchor = null; }
 }
 
 function applyConceptMapViewport() {
@@ -721,10 +757,13 @@ function exportConceptMapPng() {
   const canvas = document.createElement('canvas'); canvas.width = Math.ceil(width * scale); canvas.height = Math.ceil(height * scale);
   const context = canvas.getContext('2d'); context.scale(scale, scale); context.translate(-minX, -minY); context.fillStyle = '#eef0f2'; context.fillRect(minX, minY, width, height);
   context.textAlign = 'center'; context.textBaseline = 'middle';
+  const drawArrow = (point, angle, color) => { context.beginPath(); context.moveTo(point.x, point.y); context.lineTo(point.x - 8 * Math.cos(angle - .45), point.y - 8 * Math.sin(angle - .45)); context.lineTo(point.x - 8 * Math.cos(angle + .45), point.y - 8 * Math.sin(angle + .45)); context.closePath(); context.fillStyle = color; context.fill(); };
   currentConceptMap.edges.forEach(edge => {
     const data = conceptMapPath(edge); if (!data) return;
     context.strokeStyle = edge.color; context.lineWidth = 1.35; context.setLineDash(edge.dashed ? [6, 5] : []); context.stroke(new Path2D(data.d)); context.setLineDash([]);
-    if (conceptEdgeHasArrow(edge)) { const angle = Math.atan2(data.end.y - data.start.y, data.end.x - data.start.x); context.beginPath(); context.moveTo(data.end.x, data.end.y); context.lineTo(data.end.x - 8 * Math.cos(angle - .45), data.end.y - 8 * Math.sin(angle - .45)); context.lineTo(data.end.x - 8 * Math.cos(angle + .45), data.end.y - 8 * Math.sin(angle + .45)); context.closePath(); context.fillStyle = edge.color; context.fill(); }
+    const arrows = conceptEdgeArrowEnds(edge), angle = Math.atan2(data.end.y - data.start.y, data.end.x - data.start.x);
+    if (arrows.from) drawArrow(data.start, angle + Math.PI, edge.color);
+    if (arrows.to) drawArrow(data.end, angle, edge.color);
   });
   currentConceptMap.nodes.forEach(node => { if (node.type !== 'linking_phrase') { context.fillStyle = node.color; context.strokeStyle = node.border_color || '#9eb4c7'; context.lineWidth = 1; context.beginPath(); const radius = node.shape === 'rectangle' ? 2 : node.shape === 'pill' ? node.height / 2 : node.shape === 'ellipse' ? Math.min(node.width, node.height) / 2 : 4; context.roundRect(node.x, node.y, node.width, node.height, radius); context.fill(); context.stroke(); } else { context.fillStyle = '#eef0f2'; context.fillRect(node.x, node.y, node.width, node.height); } context.fillStyle = node.text_color || '#213044'; context.font = `${node.font_weight || 400} ${node.font_size || 13}px Microsoft YaHei`; context.fillText(node.text.slice(0, 40), node.x + node.width / 2, node.y + node.height / 2, node.width - (node.type === 'linking_phrase' ? 4 : 16)); });
   const link = document.createElement('a'); link.download = `${currentConceptMap.id}-${currentConceptMap.title.replace(/[\\/:*?"<>|]/g, '-')}.png`; link.href = canvas.toDataURL('image/png'); link.click(); notify('概念图已导出', link.download);
@@ -813,7 +852,7 @@ function beginConceptMapMarquee(event) {
 
 conceptMapCanvasShell.addEventListener('pointerdown', event => {
   if (!currentConceptMap) return;
-  const interactive = event.target.closest('[data-concept-node],[data-concept-edge],[data-concept-edge-label],.concept-map-zoom,.concept-map-minimap');
+  const interactive = event.target.closest('[data-concept-node],[data-concept-edge],[data-concept-edge-label],.concept-edge-toolbar,.concept-map-zoom,.concept-map-minimap');
   if (!interactive && event.button === 0 && event.shiftKey && !conceptMapSpacePressed) { beginConceptMapMarquee(event); return; }
   const spacePan = conceptMapSpacePressed && event.button === 0, middlePan = event.button === 1, blankPan = !interactive && event.button === 0;
   const wantsPan = spacePan || middlePan || blankPan;
@@ -838,12 +877,12 @@ conceptMapCanvasShell.addEventListener('pointerdown', event => {
   };
   conceptMapCanvasShell.addEventListener('pointermove', move); conceptMapCanvasShell.addEventListener('pointerup', finish, {once:true}); conceptMapCanvasShell.addEventListener('pointercancel', finish, {once:true});
 });
-conceptMapCanvasShell.addEventListener('dblclick', event => { if (!event.target.closest('[data-concept-node],[data-concept-edge],[data-concept-edge-label],.concept-map-minimap')) { const point = conceptMapPoint(event.clientX, event.clientY); addConceptNodeAt(point.x, point.y); } });
+conceptMapCanvasShell.addEventListener('dblclick', event => { if (!event.target.closest('[data-concept-node],[data-concept-edge],[data-concept-edge-label],.concept-edge-toolbar,.concept-map-minimap')) { const point = conceptMapPoint(event.clientX, event.clientY); addConceptNodeAt(point.x, point.y); } });
 conceptMapCanvasShell.addEventListener('wheel', event => { if (!currentConceptMap) return; event.preventDefault(); changeConceptMapZoom(currentConceptMap.viewport.zoom * (event.deltaY > 0 ? .9 : 1.1), event.clientX, event.clientY); }, {passive:false});
 
 document.addEventListener('pointerdown', event => {
   const edgeGroup = event.target.closest('[data-concept-edge]');
-  if (edgeGroup && currentConceptMap) { event.stopPropagation(); conceptMapMultiSelection.clear(); conceptMapSelection = {type:'edge', id:edgeGroup.dataset.conceptEdge}; updateConceptMapSelectionUi(); }
+  if (edgeGroup && currentConceptMap) { event.stopPropagation(); conceptMapMultiSelection.clear(); conceptMapSelection = {type:'edge', id:edgeGroup.dataset.conceptEdge}; updateConceptMapSelectionUi(); showConceptEdgeToolbar(edgeGroup.dataset.conceptEdge, event.clientX, event.clientY); }
   if (!event.target.closest('.concept-map-menu,#conceptMapMore,.concept-map-card-more')) closeConceptMapMenus();
 });
 
@@ -854,6 +893,8 @@ document.addEventListener('input', event => {
 });
 
 document.addEventListener('click', async event => {
+  const edgeArrow = event.target.closest('[data-concept-edge-arrow]');
+  if (edgeArrow) { setConceptEdgeArrowType(edgeArrow.dataset.edgeId, edgeArrow.dataset.conceptEdgeArrow); return; }
   if (event.target.closest('#newConceptMapCategory')) { await createConceptMapCategory(); return; }
   const renameCategory = event.target.closest('[data-rename-concept-map-category]');
   if (renameCategory) { event.preventDefault(); await renameConceptMapCategory(renameCategory.dataset.renameConceptMapCategory); return; }

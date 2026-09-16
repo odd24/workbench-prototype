@@ -491,6 +491,7 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(imported["category"], "运维")
         content, filename = self.repo.export_document(imported["id"])
         self.assertEqual(filename, "DOC-0001.md")
+
         self.assertIn("部署步骤", content.decode("utf-8"))
         self.assertNotIn("document_type", content.decode("utf-8"))
         with zipfile.ZipFile(io.BytesIO(self.repo.export_documents_zip())) as archive:
@@ -502,6 +503,61 @@ class RepositoryTests(unittest.TestCase):
         with zipfile.ZipFile(io.BytesIO(self.repo.export_documents_zip([imported["id"]]))) as archive:
             self.assertEqual(len(archive.namelist()), 1)
             self.assertNotIn(second["id"], archive.namelist()[0])
+
+    def test_reference_targets_include_documents_record_bodies_and_attachments(self):
+        project = self.repo.create_project({"name": "引用项目"})
+        document = self.repo.create_document({"title": "部署手册", "category": "运维"})
+        issue = self.repo.create_record({
+            "type": "issue", "title": "部署失败", "project_id": project["id"],
+        })
+        self.repo.add_attachment(
+            issue["id"], "错误 日志.txt", base64.b64encode(b"trace").decode(),
+        )
+        self.repo.create_record({
+            "type": "info", "title": "不作为引用目标", "project_id": project["id"],
+        })
+
+        targets = self.repo.list_reference_targets()
+
+        document_target = next(item for item in targets if item["id"] == document["id"])
+        issue_target = next(item for item in targets if item["id"] == issue["id"])
+        self.assertEqual(document_target["type"], "document")
+        self.assertEqual(document_target["category"], "运维")
+        self.assertEqual(issue_target["attachments"][0]["name"], "错误 日志.txt")
+        self.assertFalse(any(item["type"] == "info" for item in targets))
+
+    def test_document_backlinks_include_referencing_records_and_projects(self):
+        project = self.repo.create_project({"name": "引用项目"})
+        document = self.repo.create_document({"title": "部署手册", "category": "运维"})
+        issue = self.repo.create_record({
+            "type": "issue", "title": "部署失败", "project_id": project["id"],
+            "body": f"请参考 [[{document['id']}]]",
+        })
+        todo = self.repo.create_record({
+            "type": "todo", "title": "检查步骤", "project_id": project["id"],
+            "links": [document["id"]],
+        })
+        self.repo.create_record({
+            "type": "issue", "title": "无关问题", "project_id": project["id"],
+        })
+
+        backlinks = self.repo.list_document_backlinks(document["id"])
+
+        self.assertEqual({item["id"] for item in backlinks}, {issue["id"], todo["id"]})
+        self.assertTrue(all(item["project_id"] == project["id"] for item in backlinks))
+        self.assertTrue(all(item["project_name"] == "引用项目" for item in backlinks))
+        with self.assertRaises(FileNotFoundError):
+            self.repo.list_document_backlinks("DOC-9999")
+
+    def test_document_import_can_override_markdown_category(self):
+        imported = self.repo.import_document({
+            "name": "导入分类.md",
+            "category": "指定分类",
+            "content": "---\ncategory: 原分类\n---\n# 导入分类\n\n正文",
+        })
+
+        self.assertEqual(imported["category"], "指定分类")
+        self.assertIn("指定分类", self.repo.document_categories())
 
     def test_concept_map_create_update_and_trash(self):
         created = self.repo.create_concept_map({"title": "产品方向", "focus_question": "下一步做什么？"})
@@ -531,6 +587,14 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(updated["nodes"][1]["height"], 22.0)
         self.assertEqual(updated["edges"][0]["arrowhead"], "none")
         self.assertEqual(updated["edges"][1]["arrowhead"], "to")
+        bidirectional = self.repo.update_concept_map(created["id"], {
+            "edges": [
+                {"id": "relation-in", "from": "root", "to": "link", "label": "", "arrowhead": "from"},
+                {"id": "relation-out", "from": "link", "to": "child", "label": "", "arrowhead": "to"},
+            ],
+        })
+        self.assertEqual(bidirectional["edges"][0]["arrowhead"], "from")
+        self.assertEqual(bidirectional["edges"][1]["arrowhead"], "to")
         summary = self.repo.list_concept_maps()[0]
         self.assertEqual(summary["node_count"], 2)
         self.assertEqual(summary["relation_count"], 1)

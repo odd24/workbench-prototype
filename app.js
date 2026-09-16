@@ -95,10 +95,15 @@ let documentCategoryFileQueries = {};
 let documentOpenCategories = new Set();
 let documentSelection = new Set();
 let documentExportMode = false;
+let knowledgeImportCategory = '';
 let documentLastRange = null;
 let documentOutlineCollapsed = localStorage.getItem('workbench-document-outline-collapsed') === 'true';
 let documentOutlineTimer = null;
 let documentSaveTimer = null;
+let referenceTargets = [];
+let referenceDialogContext = 'record-editor';
+let referenceFilters = {type:'', project:'', category:''};
+let documentBacklinkRequest = 0;
 let conceptMaps = [];
 let currentConceptMap = null;
 let conceptMapSelection = null;
@@ -605,12 +610,7 @@ function inlineMarkdownToHtml(text) {
   let output = text;
   output = output.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
   output = output.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, source) => markdownImageHtml(unescapeHtml(alt), unescapeHtml(source)));
-  output = output.replace(/\[\[([A-Za-z]+-\d+)\]\]/g, (_, id) => {
-    const record = records.find(item => item.id.toLowerCase() === id.toLowerCase());
-    const canonicalId = record?.id || id.toUpperCase();
-    const label = record ? `${canonicalId} · ${record.title}` : canonicalId;
-    return `<span class="internal-link" contenteditable="false" role="button" tabindex="0" data-reference-id="${escapeHtml(canonicalId)}" title="打开引用记录">${escapeHtml(label)}</span>&#8203;`;
-  });
+  output = output.replace(/\[\[([A-Za-z]+-\d+)(?:#(body|attachment)(?::([^\]]+))?)?\]\]/g, (_, id, kind = '', payload = '') => referenceTokenToHtml(`${id.toUpperCase()}${kind ? `#${kind}${payload ? `:${payload}` : ''}` : ''}`));
   output = output.replace(/\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
   output = output.replace(/`([^`]+)`/g, '<code>$1</code>');
   output = output.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
@@ -623,6 +623,44 @@ function inlineMarkdownToHtml(text) {
     output = next;
   }
   return output;
+}
+
+function parseReferenceToken(token = '') {
+  const match = String(token).match(/^([A-Za-z]+-\d+)(?:#(body|attachment)(?::(.+))?)?$/);
+  if (!match) return null;
+  let attachmentName = '';
+  if (match[2] === 'attachment' && match[3]) {
+    try { attachmentName = decodeURIComponent(match[3]); }
+    catch { attachmentName = match[3]; }
+  }
+  return {id:match[1].toUpperCase(), kind:match[2] || '', attachmentName};
+}
+
+function referenceTarget(id) {
+  const normalized = String(id).toUpperCase();
+  return referenceTargets.find(item => String(item.id).toUpperCase() === normalized)
+    || documents.find(item => String(item.id).toUpperCase() === normalized)
+    || records.find(item => String(item.id).toUpperCase() === normalized);
+}
+
+function referenceTokenDetails(token) {
+  const parsed = parseReferenceToken(token);
+  if (!parsed) return {token, id:'', kind:'', label:token, title:'引用内容'};
+  const target = referenceTarget(parsed.id);
+  const isDocument = target?.type === 'document' || parsed.id.startsWith('DOC-');
+  const kind = parsed.kind || (isDocument ? 'document' : 'body');
+  const title = target?.title || parsed.id;
+  const label = kind === 'attachment'
+    ? `${parsed.id} · ${parsed.attachmentName || '附件'}`
+    : kind === 'body' ? `${parsed.id} · ${title} · 正文` : `${parsed.id} · ${title}`;
+  return {...parsed, token, kind, label, title, target};
+}
+
+function referenceTokenToHtml(token) {
+  const detail = referenceTokenDetails(token);
+  const className = detail.kind === 'attachment' ? ' reference-attachment-link' : detail.kind === 'document' ? ' reference-document-link' : '';
+  const actionTitle = detail.kind === 'attachment' ? '打开引用附件' : detail.kind === 'document' ? '打开知识库文档' : '打开引用正文';
+  return `<span class="internal-link${className}" contenteditable="false" role="button" tabindex="0" data-reference-id="${escapeHtml(detail.id)}" data-reference-token="${escapeHtml(detail.token)}" title="${actionTitle}">${escapeHtml(detail.label)}</span>&#8203;`;
 }
 
 function markdownImageHtml(alt, source) {
@@ -810,7 +848,7 @@ function inlineNodeToMarkdown(node) {
   if (node.nodeType !== Node.ELEMENT_NODE) return '';
   const element = node;
   if (element.nodeName === 'SPAN' && element.dataset.documentColorBoundary) return [...element.childNodes].map(inlineNodeToMarkdown).join('').replace(/\u200b/g, '');
-  if (element.matches('.internal-link[data-reference-id]')) return `[[${element.dataset.referenceId}]]`;
+  if (element.matches('.internal-link[data-reference-id]')) return `[[${element.dataset.referenceToken || element.dataset.referenceId}]]`;
   if (element.matches('.after-reference-paragraph')) return '';
   if (element.nodeName === 'INPUT') return '';
   if (element.nodeName === 'IMG') return `![${element.getAttribute('alt') || ''}](${element.dataset.markdownSrc || element.getAttribute('src') || ''})`;
@@ -1245,6 +1283,13 @@ function restoreLastEditorSelection() {
   const selection = window.getSelection();
   selection.removeAllRanges();
   selection.addRange(lastEditorRange.cloneRange());
+  return true;
+}
+
+function captureLastEditorSelection() {
+  const selection = selectionInsideEditor($('.editor'));
+  if (!selection) return false;
+  lastEditorRange = selection.getRangeAt(0).cloneRange();
   return true;
 }
 
@@ -1957,7 +2002,10 @@ function markdownToPlainText(markdown = '', maxLength = 110, title = '') {
     .replace(/```([^\n]*)\n[\s\S]*?```/g, (_, language) => language.trim() ? ` [${normalizeCodeLanguage(language)} 代码块] ` : ' [代码块] ')
     .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/\[\[([A-Za-z]+-\d+)\]\]/g, (_, id) => records.find(item => item.id.toLowerCase() === id.toLowerCase())?.title || id.toUpperCase())
+    .replace(/\[\[([A-Za-z]+-\d+(?:#(?:body|attachment)(?::[^\]]+)?)?)\]\]/g, (_, token) => {
+      const detail = referenceTokenDetails(token);
+      return detail.kind === 'attachment' ? detail.attachmentName || '附件' : detail.title || detail.id;
+    })
     .replace(/^\s{0,3}#{1,6}\s+/gm, '')
     .replace(/^\s*>\s?/gm, '')
     .replace(/^\s*[-*+]\s+\[[ xX]\]\s*/gm, '')
@@ -2538,20 +2586,220 @@ function renderAttachments() {
   $('#attachmentList').innerHTML = attachments.length ? attachments.map(item => `<button class="attachment-entry" data-attachment-name="${escapeHtml(item.name)}"><span class="attachment-icon">▧</span><span><strong>${escapeHtml(item.name)}</strong><small>${Math.max(1, Math.round((item.size || 0) / 1024))} KB · ${escapeHtml(item.mime)}</small></span><em>打开</em></button>`).join('') : '<div class="empty-state">暂无附件，可以粘贴截图或选择文件</div>';
 }
 
-function linkedRecordIds() {
-  const markers = [...(currentRecord?.body || '').matchAll(/\[\[([A-Za-z]+-\d+)\]\]/g)].map(match => match[1]);
+function linkedReferenceTokens() {
+  const markers = [...(currentRecord?.body || '').matchAll(/\[\[([A-Za-z]+-\d+(?:#(?:body|attachment)(?::[^\]]+)?)?)\]\]/g)].map(match => match[1]);
   return [...new Set([...(currentRecord?.links || []), ...markers])];
 }
 
 function renderRelations() {
-  const linked = linkedRecordIds().map(id => records.find(item => item.id === id)).filter(Boolean);
-  $('#relationList').innerHTML = linked.length ? linked.map(record => `<div class="attachment-entry"><span class="type-icon ${record.type}">${typeIcons[record.type]}</span><span><strong>${escapeHtml(record.title)}</strong><small>${record.id} · ${escapeHtml(projectName(record.project_id))}</small></span><button data-open-related="${record.id}">打开</button><button data-remove-relation="${record.id}">×</button></div>`).join('') : '<div class="empty-state">暂无关联记录，可通过稳定编号互相引用</div>';
+  const linked = linkedReferenceTokens().map(referenceTokenDetails).filter(item => item.id);
+  $('#relationList').innerHTML = linked.length ? linked.map(item => `<div class="attachment-entry"><span class="type-icon ${escapeHtml(item.target?.type || '')}">${item.kind === 'document' ? '▤' : item.kind === 'attachment' ? '▧' : escapeHtml(typeIcons[item.target?.type] || '•')}</span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.kind === 'document' ? `${item.id} · 知识库文档` : item.kind === 'attachment' ? `${item.id} · 附件 · ${item.attachmentName}` : `${item.id} · 正文`)}</small></span><button data-open-reference="${escapeHtml(item.token)}">打开</button><button data-remove-reference="${escapeHtml(item.token)}">×</button></div>`).join('') : '<div class="empty-state">暂无关联内容，可引用知识库文档、记录正文或附件</div>';
 }
 
 function renderRelationResults(query = '') {
-  const needle = query.trim().toLowerCase(); const linked = new Set(linkedRecordIds());
-  const candidates = records.filter(record => record.id !== currentRecord?.id && !linked.has(record.id) && (!needle || `${record.id} ${record.title}`.toLowerCase().includes(needle)));
-  $('#relationResults').innerHTML = candidates.slice(0,30).map(record => `<button class="relation-result" data-add-relation="${record.id}">${typeIcon(record)}<span><strong>${escapeHtml(record.title)}</strong><small>${record.id} · ${escapeHtml(projectName(record.project_id))}</small></span><em>＋ 关联</em></button>`).join('') || '<div class="empty-state">没有可关联的记录</div>';
+  const needle = query.trim().toLowerCase();
+  const candidates = referenceTargets.filter(target => {
+    if (referenceDialogContext.startsWith('record') && target.id === currentRecord?.id) return false;
+    if (referenceDialogContext === 'document-editor' && target.id === currentDocument?.id) return false;
+    if (referenceFilters.type && target.type !== referenceFilters.type) return false;
+    if (referenceFilters.project && target.project_id !== referenceFilters.project) return false;
+    if (referenceFilters.category && (target.type !== 'document' || (target.category || '未分类') !== referenceFilters.category)) return false;
+    const searchable = `${target.id} ${target.title} ${target.category || ''} ${projectName(target.project_id)} ${(target.attachments || []).map(item => item.name).join(' ')}`.toLowerCase();
+    return !needle || searchable.includes(needle);
+  });
+  const visible = candidates.slice(0,40);
+  $('#relationResultSummary').textContent = candidates.length > visible.length ? `显示前 ${visible.length} 条，共 ${candidates.length} 条` : `找到 ${candidates.length} 条可引用内容`;
+  $('#relationResults').innerHTML = visible.map(target => {
+    const isDocument = target.type === 'document';
+    const icon = isDocument ? '▤' : typeIcons[target.type] || '•';
+    const meta = isDocument ? `知识库文档 · ${target.category || '未分类'}` : `${typeNames[target.type]} · ${projectName(target.project_id)}`;
+    const mainToken = isDocument ? target.id : `${target.id}#body`;
+    const attachments = (target.attachments || []).filter(item => !needle || item.name.toLowerCase().includes(needle) || `${target.id} ${target.title}`.toLowerCase().includes(needle));
+    return `<div class="reference-result"><span class="type-icon ${escapeHtml(target.type)}">${escapeHtml(icon)}</span><span class="reference-result-main"><strong>${escapeHtml(target.title)}</strong><small>${escapeHtml(target.id)} · ${escapeHtml(meta)}</small></span><span class="reference-result-actions"><button type="button" data-insert-reference="${escapeHtml(mainToken)}">＋ ${isDocument ? '引用文档' : '引用正文'}</button></span>${attachments.length ? `<div class="reference-attachments">${attachments.map(item => `<button type="button" class="reference-attachment" data-insert-reference="${escapeHtml(`${target.id}#attachment:${encodeURIComponent(item.name)}`)}"><span>▧ ${escapeHtml(item.name)}</span><small>${Math.max(1, Math.round((item.size || 0) / 1024))} KB · 引用附件</small></button>`).join('')}</div>` : ''}</div>`;
+  }).join('') || '<div class="empty-state">没有找到可引用的内容</div>';
+}
+
+function renderReferenceFilters() {
+  const projectIds = [...new Set(referenceTargets.map(item => item.project_id).filter(Boolean))];
+  const categoryNames = [...new Set(referenceTargets.filter(item => item.type === 'document').map(item => item.category || '未分类'))];
+  $('#relationProjectFilter').innerHTML = `<option value="">全部项目</option>${projectIds.map(id => `<option value="${escapeHtml(id)}">${escapeHtml(projectName(id))}</option>`).join('')}`;
+  $('#relationCategoryFilter').innerHTML = `<option value="">全部分类</option>${categoryNames.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('')}`;
+  $('#relationTypeFilter').value = referenceFilters.type;
+  $('#relationProjectFilter').value = referenceFilters.project;
+  $('#relationCategoryFilter').value = referenceFilters.category;
+}
+
+function browserReferenceAttachments(items = []) {
+  return items.map(item => {
+    if (typeof item !== 'string') return item;
+    try { return JSON.parse(item); } catch { return null; }
+  }).filter(item => item?.name).map(item => ({
+    name:String(item.name),
+    size:Number(item.size || 0),
+    mime:String(item.mime || 'application/octet-stream'),
+  }));
+}
+
+async function loadReferenceTargets() {
+  try {
+    return await api('/reference-targets');
+  } catch (error) {
+    if (!/接口不存在|404/.test(error.message)) throw error;
+  }
+  const [documentItems, recordItems] = await Promise.all([api('/documents'), api('/records')]);
+  return [
+    ...documentItems.map(item => ({
+      id:item.id, type:'document', title:item.title,
+      category:item.category || '未分类', attachments:[],
+    })),
+    ...recordItems.filter(item => ['issue', 'todo'].includes(item.type)).map(item => ({
+      id:item.id, type:item.type, title:item.title, project_id:item.project_id,
+      attachments:browserReferenceAttachments(item.attachments || []),
+    })),
+  ];
+}
+
+async function openReferenceDialog(context) {
+  referenceDialogContext = context;
+  referenceFilters = {type:'', project:'', category:''};
+  if (context === 'record-editor') captureLastEditorSelection();
+  if (context === 'document-editor') captureDocumentSelection();
+  $('#relationDialogTitle').textContent = context === 'record-relation' ? '添加关联内容' : '引用工作台内容';
+  $('#relationSearch').value = '';
+  $('#relationResults').innerHTML = '<div class="empty-state">正在读取可引用内容…</div>';
+  $('#relationDialog').showModal();
+  try {
+    referenceTargets = await loadReferenceTargets();
+    renderReferenceFilters();
+    renderRelationResults();
+  } catch (error) {
+    $('#relationResults').innerHTML = `<div class="empty-state">无法读取引用内容：${escapeHtml(error.message)}</div>`;
+  }
+  setTimeout(() => $('#relationSearch').focus(), 30);
+}
+
+function recordReferencesDocument(record, documentId) {
+  const markers = [...String(record.body || '').matchAll(/\[\[([A-Za-z]+-\d+(?:#[^\]]+)?)\]\]/g)].map(match => match[1]);
+  const links = Array.isArray(record.links) ? record.links : record.links ? [record.links] : [];
+  return [...markers, ...links].some(token => String(token).split('#', 1)[0].toUpperCase() === String(documentId).toUpperCase());
+}
+
+async function loadDocumentBacklinks(documentId) {
+  try {
+    return await api(`/documents/${encodeURIComponent(documentId)}/backlinks`);
+  } catch (error) {
+    if (!/接口不存在|404|文档不存在/.test(error.message)) throw error;
+  }
+  const recordItems = await api('/records');
+  return recordItems.filter(item => ['issue', 'todo'].includes(item.type) && recordReferencesDocument(item, documentId)).map(item => ({
+    id:item.id, type:item.type, title:item.title, project_id:item.project_id,
+    project_name:projectName(item.project_id), updated:item.updated,
+  }));
+}
+
+function renderDocumentBacklinks(items = []) {
+  const host = $('#documentBacklinks');
+  if (!currentDocument || !items.length) {
+    host.hidden = true;
+    $('#documentBacklinkList').innerHTML = '';
+    return;
+  }
+  host.hidden = false;
+  $('#documentBacklinkList').innerHTML = items.map(item => `<button type="button" data-document-backlink="${escapeHtml(item.id)}"><span class="type-icon ${escapeHtml(item.type)}">${escapeHtml(typeIcons[item.type] || '•')}</span><span><strong>${escapeHtml(item.title || item.id)}</strong><small>${escapeHtml(item.project_name || projectName(item.project_id))} · ${escapeHtml(typeNames[item.type] || item.type)} · ${escapeHtml(item.id)}</small></span></button>`).join('');
+}
+
+async function refreshDocumentBacklinks(documentId) {
+  const request = ++documentBacklinkRequest;
+  renderDocumentBacklinks();
+  if (!documentId) return;
+  try {
+    const items = await loadDocumentBacklinks(documentId);
+    if (request === documentBacklinkRequest && currentDocument?.id === documentId) renderDocumentBacklinks(items);
+  } catch (error) {
+    if (request === documentBacklinkRequest && currentDocument?.id === documentId) notify('无法读取文档关联方', error.message, true);
+  }
+}
+
+function insertReferenceAtSelection(token, editor, restoreSelection, onChange) {
+  editor.focus();
+  if (!restoreSelection()) placeCaret(editor, false);
+  const selection = window.getSelection();
+  if (!selection?.rangeCount) return;
+  const range = selection.getRangeAt(0);
+  const template = document.createElement('template');
+  template.innerHTML = referenceTokenToHtml(token);
+  const fragment = template.content;
+  const lastNode = fragment.lastChild;
+  range.deleteContents();
+  range.insertNode(fragment);
+  const caret = document.createRange();
+  caret.setStartAfter(lastNode);
+  caret.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(caret);
+  if (editor.id === 'documentVisualEditor') documentLastRange = caret.cloneRange();
+  else lastEditorRange = caret.cloneRange();
+  onChange();
+}
+
+async function insertSelectedReference(token) {
+  if (!parseReferenceToken(token)) return;
+  $('#relationDialog').close();
+  if (referenceDialogContext === 'document-editor') {
+    insertReferenceAtSelection(token, $('#documentVisualEditor'), restoreDocumentSelection, markDocumentChanged);
+    return;
+  }
+  if (referenceDialogContext === 'record-editor') {
+    if (editorMode === 'wysiwyg') insertReferenceAtSelection(token, $('.editor'), restoreLastEditorSelection, markEditorChanged);
+    else {
+      const source = $('.markdown-source');
+      const start = source.selectionStart ?? source.value.length;
+      const end = source.selectionEnd ?? start;
+      const marker = `[[${token}]]`;
+      source.value = `${source.value.slice(0, start)}${marker}${source.value.slice(end)}`;
+      source.selectionStart = source.selectionEnd = start + marker.length;
+      $('.markdown-preview').innerHTML = markdownToHtml(source.value);
+      source.focus();
+      markEditorChanged();
+    }
+    return;
+  }
+  if (!currentRecord) return;
+  await saveEditorNow();
+  const marker = `[[${token}]]`;
+  const body = currentRecord.body.includes(marker) ? currentRecord.body : `${currentRecord.body.trim()}\n\n关联内容：${marker}\n`;
+  await updateRecord(currentRecord.id, {body}, '关联内容已添加');
+  await openDrawer(currentRecord.id);
+}
+
+async function openReferenceToken(token) {
+  const detail = referenceTokenDetails(token);
+  if (!detail.id) return;
+  if (detail.kind === 'attachment') {
+    window.open(`/api/attachments/${encodeURIComponent(detail.id)}/${encodeURIComponent(detail.attachmentName)}`, '_blank');
+    return;
+  }
+  if (detail.kind === 'document') {
+    if (!documents.some(item => item.id === detail.id)) {
+      try {
+        const documentTarget = await api(`/documents/${encodeURIComponent(detail.id)}`);
+        documents = [...documents.filter(item => item.id !== detail.id), documentTarget];
+      } catch (error) {
+        notify('无法打开引用文档', error.message, true);
+        return;
+      }
+    }
+    if ($('#documentDialog').open) {
+      if (currentDocument?.id === detail.id) return;
+      if (!await closeDocumentEditor()) return;
+    }
+    if (detailDrawer.classList.contains('visible') && !await confirmLeaveRecord()) return;
+    openDocument(detail.id);
+    return;
+  }
+  if ($('#documentDialog').open && !await closeDocumentEditor()) return;
+  if (detailDrawer.classList.contains('visible') && detail.id !== currentRecord?.id && !await confirmLeaveRecord()) return;
+  await openDrawer(detail.id, {fromReference:true});
 }
 
 async function renderManagePage(page) {
@@ -2678,7 +2926,7 @@ function renderDocumentsPage() {
   const cardHtml = item => `<article class="document-card ${documentSelection.has(item.id) ? 'selected' : ''}" data-document-card="${escapeHtml(item.id)}" data-document-sort-id="${escapeHtml(item.id)}" draggable="${documentDrag}" title="${documentDrag ? '拖到其他分类条目可更改分类' : '清除筛选后可拖动文档'}">${documentExportMode ? `<label class="document-card-select" title="选择文档"><input type="checkbox" data-document-select="${escapeHtml(item.id)}" ${documentSelection.has(item.id) ? 'checked' : ''}><span>选择</span></label>` : ''}<button type="button" class="document-card-open" data-document-id="${escapeHtml(item.id)}"><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(markdownToPlainText(item.body, 110, item.title))}</p>${(item.tags || []).length ? `<div class="document-card-tags">${item.tags.map(tag => `<span style="--tag-color:${safeColor((configData.tags || []).find(item => item.name === tag)?.color, '#64748b')}">${escapeHtml(tag)}</span>`).join('')}</div>` : ''}<footer><span>${escapeHtml(item.id)}</span><time>${new Date(item.updated).toLocaleDateString('zh-CN')}</time></footer></button><button type="button" class="document-card-more" data-document-card-menu="${escapeHtml(item.id)}" title="更多操作" aria-label="${escapeHtml(item.title)}的更多操作" draggable="false">•••</button></article>`;
   const categoryLabels = {manual:'手动排序', name:'分类名称', count:'文档数量', updated:'最近更新'};
   const fileLabels = {manual:'手动排序', updated:'最近更新', title:'文档标题', created:'最新创建'};
-  $('#manageContent').innerHTML = `<div class="knowledge-filter-panel category-only"><div class="knowledge-filter-row"><span class="knowledge-filter-level">分类</span><label class="document-search"><span>⌕</span><input id="documentCategorySearch" value="${escapeHtml(documentFilters.categoryQuery)}" placeholder="筛选分类名称"></label><button type="button" class="secondary-button document-sort-button ${sortConfig.category_mode === 'manual' ? '' : 'active'}" id="documentCategorySortButton" title="分类排序：${categoryLabels[sortConfig.category_mode]}">↕ <span>${categoryLabels[sortConfig.category_mode]}</span></button>${categoryQuery ? '<button type="button" class="knowledge-filter-clear" id="clearDocumentCategoryFilter">清除</button>' : ''}</div><p>分类条目支持新建、重命名和删除；删除分类后，其中的文档会移入“未分类”。</p></div>${documentExportMode ? `<div class="document-batch-bar"><label><input type="checkbox" id="selectVisibleDocuments" data-visible-ids="${escapeHtml(visible.map(item => item.id).join(','))}"> 全选当前结果</label><span id="documentSelectionCount">已选择 ${documentSelection.size} 篇</span><button type="button" class="secondary-button" id="clearDocumentSelection" ${documentSelection.size ? '' : 'disabled'}>清除选择</button></div>` : ''}<div class="document-result-count">显示 ${categoryEntries.length} 个分类 · ${visible.length} / ${documents.length} 篇文档</div><div class="document-category-list">${categoryEntries.map(entry => { const open = documentExportMode || Boolean(entry.fileQuery) || documentOpenCategories.has(entry.name); const actions = entry.name === '未分类' ? '<span class="category-entry-actions document-category-actions category-entry-actions-placeholder" aria-hidden="true"></span>' : `<span class="category-entry-actions document-category-actions"><button type="button" data-rename-document-category="${escapeHtml(entry.name)}">重命名</button><button type="button" class="danger" data-delete-document-category="${escapeHtml(entry.name)}">删除</button></span>`; const draggable = categoryDrag && entry.name !== '未分类'; return `<details class="category-entry document-category-group" data-document-category="${escapeHtml(entry.name)}" draggable="${draggable}" ${open ? 'open' : ''}><summary class="category-entry-summary"><span class="document-category-drag" title="${draggable ? '拖动分类调整顺序' : entry.name === '未分类' ? '未分类固定在最后' : '切换为手动排序后可拖动'}">⠿</span><span class="category-entry-chevron document-category-chevron">›</span><span class="category-entry-icon document-category-icon">▤</span><strong>${escapeHtml(entry.name)}</strong><em>${entry.items.length}${entry.fileQuery ? ` / ${entry.allItems.length}` : ''} 篇</em><div class="document-category-file-tools"><label><span>⌕</span><input data-document-file-search="${escapeHtml(entry.name)}" value="${escapeHtml(documentCategoryFileQueries[entry.name] || '')}" placeholder="筛选文档"></label>${entry.fileQuery ? `<button type="button" class="category-file-clear" data-clear-document-file-filter="${escapeHtml(entry.name)}" title="清除文档筛选">×</button>` : ''}<button type="button" class="category-file-sort ${entry.fileMode === 'manual' ? '' : 'active'}" data-document-file-sort="${escapeHtml(entry.name)}" title="文档排序：${fileLabels[entry.fileMode]}">↕ <span>${fileLabels[entry.fileMode]}</span></button></div><small class="document-category-drop-hint">拖入文档以分类</small>${actions}</summary><div class="document-grid" data-document-category-grid="${escapeHtml(entry.name)}">${entry.items.map(cardHtml).join('') || '<div class="empty-state document-empty">此分类中没有符合条件的文档</div>'}</div></details>`; }).join('') || '<div class="empty-state document-empty">没有符合当前条件的分类</div>'}</div>`;
+  $('#manageContent').innerHTML = `<div class="knowledge-filter-panel category-only"><div class="knowledge-filter-row"><span class="knowledge-filter-level">分类</span><label class="document-search"><span>⌕</span><input id="documentCategorySearch" value="${escapeHtml(documentFilters.categoryQuery)}" placeholder="筛选分类名称"></label><button type="button" class="secondary-button document-sort-button ${sortConfig.category_mode === 'manual' ? '' : 'active'}" id="documentCategorySortButton" title="分类排序：${categoryLabels[sortConfig.category_mode]}">↕ <span>${categoryLabels[sortConfig.category_mode]}</span></button>${categoryQuery ? '<button type="button" class="knowledge-filter-clear" id="clearDocumentCategoryFilter">清除</button>' : ''}</div><p>分类条目支持直接新建文档、导入、重命名和删除；删除分类后，其中的文档会移入“未分类”。</p></div>${documentExportMode ? `<div class="document-batch-bar"><label><input type="checkbox" id="selectVisibleDocuments" data-visible-ids="${escapeHtml(visible.map(item => item.id).join(','))}"> 全选当前结果</label><span id="documentSelectionCount">已选择 ${documentSelection.size} 篇</span><button type="button" class="secondary-button" id="clearDocumentSelection" ${documentSelection.size ? '' : 'disabled'}>清除选择</button></div>` : ''}<div class="document-result-count">显示 ${categoryEntries.length} 个分类 · ${visible.length} / ${documents.length} 篇文档</div><div class="document-category-list">${categoryEntries.map(entry => { const open = documentExportMode || Boolean(entry.fileQuery) || documentOpenCategories.has(entry.name); const actions = `<span class="category-entry-actions document-category-actions"><button type="button" data-new-document-category="${escapeHtml(entry.name)}">新建文档</button><button type="button" data-import-document-category="${escapeHtml(entry.name)}">导入</button>${entry.name === '未分类' ? '' : `<button type="button" data-rename-document-category="${escapeHtml(entry.name)}">重命名</button><button type="button" class="danger" data-delete-document-category="${escapeHtml(entry.name)}">删除</button>`}</span>`; const draggable = categoryDrag && entry.name !== '未分类'; return `<details class="category-entry document-category-group" data-document-category="${escapeHtml(entry.name)}" draggable="${draggable}" ${open ? 'open' : ''}><summary class="category-entry-summary"><span class="document-category-drag" title="${draggable ? '拖动分类调整顺序' : entry.name === '未分类' ? '未分类固定在最后' : '切换为手动排序后可拖动'}">⠿</span><span class="category-entry-chevron document-category-chevron">›</span><span class="category-entry-icon document-category-icon">▤</span><strong>${escapeHtml(entry.name)}</strong><em>${entry.items.length}${entry.fileQuery ? ` / ${entry.allItems.length}` : ''} 篇</em><div class="document-category-file-tools"><label><span>⌕</span><input data-document-file-search="${escapeHtml(entry.name)}" value="${escapeHtml(documentCategoryFileQueries[entry.name] || '')}" placeholder="筛选文档"></label>${entry.fileQuery ? `<button type="button" class="category-file-clear" data-clear-document-file-filter="${escapeHtml(entry.name)}" title="清除文档筛选">×</button>` : ''}<button type="button" class="category-file-sort ${entry.fileMode === 'manual' ? '' : 'active'}" data-document-file-sort="${escapeHtml(entry.name)}" title="文档排序：${fileLabels[entry.fileMode]}">↕ <span>${fileLabels[entry.fileMode]}</span></button></div><small class="document-category-drop-hint">拖入文档以分类</small>${actions}</summary><div class="document-grid" data-document-category-grid="${escapeHtml(entry.name)}">${entry.items.map(cardHtml).join('') || '<div class="empty-state document-empty">此分类中没有符合条件的文档</div>'}</div></details>`; }).join('') || '<div class="empty-state document-empty">没有符合当前条件的分类</div>'}</div>`;
   updateDocumentSelectionUI();
   bindKnowledgeDragAndDrop();
 }
@@ -3295,7 +3543,7 @@ function updateDocumentSelectionToolbar() {
   toolbar.classList.add('visible'); toolbar.setAttribute('aria-hidden', 'false');
 }
 
-function openDocument(documentId = '') {
+function openDocument(documentId = '', initialCategory = '') {
   currentDocument = documents.find(item => item.id === documentId) || null;
   documentDirty = false;
   documentSaving = false;
@@ -3303,6 +3551,7 @@ function openDocument(documentId = '') {
   const base = {title:currentDocument?.title || '', category:currentDocument?.category || '', tags:currentDocument?.tags || [], body:currentDocument?.body || ''};
   const hasRecoveryDraft = Boolean(draft && (draft.title !== base.title || draft.category !== base.category || draft.body !== base.body || JSON.stringify(draft.tags || []) !== JSON.stringify(base.tags || [])));
   const content = hasRecoveryDraft ? {...base, ...draft} : base;
+  if (!currentDocument && initialCategory) content.category = initialCategory;
   if (draft && !hasRecoveryDraft) clearDocumentDraft(currentDocument?.id || 'new');
   documentDirty = hasRecoveryDraft;
   $('#documentDialogTitle').textContent = currentDocument ? currentDocument.title : '新建文档';
@@ -3320,6 +3569,7 @@ function openDocument(documentId = '') {
   $('#documentDialog').classList.toggle('outline-collapsed', documentOutlineCollapsed);
   setDocumentMode(currentDocument ? 'read' : 'visual');
   $('#documentDialog').showModal();
+  refreshDocumentBacklinks(currentDocument?.id || '');
   requestAnimationFrame(updateDocumentOutline);
   if (!currentDocument) setTimeout(() => $('#documentTitle').focus(), 30);
   if (hasRecoveryDraft) notify('已恢复未保存的文档草稿', '草稿尚未写入 Markdown，请检查后手动保存');
@@ -3342,7 +3592,9 @@ async function saveDocument({readAfterSave = false, notifyUser = true} = {}) {
     clearDocumentDraft(previousDraftId);
     clearDocumentDraft(saved.id);
     documents = await api('/documents');
+    documentOpenCategories.add(saved.category || '未分类');
     renderDocumentsPage();
+    refreshDocumentBacklinks(saved.id);
     if (readAfterSave) setDocumentMode('read');
     $('#documentDialogTitle').textContent = saved.title;
     $('#documentOutlineTitle').textContent = saved.title;
@@ -3391,6 +3643,8 @@ async function closeDocumentEditor() {
     if (choice === 'discard') { clearDocumentDraft(); documentDirty = false; }
   }
   $('#documentDialog').close();
+  documentBacklinkRequest += 1;
+  renderDocumentBacklinks();
   $('#documentColorPalette').hidden = true;
   documentLastRange = null;
   return true;
@@ -3449,21 +3703,47 @@ async function exportSelectedDocuments() {
   } catch (error) { notify('文档导出失败', error.message, true); }
 }
 
-async function importKnowledgeDocuments(files) {
+function knowledgeImportCategories() {
+  return [...new Set([...(configData?.document_categories || []), ...documents.map(item => item.category || '未分类'), '未分类'])];
+}
+
+async function chooseKnowledgeImportCategory() {
+  const categories = knowledgeImportCategories();
+  return appPrompt({
+    title:'导入知识库文档',
+    message:'先选择目标分类，再选择一个或多个 Markdown 文件。',
+    detail:'所选分类会覆盖文档内原有的分类元数据。',
+    confirmText:'下一步',
+    input:{
+      label:'目标分类', placeholder:'请选择分类', readOnly:true, select:false,
+      choices:categories.map(name => ({label:name, value:name, color:'#64748b'})),
+    },
+  });
+}
+
+async function startKnowledgeImport(category = '') {
+  const targetCategory = category || await chooseKnowledgeImportCategory();
+  if (!targetCategory) return;
+  knowledgeImportCategory = targetCategory;
+  $('#knowledgeImportInput').click();
+}
+
+async function importKnowledgeDocuments(files, category = '未分类') {
   const markdownFiles = [...files].filter(file => file.name.toLowerCase().endsWith('.md'));
   if (!markdownFiles.length) return notify('没有可导入的 Markdown 文档', '请选择 .md 文件', true);
   let imported = 0;
   try {
     for (const file of markdownFiles) {
-      await api('/documents/import', {method:'POST', body:JSON.stringify({name:file.name, content:await file.text()})});
+      await api('/documents/import', {method:'POST', body:JSON.stringify({name:file.name, content:await file.text(), category})});
       imported += 1;
     }
     documents = await api('/documents');
+    documentOpenCategories.add(category);
     renderDocumentsPage();
-    notify(`已导入 ${imported} 篇文档`, '分类会优先读取 Markdown 元数据，也可以在编辑时自定义');
+    notify(`已导入 ${imported} 篇文档`, `已保存到「${category}」`);
   } catch (error) {
     documents = await api('/documents'); renderDocumentsPage();
-    notify('文档导入未全部完成', `${imported ? `已导入 ${imported} 篇；` : ''}${error.message}`, true);
+    notify('文档导入未全部完成', `${imported ? `「${category}」中已导入 ${imported} 篇；` : ''}${error.message}`, true);
   }
 }
 
@@ -3997,6 +4277,7 @@ async function saveEditorNow() {
   $('#saveRecord').disabled = true;
   try {
     await updateRecord(recordId, changes);
+    renderRelations();
     if (currentRecord?.type === 'info') {
       $('#drawerTags').innerHTML = `${(currentRecord.tags || []).map(drawerTagHtml).join('')}<button id="addRecordTag">＋ 添加标签</button>`;
       applyInfoRecordPalette(currentRecord);
@@ -4489,11 +4770,23 @@ document.addEventListener('click', async event => {
   if (event.target.closest('#chooseDocumentExternal')) { await openExternalEditorDialog(); return; }
   if (event.target.closest('#newDocument')) { openDocument(); return; }
   if (event.target.closest('#newDocumentCategory')) { await createDocumentCategory(); return; }
+  const categoryNewDocumentButton = event.target.closest('[data-new-document-category]');
+  if (categoryNewDocumentButton) {
+    event.preventDefault();
+    openDocument('', categoryNewDocumentButton.dataset.newDocumentCategory);
+    return;
+  }
   const renameDocumentCategoryButton = event.target.closest('[data-rename-document-category]');
   if (renameDocumentCategoryButton) { event.preventDefault(); await renameDocumentCategory(renameDocumentCategoryButton.dataset.renameDocumentCategory); return; }
   const deleteDocumentCategoryButton = event.target.closest('[data-delete-document-category]');
   if (deleteDocumentCategoryButton) { event.preventDefault(); await deleteDocumentCategory(deleteDocumentCategoryButton.dataset.deleteDocumentCategory); return; }
-  if (event.target.closest('#importKnowledgeDocuments')) { $('#knowledgeImportInput').click(); return; }
+  if (event.target.closest('#importKnowledgeDocuments')) { await startKnowledgeImport(); return; }
+  const categoryImportButton = event.target.closest('[data-import-document-category]');
+  if (categoryImportButton) {
+    event.preventDefault();
+    await startKnowledgeImport(categoryImportButton.dataset.importDocumentCategory);
+    return;
+  }
   if (event.target.closest('#startDocumentExport')) { documentExportMode = true; documentSelection.clear(); renderDocumentsPage(); return; }
   if (event.target.closest('#cancelDocumentExport')) { documentExportMode = false; documentSelection.clear(); renderDocumentsPage(); return; }
   if (event.target.closest('#exportSelectedKnowledge')) { await exportSelectedDocuments(); return; }
@@ -4531,6 +4824,10 @@ document.addEventListener('click', async event => {
   if (event.target.closest('#documentLink')) {
     const url = await appPrompt({title:'插入链接', confirmText:'插入', input:{label:'链接地址', placeholder:'https://example.com'}});
     if (url?.trim()) { $('#documentVisualEditor').focus(); restoreDocumentSelection(); document.execCommand('createLink', false, /^(https?:|mailto:)/i.test(url.trim()) ? url.trim() : `https://${url.trim()}`); markDocumentChanged(); }
+    return;
+  }
+  if (event.target.closest('#documentContentReference')) {
+    await openReferenceDialog('document-editor');
     return;
   }
   if (event.target.closest('#documentSelectionLink')) {
@@ -4881,8 +5178,7 @@ document.addEventListener('click', async event => {
   const internalReference = event.target.closest('[data-reference-id]');
   if (internalReference) {
     event.preventDefault();
-    if (!await confirmLeaveRecord()) return;
-    await openDrawer(internalReference.dataset.referenceId, {fromReference:true});
+    await openReferenceToken(internalReference.dataset.referenceToken || internalReference.dataset.referenceId);
   }
   const recordButton = event.target.closest('[data-record-id]:not(.todo-row)');
   if (recordButton && !internalReference && !event.target.closest('input') && !event.target.closest('#drawerRecordId') && !event.target.closest('.card-menu-button')) {
@@ -5020,7 +5316,7 @@ document.addEventListener('click', async event => {
     }
   }
   if (event.target.closest('#insertRecordReference')) {
-    $('#relationSearch').value = ''; renderRelationResults(); $('#relationDialog').showModal(); setTimeout(() => $('#relationSearch').focus(), 30);
+    await openReferenceDialog('record-editor');
   }
   if (event.target.closest('#copyRecordId') || event.target.closest('#drawerRecordId')) {
     const id = currentRecord?.id;
@@ -5148,20 +5444,22 @@ document.addEventListener('click', async event => {
     const value = await appPrompt({title:'添加标签', message:choices.length ? '选择已有标签，或输入一个新标签。' : '当前没有其他可选标签，也可以直接创建新标签。', detail:choices.length ? '点击标签即可立即添加；输入新名称后按 Enter 或点击“添加”。' : '取消、右上角关闭和 Esc 均可直接退出。', confirmText:'添加', input:{label:'新标签名称（可选）', placeholder:'例如：前端、紧急、待确认', choices}});
     if (value?.trim()) updateRecord(currentRecord.id, {tags:[...new Set([...(currentRecord.tags || []), value.trim()])]}, '标签已添加').then(async () => { configData.tags = await api('/tags'); await openDrawer(currentRecord.id); });
   }
-  if (event.target.closest('#addRelation') && currentRecord) { $('#relationSearch').value = ''; renderRelationResults(); $('#relationDialog').showModal(); setTimeout(() => $('#relationSearch').focus(), 30); }
+  if (event.target.closest('#addRelation') && currentRecord) { await openReferenceDialog('record-relation'); }
   const openRelated = event.target.closest('[data-open-related]');
   if (openRelated) { if (await confirmLeaveRecord()) await openDrawer(openRelated.dataset.openRelated, {fromReference:true}); }
-  const addRelated = event.target.closest('[data-add-relation]');
-  if (addRelated && currentRecord) {
-    await saveEditorNow();
-    const id = addRelated.dataset.addRelation; const links = [...new Set([...(currentRecord.links || []), id])]; let body = currentRecord.body;
-    if (!body.includes(`[[${id}]]`)) body = `${body.trim()}\n\n关联记录：[[${id}]]\n`;
-    updateRecord(currentRecord.id, {links, body}, '关联记录已添加').then(async () => { $('#relationDialog').close(); await openDrawer(currentRecord.id); });
-  }
-  const removeRelated = event.target.closest('[data-remove-relation]');
-  if (removeRelated && currentRecord) {
-    const id = removeRelated.dataset.removeRelation; const links = (currentRecord.links || []).filter(item => item !== id); const body = currentRecord.body.replace(new RegExp(`\\s*关联记录：?\\[\\[${id}\\]\\]\\s*`, 'g'), '\n\n').trim();
-    updateRecord(currentRecord.id, {links, body}, '关联记录已移除').then(() => openDrawer(currentRecord.id));
+  const insertReference = event.target.closest('[data-insert-reference]');
+  if (insertReference) { await insertSelectedReference(insertReference.dataset.insertReference); return; }
+  const openReference = event.target.closest('[data-open-reference]');
+  if (openReference) { await openReferenceToken(openReference.dataset.openReference); return; }
+  const documentBacklink = event.target.closest('[data-document-backlink]');
+  if (documentBacklink) { await openReferenceToken(`${documentBacklink.dataset.documentBacklink}#body`); return; }
+  const removeReference = event.target.closest('[data-remove-reference]');
+  if (removeReference && currentRecord) {
+    const token = removeReference.dataset.removeReference;
+    const parsed = parseReferenceToken(token);
+    const links = (currentRecord.links || []).filter(item => item !== token && item !== parsed?.id);
+    const body = currentRecord.body.replaceAll(`[[${token}]]`, '').replace(/\n{3,}/g, '\n\n').trim();
+    updateRecord(currentRecord.id, {links, body}, '关联内容已移除').then(() => openDrawer(currentRecord.id));
   }
 });
 
@@ -5307,6 +5605,27 @@ $('#usageDialogBack').addEventListener('click', returnWithinUsageDialog);
 $('#closeUsageDialog').addEventListener('click', closeUsageDialog);
 $('#closeRelation').addEventListener('click', () => $('#relationDialog').close());
 $('#relationSearch').addEventListener('input', event => renderRelationResults(event.target.value));
+$('#relationTypeFilter').addEventListener('change', event => {
+  referenceFilters.type = event.target.value;
+  if (referenceFilters.type === 'document') referenceFilters.project = '';
+  if (['issue', 'todo'].includes(referenceFilters.type)) referenceFilters.category = '';
+  renderReferenceFilters(); renderRelationResults($('#relationSearch').value);
+});
+$('#relationProjectFilter').addEventListener('change', event => {
+  referenceFilters.project = event.target.value;
+  if (referenceFilters.project) referenceFilters.category = '';
+  renderReferenceFilters(); renderRelationResults($('#relationSearch').value);
+});
+$('#relationCategoryFilter').addEventListener('change', event => {
+  referenceFilters.category = event.target.value;
+  if (referenceFilters.category) { referenceFilters.type = 'document'; referenceFilters.project = ''; }
+  renderReferenceFilters(); renderRelationResults($('#relationSearch').value);
+});
+$('#clearRelationFilters').addEventListener('click', () => {
+  referenceFilters = {type:'', project:'', category:''};
+  $('#relationSearch').value = '';
+  renderReferenceFilters(); renderRelationResults(); $('#relationSearch').focus();
+});
 $('#addAttachment').addEventListener('click', () => $('#attachmentInput').click());
 $('#attachmentInput').addEventListener('change', event => { uploadAttachment(event.target.files[0]); event.target.value = ''; });
 $('#drawerStatus').addEventListener('change', event => { if (currentRecord) { const statusMeta = statusesFor(currentRecord.type, currentRecord.project_id).find(item => item.name === event.target.value); updateRecord(currentRecord.id, {status:event.target.value, completed:Boolean(statusMeta?.completed)}, '状态已保存'); } });
@@ -5615,6 +5934,7 @@ document.addEventListener('pointerdown', event => {
   if (!event.target.closest('#slashCommandMenu, .editor, #documentVisualEditor')) hideSlashCommandMenu();
 });
 $('#documentDialog').addEventListener('cancel', event => { event.preventDefault(); closeDocumentEditor(); });
+$('#knowledgeImportInput').addEventListener('cancel', () => { knowledgeImportCategory = ''; });
 document.addEventListener('change', async event => {
   if (event.target.matches('#statusWatchOptions input')) { updateStatusWatchSelectionCount(); return; }
   if (event.target.id === 'selectAllHomeItems') {
@@ -5642,7 +5962,14 @@ document.addEventListener('change', async event => {
     return;
   }
   if (['homeLayoutProject','homeLayoutType','homeLayoutStatus'].includes(event.target.id)) { renderHomeLayoutPicker(); return; }
-  if (event.target.id === 'knowledgeImportInput') { const files = [...event.target.files]; event.target.value = ''; await importKnowledgeDocuments(files); return; }
+  if (event.target.id === 'knowledgeImportInput') {
+    const files = [...event.target.files];
+    const category = knowledgeImportCategory || '未分类';
+    knowledgeImportCategory = '';
+    event.target.value = '';
+    await importKnowledgeDocuments(files, category);
+    return;
+  }
   if (event.target.id === 'selectAllStatuses') { $$('[data-status-select]').forEach(input => { input.checked = event.target.checked; }); updateStatusBatchUI(); return; }
   if (event.target.matches('[data-status-select]')) { updateStatusBatchUI(); return; }
   if (event.target.matches('.status-edit-row .status-completed')) { updateStatusRowDirtyState(event.target.closest('.status-edit-row')); return; }

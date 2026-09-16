@@ -31,7 +31,7 @@ DEFAULT_DATA_DIR = APP_DIR / "workbench-data"
 LOCATION_FILE = APP_DIR / ".workbench-location.json"
 EXPORT_LOCATION_FILE = APP_DIR / ".workbench-export.json"
 EXTERNAL_EDITOR_FILE = APP_DIR / ".workbench-editor.json"
-APP_VERSION = "2026.09.03.1"
+APP_VERSION = "2026.09.16.2"
 TYPE_DIRS = {"issue": "issues", "todo": "todos", "idea": "ideas", "info": "infos"}
 TYPE_PREFIXES = {"issue": "ISSUE", "todo": "TODO", "idea": "IDEA", "info": "INFO"}
 CONCEPT_MAP_WIDTH = 12_000.0
@@ -929,7 +929,7 @@ class Repository:
             arrowhead = str(raw.get("arrowhead", default_arrowhead))
             if arrowhead not in {"none", "to", "from", "both"}:
                 arrowhead = default_arrowhead
-            if node_types.get(raw["to"]) == "linking_phrase":
+            if node_types.get(raw["to"]) == "linking_phrase" and arrowhead not in {"none", "from"}:
                 arrowhead = "none"
             elif node_types.get(raw["from"]) == "linking_phrase" and node_types.get(raw["to"]) == "concept":
                 arrowhead = "to"
@@ -1104,6 +1104,72 @@ class Repository:
             if document.get("id") == document_id:
                 return document, Path(document["file_path"])
         return None, None
+
+    def list_reference_targets(self) -> list[dict]:
+        """Return lightweight targets that visual editors can reference."""
+        targets = [
+            {
+                "id": document.get("id"), "type": "document",
+                "title": document.get("title", ""),
+                "category": document.get("category", "未分类"),
+                "attachments": [],
+            }
+            for document in self.list_documents()
+        ]
+        for record in self.list_records():
+            if record.get("type") not in {"issue", "todo"}:
+                continue
+            attachments = []
+            for item in record.get("attachments", []):
+                if isinstance(item, str):
+                    try:
+                        item = json.loads(item)
+                    except (TypeError, json.JSONDecodeError):
+                        continue
+                if isinstance(item, dict) and str(item.get("name", "")).strip():
+                    attachments.append({
+                        "name": str(item["name"]),
+                        "size": int(item.get("size", 0) or 0),
+                        "mime": str(item.get("mime", "application/octet-stream")),
+                    })
+            targets.append({
+                "id": record.get("id"), "type": record.get("type"),
+                "title": record.get("title", ""),
+                "project_id": record.get("project_id"),
+                "attachments": attachments,
+            })
+        return targets
+
+    def list_document_backlinks(self, document_id: str) -> list[dict]:
+        """Return issue and todo records that reference a knowledge document."""
+        document, _ = self.get_document(document_id)
+        if not document:
+            raise FileNotFoundError(document_id)
+        normalized_id = str(document_id).upper()
+        project_names = {str(item.get("id")): str(item.get("name", item.get("id", ""))) for item in self.list_projects()}
+        backlinks = []
+        for record in self.list_records():
+            if record.get("type") not in {"issue", "todo"}:
+                continue
+            tokens = re.findall(r"\[\[([A-Za-z]+-\d+(?:#[^\]]+)?)\]\]", str(record.get("body", "")))
+            links = record.get("links", [])
+            if isinstance(links, str):
+                links = [links]
+            if isinstance(links, list):
+                tokens.extend(str(item) for item in links)
+            referenced_ids = {token.split("#", 1)[0].upper() for token in tokens}
+            if normalized_id not in referenced_ids:
+                continue
+            project_id = str(record.get("project_id", ""))
+            backlinks.append({
+                "id": record.get("id"),
+                "type": record.get("type"),
+                "title": record.get("title", ""),
+                "project_id": project_id,
+                "project_name": project_names.get(project_id, project_id or "未归属项目"),
+                "updated": record.get("updated", ""),
+            })
+        return sorted(backlinks, key=lambda item: item.get("updated", ""), reverse=True)
 
     def create_document(self, payload: dict) -> dict:
         title = str(payload.get("title", "")).strip()
@@ -2112,8 +2178,13 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                 document_id = path.strip("/").split("/")[-2]
                 content, filename = self.repository.export_document(document_id)
                 return self._bytes(content, "text/markdown; charset=utf-8", filename)
+            if path.startswith("/api/documents/") and path.endswith("/backlinks"):
+                document_id = path.strip("/").split("/")[-2]
+                return self._json(self.repository.list_document_backlinks(document_id))
             if path == "/api/documents":
                 return self._json(self.repository.list_documents())
+            if path == "/api/reference-targets":
+                return self._json(self.repository.list_reference_targets())
             if path.startswith("/api/documents/"):
                 document, _ = self.repository.get_document(path.rsplit("/", 1)[-1])
                 return self._json(document) if document else self._json({"error": "文档不存在"}, HTTPStatus.NOT_FOUND)

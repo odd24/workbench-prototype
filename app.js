@@ -2,6 +2,8 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const markdownCore = window.Workbench.markdown;
 const documentModelCore = window.Workbench.documentModel;
+const editorSelectionCore = window.Workbench.editorSelection;
+const editorBlocksCore = window.Workbench.editorBlocks;
 const escapeHtml = markdownCore.escapeHtml;
 
 const sidebar = $('#sidebar');
@@ -768,43 +770,10 @@ function applySlashCommand(commandId) {
   const state = slashCommandState;
   if (!state?.block?.isConnected) return hideSlashCommandMenu();
   const {editor, block} = state;
-  const createBlock = (tag, className = '') => {
-    const element = document.createElement(tag);
-    if (className) element.className = className;
-    element.appendChild(document.createElement('br'));
-    return element;
-  };
-  let target;
-  let nodes = [];
-  if (['text','h1','h2','h3'].includes(commandId)) {
-    target = createBlock(commandId === 'text' ? 'p' : commandId);
-    nodes = [target];
-  } else if (commandId === 'bullet' || commandId === 'number') {
-    const list = document.createElement(commandId === 'bullet' ? 'ul' : 'ol');
-    target = createBlock('li'); list.appendChild(target); nodes = [list];
-  } else if (commandId === 'task') {
-    const list = document.createElement('ul');
-    target = document.createElement('li'); target.className = 'task-item';
-    const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.contentEditable = 'false';
-    target.append(checkbox, document.createTextNode(' '), document.createElement('br')); list.appendChild(target); nodes = [list];
-  } else if (commandId === 'quote') {
-    const quote = document.createElement('blockquote'); target = createBlock('p'); quote.appendChild(target); nodes = [quote];
-  } else if (commandId === 'code') {
-    const pre = document.createElement('pre'); target = document.createElement('code'); target.dataset.language = 'txt'; target.appendChild(document.createElement('br')); pre.appendChild(target); nodes = [pre];
-  } else if (commandId === 'divider') {
-    target = createBlock('p'); nodes = [document.createElement('hr'), target];
-  } else if (commandId === 'table') {
-    const wrap = document.createElement('div'); wrap.className = 'editor-table-wrap';
-    wrap.innerHTML = '<table><thead><tr><th><br></th><th><br></th><th><br></th></tr></thead><tbody><tr><td><br></td><td><br></td><td><br></td></tr><tr><td><br></td><td><br></td><td><br></td></tr></tbody></table>';
-    target = wrap.querySelector('th'); nodes = [wrap, createBlock('p')];
-  }
-  if (!nodes.length || !target) return hideSlashCommandMenu();
-  if (block === editor) editor.replaceChildren(...nodes);
-  else block.replaceWith(...nodes);
   hideSlashCommandMenu();
-  placeCaret(target, true);
-  if (editor.id === 'documentVisualEditor') markDocumentChanged();
-  else markEditorChanged();
+  return editorBlocksCore.replaceWithStructure(editor, block, commandId, {
+    onChange:editor.id === 'documentVisualEditor' ? markDocumentChanged : markEditorChanged,
+  });
 }
 
 function handleSlashCommandKeydown(event) {
@@ -823,126 +792,38 @@ function handleSlashCommandKeydown(event) {
 }
 
 function insertTaskListBlock(editor, markChanged) {
-  editor.focus();
-  let selection = selectionInsideEditor(editor);
-  if (!selection) {
-    placeCaret(editor, false);
-    selection = selectionInsideEditor(editor);
-  }
-  if (!selection?.rangeCount) return false;
-  const selectedText = selection.toString().trim();
-  const range = selection.getRangeAt(0);
-  range.deleteContents();
-  const marker = document.createElement('span');
-  marker.dataset.taskInsertMarker = 'true';
-  range.insertNode(marker);
-
-  const list = document.createElement('ul');
-  const item = document.createElement('li');
-  item.className = 'task-item';
-  const checkbox = document.createElement('input');
-  checkbox.type = 'checkbox';
-  checkbox.contentEditable = 'false';
-  const label = document.createTextNode(selectedText || '待办项');
-  item.append(checkbox, document.createTextNode(' '), label);
-  list.appendChild(item);
-  const after = document.createElement('p');
-  after.appendChild(document.createElement('br'));
-
-  let topBlock = marker.parentElement;
-  while (topBlock && topBlock !== editor && topBlock.parentElement !== editor) topBlock = topBlock.parentElement;
-  const canSplit = topBlock && topBlock !== editor && ['P','DIV','H1','H2','H3','H4','H5','H6'].includes(topBlock.nodeName);
-  if (canSplit) {
-    const tailRange = document.createRange();
-    tailRange.setStartAfter(marker);
-    tailRange.setEnd(topBlock, topBlock.childNodes.length);
-    const remainder = tailRange.extractContents();
-    marker.remove();
-    if (remainder.textContent || remainder.querySelector?.('img,br,.internal-link')) after.replaceChildren(remainder);
-    if (isEmptyEditorBlock(topBlock)) topBlock.replaceWith(list, after);
-    else topBlock.after(list, after);
-  } else {
-    marker.remove();
-    if (topBlock && topBlock !== editor) topBlock.after(list, after);
-    else editor.append(list, after);
-  }
-
-  const labelRange = document.createRange();
-  labelRange.selectNodeContents(label);
-  selection.removeAllRanges();
-  selection.addRange(labelRange);
-  markChanged();
-  return true;
+  return editorBlocksCore.insertTaskList(editor, {onChange:markChanged});
 }
 
 function selectionInsideEditor(editor = $('.editor')) {
-  const selection = window.getSelection();
-  return selection?.rangeCount && editor.contains(selection.anchorNode) ? selection : null;
+  return editorSelectionCore.inside(editor);
 }
 
 function closestEditorBlock(node, editor = $('.editor')) {
-  const element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
-  return element?.closest('p, div, h1, h2, h3, h4, h5, h6, pre, blockquote, li, td, th') || editor;
+  return editorSelectionCore.closestBlock(node, editor);
 }
 
 function restoreLastEditorSelection() {
-  if (!lastEditorRange || !$('.editor').contains(lastEditorRange.commonAncestorContainer)) return false;
-  const selection = window.getSelection();
-  selection.removeAllRanges();
-  selection.addRange(lastEditorRange.cloneRange());
-  return true;
+  return editorSelectionCore.restore($('.editor'), lastEditorRange);
 }
 
 function captureLastEditorSelection() {
-  const selection = selectionInsideEditor($('.editor'));
-  if (!selection) return false;
-  lastEditorRange = selection.getRangeAt(0).cloneRange();
+  const range = editorSelectionCore.capture($('.editor'));
+  if (!range) return false;
+  lastEditorRange = range;
   return true;
 }
 
 function placeCaret(node, atStart = true) {
-  const range = document.createRange();
-  range.selectNodeContents(node);
-  range.collapse(atStart);
-  const selection = window.getSelection();
-  selection.removeAllRanges();
-  selection.addRange(range);
+  return editorSelectionCore.placeCaret(node, atStart);
 }
 
 function insertTextAtSelection(text, editor = $('.editor')) {
-  const selection = selectionInsideEditor(editor);
-  if (!selection) return false;
-  const range = selection.getRangeAt(0);
-  range.deleteContents();
-  const textNode = document.createTextNode(text);
-  range.insertNode(textNode);
-  range.setStartAfter(textNode);
-  range.collapse(true);
-  selection.removeAllRanges();
-  selection.addRange(range);
-  return true;
+  return editorSelectionCore.insertText(text, editor);
 }
 
 function pastePlainTextAtSelection(text, editor = $('.editor')) {
-  if (!editor || typeof text !== 'string') return false;
-  editor.focus();
-  if (document.execCommand('insertText', false, text)) return true;
-  const selection = selectionInsideEditor(editor);
-  if (!selection) return false;
-  const range = selection.getRangeAt(0);
-  range.deleteContents();
-  const fragment = document.createDocumentFragment();
-  const lines = text.replace(/\r\n?/g, '\n').split('\n');
-  let caretNode = null;
-  lines.forEach((line, index) => {
-    if (index) { caretNode = document.createElement('br'); fragment.appendChild(caretNode); }
-    if (line) { caretNode = document.createTextNode(line); fragment.appendChild(caretNode); }
-  });
-  if (!caretNode) { caretNode = document.createTextNode(''); fragment.appendChild(caretNode); }
-  range.insertNode(fragment);
-  range.setStartAfter(caretNode); range.collapse(true);
-  selection.removeAllRanges(); selection.addRange(range);
-  return true;
+  return editorSelectionCore.pastePlainText(text, editor);
 }
 
 function wrapTextareaSelection(textarea, before, after = before) {
@@ -953,26 +834,6 @@ function wrapTextareaSelection(textarea, before, after = before) {
   textarea.dispatchEvent(new InputEvent('input', {bubbles:true, inputType:'insertText', data:selected}));
 }
 
-function insertCodeLineBreakAtSelection(editor = $('.editor')) {
-  const selection = selectionInsideEditor(editor);
-  if (!selection) return false;
-  const range = selection.getRangeAt(0);
-  range.deleteContents();
-  const lineBreak = document.createElement('br');
-  const caretAnchor = document.createTextNode('\u200B');
-  range.insertNode(lineBreak);
-  lineBreak.after(caretAnchor);
-  range.setStartAfter(caretAnchor);
-  range.collapse(true);
-  selection.removeAllRanges();
-  selection.addRange(range);
-  return true;
-}
-
-function isEmptyEditorBlock(node) {
-  return !(node.textContent || '').replace(/[\u200B\s]/g, '') && !node.querySelector('img, input, .internal-link');
-}
-
 function markEditorChanged() {
   hydrateEditorBlocks($('.editor'));
   editorDirty = true;
@@ -981,134 +842,19 @@ function markEditorChanged() {
 }
 
 function insertCodeBlock(language = $('#codeLanguage')?.value || 'txt') {
-  const editor = $('.editor');
-  const selection = selectionInsideEditor(editor);
-  const block = selection && closestEditorBlock(selection.anchorNode, editor);
-  const pre = document.createElement('pre');
-  const code = document.createElement('code');
-  code.dataset.language = normalizeCodeLanguage(language);
-  code.textContent = (block && block !== editor ? block.textContent : selection?.toString()) || '在这里输入代码';
-  pre.appendChild(code);
-  if (block && block !== editor) block.replaceWith(pre);
-  else editor.appendChild(pre);
-  if (!pre.nextElementSibling) pre.insertAdjacentHTML('afterend', '<p><br></p>');
-  placeCaret(code, false);
-  markEditorChanged();
+  return editorBlocksCore.insertCodeBlock($('.editor'), {language, mode:'replace-block', onChange:markEditorChanged});
 }
 
 function toggleBlockquote(editor = $('.editor'), onChange = markEditorChanged) {
-  const selection = selectionInsideEditor(editor);
-  if (!selection) return;
-  const block = closestEditorBlock(selection.anchorNode, editor);
-  const quote = block.closest?.('blockquote');
-  if (quote) {
-    const fragment = document.createDocumentFragment();
-    const children = [...quote.children];
-    if (children.length) children.forEach(child => fragment.appendChild(child));
-    else {
-      const paragraph = document.createElement('p');
-      paragraph.innerHTML = quote.innerHTML || '<br>';
-      fragment.appendChild(paragraph);
-    }
-    const last = fragment.lastChild;
-    quote.replaceWith(fragment);
-    placeCaret(last, false);
-  } else {
-    const source = block === editor ? null : block;
-    const quoteElement = document.createElement('blockquote');
-    const paragraph = document.createElement('p');
-    if (source) {
-      paragraph.append(...source.childNodes);
-      quoteElement.appendChild(paragraph);
-      source.replaceWith(quoteElement);
-    } else {
-      paragraph.innerHTML = '<br>';
-      quoteElement.appendChild(paragraph);
-      editor.appendChild(quoteElement);
-    }
-    placeCaret(paragraph, false);
-  }
-  onChange();
+  return editorBlocksCore.toggleBlockquote(editor, {onChange});
 }
 
 function handleQuoteEnter(event, onChange = markEditorChanged) {
-  if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return false;
-  const editor = event.currentTarget;
-  const selection = selectionInsideEditor(editor);
-  if (!selection) return false;
-  const quote = (selection.anchorNode.nodeType === Node.ELEMENT_NODE ? selection.anchorNode : selection.anchorNode.parentElement)?.closest('blockquote');
-  if (!quote) return false;
-  event.preventDefault();
-  if (!selection.isCollapsed) selection.getRangeAt(0).deleteContents();
-  let block = closestEditorBlock(selection.anchorNode, editor);
-  if (block === quote) {
-    const paragraph = document.createElement('p');
-    paragraph.append(...quote.childNodes);
-    if (!paragraph.childNodes.length) paragraph.innerHTML = '<br>';
-    quote.appendChild(paragraph);
-    block = paragraph;
-    placeCaret(block, false);
-  }
-  if (isEmptyEditorBlock(block)) {
-    const paragraph = document.createElement('p');
-    paragraph.innerHTML = '<br>';
-    block.remove();
-    quote.after(paragraph);
-    if (!quote.textContent.trim() && !quote.querySelector('img, input, .internal-link')) quote.remove();
-    placeCaret(paragraph);
-  } else {
-    const range = selection.getRangeAt(0);
-    const tailRange = document.createRange();
-    tailRange.setStart(range.startContainer, range.startOffset);
-    tailRange.setEnd(block, block.childNodes.length);
-    const tail = tailRange.extractContents();
-    const paragraph = document.createElement('p');
-    paragraph.appendChild(tail);
-    if (isEmptyEditorBlock(paragraph)) paragraph.innerHTML = '<br>';
-    block.after(paragraph);
-    placeCaret(paragraph);
-  }
-  onChange();
-  return true;
+  return editorBlocksCore.handleQuoteEnter(event, {onChange});
 }
 
 function handleCodeBlockEnter(event, onChange = markEditorChanged) {
-  if (event.key !== 'Enter' || event.isComposing) return false;
-  const editor = event.currentTarget;
-  const selection = selectionInsideEditor(editor);
-  if (!selection) return false;
-  const element = selection.anchorNode.nodeType === Node.ELEMENT_NODE ? selection.anchorNode : selection.anchorNode.parentElement;
-  const pre = element?.closest('pre');
-  const code = pre?.querySelector('code');
-  if (!pre || !code) return false;
-  const range = selection.getRangeAt(0);
-  if (!code.contains(range.startContainer) || !code.contains(range.endContainer)) return false;
-  event.preventDefault();
-  const beforeRange = document.createRange();
-  beforeRange.selectNodeContents(code);
-  beforeRange.setEnd(range.startContainer, range.startOffset);
-  const afterRange = document.createRange();
-  afterRange.selectNodeContents(code);
-  afterRange.setStart(range.endContainer, range.endOffset);
-  const before = codeElementToText(beforeRange.cloneContents());
-  const after = codeElementToText(afterRange.cloneContents());
-  const shouldExit = (event.ctrlKey || event.metaKey) || (!event.shiftKey && selection.isCollapsed && !after && before.endsWith('\n\n'));
-  if (shouldExit) {
-    const language = normalizeCodeLanguage(code.dataset.language);
-    const content = codeElementToText(code).replace(/\n$/, '');
-    code.innerHTML = syntaxHighlightCode(content, language) || '<br>';
-    let paragraph = pre.nextElementSibling;
-    if (!paragraph || paragraph.nodeName !== 'P' || !isEmptyEditorBlock(paragraph)) {
-      paragraph = document.createElement('p');
-      paragraph.innerHTML = '<br>';
-      pre.after(paragraph);
-    }
-    placeCaret(paragraph);
-  } else {
-    insertCodeLineBreakAtSelection(editor);
-  }
-  onChange();
-  return true;
+  return editorBlocksCore.handleCodeBlockEnter(event, {onChange});
 }
 
 function updateEditorToolbarState() {
@@ -2307,23 +2053,10 @@ async function refreshDocumentBacklinks(documentId) {
 function insertReferenceAtSelection(token, editor, restoreSelection, onChange) {
   editor.focus();
   if (!restoreSelection()) placeCaret(editor, false);
-  const selection = window.getSelection();
-  if (!selection?.rangeCount) return;
-  const range = selection.getRangeAt(0);
-  const template = document.createElement('template');
-  template.innerHTML = referenceTokenToHtml(token);
-  const fragment = template.content;
-  const lastNode = fragment.lastChild;
-  range.deleteContents();
-  range.insertNode(fragment);
-  const caret = document.createRange();
-  caret.setStartAfter(lastNode);
-  caret.collapse(true);
-  selection.removeAllRanges();
-  selection.addRange(caret);
-  if (editor.id === 'documentVisualEditor') documentLastRange = caret.cloneRange();
-  else lastEditorRange = caret.cloneRange();
-  onChange();
+  const caret = editorBlocksCore.insertReference(editor, referenceTokenToHtml(token), {onChange});
+  if (!caret) return;
+  if (editor.id === 'documentVisualEditor') documentLastRange = caret;
+  else lastEditorRange = caret;
 }
 
 async function insertSelectedReference(token) {
@@ -2824,68 +2557,26 @@ function documentMarkdownContent() {
 }
 
 function restoreDocumentSelection() {
-  const editor = $('#documentVisualEditor');
-  if (!documentLastRange || !editor.contains(documentLastRange.commonAncestorContainer)) return false;
-  const selection = window.getSelection();
-  selection.removeAllRanges(); selection.addRange(documentLastRange.cloneRange());
-  return true;
+  return editorSelectionCore.restore($('#documentVisualEditor'), documentLastRange);
 }
 
 function captureDocumentSelection() {
-  const editor = $('#documentVisualEditor');
-  const selection = window.getSelection();
-  if (!selection?.rangeCount || !editor.contains(selection.anchorNode)) return false;
-  documentLastRange = selection.getRangeAt(0).cloneRange();
+  const range = editorSelectionCore.capture($('#documentVisualEditor'));
+  if (!range) return false;
+  documentLastRange = range;
   return true;
 }
 
 function insertDocumentCodeBlock() {
   const editor = $('#documentVisualEditor');
-  editor.focus();
   if (!restoreDocumentSelection()) placeCaret(editor, false);
-  const selection = window.getSelection();
-  if (!selection?.rangeCount) return;
-  const selectedText = selection.toString();
-  const range = selection.getRangeAt(0);
-  range.deleteContents();
-  const marker = document.createElement('span');
-  marker.dataset.documentCodeMarker = 'true';
-  range.insertNode(marker);
-  const pre = document.createElement('pre');
-  const code = document.createElement('code');
-  const language = normalizeCodeLanguage($('#documentCodeLanguage')?.value || 'txt');
-  code.dataset.language = language;
-  const initialCode = selectedText || '在这里输入代码';
-  code.innerHTML = syntaxHighlightCode(initialCode, language) || '<br>';
-  pre.appendChild(code);
-  const nearestBlock = closestEditorBlock(marker, editor);
-  let topBlock = nearestBlock;
-  while (topBlock !== editor && topBlock.parentElement !== editor) topBlock = topBlock.parentElement;
-  if (nearestBlock !== editor && topBlock === nearestBlock) {
-    const trailing = document.createRange();
-    trailing.setStartAfter(marker);
-    trailing.setEnd(nearestBlock, nearestBlock.childNodes.length);
-    const remainder = trailing.extractContents();
-    marker.remove();
-    const after = document.createElement(['P','DIV'].includes(nearestBlock.nodeName) ? nearestBlock.nodeName.toLowerCase() : 'p');
-    after.appendChild(remainder);
-    if (!after.textContent && !after.querySelector('img,br')) after.appendChild(document.createElement('br'));
-    if (!nearestBlock.textContent && !nearestBlock.querySelector('img,br')) nearestBlock.replaceWith(pre);
-    else nearestBlock.after(pre);
-    pre.after(after);
-  } else {
-    marker.remove();
-    const after = document.createElement('p');
-    after.appendChild(document.createElement('br'));
-    if (topBlock === editor) editor.append(pre, after);
-    else topBlock.after(pre, after);
-  }
-  const codeRange = document.createRange();
-  codeRange.selectNodeContents(code);
-  if (selectedText) codeRange.collapse(false);
-  selection.removeAllRanges(); selection.addRange(codeRange);
-  captureDocumentSelection();
-  markDocumentChanged();
+  const range = editorBlocksCore.insertCodeBlock(editor, {
+    language:$('#documentCodeLanguage')?.value || 'txt',
+    mode:'split-selection',
+    highlight:true,
+    onChange:markDocumentChanged,
+  });
+  if (range) documentLastRange = range;
 }
 
 function renderDocumentTagOptions(selectedTags = []) {
@@ -3070,35 +2761,7 @@ function updateDocumentToolbarState() {
 }
 
 function handleTaskListEnter(event, markChanged) {
-  if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return false;
-  const editor = event.currentTarget;
-  const selection = selectionInsideEditor(editor);
-  if (!selection?.isCollapsed) return false;
-  const element = selection.anchorNode.nodeType === Node.ELEMENT_NODE ? selection.anchorNode : selection.anchorNode.parentElement;
-  const item = element?.closest('li.task-item');
-  if (!item) return false;
-  event.preventDefault();
-  const list = item.parentElement;
-  if (!(item.textContent || '').trim()) {
-    const paragraph = document.createElement('p'); paragraph.innerHTML = '<br>';
-    const anchor = list;
-    item.remove();
-    anchor.after(paragraph);
-    if (!anchor.children.length) anchor.remove();
-    placeCaret(paragraph);
-  } else {
-    const range = selection.getRangeAt(0);
-    const tailRange = document.createRange();
-    tailRange.setStart(range.startContainer, range.startOffset);
-    tailRange.setEnd(item, item.childNodes.length);
-    const tail = tailRange.extractContents();
-    const next = document.createElement('li'); next.className = 'task-item';
-    const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.contentEditable = 'false';
-    next.append(checkbox, document.createTextNode(' '), tail);
-    item.after(next); placeCaret(next, false);
-  }
-  markChanged();
-  return true;
+  return editorBlocksCore.handleTaskListEnter(event, {onChange:markChanged});
 }
 
 function updateDocumentTagSummary() {

@@ -4,7 +4,20 @@ const markdownCore = window.Workbench.markdown;
 const documentModelCore = window.Workbench.documentModel;
 const editorSelectionCore = window.Workbench.editorSelection;
 const editorBlocksCore = window.Workbench.editorBlocks;
+const editorHostCore = window.Workbench.editorHost;
 const escapeHtml = markdownCore.escapeHtml;
+
+const recordEditorHost = editorHostCore.create({
+  editor:$('.editor'),
+  onChange:() => markEditorChanged(),
+  renderOptions:() => ({renderReference:referenceTokenToHtml, renderImage:markdownImageHtml}),
+});
+const documentEditorHost = editorHostCore.create({
+  editor:$('#documentVisualEditor'),
+  onChange:() => markDocumentChanged(),
+  renderOptions:() => ({renderReference:referenceTokenToHtml, renderImage:markdownImageHtml}),
+});
+const editorHosts = new Map([[recordEditorHost.editor, recordEditorHost], [documentEditorHost.editor, documentEditorHost]]);
 
 const sidebar = $('#sidebar');
 const main = $('.main');
@@ -84,7 +97,6 @@ let usageReturnContext = null;
 let editorSaveTimer = null;
 let editorExpanded = false;
 let editorContentExpanded = false;
-let lastEditorRange = null;
 let createContext = {projectId:'', status:''};
 let lastRecordSignature = '';
 let trashItems = [];
@@ -100,7 +112,6 @@ let documentOpenCategories = new Set();
 let documentSelection = new Set();
 let documentExportMode = false;
 let knowledgeImportCategory = '';
-let documentLastRange = null;
 let documentOutlineCollapsed = localStorage.getItem('workbench-document-outline-collapsed') === 'true';
 let documentOutlineTimer = null;
 let documentSaveTimer = null;
@@ -686,11 +697,12 @@ function hydrateEditorBlocks(editor) {
 }
 
 function editorToMarkdown(editor) {
-  return documentModelCore.serialize(editor);
+  return editorHosts.get(editor)?.serialize() || documentModelCore.serialize(editor);
 }
 
 function renderMarkdownEditor(editor, markdown, interactive = true) {
-  return documentModelCore.render(editor, markdown, {interactive, renderReference:referenceTokenToHtml, renderImage:markdownImageHtml});
+  return editorHosts.get(editor)?.render(markdown, interactive)
+    || documentModelCore.render(editor, markdown, {interactive, renderReference:referenceTokenToHtml, renderImage:markdownImageHtml});
 }
 
 const slashCommands = [
@@ -771,9 +783,7 @@ function applySlashCommand(commandId) {
   if (!state?.block?.isConnected) return hideSlashCommandMenu();
   const {editor, block} = state;
   hideSlashCommandMenu();
-  return editorBlocksCore.replaceWithStructure(editor, block, commandId, {
-    onChange:editor.id === 'documentVisualEditor' ? markDocumentChanged : markEditorChanged,
-  });
+  return editorHosts.get(editor)?.replaceWithStructure(block, commandId) || false;
 }
 
 function handleSlashCommandKeydown(event) {
@@ -792,7 +802,8 @@ function handleSlashCommandKeydown(event) {
 }
 
 function insertTaskListBlock(editor, markChanged) {
-  return editorBlocksCore.insertTaskList(editor, {onChange:markChanged});
+  const host = editorHosts.get(editor);
+  return host ? host.insertTaskList() : editorBlocksCore.insertTaskList(editor, {onChange:markChanged});
 }
 
 function selectionInsideEditor(editor = $('.editor')) {
@@ -804,14 +815,11 @@ function closestEditorBlock(node, editor = $('.editor')) {
 }
 
 function restoreLastEditorSelection() {
-  return editorSelectionCore.restore($('.editor'), lastEditorRange);
+  return recordEditorHost.restoreSelection();
 }
 
 function captureLastEditorSelection() {
-  const range = editorSelectionCore.capture($('.editor'));
-  if (!range) return false;
-  lastEditorRange = range;
-  return true;
+  return recordEditorHost.captureSelection();
 }
 
 function placeCaret(node, atStart = true) {
@@ -819,11 +827,11 @@ function placeCaret(node, atStart = true) {
 }
 
 function insertTextAtSelection(text, editor = $('.editor')) {
-  return editorSelectionCore.insertText(text, editor);
+  return editorHosts.get(editor)?.insertText(text) || editorSelectionCore.insertText(text, editor);
 }
 
 function pastePlainTextAtSelection(text, editor = $('.editor')) {
-  return editorSelectionCore.pastePlainText(text, editor);
+  return editorHosts.get(editor)?.pastePlainText(text) || editorSelectionCore.pastePlainText(text, editor);
 }
 
 function wrapTextareaSelection(textarea, before, after = before) {
@@ -842,19 +850,11 @@ function markEditorChanged() {
 }
 
 function insertCodeBlock(language = $('#codeLanguage')?.value || 'txt') {
-  return editorBlocksCore.insertCodeBlock($('.editor'), {language, mode:'replace-block', onChange:markEditorChanged});
+  return recordEditorHost.insertCodeBlock({language, mode:'replace-block'});
 }
 
 function toggleBlockquote(editor = $('.editor'), onChange = markEditorChanged) {
-  return editorBlocksCore.toggleBlockquote(editor, {onChange});
-}
-
-function handleQuoteEnter(event, onChange = markEditorChanged) {
-  return editorBlocksCore.handleQuoteEnter(event, {onChange});
-}
-
-function handleCodeBlockEnter(event, onChange = markEditorChanged) {
-  return editorBlocksCore.handleCodeBlockEnter(event, {onChange});
+  return editorHosts.get(editor)?.toggleBlockquote() || editorBlocksCore.toggleBlockquote(editor, {onChange});
 }
 
 function updateEditorToolbarState() {
@@ -2053,10 +2053,9 @@ async function refreshDocumentBacklinks(documentId) {
 function insertReferenceAtSelection(token, editor, restoreSelection, onChange) {
   editor.focus();
   if (!restoreSelection()) placeCaret(editor, false);
-  const caret = editorBlocksCore.insertReference(editor, referenceTokenToHtml(token), {onChange});
-  if (!caret) return;
-  if (editor.id === 'documentVisualEditor') documentLastRange = caret;
-  else lastEditorRange = caret;
+  const host = editorHosts.get(editor);
+  return host?.insertReference(referenceTokenToHtml(token))
+    || editorBlocksCore.insertReference(editor, referenceTokenToHtml(token), {onChange});
 }
 
 async function insertSelectedReference(token) {
@@ -2557,26 +2556,21 @@ function documentMarkdownContent() {
 }
 
 function restoreDocumentSelection() {
-  return editorSelectionCore.restore($('#documentVisualEditor'), documentLastRange);
+  return documentEditorHost.restoreSelection();
 }
 
 function captureDocumentSelection() {
-  const range = editorSelectionCore.capture($('#documentVisualEditor'));
-  if (!range) return false;
-  documentLastRange = range;
-  return true;
+  return documentEditorHost.captureSelection();
 }
 
 function insertDocumentCodeBlock() {
   const editor = $('#documentVisualEditor');
   if (!restoreDocumentSelection()) placeCaret(editor, false);
-  const range = editorBlocksCore.insertCodeBlock(editor, {
+  return documentEditorHost.insertCodeBlock({
     language:$('#documentCodeLanguage')?.value || 'txt',
     mode:'split-selection',
     highlight:true,
-    onChange:markDocumentChanged,
   });
-  if (range) documentLastRange = range;
 }
 
 function renderDocumentTagOptions(selectedTags = []) {
@@ -2653,7 +2647,7 @@ function moveCaretOutsideDocumentColor(command) {
   const range = document.createRange();
   range.setStart(marker.firstChild, 1); range.collapse(true);
   selection.removeAllRanges(); selection.addRange(range);
-  documentLastRange = range.cloneRange();
+  documentEditorHost.setSelection(range);
 }
 
 function finishDocumentColorBoundaryInput() {
@@ -2667,7 +2661,7 @@ function finishDocumentColorBoundaryInput() {
   const range = document.createRange();
   range.setStart(text, text.length); range.collapse(true);
   selection.removeAllRanges(); selection.addRange(range);
-  documentLastRange = range.cloneRange();
+  documentEditorHost.setSelection(range);
 }
 
 function applyDocumentColor(value, command = $('#documentColorPalette').dataset.command || 'foreColor', remember = true) {
@@ -2760,10 +2754,6 @@ function updateDocumentToolbarState() {
   if (quoteButton) quoteButton.setAttribute('aria-pressed', String(Boolean(block.closest?.('blockquote'))));
 }
 
-function handleTaskListEnter(event, markChanged) {
-  return editorBlocksCore.handleTaskListEnter(event, {onChange:markChanged});
-}
-
 function updateDocumentTagSummary() {
   const selected = selectedDocumentTags();
   $('#documentSelectedTags').innerHTML = selected.map(name => {
@@ -2779,11 +2769,11 @@ function updateDocumentSelectionToolbar() {
   if (documentMode !== 'visual' || !selection?.rangeCount || !$('#documentVisualEditor').contains(selection.anchorNode)) {
     toolbar.classList.remove('visible'); toolbar.setAttribute('aria-hidden', 'true'); return;
   }
-  documentLastRange = selection.getRangeAt(0).cloneRange();
+  documentEditorHost.captureSelection(selection);
   if (selection.isCollapsed) {
     toolbar.classList.remove('visible'); toolbar.setAttribute('aria-hidden', 'true'); return;
   }
-  const rect = documentLastRange.getBoundingClientRect();
+  const rect = documentEditorHost.savedSelection().getBoundingClientRect();
   const width = toolbar.offsetWidth || 310;
   toolbar.style.left = `${Math.max(12, Math.min(window.innerWidth - width - 12, rect.left + rect.width / 2 - width / 2))}px`;
   toolbar.style.top = `${Math.max(12, rect.top - 50)}px`;
@@ -2893,7 +2883,7 @@ async function closeDocumentEditor() {
   documentBacklinkRequest += 1;
   renderDocumentBacklinks();
   $('#documentColorPalette').hidden = true;
-  documentLastRange = null;
+  documentEditorHost.clearSelection();
   return true;
 }
 
@@ -4083,7 +4073,7 @@ document.addEventListener('click', async event => {
     return;
   }
   if (event.target.closest('#documentSelectionCode')) {
-    const text = documentLastRange?.toString() || '代码'; $('#documentVisualEditor').focus(); restoreDocumentSelection(); document.execCommand('insertHTML', false, `<code>${escapeHtml(text)}</code>`); markDocumentChanged(); return;
+    const text = documentEditorHost.savedSelection()?.toString() || '代码'; $('#documentVisualEditor').focus(); restoreDocumentSelection(); document.execCommand('insertHTML', false, `<code>${escapeHtml(text)}</code>`); markDocumentChanged(); return;
   }
   if (event.target.closest('#saveDocument')) { await saveDocument(); return; }
   if (event.target.closest('#deleteDocument')) { await deleteDocument(); return; }
@@ -5041,9 +5031,7 @@ $('#codeLanguage').addEventListener('change', event => {
 });
 $('.editor').addEventListener('keydown', event => {
   if (handleSlashCommandKeydown(event)) return;
-  if (handleTaskListEnter(event, markEditorChanged)) return;
-  if (handleCodeBlockEnter(event)) return;
-  if (handleQuoteEnter(event)) return;
+  if (recordEditorHost.handleStructuralKeydown(event)) return;
   if (event.key === 'Tab' && !event.isComposing) {
     const selection = selectionInsideEditor();
     const element = selection && (selection.anchorNode.nodeType === Node.ELEMENT_NODE ? selection.anchorNode : selection.anchorNode.parentElement);
@@ -5137,9 +5125,7 @@ $('#documentCodeLanguage').addEventListener('change', event => {
 });
 $('#documentVisualEditor').addEventListener('keydown', event => {
   if (handleSlashCommandKeydown(event)) return;
-  if (handleTaskListEnter(event, markDocumentChanged)) return;
-  if (handleCodeBlockEnter(event, markDocumentChanged)) return;
-  if (handleQuoteEnter(event, markDocumentChanged)) return;
+  if (documentEditorHost.handleStructuralKeydown(event)) return;
   if (event.key === 'Tab' && !event.isComposing) {
     const editor = event.currentTarget;
     const selection = selectionInsideEditor(editor);
@@ -5165,7 +5151,7 @@ $('#documentVisualEditor').addEventListener('change', event => { if (event.targe
 document.addEventListener('selectionchange', () => {
   const selection = selectionInsideEditor();
   if (!selection) return;
-  lastEditorRange = selection.getRangeAt(0).cloneRange();
+  recordEditorHost.captureSelection(selection);
   updateEditorToolbarState();
 });
 document.addEventListener('selectionchange', () => requestAnimationFrame(() => { updateDocumentSelectionToolbar(); updateDocumentToolbarState(); }));

@@ -124,7 +124,7 @@
   function editorBlockType(node) {
     if (node?.nodeType === Node.TEXT_NODE) return 'paragraph';
     if (node?.nodeType !== Node.ELEMENT_NODE) return 'unknown';
-    if (node.nodeName === 'TABLE' || node.classList.contains('editor-table-wrap')) return 'table';
+    if (node.nodeName === 'TABLE' || (node.classList.contains('editor-table-wrap') && node.querySelector('table'))) return 'table';
     if (/^H[1-6]$/.test(node.nodeName)) return 'heading';
     if (node.nodeName === 'UL') return [...node.children].some(item => item.classList.contains('task-item')) ? 'task-list' : 'bullet-list';
     if (node.nodeName === 'OL') return 'number-list';
@@ -177,7 +177,7 @@
 
   function editorNodeToModelBlocks(node) {
     const element = node.nodeType === Node.ELEMENT_NODE ? node : null;
-    const canContainAccidentalBlocks = element && ['P', 'DIV'].includes(element.nodeName) && !element.classList.contains('editor-table-wrap');
+    const canContainAccidentalBlocks = element && ['P', 'DIV'].includes(element.nodeName);
     const structuralChild = child => child.nodeType === Node.ELEMENT_NODE && (
       ['P', 'DIV', 'UL', 'OL', 'PRE', 'BLOCKQUOTE', 'HR', 'TABLE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6'].includes(child.nodeName)
       || child.classList.contains('editor-table-wrap')

@@ -7,9 +7,11 @@
     require('./js/editor/markdown.js');
     require('./js/editor/document-model.js');
     require('./js/editor/editor-selection.js');
+    require('./js/editor/editor-blocks.js');
   }
   const selectionCore = isCommonJs ? require('./js/editor/editor-selection.js') : global.Workbench.editorSelection;
   const blocks = isCommonJs ? require('./js/editor/editor-blocks.js') : global.Workbench.editorBlocks;
+  const editorHost = isCommonJs ? require('./js/editor/editor-host.js') : global.Workbench.editorHost;
   const documentModel = global.Workbench.documentModel;
   const markdown = global.Workbench.markdown;
 
@@ -20,6 +22,7 @@
 
   ['inside', 'capture', 'restore', 'placeCaret', 'insertText'].forEach(name => equal(typeof selectionCore[name], 'function', `selection.${name}`));
   ['replaceWithStructure', 'insertTaskList', 'insertCodeBlock', 'toggleBlockquote', 'insertReference'].forEach(name => equal(typeof blocks[name], 'function', `blocks.${name}`));
+  equal(typeof editorHost.create, 'function', 'editorHost.create');
 
   if (typeof document !== 'undefined') {
     const host = document.createElement('section');
@@ -83,9 +86,27 @@
 
     const listStructures = ['bullet', 'number'].map(command => blocks.structure(command, document).nodes[0].nodeName);
     equal(listStructures.join(','), 'UL,OL', '普通列表结构');
+
+    const sharedSource = '# 同一内容\n\n正文 **加粗**\n\n- [x] 完成\n\n```javascript\nconst ok = true;\n```\n\n| 左 | 右 |\n| :--- | ---: |\n| A | B |';
+    const recordSurface = createEditor('');
+    const documentSurface = createEditor('');
+    const recordHost = editorHost.create({editor:recordSurface});
+    const documentHost = editorHost.create({editor:documentSurface});
+    recordHost.render(sharedSource, true);
+    documentHost.render(sharedSource, true);
+    equal(recordHost.serialize(), documentHost.serialize(), '双编辑器序列化一致');
+    equal(recordHost.serialize(), sharedSource, '共享 Markdown 往返');
+    documentHost.render(documentHost.serialize(), true);
+    equal(documentHost.serialize(), sharedSource, '保存重开无损');
+
+    const tableWrap = document.createElement('div');
+    tableWrap.className = 'editor-table-wrap';
+    tableWrap.innerHTML = '<table><tbody><tr><td>单元格</td></tr></tbody></table>表格后正文';
+    recordSurface.replaceChildren(tableWrap);
+    equal(recordHost.serialize(), '| 单元格 |\n| :--- |\n\n表格后正文', '表格后输入不会丢失');
     host.remove();
     document.body.dataset.testResult = 'passed';
-    document.body.textContent = 'PASS selection,caret,bullet-list,number-list,task-list,reference,code,quote,table,divider';
+    document.body.textContent = 'PASS shared-host,round-trip,table-tail,selection,caret,bullet-list,number-list,task-list,reference,code,quote,table,divider';
   } else {
     console.log('Editor selection and block contract tests passed.');
   }

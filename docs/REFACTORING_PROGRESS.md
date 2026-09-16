@@ -29,11 +29,11 @@
 | 项目 | 当前值 |
 | --- | --- |
 | 当前阶段 | 阶段 1：后端基础设施拆分 |
-| 当前工作项 | 无（RF-105 已完成） |
-| 最近完成 | RF-105 提取知识库与配置仓储 |
-| 下一工作项 | RF-106 提取项目与记录仓储 |
+| 当前工作项 | 无（RF-106 已完成） |
+| 最近完成 | RF-106 提取项目与记录仓储 |
+| 下一工作项 | RF-107 分离 HTTP 路由 |
 | 已知阻塞 | 无 |
-| 后端测试基线 | 63 项通过 |
+| 后端测试基线 | 65 项通过 |
 | 下一阶段门禁 | RF-101 至 RF-108 全部完成 |
 
 ## 3. 工作项状态
@@ -56,7 +56,7 @@
 | RF-103 | 提取概念图仓储 | 已完成 | 2026-09-16 | 2026-09-16 | Codex | 提取归一化、分类、原子写入和 CRUD，保留仓储门面 |
 | RF-104 | 提取附件仓储 | 已完成 | 2026-09-16 | 2026-09-16 | Codex | 提取记录/项目附件、分类、批量操作和孤儿扫描 |
 | RF-105 | 提取知识库与配置仓储 | 已完成 | 2026-09-16 | 2026-09-16 | Codex | 组合仓储提取完成，旧排序和空分类重载验证通过 |
-| RF-106 | 提取项目与记录仓储 | 待开始 |  |  |  | 依赖 RF-101、RF-104、RF-105 |
+| RF-106 | 提取项目与记录仓储 | 已完成 | 2026-09-16 | 2026-09-16 | Codex | 组合仓储提取完成，缓存、并发、历史和回收站验证通过 |
 | RF-107 | 分离 HTTP 路由 | 待开始 |  |  |  | 依赖 RF-002、RF-103～RF-106 |
 | RF-108 | 精简服务启动文件 | 待开始 |  |  |  | 依赖 RF-107 |
 
@@ -124,6 +124,8 @@
 | 2026-09-16 | RF-104 | 进行中 → 已完成 | 新增 `workbench/assets.py` 和 `test_assets.py`；记录/项目附件、分类、批量操作、流式上传、路径解析和孤儿扫描移入 `AttachmentRepository`；主 `Repository` 保留公共与私有委托入口 | 附件边界专项 3 项、既有附件/引用专项 6 项、完整测试 61 项及全部语法/差异检查通过；10MB+ 流仍分块读取 | 数据/API/索引格式无变化；记录与项目附件继续独立，路径保持根目录约束，中断上传清理部分文件；下一步 RF-105 |
 | 2026-09-16 | RF-105 | 待开始 → 进行中 | 计划新增 `workbench/configuration.py`、`workbench/documents.py` 和边界测试；提取项目/文档排序、文档分类、标签、状态、工作流配置及知识库文档 CRUD、导入导出、引用目标和反向链接；主 `Repository` 保留同名委托入口 | 计划运行知识库与配置专项、固定旧配置、分类与排序、标签/状态迁移、反向链接、HTTP 和完整门禁；新增模块纳入语法检查 | 风险：空分类与旧排序格式必须保留；分类重命名/删除和标签/状态重命名必须同步使用方；外部编辑器 patch 兼容及文档 ID、Markdown 字节/API 结构不得变化 |
 | 2026-09-16 | RF-105 | 进行中 → 已完成 | 新增 `workbench/configuration.py`、`workbench/documents.py` 和 `test_documents.py`；配置迁移规则及知识库文档持久化、引用和导入导出移入组合仓储；`server.py` 保留全部兼容委托入口 | 知识库边界/旧排序重载 2 项、分类/排序/状态/反向链接/外部编辑器专项 6 项、完整测试 63 项及全部语法/差异检查通过 | 数据格式、API、文档 ID、Markdown 和外部编辑器 patch 路径无变化；DEC-008 组合仓储模式继续适用；无 UI 修改，下一步 RF-106 |
+| 2026-09-16 | RF-106 | 待开始 → 进行中 | 计划新增 `workbench/projects.py`、`workbench/records.py` 和边界测试；提取项目 CRUD、记录 CRUD/类型转换、搜索、缓存、历史及 Markdown 导入；共享回收站与整库导出仍由兼容门面协调 | 计划运行项目/记录边界、并发编号、缓存与外部修改、信息字段、历史、转换、回收站、附件联动、HTTP 和完整门禁；新增模块纳入语法检查 | 风险：配置、附件、文档反向链接与项目/记录仓储存在双向协作；通过回调注入保持无反向导入，并保留 `server.load_markdown`、外部编辑器和缓存字段兼容入口 |
+| 2026-09-16 | RF-106 | 进行中 → 已完成 | 新增 `workbench/projects.py`、`workbench/records.py` 和 `test_records.py`；项目 CRUD 与记录持久化、搜索、缓存、历史、类型转换及 Markdown 导入移入组合仓储；共享回收站和整库导出继续由 `Repository` 协调 | 项目/记录边界与重载 2 项、并发/缓存/外部修改/信息字段/转换/历史/回收站/附件引用专项 10 项、完整测试 65 项及全部语法/差异检查通过 | 数据格式、API、ID、缓存失效、历史和可恢复删除语义无变化；保留 `server.load_markdown`、编辑器和缓存字段兼容路径；DEC-008 继续适用；下一步 RF-107 |
 
 ## 5. 验证记录
 
@@ -182,6 +184,12 @@
 | 2026-09-16 | RF-105 | `python -m py_compile`（根目录及 `workbench/` 全部 Python 文件） | 通过 | 新配置、文档仓储及测试已纳入 |
 | 2026-09-16 | RF-105 | `node --check app.js`、`node --check concept-map.js` | 通过 | 无输出；前端未修改 |
 | 2026-09-16 | RF-105 | `git diff --check` | 通过 | 仅有 Windows LF/CRLF 提示，无内容错误 |
+| 2026-09-16 | RF-106 | `python -m unittest -v test_records` | 通过，2 项 | 验证项目/记录组合仓储、缓存兼容别名、信息字段与历史重载、项目和记录可恢复删除 |
+| 2026-09-16 | RF-106 | `python -m unittest -v test_server.RepositoryTests.test_project_record_search_update_and_trash test_server.RepositoryTests.test_record_cache_reuses_parse_and_detects_external_edits test_server.RepositoryTests.test_record_ids_stay_unique_during_concurrent_creation test_server.RepositoryTests.test_information_record_uses_structured_fields_without_status test_server.RepositoryTests.test_information_fields_store_multiple_multiline_commands test_server.RepositoryTests.test_convert_record_moves_type_without_resetting_status test_server.RepositoryTests.test_record_can_open_in_external_markdown_editor test_server.RepositoryTests.test_trash_restore_and_permanent_delete test_server.RepositoryTests.test_trash_batch_restore_and_permanent_delete test_server.RepositoryTests.test_reference_targets_include_documents_record_bodies_and_attachments` | 通过，10 项 | 覆盖 `server.load_markdown` 动态 patch、外部修改、附件引用和编辑器兼容路径 |
+| 2026-09-16 | RF-106 | `python -m unittest -v` | 通过，65 项 | 完整回归，包含 HTTP 集成测试 |
+| 2026-09-16 | RF-106 | `python -m py_compile`（根目录及 `workbench/` 全部 Python 文件） | 通过 | 新项目、记录仓储及测试已纳入 |
+| 2026-09-16 | RF-106 | `node --check app.js`、`node --check concept-map.js` | 通过 | 无输出；前端未修改 |
+| 2026-09-16 | RF-106 | `git diff --check` | 通过 | 仅有 Windows LF/CRLF 提示，无内容错误 |
 
 ## 6. 决策记录
 

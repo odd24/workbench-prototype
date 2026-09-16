@@ -11,6 +11,8 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from server import APP_VERSION, Repository, WorkbenchHandler, WorkbenchHTTPServer
+from workbench.http_api import WorkbenchHandler as ExtractedWorkbenchHandler
+from workbench.http_api import WorkbenchHTTPServer as ExtractedWorkbenchHTTPServer
 
 
 class QuietWorkbenchHandler(WorkbenchHandler):
@@ -67,6 +69,10 @@ class HTTPIntegrationTests(unittest.TestCase):
         self.assertEqual(payload["data_dir"], str(self.repo.root))
         self.assertEqual(payload["app_version"], APP_VERSION)
 
+    def test_server_keeps_compatible_extracted_http_exports(self):
+        self.assertIs(WorkbenchHandler, ExtractedWorkbenchHandler)
+        self.assertIs(WorkbenchHTTPServer, ExtractedWorkbenchHTTPServer)
+
     def test_static_file_is_served_with_no_cache_headers(self):
         status, headers, content = self.request("GET", "/index.html")
 
@@ -108,6 +114,30 @@ class HTTPIntegrationTests(unittest.TestCase):
             names = archive.namelist()
         self.assertTrue(any(name.endswith("README.md") for name in names))
         self.assertTrue(any("TODO-0001" in name for name in names))
+
+    def test_stream_upload_and_inline_download_round_trip(self):
+        content = (b"stream-boundary-" * 65536) + b"done"
+        status, _, created = self.request_json(
+            "POST",
+            f"/api/projects/{quote(self.project['id'])}/assets/upload?name=stream.bin&category=HTTP",
+            body=content,
+        )
+        self.assertEqual(status, 201)
+
+        status, headers, downloaded = self.request(
+            "GET", f"/api/project-assets/{quote(self.project['id'])}/{quote(created['id'])}"
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(headers.get_content_type(), "application/octet-stream")
+        self.assertEqual(int(headers["Content-Length"]), len(content))
+        self.assertEqual(downloaded, content)
+
+    def test_conflict_is_reported_as_409(self):
+        with patch.object(self.repo, "create_project", side_effect=FileExistsError("项目冲突")):
+            status, _, conflict = self.request_json("POST", "/api/projects", {"name": "冲突"})
+
+        self.assertEqual(status, 409)
+        self.assertEqual(conflict, {"error": "项目冲突"})
 
     def test_bad_request_not_found_and_internal_error_statuses(self):
         status, _, bad_request = self.request_json("POST", "/api/projects", body=b"{")

@@ -1,0 +1,301 @@
+const assert = require('node:assert/strict');
+const childProcess = require('node:child_process');
+const fs = require('node:fs');
+const net = require('node:net');
+const os = require('node:os');
+const path = require('node:path');
+
+const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+
+async function freePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const {port} = server.address();
+      server.close(error => error ? reject(error) : resolve(port));
+    });
+  });
+}
+
+function browserExecutable() {
+  const candidates = [
+    process.env.WORKBENCH_BROWSER_PATH,
+    process.platform === 'win32' && path.join(process.env['ProgramFiles(x86)'] || '', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+    process.platform === 'win32' && path.join(process.env.ProgramFiles || '', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+    process.platform === 'linux' && '/usr/bin/microsoft-edge',
+    process.platform === 'linux' && '/usr/bin/google-chrome',
+    process.platform === 'linux' && '/usr/bin/chromium',
+  ].filter(Boolean);
+  const executable = candidates.find(candidate => fs.existsSync(candidate));
+  if (!executable) throw new Error('未找到 Edge/Chrome；可通过 WORKBENCH_BROWSER_PATH 指定浏览器');
+  return executable;
+}
+
+async function waitForHttp(url, timeout = 10000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) return;
+    } catch { /* 服务仍在启动 */ }
+    await delay(100);
+  }
+  throw new Error(`等待服务超时：${url}`);
+}
+
+class DevToolsClient {
+  constructor(url) {
+    this.sequence = 0;
+    this.pending = new Map();
+    this.socket = new WebSocket(url);
+  }
+
+  async connect() {
+    await new Promise((resolve, reject) => {
+      this.socket.addEventListener('open', resolve, {once:true});
+      this.socket.addEventListener('error', reject, {once:true});
+    });
+    this.socket.addEventListener('message', event => {
+      const message = JSON.parse(String(event.data));
+      if (!message.id) return;
+      const pending = this.pending.get(message.id);
+      if (!pending) return;
+      this.pending.delete(message.id);
+      if (message.error) pending.reject(new Error(message.error.message));
+      else pending.resolve(message.result);
+    });
+  }
+
+  call(method, params = {}) {
+    const id = ++this.sequence;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, {resolve, reject});
+      this.socket.send(JSON.stringify({id, method, params}));
+    });
+  }
+
+  async evaluate(expression) {
+    const response = await this.call('Runtime.evaluate', {expression, awaitPromise:true, returnByValue:true});
+    if (response.exceptionDetails) {
+      const detail = response.exceptionDetails.exception?.description || response.exceptionDetails.text;
+      throw new Error(`浏览器表达式失败：${detail}`);
+    }
+    return response.result.value;
+  }
+
+  close() {
+    this.socket.close();
+  }
+}
+
+async function waitForPage(client, expression, timeout = 10000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    try {
+      if (await client.evaluate(expression)) return;
+    } catch { /* 导航期间执行上下文会短暂失效 */ }
+    await delay(100);
+  }
+  throw new Error(`等待页面状态超时：${expression}`);
+}
+
+async function main() {
+  const appPort = await freePort();
+  const debugPort = await freePort();
+  const baseUrl = `http://127.0.0.1:${appPort}`;
+  const dataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'workbench-rf205-'));
+  const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'workbench-edge-rf205-'));
+  const python = process.env.PYTHON || 'python';
+  const server = childProcess.spawn(python, ['server.py', '--data-dir', dataDirectory, '--seed-demo', '--port', String(appPort)], {
+    cwd:__dirname,
+    stdio:['ignore', 'pipe', 'pipe'],
+    windowsHide:true,
+  });
+  let browser;
+  let client;
+  try {
+    await waitForHttp(`${baseUrl}/api/health`);
+    browser = childProcess.spawn(browserExecutable(), [
+      '--headless', '--disable-gpu', '--no-first-run', '--disable-extensions', '--disable-background-networking',
+      `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profileDirectory}`, baseUrl,
+    ], {stdio:['ignore', 'ignore', 'pipe'], windowsHide:true});
+    await waitForHttp(`http://127.0.0.1:${debugPort}/json/version`);
+    const pages = await fetch(`http://127.0.0.1:${debugPort}/json/list`).then(response => response.json());
+    const page = pages.find(item => item.type === 'page' && item.url.startsWith(baseUrl));
+    if (!page) throw new Error('浏览器未创建工作台页面');
+    client = new DevToolsClient(page.webSocketDebuggerUrl);
+    await client.connect();
+    await client.call('Page.enable');
+    await client.call('Runtime.enable');
+    await waitForPage(client, `typeof apiAvailable !== 'undefined' && apiAvailable && projects.length > 0`);
+
+    const request = async (resource, options = {}) => {
+      const response = await fetch(`${baseUrl}/api${resource}`, {
+        method:options.method || 'GET',
+        headers:options.body ? {'Content-Type':'application/json'} : undefined,
+        body:options.body ? JSON.stringify(options.body) : undefined,
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || `${response.status}`);
+      return payload;
+    };
+    const writeExternalBody = async (resource, body) => {
+      const item = await request(resource);
+      const source = fs.readFileSync(item.file_path, 'utf8');
+      const frontMatter = source.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n/);
+      if (!frontMatter) throw new Error(`Markdown front matter 无效：${item.file_path}`);
+      fs.writeFileSync(item.file_path, `${frontMatter[0]}${body}\n`, 'utf8');
+    };
+    const project = await request('/projects', {method:'POST', body:{name:'RF-205 验收项目'}});
+    const record = await request('/records', {method:'POST', body:{
+      type:'issue', title:'RF-205 验收记录', project_id:project.id, status:'待处理', priority:'普通', body:'初始记录正文'
+    }});
+    const documentItem = await request('/documents', {method:'POST', body:{
+      title:'RF-205 验收文档', category:'验收', tags:[], body:'初始文档正文'
+    }});
+
+    const recordId = JSON.stringify(record.id);
+    const documentId = JSON.stringify(documentItem.id);
+    let result = await client.evaluate(`(async () => {
+      await refreshData();
+      await openDrawer(${recordId});
+      recordEditorHost.render('# 自动保存\\n\\n- [x] 记录', true);
+      markEditorChanged();
+      const saved = await saveEditorNow();
+      await openDrawer(${recordId});
+      return {saved, body:localEditorContent(), dirty:editorDirty, draft:localStorage.getItem(editorDraftKey(${recordId}))};
+    })()`);
+    assert.deepEqual(result, {saved:true, body:'# 自动保存\n\n- [x] 记录', dirty:false, draft:null});
+
+    result = await client.evaluate(`(async () => {
+      documents = await api('/documents');
+      openDocument(${documentId});
+      setDocumentMode('visual');
+      documentEditorHost.render('# 自动保存文档\\n\\n| 左 | 右 |\\n| :--- | ---: |\\n| A | B |', true);
+      markDocumentChanged();
+      const saved = await saveDocument({readAfterSave:false, notifyUser:false});
+      openDocument(${documentId});
+      return {saved:Boolean(saved), body:documentMarkdownContent(), dirty:documentDirty, draft:localStorage.getItem(documentDraftKey(${documentId}))};
+    })()`);
+    assert.deepEqual(result, {saved:true, body:'# 自动保存文档\n\n| 左 | 右 |\n| :--- | ---: |\n| A | B |', dirty:false, draft:null});
+
+    result = await client.evaluate(`(async () => {
+      await openDrawer(${recordId});
+      localStorage.setItem('workbench-save-on-leave', 'false');
+      $('#saveOnLeave').checked = false;
+      recordEditorHost.render('刷新后恢复的记录草稿', true);
+      markEditorChanged();
+      documents = await api('/documents');
+      openDocument(${documentId});
+      setDocumentMode('visual');
+      documentEditorHost.render('刷新后恢复的文档草稿', true);
+      markDocumentChanged();
+      clearTimeout(editorSaveTimer);
+      clearTimeout(documentSaveTimer);
+      return {
+        recordDraft:Boolean(localStorage.getItem(editorDraftKey(${recordId}))),
+        documentDraft:Boolean(localStorage.getItem(documentDraftKey(${documentId})))
+      };
+    })()`);
+    assert.deepEqual(result, {recordDraft:true, documentDraft:true});
+    const pageEpoch = await client.evaluate('performance.timeOrigin');
+    await client.call('Page.reload', {ignoreCache:true});
+    await waitForPage(client, `performance.timeOrigin !== ${JSON.stringify(pageEpoch)} && typeof apiAvailable !== 'undefined' && apiAvailable && projects.length > 0`);
+    result = await client.evaluate(`(async () => {
+      await openDrawer(${recordId});
+      const recoveredRecord = {body:localEditorContent(), dirty:editorDirty};
+      const recordSaved = await saveEditorNow();
+      documents = await api('/documents');
+      openDocument(${documentId});
+      const recoveredDocument = {body:documentMarkdownContent(), dirty:documentDirty};
+      const documentSaved = await saveDocument({readAfterSave:false, notifyUser:false});
+      return {
+        recoveredRecord, recoveredDocument, recordSaved, documentSaved:Boolean(documentSaved),
+        recordDraft:localStorage.getItem(editorDraftKey(${recordId})),
+        documentDraft:localStorage.getItem(documentDraftKey(${documentId}))
+      };
+    })()`);
+    assert.deepEqual(result, {
+      recoveredRecord:{body:'刷新后恢复的记录草稿', dirty:true},
+      recoveredDocument:{body:'刷新后恢复的文档草稿', dirty:true},
+      recordSaved:true, documentSaved:true, recordDraft:null, documentDraft:null
+    });
+
+    await client.evaluate(`(async () => {
+      await openDrawer(${recordId});
+      recordEditorHost.render('历史版本一', true); markEditorChanged(); await saveEditorNow();
+      recordEditorHost.render('历史版本二', true); markEditorChanged(); await saveEditorNow();
+      await showHistory();
+      return true;
+    })()`);
+    result = await client.evaluate(`({rows:$$('[data-restore-version]', $('#historyList')).length, previews:$('#historyList').textContent})`);
+    assert.ok(result.rows >= 2, '历史列表应至少包含两个版本');
+    assert.match(result.previews, /历史版本一/);
+    await client.evaluate(`(() => { $('[data-restore-version]', $('#historyList')).click(); return true; })()`);
+    await waitForPage(client, `!$('#historyDialog').open && currentRecord?.id === ${recordId} && localEditorContent() !== '历史版本二'`);
+    result = await client.evaluate(`({body:localEditorContent(), id:currentRecord.id})`);
+    const restoredOnDisk = await request(`/records/${record.id}`);
+    assert.equal(result.body, restoredOnDisk.body);
+
+    await client.evaluate(`(async () => { await openDrawer(${recordId}); return true; })()`);
+    await writeExternalBody(`/records/${record.id}`, '无 dirty 外部版本');
+    await waitForPage(client, `currentRecord?.body === '无 dirty 外部版本' && localEditorContent() === '无 dirty 外部版本'`, 20000);
+
+    await client.evaluate(`(() => { recordEditorHost.render('本地冲突内容', true); markEditorChanged(); clearTimeout(editorSaveTimer); return true; })()`);
+    await writeExternalBody(`/records/${record.id}`, '磁盘冲突内容');
+    await waitForPage(client, `$('#conflictDialog').open && conflictRecord?.body === '磁盘冲突内容'`, 20000);
+    result = await client.evaluate(`({local:$('#localConflictContent').value, external:$('#externalConflictContent').value, dirty:editorDirty})`);
+    assert.deepEqual(result, {local:'本地冲突内容', external:'磁盘冲突内容', dirty:true});
+
+    await client.evaluate(`(() => { $('#conflictExternal').click(); return true; })()`);
+    await waitForPage(client, `!$('#conflictDialog').open && localEditorContent() === '磁盘冲突内容'`);
+    await client.evaluate(`(async () => {
+      recordEditorHost.render('保留工作台版本', true); markEditorChanged(); clearTimeout(editorSaveTimer);
+      const latest = await api('/records/' + ${recordId});
+      showConflict({...latest, body:'被替换的磁盘版本'});
+      $('#conflictLocal').click();
+      return true;
+    })()`);
+    await waitForPage(client, `!$('#conflictDialog').open && currentRecord?.body === '保留工作台版本'`);
+    assert.equal((await request(`/records/${record.id}`)).body, '保留工作台版本');
+    await client.evaluate(`(async () => {
+      recordEditorHost.render('本地待合并', true); markEditorChanged(); clearTimeout(editorSaveTimer);
+      const latest = await api('/records/' + ${recordId});
+      showConflict({...latest, body:'磁盘待合并'});
+      $('#mergedConflictContent').value = '最终合并版本';
+      $('#conflictMerged').click();
+      return true;
+    })()`);
+    await waitForPage(client, `!$('#conflictDialog').open && currentRecord?.body === '最终合并版本'`);
+    assert.equal((await request(`/records/${record.id}`)).body, '最终合并版本');
+
+    await client.evaluate(`(async () => { documents = await api('/documents'); openDocument(${documentId}); return true; })()`);
+    await writeExternalBody(`/documents/${documentItem.id}`, '外部文档干净刷新');
+    await waitForPage(client, `currentDocument?.body === '外部文档干净刷新' && documentMarkdownContent() === '外部文档干净刷新'`, 20000);
+    await client.evaluate(`(() => {
+      setDocumentMode('visual');
+      documentEditorHost.render('文档本地未保存', true); markDocumentChanged(); clearTimeout(documentSaveTimer);
+      return true;
+    })()`);
+    await writeExternalBody(`/documents/${documentItem.id}`, '文档磁盘新版本');
+    await waitForPage(client, `Boolean($('#documentDialog').dataset.pendingExternalMtime)`, 20000);
+    result = await client.evaluate(`({body:documentMarkdownContent(), dirty:documentDirty, pending:Boolean($('#documentDialog').dataset.pendingExternalMtime)})`);
+    assert.deepEqual(result, {body:'文档本地未保存', dirty:true, pending:true});
+
+    console.log('Editor workflow browser tests passed: save,reopen,draft,history,external-refresh,record-conflicts,document-external-guard');
+  } finally {
+    client?.close();
+    browser?.kill();
+    server.kill();
+    await delay(100);
+    fs.rmSync(profileDirectory, {recursive:true, force:true});
+    fs.rmSync(dataDirectory, {recursive:true, force:true});
+  }
+}
+
+main().catch(error => {
+  console.error(error.stack || error);
+  process.exitCode = 1;
+});

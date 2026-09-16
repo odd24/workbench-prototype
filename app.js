@@ -4935,21 +4935,21 @@ $$('dialog').forEach(dialog => dialog.addEventListener('click', event => {
   if (outside) dismissDialogFromBackdrop(dialog);
 }));
 $('#conflictExternal').addEventListener('click', async () => {
-  if (!conflictRecord) return; const id = conflictRecord.id; editorDirty = false; $('#conflictDialog').close(); conflictRecord = null; await refreshData(); openDrawer(id); notify('已载入磁盘版本');
+  if (!conflictRecord) return; const id = conflictRecord.id; editorDirty = false; clearEditorDraft(id); $('#conflictDialog').close(); conflictRecord = null; await refreshData(); await openDrawer(id); notify('已载入磁盘版本');
 });
 $('#conflictLocal').addEventListener('click', async () => {
-  if (!conflictRecord || !currentRecord) return; const id = currentRecord.id; const body = $('#localConflictContent').value; const changes = {body, ...(currentRecord.type === 'info' ? drawerInfoPayload() : {})}; $('#conflictDialog').close(); conflictRecord = null; editorDirty = false; await updateRecord(id, changes, '已保留工作台版本'); openDrawer(id);
+  if (!conflictRecord || !currentRecord) return; const id = currentRecord.id; const body = $('#localConflictContent').value; const changes = {body, ...(currentRecord.type === 'info' ? drawerInfoPayload() : {})}; $('#conflictDialog').close(); conflictRecord = null; editorDirty = false; await updateRecord(id, changes, '已保留工作台版本'); clearEditorDraft(id); await openDrawer(id);
 });
 $('#conflictCopy').addEventListener('click', async () => {
   if (!conflictRecord || !currentRecord) return;
   try {
     const copyPayload = {type:currentRecord.type, title:`${currentRecord.title}（冲突副本）`, project_id:currentRecord.project_id, tags:currentRecord.tags || [], body:$('#localConflictContent').value, links:[currentRecord.id], ...(currentRecord.type === 'info' ? drawerInfoPayload() : {status:currentRecord.status, priority:currentRecord.priority})};
     const copy = await api('/records', {method:'POST', body:JSON.stringify(copyPayload)});
-    const originalId = conflictRecord.id; editorDirty = false; $('#conflictDialog').close(); conflictRecord = null; await refreshData(); openDrawer(originalId); notify(`已保留两个版本`, `工作台内容已另存为 ${copy.id}`);
+    const originalId = conflictRecord.id; editorDirty = false; clearEditorDraft(originalId); $('#conflictDialog').close(); conflictRecord = null; await refreshData(); await openDrawer(originalId); notify(`已保留两个版本`, `工作台内容已另存为 ${copy.id}`);
   } catch (error) { notify('副本保存失败', error.message, true); }
 });
 $('#conflictMerged').addEventListener('click', async () => {
-  if (!conflictRecord || !currentRecord) return; const id = currentRecord.id; const body = $('#mergedConflictContent').value; const changes = {body, ...(currentRecord.type === 'info' ? drawerInfoPayload() : {})}; $('#conflictDialog').close(); conflictRecord = null; editorDirty = false; await updateRecord(id, changes, '合并结果已保存'); openDrawer(id);
+  if (!conflictRecord || !currentRecord) return; const id = currentRecord.id; const body = $('#mergedConflictContent').value; const changes = {body, ...(currentRecord.type === 'info' ? drawerInfoPayload() : {})}; $('#conflictDialog').close(); conflictRecord = null; editorDirty = false; await updateRecord(id, changes, '合并结果已保存'); clearEditorDraft(id); await openDrawer(id);
 });
 $('#confirmImport').addEventListener('click', async () => {
   if (!pendingImport) return;
@@ -5319,7 +5319,10 @@ async function initialize() {
           const latest = (await api('/records?summary=1')).filter(record => record.type !== 'idea');
           const latestOpen = currentRecord ? latest.find(item => item.id === currentRecord.id) : null;
           const openChanged = latestOpen && latestOpen.file_mtime !== currentRecord.file_mtime;
-          if (openChanged && detailDrawer.classList.contains('visible') && editorDirty) showConflict(latestOpen);
+          if (openChanged && detailDrawer.classList.contains('visible') && editorDirty) {
+            const latestDetail = await api(`/records/${encodeURIComponent(latestOpen.id)}`);
+            showConflict(latestDetail);
+          }
           else if (openChanged && detailDrawer.classList.contains('visible')) openDrawer(latestOpen.id);
           records = latest; lastRecordSignature = signature; renderDashboard();
           if ($('#projectPage').classList.contains('active')) renderProjectPage();

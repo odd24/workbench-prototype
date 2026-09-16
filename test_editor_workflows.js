@@ -134,9 +134,10 @@ async function main() {
     let result = await client.evaluate(`({
       dom:Workbench.dom.$ === $ && Workbench.dom.$$ === $$ && Workbench.dom.escapeHtml === escapeHtml && Workbench.dom.safeColor === safeColor,
       api:Workbench.api.request === api,
-      dialogs:Workbench.dialogs.notify === notify && Workbench.dialogs.open === openAppDialog && Workbench.dialogs.confirm === appConfirm && Workbench.dialogs.prompt === appPrompt
+      dialogs:Workbench.dialogs.notify === notify && Workbench.dialogs.open === openAppDialog && Workbench.dialogs.confirm === appConfirm && Workbench.dialogs.prompt === appPrompt,
+      state:Workbench.state.groups.join(',') === 'serverData,uiState,editorState,draftState' && Workbench.appState.serverData.projects === projects && Workbench.appState.uiState.selectedProjectId === selectedProjectId
     })`);
-    assert.deepEqual(result, {dom:true, api:true, dialogs:true});
+    assert.deepEqual(result, {dom:true, api:true, dialogs:true, state:true});
     result = await client.evaluate(`(async () => {
       notify('核心通知', '错误详情', true);
       const toastState = {title:$('.toast strong').textContent, detail:$('.toast small').textContent, error:$('#toast').classList.contains('error')};
@@ -170,12 +171,77 @@ async function main() {
     const record = await request('/records', {method:'POST', body:{
       type:'issue', title:'RF-205 验收记录', project_id:project.id, status:'待处理', priority:'普通', body:'初始记录正文'
     }});
+    const raceProject = await request('/projects', {method:'POST', body:{name:'RF-302 竞态项目'}});
+    const raceRecord = await request('/records', {method:'POST', body:{
+      type:'issue', title:'RF-302 后发记录', project_id:raceProject.id, status:'待处理', priority:'普通', body:'后发记录正文'
+    }});
     const documentItem = await request('/documents', {method:'POST', body:{
       title:'RF-205 验收文档', category:'验收', tags:[], body:'初始文档正文'
     }});
+    const raceDocument = await request('/documents', {method:'POST', body:{
+      title:'RF-302 后发文档', category:'验收', tags:[], body:'后发文档正文'
+    }});
 
     const recordId = JSON.stringify(record.id);
+    const raceRecordId = JSON.stringify(raceRecord.id);
+    const projectId = JSON.stringify(project.id);
+    const raceProjectId = JSON.stringify(raceProject.id);
     const documentId = JSON.stringify(documentItem.id);
+    const raceDocumentId = JSON.stringify(raceDocument.id);
+    result = await client.evaluate(`(async () => {
+      await refreshData();
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = (url, options) => String(url).includes('/api/records/' + ${recordId})
+        ? new Promise(resolve => setTimeout(() => resolve(nativeFetch(url, options)), 250))
+        : nativeFetch(url, options);
+      try {
+        const first = openDrawer(${recordId});
+        await new Promise(resolve => setTimeout(resolve, 20));
+        const second = openDrawer(${raceRecordId});
+        await Promise.all([first, second]);
+        return {id:currentRecord?.id, title:$('.drawer-title').value, stateId:Workbench.appState.editorState.currentRecord?.id};
+      } finally { window.fetch = nativeFetch; }
+    })()`);
+    assert.deepEqual(result, {id:raceRecord.id, title:'RF-302 后发记录', stateId:raceRecord.id});
+
+    result = await client.evaluate(`(async () => {
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = (url, options) => String(url).includes('/api/projects/' + ${projectId} + '/')
+        ? new Promise(resolve => setTimeout(() => resolve(nativeFetch(url, options)), 250))
+        : nativeFetch(url, options);
+      try {
+        selectedProjectId = ${projectId};
+        const first = loadProjectAssets(${projectId}, {force:true});
+        await new Promise(resolve => setTimeout(resolve, 20));
+        selectedProjectId = ${raceProjectId};
+        const second = loadProjectAssets(${raceProjectId}, {force:true});
+        await Promise.all([first, second]);
+        return {projectId:projectAssetProjectId, selectedProjectId, stateProjectId:Workbench.appState.uiState.selectedProjectId};
+      } finally { window.fetch = nativeFetch; }
+    })()`);
+    assert.deepEqual(result, {projectId:raceProject.id, selectedProjectId:raceProject.id, stateProjectId:raceProject.id});
+
+    result = await client.evaluate(`(async () => {
+      documents = await api('/documents');
+      openDocument(${documentId});
+      setDocumentMode('visual');
+      documentEditorHost.render('延迟保存内容', true);
+      markDocumentChanged();
+      clearTimeout(documentSaveTimer);
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = (url, options) => String(url).includes('/api/documents/' + ${documentId})
+        ? new Promise(resolve => setTimeout(() => resolve(nativeFetch(url, options)), 250))
+        : nativeFetch(url, options);
+      try {
+        const first = saveDocument({readAfterSave:false, notifyUser:false});
+        await new Promise(resolve => setTimeout(resolve, 20));
+        openDocument(${raceDocumentId});
+        await first;
+        return {id:currentDocument?.id, title:$('#documentTitle').value, dirty:documentDirty, stateId:Workbench.appState.editorState.currentDocument?.id};
+      } finally { window.fetch = nativeFetch; }
+    })()`);
+    assert.deepEqual(result, {id:raceDocument.id, title:'RF-302 后发文档', dirty:false, stateId:raceDocument.id});
+
     result = await client.evaluate(`(async () => {
       await refreshData();
       await openDrawer(${recordId});

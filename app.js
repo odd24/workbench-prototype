@@ -2,6 +2,7 @@ const markdownCore = window.Workbench.markdown;
 const domCore = window.Workbench.dom;
 const apiCore = window.Workbench.api;
 const dialogCore = window.Workbench.dialogs;
+const stateCore = window.Workbench.state;
 const {$, $$, escapeHtml, safeColor} = domCore;
 const api = apiCore.request;
 const notify = dialogCore.notify;
@@ -123,7 +124,6 @@ let documentSaveTimer = null;
 let referenceTargets = [];
 let referenceDialogContext = 'record-editor';
 let referenceFilters = {type:'', project:'', category:''};
-let documentBacklinkRequest = 0;
 let conceptMaps = [];
 let currentConceptMap = null;
 let conceptMapSelection = null;
@@ -143,6 +143,48 @@ let homeLayoutVisibleRecordIds = [];
 const expandedHomeColumns = new Set();
 let statusWatchDraft = new Set();
 let statusWatchExpanded = false;
+
+const appState = stateCore.create({
+  serverData:{
+    get projects() { return projects; }, set projects(value) { projects = value; },
+    get records() { return records; }, set records(value) { records = value; },
+    get config() { return configData; }, set config(value) { configData = value; },
+    get documents() { return documents; }, set documents(value) { documents = value; },
+    get referenceTargets() { return referenceTargets; }, set referenceTargets(value) { referenceTargets = value; },
+    get conceptMaps() { return conceptMaps; }, set conceptMaps(value) { conceptMaps = value; },
+    get projectAssets() { return projectAssetLibrary; }, set projectAssets(value) { projectAssetLibrary = value; },
+    get projectAssetCategories() { return projectAssetCategories; }, set projectAssetCategories(value) { projectAssetCategories = value; },
+  },
+  uiState:{
+    get selectedType() { return selectedType; }, set selectedType(value) { selectedType = value; },
+    get selectedProjectId() { return selectedProjectId; }, set selectedProjectId(value) { selectedProjectId = value; },
+    get projectTab() { return projectTab; }, set projectTab(value) { projectTab = value; },
+    get currentPage() { return currentPage; }, set currentPage(value) { currentPage = value; },
+    get projectViewMode() { return projectViewMode; }, set projectViewMode(value) { projectViewMode = value; },
+    get activeManagePage() { return activeManagePage; }, set activeManagePage(value) { activeManagePage = value; },
+  },
+  editorState:{
+    get currentRecord() { return currentRecord; }, set currentRecord(value) { currentRecord = value; },
+    get currentDocument() { return currentDocument; }, set currentDocument(value) { currentDocument = value; },
+    get currentConceptMap() { return currentConceptMap; }, set currentConceptMap(value) { currentConceptMap = value; },
+    get recordMode() { return editorMode; }, set recordMode(value) { editorMode = value; },
+    get recordDirty() { return editorDirty; }, set recordDirty(value) { editorDirty = value; },
+    get recordConflict() { return conflictRecord; }, set recordConflict(value) { conflictRecord = value; },
+    get documentMode() { return documentMode; }, set documentMode(value) { documentMode = value; },
+    get documentDirty() { return documentDirty; }, set documentDirty(value) { documentDirty = value; },
+    get documentSaving() { return documentSaving; }, set documentSaving(value) { documentSaving = value; },
+  },
+  draftState:{
+    get recordSaveTimer() { return editorSaveTimer; }, set recordSaveTimer(value) { editorSaveTimer = value; },
+    get documentSaveTimer() { return documentSaveTimer; }, set documentSaveTimer(value) { documentSaveTimer = value; },
+    get documentOutlineTimer() { return documentOutlineTimer; }, set documentOutlineTimer(value) { documentOutlineTimer = value; },
+    get documentOutlineCollapsed() { return documentOutlineCollapsed; }, set documentOutlineCollapsed(value) { documentOutlineCollapsed = value; },
+    get homeLayoutDraft() { return homeLayoutDraft; }, set homeLayoutDraft(value) { homeLayoutDraft = value; },
+    get statusWatchDraft() { return statusWatchDraft; }, set statusWatchDraft(value) { statusWatchDraft = value; },
+  },
+});
+window.Workbench.appState = appState;
+const requestRegistry = appState.requests;
 
 const PROJECT_CARD_COLLAPSE_LIMIT = 5;
 const PROJECT_LIST_COLLAPSE_LIMIT = 12;
@@ -1340,14 +1382,24 @@ function recordAttachmentItems(projectRecords) {
 
 async function loadProjectAssets(projectId, {force = false} = {}) {
   if (!force && projectAssetProjectId === projectId) return projectAssetLibrary;
-  projectAssetProjectId = projectId;
+  const request = requestRegistry.begin('project-assets', projectId);
   try {
-    [projectAssetLibrary, projectAssetCategories] = await Promise.all([
+    const [library, categories] = await Promise.all([
       api(`/projects/${encodeURIComponent(projectId)}/assets`),
       api(`/projects/${encodeURIComponent(projectId)}/asset-categories`),
     ]);
+    if (!requestRegistry.isCurrent(request) || selectedProjectId !== projectId) return [];
+    projectAssetProjectId = projectId;
+    projectAssetLibrary = library;
+    projectAssetCategories = categories;
   }
-  catch (error) { projectAssetLibrary = []; projectAssetCategories = []; notify('无法读取项目附件', error.message, true); }
+  catch (error) {
+    if (!requestRegistry.isCurrent(request) || selectedProjectId !== projectId) return [];
+    projectAssetProjectId = projectId;
+    projectAssetLibrary = [];
+    projectAssetCategories = [];
+    notify('无法读取项目附件', error.message, true);
+  }
   return projectAssetLibrary;
 }
 
@@ -1380,14 +1432,22 @@ async function saveAssetCategories() {
     name:row.dataset.categoryName || $('.asset-new-category-name', row)?.value.trim() || '',
     tag:$('.asset-category-tag', row)?.value || '',
   })).filter(item => item.name);
+  const projectId = selectedProjectId;
+  const request = requestRegistry.begin('project-asset-categories', projectId);
   const button = $('#saveAssetCategories'); button.disabled = true; button.textContent = '正在保存…';
   try {
-    projectAssetCategories = await api(`/projects/${encodeURIComponent(selectedProjectId)}/asset-categories`, {method:'PUT', body:JSON.stringify({categories})});
+    const savedCategories = await api(`/projects/${encodeURIComponent(projectId)}/asset-categories`, {method:'PUT', body:JSON.stringify({categories})});
+    if (!requestRegistry.isCurrent(request) || selectedProjectId !== projectId) return true;
+    projectAssetCategories = savedCategories;
     $('#assetCategoryDialog').close();
-    await refreshData(); await loadProjectAssets(selectedProjectId, {force:true}); renderProjectPage();
+    await reloadProjectAssetPage(projectId);
+    if (!requestRegistry.isCurrent(request) || selectedProjectId !== projectId) return true;
     notify('附件分类已保存', `当前共有 ${projectAssetCategories.length} 个分类`);
     return true;
-  } catch (error) { notify('分类保存失败', error.message, true); return false; }
+  } catch (error) {
+    if (requestRegistry.isCurrent(request) && selectedProjectId === projectId) notify('分类保存失败', error.message, true);
+    return false;
+  }
   finally { button.disabled = false; button.textContent = '保存分类'; }
 }
 
@@ -1401,27 +1461,41 @@ function updateAssetBatchToolbar() {
   if (selectAll) { selectAll.checked = Boolean(all.length) && all.every(input => input.checked); selectAll.indeterminate = count > 0 && count < all.length; }
 }
 
-async function reloadProjectAssetPage() {
+async function reloadProjectAssetPage(projectId = selectedProjectId) {
   await refreshData();
-  await loadProjectAssets(selectedProjectId, {force:true});
-  if (projectTab === 'assets') renderProjectPage();
+  if (selectedProjectId !== projectId) return;
+  await loadProjectAssets(projectId, {force:true});
+  if (selectedProjectId === projectId && projectTab === 'assets') renderProjectPage();
 }
 
 async function applyAssetCategory(selections, category) {
   const normalized = category === '__uncategorized__' ? '' : category;
-  const result = await api('/assets/batch', {method:'PATCH', body:JSON.stringify({project_id:selectedProjectId, selections, category:normalized})});
-  await reloadProjectAssetPage();
+  const projectId = selectedProjectId;
+  const request = requestRegistry.begin('project-asset-mutation', projectId);
+  const result = await api('/assets/batch', {method:'PATCH', body:JSON.stringify({project_id:projectId, selections, category:normalized})});
+  if (!requestRegistry.isCurrent(request) || selectedProjectId !== projectId) return result;
+  await reloadProjectAssetPage(projectId);
+  if (!requestRegistry.isCurrent(request) || selectedProjectId !== projectId) return result;
   notify('附件分类已更新', `${result.updated} 个附件 → ${normalized || '无分类'}`);
+  return result;
 }
 
 async function deleteAssetsWithConfirmation(selections) {
   if (!selections.length) return false;
   const confirmed = await appConfirm({title:selections.length > 1 ? `删除所选 ${selections.length} 个附件？` : '删除这个附件？', message:'附件文件将从项目目录中永久删除。', detail:'记录附件对应的 Markdown 引用也会同步移除，此操作无法从回收站恢复。', confirmText:'确认删除', danger:true});
   if (!confirmed) return false;
+  const projectId = selectedProjectId;
+  const request = requestRegistry.begin('project-asset-mutation', projectId);
   try {
-    const result = await api('/assets/batch', {method:'DELETE', body:JSON.stringify({project_id:selectedProjectId, selections})});
-    await reloadProjectAssetPage(); notify(`已删除 ${result.deleted} 个附件`, '附件文件和关联信息已同步更新'); return true;
-  } catch (error) { notify('附件删除失败', error.message, true); return false; }
+    const result = await api('/assets/batch', {method:'DELETE', body:JSON.stringify({project_id:projectId, selections})});
+    if (!requestRegistry.isCurrent(request) || selectedProjectId !== projectId) return true;
+    await reloadProjectAssetPage(projectId);
+    if (requestRegistry.isCurrent(request) && selectedProjectId === projectId) notify(`已删除 ${result.deleted} 个附件`, '附件文件和关联信息已同步更新');
+    return true;
+  } catch (error) {
+    if (requestRegistry.isCurrent(request) && selectedProjectId === projectId) notify('附件删除失败', error.message, true);
+    return false;
+  }
 }
 
 function selectedAssetPayloads() {
@@ -1669,13 +1743,18 @@ async function openExternalEditorDialog() {
 
 async function openDrawer(recordId, options = {}) {
   if (!recordId || !apiAvailable) return;
+  const request = requestRegistry.begin('record-detail', recordId);
+  requestRegistry.invalidate('record-poll');
+  requestRegistry.invalidate('record-attachment');
   try {
+    const loadedRecord = await api(`/records/${encodeURIComponent(recordId)}`);
+    if (!requestRegistry.isCurrent(request)) return;
     if (options.fromReference && currentRecord?.id && currentRecord.id !== recordId) recordNavigationStack.push(currentRecord.id);
     else if (!detailDrawer.classList.contains('visible')) {
       recordNavigationStack = [];
       if (!options.fromUsage) usageReturnContext = null;
     }
-    currentRecord = await api(`/records/${encodeURIComponent(recordId)}`);
+    currentRecord = loadedRecord;
     editorDirty = false;
     editorContentExpanded = false;
     $('.editor-area').classList.remove('content-collapsed');
@@ -1725,7 +1804,9 @@ async function openDrawer(recordId, options = {}) {
     closeSearch(); showOverlay(); detailDrawer.classList.add('visible'); detailDrawer.setAttribute('aria-hidden', 'false');
     requestAnimationFrame(() => requestAnimationFrame(updateEditorAutoCollapse));
     if (editorDirty) notify('已恢复异常退出前的草稿', '草稿尚未写入 Markdown，请检查后手动保存');
-  } catch (error) { notify('无法打开记录', error.message, true); }
+  } catch (error) {
+    if (requestRegistry.isCurrent(request)) notify('无法打开记录', error.message, true);
+  }
 }
 
 function setEditorMode(mode) {
@@ -1964,14 +2045,14 @@ function renderDocumentBacklinks(items = []) {
 }
 
 async function refreshDocumentBacklinks(documentId) {
-  const request = ++documentBacklinkRequest;
+  const request = requestRegistry.begin('document-backlinks', documentId);
   renderDocumentBacklinks();
   if (!documentId) return;
   try {
     const items = await loadDocumentBacklinks(documentId);
-    if (request === documentBacklinkRequest && currentDocument?.id === documentId) renderDocumentBacklinks(items);
+    if (requestRegistry.isCurrent(request) && currentDocument?.id === documentId) renderDocumentBacklinks(items);
   } catch (error) {
-    if (request === documentBacklinkRequest && currentDocument?.id === documentId) notify('无法读取文档关联方', error.message, true);
+    if (requestRegistry.isCurrent(request) && currentDocument?.id === documentId) notify('无法读取文档关联方', error.message, true);
   }
 }
 
@@ -2706,6 +2787,8 @@ function updateDocumentSelectionToolbar() {
 }
 
 function openDocument(documentId = '', initialCategory = '') {
+  requestRegistry.invalidate('document-save');
+  requestRegistry.invalidate('document-poll');
   currentDocument = documents.find(item => item.id === documentId) || null;
   documentDirty = false;
   documentSaving = false;
@@ -2745,15 +2828,20 @@ async function saveDocument({readAfterSave = false, notifyUser = true} = {}) {
   if (!title) { $('#documentTitle').focus(); notify('文档标题不能为空', '请输入标题后再保存', true); return null; }
   const payload = {title, category:$('#documentCategory').value.trim() || '未分类', tags:selectedDocumentTags(), body:documentMarkdownContent()};
   const previousDraftId = currentDocument?.id || 'new';
+  const documentId = currentDocument?.id || '';
+  const request = requestRegistry.begin('document-save', previousDraftId);
   documentSaving = true;
   updateDocumentSaveState('正在保存…');
   try {
-    const saved = await api(currentDocument ? `/documents/${encodeURIComponent(currentDocument.id)}` : '/documents', {method:currentDocument ? 'PATCH' : 'POST', body:JSON.stringify(payload)});
+    const saved = await api(documentId ? `/documents/${encodeURIComponent(documentId)}` : '/documents', {method:documentId ? 'PATCH' : 'POST', body:JSON.stringify(payload)});
+    if (!requestRegistry.isCurrent(request)) return saved;
+    const latestDocuments = await api('/documents');
+    if (!requestRegistry.isCurrent(request)) return saved;
     currentDocument = saved;
     documentDirty = false;
     clearDocumentDraft(previousDraftId);
     clearDocumentDraft(saved.id);
-    documents = await api('/documents');
+    documents = latestDocuments;
     documentOpenCategories.add(saved.category || '未分类');
     renderDocumentsPage();
     refreshDocumentBacklinks(saved.id);
@@ -2767,14 +2855,17 @@ async function saveDocument({readAfterSave = false, notifyUser = true} = {}) {
     if (notifyUser) notify('文档已保存', saved.category);
     return saved;
   } catch (error) {
+    if (!requestRegistry.isCurrent(request)) return null;
     documentDirty = true;
     persistDocumentDraft();
     updateDocumentSaveState('保存失败，请重试');
     notify('文档保存失败', error.message, true);
     return null;
   } finally {
-    documentSaving = false;
-    updateDocumentSaveState($('#documentSaveState').textContent);
+    if (requestRegistry.isCurrent(request)) {
+      documentSaving = false;
+      updateDocumentSaveState($('#documentSaveState').textContent);
+    }
   }
 }
 
@@ -2805,7 +2896,9 @@ async function closeDocumentEditor() {
     if (choice === 'discard') { clearDocumentDraft(); documentDirty = false; }
   }
   $('#documentDialog').close();
-  documentBacklinkRequest += 1;
+  requestRegistry.invalidate('document-backlinks');
+  requestRegistry.invalidate('document-save');
+  requestRegistry.invalidate('document-poll');
   renderDocumentBacklinks();
   $('#documentColorPalette').hidden = true;
   documentEditorHost.clearSelection();
@@ -3327,12 +3420,17 @@ async function uploadAttachment(file, options = {}) {
   if (!currentRecord || !file) return;
   const insertion = options.insertion || null;
   if (!insertion && editorDirty && !await saveEditorNow()) return;
+  if (!currentRecord) return;
+  const recordId = currentRecord.id;
+  const request = requestRegistry.begin('record-attachment', recordId);
   try {
     const append = insertion ? '0' : '1';
-    const response = await fetch(`/api/records/${encodeURIComponent(currentRecord.id)}/attachments/upload?name=${encodeURIComponent(file.name)}&append=${append}`, {method:'POST', headers:{'Content-Type':file.type || 'application/octet-stream'}, body:file});
+    const response = await fetch(`/api/records/${encodeURIComponent(recordId)}/attachments/upload?name=${encodeURIComponent(file.name)}&append=${append}`, {method:'POST', headers:{'Content-Type':file.type || 'application/octet-stream'}, body:file});
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || `上传失败 (${response.status})`);
-    const latest = await api(`/records/${currentRecord.id}`);
+    if (!requestRegistry.isCurrent(request) || currentRecord?.id !== recordId) return result;
+    const latest = await api(`/records/${encodeURIComponent(recordId)}`);
+    if (!requestRegistry.isCurrent(request) || currentRecord?.id !== recordId) return result;
     if (insertion) {
       currentRecord.attachments = latest.attachments;
       finishPastedImageInsertion(insertion, result);
@@ -3344,12 +3442,19 @@ async function uploadAttachment(file, options = {}) {
     }
     renderAttachments();
     notify(`附件已保存：${file.name}`, insertion ? '图片已插入当前光标位置，保存正文后写入 Markdown' : 'Markdown 正文已加入相对路径引用');
-  } catch (error) { cancelPastedImageInsertion(insertion); notify('附件上传失败', error.message, true); }
+    return result;
+  } catch (error) {
+    if (!requestRegistry.isCurrent(request) || currentRecord?.id !== recordId) return null;
+    cancelPastedImageInsertion(insertion);
+    notify('附件上传失败', error.message, true);
+    return null;
+  }
 }
 
 async function uploadProjectAssets(files) {
   const project = projects.find(item => item.id === selectedProjectId);
   if (!project || !files?.length) return false;
+  const request = requestRegistry.begin('project-asset-upload', project.id);
   const category = ($('#projectAssetUploadCategory')?.value || '').trim();
   const validFiles = [...files];
   if (!validFiles.length) return false;
@@ -3361,17 +3466,23 @@ async function uploadProjectAssets(files) {
       const response = await fetch(`/api/projects/${encodeURIComponent(project.id)}/assets/upload?name=${encodeURIComponent(file.name)}&category=${encodeURIComponent(category)}`, {method:'POST', headers:{'Content-Type':file.type || 'application/octet-stream'}, body:file});
       const item = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(item.error || `上传失败 (${response.status})`);
-      projectAssetLibrary.unshift(item);
       completed += 1;
       if (uploadButton) uploadButton.textContent = `上传中 ${completed}/${validFiles.length}`;
     }
-    await loadProjectAssets(project.id, {force:true}); renderProjectPage();
+    if (!requestRegistry.isCurrent(request) || selectedProjectId !== project.id) return true;
+    await loadProjectAssets(project.id, {force:true});
+    if (!requestRegistry.isCurrent(request) || selectedProjectId !== project.id) return true;
+    renderProjectPage();
     notify(`已上传 ${completed} 个项目附件`, category ? `分类：${category}` : '未设置分类');
     return true;
   } catch (error) {
-    await loadProjectAssets(project.id, {force:true});
-    renderProjectPage();
-    notify('项目附件上传失败', `${completed ? `已完成 ${completed} 个；` : ''}${error.message}`, true);
+    if (requestRegistry.isCurrent(request) && selectedProjectId === project.id) {
+      await loadProjectAssets(project.id, {force:true});
+      if (requestRegistry.isCurrent(request) && selectedProjectId === project.id) {
+        renderProjectPage();
+        notify('项目附件上传失败', `${completed ? `已完成 ${completed} 个；` : ''}${error.message}`, true);
+      }
+    }
     return false;
   } finally {
     if (uploadButton?.isConnected) { uploadButton.disabled = false; uploadButton.textContent = '＋ 上传附件'; }
@@ -3473,6 +3584,8 @@ async function confirmLeaveRecord() {
 
 async function closeDrawer(options = {}) {
   if (!await confirmLeaveRecord()) return false;
+  requestRegistry.invalidate('record-detail');
+  requestRegistry.invalidate('record-attachment');
   detailDrawer.classList.remove('visible'); detailDrawer.setAttribute('aria-hidden', 'true');
   detailDrawer.classList.remove('editor-expanded');
   editorExpanded = false;
@@ -5232,25 +5345,33 @@ async function initialize() {
     setInterval(async () => {
       if (!apiAvailable || document.hidden) return;
       try {
+        const openRecordId = currentRecord?.id || '';
+        const recordPollRequest = requestRegistry.begin('record-poll', openRecordId);
         const signatures = (await api('/record-signatures')).filter(record => record.type !== 'idea');
+        if (!requestRegistry.isCurrent(recordPollRequest)) return;
         const signature = recordSignature(signatures);
         if (signature !== lastRecordSignature) {
           const latest = (await api('/records?summary=1')).filter(record => record.type !== 'idea');
-          const latestOpen = currentRecord ? latest.find(item => item.id === currentRecord.id) : null;
-          const openChanged = latestOpen && latestOpen.file_mtime !== currentRecord.file_mtime;
+          if (!requestRegistry.isCurrent(recordPollRequest)) return;
+          const latestOpen = openRecordId ? latest.find(item => item.id === openRecordId) : null;
+          const openChanged = latestOpen && currentRecord?.id === openRecordId && latestOpen.file_mtime !== currentRecord.file_mtime;
           if (openChanged && detailDrawer.classList.contains('visible') && editorDirty) {
             const latestDetail = await api(`/records/${encodeURIComponent(latestOpen.id)}`);
-            showConflict(latestDetail);
+            if (requestRegistry.isCurrent(recordPollRequest) && currentRecord?.id === openRecordId) showConflict(latestDetail);
           }
           else if (openChanged && detailDrawer.classList.contains('visible')) openDrawer(latestOpen.id);
+          if (!requestRegistry.isCurrent(recordPollRequest)) return;
           records = latest; lastRecordSignature = signature; renderDashboard();
           if ($('#projectPage').classList.contains('active')) renderProjectPage();
           if (!detailDrawer.classList.contains('visible')) notify('检测到外部 Markdown 修改', '工作台内容已重新载入');
         }
         if ($('#documentDialog').open || activeManagePage === 'documents') {
+          const openDocumentId = currentDocument?.id || '';
+          const documentPollRequest = requestRegistry.begin('document-poll', openDocumentId);
           const latestDocuments = await api('/documents');
-          const latestOpenDocument = currentDocument ? latestDocuments.find(item => item.id === currentDocument.id) : null;
-          const documentChanged = latestOpenDocument && latestOpenDocument.file_mtime !== currentDocument.file_mtime;
+          if (!requestRegistry.isCurrent(documentPollRequest)) return;
+          const latestOpenDocument = openDocumentId ? latestDocuments.find(item => item.id === openDocumentId) : null;
+          const documentChanged = latestOpenDocument && currentDocument?.id === openDocumentId && latestOpenDocument.file_mtime !== currentDocument.file_mtime;
           if (documentChanged && $('#documentDialog').open) {
             if (documentHasUnsavedChanges()) {
               const mtime = String(latestOpenDocument.file_mtime || '');

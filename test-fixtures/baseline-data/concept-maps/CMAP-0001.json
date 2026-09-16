@@ -1,0 +1,86 @@
+{
+  "id": "CMAP-0001",
+  "version": 2,
+  "title": "重构依赖",
+  "project_id": "baseline-project",
+  "category": "架构",
+  "focus_question": "哪些契约必须先受到保护？",
+  "theme": "dots",
+  "viewport": {
+    "x": 125.5,
+    "y": -80.25,
+    "zoom": 1.25
+  },
+  "nodes": [
+    {
+      "id": "root",
+      "text": "兼容性",
+      "type": "concept",
+      "note": "稳定 ID 与旧格式读取",
+      "x": 100.0,
+      "y": 120.0,
+      "width": 128.0,
+      "height": 38.0,
+      "color": "#f4f8fa",
+      "border_color": "#9eb4c7",
+      "text_color": "#213044",
+      "font_size": 13,
+      "font_weight": 600,
+      "shape": "rounded"
+    },
+    {
+      "id": "relation",
+      "text": "通过测试保护",
+      "type": "linking_phrase",
+      "note": "",
+      "x": 300.0,
+      "y": 128.0,
+      "width": 96.0,
+      "height": 22.0,
+      "color": "#eef0f2",
+      "border_color": "#eef0f2",
+      "text_color": "#213044",
+      "font_size": 12,
+      "font_weight": 400,
+      "shape": "pill"
+    },
+    {
+      "id": "tests",
+      "text": "固定样本",
+      "type": "concept",
+      "note": "复制到临时目录使用",
+      "x": 470.0,
+      "y": 120.0,
+      "width": 128.0,
+      "height": 38.0,
+      "color": "#ffffff",
+      "border_color": "#9eb4c7",
+      "text_color": "#213044",
+      "font_size": 13,
+      "font_weight": 400,
+      "shape": "rounded"
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-in",
+      "from": "root",
+      "to": "relation",
+      "label": "",
+      "color": "#64748b",
+      "dashed": false,
+      "arrowhead": "none"
+    },
+    {
+      "id": "edge-out",
+      "from": "relation",
+      "to": "tests",
+      "label": "",
+      "color": "#64748b",
+      "dashed": false,
+      "arrowhead": "to"
+    }
+  ],
+  "created": "2026-09-01T06:00:00+08:00",
+  "updated": "2026-09-01T06:30:00+08:00"
+}

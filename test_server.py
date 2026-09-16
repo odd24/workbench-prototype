@@ -3,12 +3,16 @@ import unittest
 import base64
 import io
 import json
+import shutil
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
 from server import Repository, directory_browser_payload, dump_markdown, export_to_saved_location, external_editor_payload, load_markdown, relocate_repository, save_export_location, save_external_editor
+
+
+BASELINE_DATA_DIR = Path(__file__).resolve().parent / "test-fixtures" / "baseline-data"
 
 
 class RepositoryTests(unittest.TestCase):
@@ -206,6 +210,34 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("\n", loaded["info_fields"][0]["value"])
         self.assertIn("\n", loaded["info_fields"][1]["value"])
         self.assertTrue(any(item["id"] == record["id"] for item in self.repo.search("adb root")))
+
+    def test_fixed_baseline_data_can_be_copied_and_loaded_independently(self):
+        copied_data = Path(self.temp.name) / "copied-baseline"
+        shutil.copytree(BASELINE_DATA_DIR, copied_data)
+
+        repo = Repository(copied_data)
+        projects = repo.list_projects()
+        records = {item["id"]: item for item in repo.list_records()}
+        documents = {item["id"]: item for item in repo.list_documents()}
+        concept_map, _ = repo.get_concept_map("CMAP-0001")
+
+        self.assertEqual([item["id"] for item in projects], ["baseline-project"])
+        self.assertEqual(set(records), {"ISSUE-0001", "TODO-0001", "INFO-0001", "IDEA-0001"})
+        self.assertEqual(records["IDEA-0001"]["project_id"], None)
+        self.assertEqual(records["INFO-0001"]["info_fields"][0]["name"], "启动命令")
+        self.assertEqual(records["INFO-0001"]["info_fields"][0]["value"], "python server.py\npython -m unittest -v")
+        self.assertIn("  连续空格", records["INFO-0001"]["info_fields"][0]["note"])
+        self.assertIn("DOC-0001", records["ISSUE-0001"]["links"])
+        self.assertEqual(documents["DOC-0001"]["category"], "维护手册")
+        self.assertEqual(repo.document_categories(), ["维护手册", "空分类"])
+        self.assertEqual(repo.document_sort()["category_order"], ["空分类", "维护手册"])
+        self.assertEqual([item["id"] for item in repo.list_document_backlinks("DOC-0001")], ["ISSUE-0001"])
+        self.assertEqual(repo.concept_map_categories(), ["架构", "空概念图分类"])
+        self.assertEqual(concept_map["version"], 2)
+        self.assertEqual(concept_map["viewport"], {"x": 125.5, "y": -80.25, "zoom": 1.25})
+        self.assertEqual([item["arrowhead"] for item in concept_map["edges"]], ["none", "to"])
+        self.assertFalse((BASELINE_DATA_DIR / "config" / "settings.json").exists())
+        self.assertEqual(json.loads((copied_data / "config" / "settings.json").read_text(encoding="utf-8"))["data_dir"], str(copied_data.resolve()))
 
     def test_record_can_open_in_external_markdown_editor(self):
         project = self.repo.create_project({"name": "外部编辑项目"})

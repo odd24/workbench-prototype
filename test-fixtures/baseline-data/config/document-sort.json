@@ -1,0 +1,17 @@
+{
+  "category_mode": "manual",
+  "category_order": [
+    "空分类",
+    "维护手册"
+  ],
+  "file_mode": "updated",
+  "file_modes": {
+    "维护手册": "manual"
+  },
+  "file_orders": {
+    "维护手册": [
+      "DOC-0001"
+    ],
+    "空分类": []
+  }
+}

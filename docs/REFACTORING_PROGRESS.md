@@ -29,11 +29,11 @@
 | 项目 | 当前值 |
 | --- | --- |
 | 当前阶段 | 阶段 1：后端基础设施拆分 |
-| 当前工作项 | 无（RF-104 已完成） |
-| 最近完成 | RF-104 提取附件仓储 |
-| 下一工作项 | RF-105 提取知识库与配置仓储 |
+| 当前工作项 | 无（RF-105 已完成） |
+| 最近完成 | RF-105 提取知识库与配置仓储 |
+| 下一工作项 | RF-106 提取项目与记录仓储 |
 | 已知阻塞 | 无 |
-| 后端测试基线 | 61 项通过 |
+| 后端测试基线 | 63 项通过 |
 | 下一阶段门禁 | RF-101 至 RF-108 全部完成 |
 
 ## 3. 工作项状态
@@ -55,7 +55,7 @@
 | RF-102 | 提取路径和外部编辑器能力 | 已完成 | 2026-09-16 | 2026-09-16 | Codex | 提取路径/迁移/导出与外部编辑器模块，保留兼容门面 |
 | RF-103 | 提取概念图仓储 | 已完成 | 2026-09-16 | 2026-09-16 | Codex | 提取归一化、分类、原子写入和 CRUD，保留仓储门面 |
 | RF-104 | 提取附件仓储 | 已完成 | 2026-09-16 | 2026-09-16 | Codex | 提取记录/项目附件、分类、批量操作和孤儿扫描 |
-| RF-105 | 提取知识库与配置仓储 | 待开始 |  |  |  | 依赖 RF-101 |
+| RF-105 | 提取知识库与配置仓储 | 已完成 | 2026-09-16 | 2026-09-16 | Codex | 组合仓储提取完成，旧排序和空分类重载验证通过 |
 | RF-106 | 提取项目与记录仓储 | 待开始 |  |  |  | 依赖 RF-101、RF-104、RF-105 |
 | RF-107 | 分离 HTTP 路由 | 待开始 |  |  |  | 依赖 RF-002、RF-103～RF-106 |
 | RF-108 | 精简服务启动文件 | 待开始 |  |  |  | 依赖 RF-107 |
@@ -122,6 +122,8 @@
 | 2026-09-16 | RF-103 | 进行中 → 已完成 | 新增 `workbench/concept_maps.py` 和 `test_concept_maps.py`；归一化、分类、原子 JSON 写入及 CRUD 移入 `ConceptMapRepository`；主 `Repository` 通过同名方法委托并保留常量、目录和私有入口兼容 | 概念图边界/重载 2 项、既有概念图专项 4 项、固定旧 JSON、完整测试 58 项及全部语法/差异检查通过 | JSON 版本、ID、限制、箭头、视口、分类与回收站语义无变化；DEC-008 使用组合仓储；下一步 RF-104 |
 | 2026-09-16 | RF-104 | 待开始 → 进行中 | 计划新增 `workbench/assets.py`，以组合仓储提取记录附件、项目独立附件索引、分类、批量操作、流式上传和孤儿扫描；主 `Repository` 保留同名委托方法 | 计划运行附件专项、大文件流、重名/路径、批量分类删除、孤儿扫描、导出、HTTP 和完整门禁；新增模块纳入语法检查 | 风险：记录附件与项目附件索引不得混用；流式上传保持分块读取；所有解析路径继续限制在数据根或项目根；失败上传必须清理部分文件 |
 | 2026-09-16 | RF-104 | 进行中 → 已完成 | 新增 `workbench/assets.py` 和 `test_assets.py`；记录/项目附件、分类、批量操作、流式上传、路径解析和孤儿扫描移入 `AttachmentRepository`；主 `Repository` 保留公共与私有委托入口 | 附件边界专项 3 项、既有附件/引用专项 6 项、完整测试 61 项及全部语法/差异检查通过；10MB+ 流仍分块读取 | 数据/API/索引格式无变化；记录与项目附件继续独立，路径保持根目录约束，中断上传清理部分文件；下一步 RF-105 |
+| 2026-09-16 | RF-105 | 待开始 → 进行中 | 计划新增 `workbench/configuration.py`、`workbench/documents.py` 和边界测试；提取项目/文档排序、文档分类、标签、状态、工作流配置及知识库文档 CRUD、导入导出、引用目标和反向链接；主 `Repository` 保留同名委托入口 | 计划运行知识库与配置专项、固定旧配置、分类与排序、标签/状态迁移、反向链接、HTTP 和完整门禁；新增模块纳入语法检查 | 风险：空分类与旧排序格式必须保留；分类重命名/删除和标签/状态重命名必须同步使用方；外部编辑器 patch 兼容及文档 ID、Markdown 字节/API 结构不得变化 |
+| 2026-09-16 | RF-105 | 进行中 → 已完成 | 新增 `workbench/configuration.py`、`workbench/documents.py` 和 `test_documents.py`；配置迁移规则及知识库文档持久化、引用和导入导出移入组合仓储；`server.py` 保留全部兼容委托入口 | 知识库边界/旧排序重载 2 项、分类/排序/状态/反向链接/外部编辑器专项 6 项、完整测试 63 项及全部语法/差异检查通过 | 数据格式、API、文档 ID、Markdown 和外部编辑器 patch 路径无变化；DEC-008 组合仓储模式继续适用；无 UI 修改，下一步 RF-106 |
 
 ## 5. 验证记录
 
@@ -174,6 +176,12 @@
 | 2026-09-16 | RF-104 | `python -m py_compile server.py workbench/__init__.py workbench/markdown_io.py workbench/paths.py workbench/external_editor.py workbench/concept_maps.py workbench/assets.py test_server.py test_http.py test_markdown.py test_paths.py test_concept_maps.py test_assets.py` | 通过 | 新附件模块与测试已纳入 |
 | 2026-09-16 | RF-104 | `node --check app.js`、`node --check concept-map.js` | 通过 | 无输出；前端未修改 |
 | 2026-09-16 | RF-104 | `git diff --check` | 通过 | 仅有 Windows LF/CRLF 提示，无内容错误 |
+| 2026-09-16 | RF-105 | `python -m unittest -v test_documents` | 通过，2 项 | 验证组合仓储门面、旧版 `mode/order` 排序兼容迁移、空分类和重新实例化读取 |
+| 2026-09-16 | RF-105 | `python -m unittest -v test_server.RepositoryTests.test_status_templates_and_workflows test_server.RepositoryTests.test_used_workflow_status_cannot_be_removed_and_rename_migrates_status test_server.RepositoryTests.test_document_backlinks_include_referencing_records_and_projects test_server.RepositoryTests.test_document_category_rename_migrates_documents_and_sorting test_server.RepositoryTests.test_document_category_delete_moves_documents_to_uncategorized test_server.RepositoryTests.test_document_can_open_in_external_markdown_editor` | 通过，6 项 | 状态/工作流、分类同步、反向链接和兼容 patch 路径 |
+| 2026-09-16 | RF-105 | `python -m unittest -v` | 通过，63 项 | 完整回归，包含 HTTP 集成测试 |
+| 2026-09-16 | RF-105 | `python -m py_compile`（根目录及 `workbench/` 全部 Python 文件） | 通过 | 新配置、文档仓储及测试已纳入 |
+| 2026-09-16 | RF-105 | `node --check app.js`、`node --check concept-map.js` | 通过 | 无输出；前端未修改 |
+| 2026-09-16 | RF-105 | `git diff --check` | 通过 | 仅有 Windows LF/CRLF 提示，无内容错误 |
 
 ## 6. 决策记录
 

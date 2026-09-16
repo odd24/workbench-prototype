@@ -2,13 +2,33 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from server import dump_markdown, load_markdown, load_markdown_text, normalize_info_fields
+import server
+from workbench.markdown_io import (
+    dump_markdown,
+    load_markdown,
+    load_markdown_text,
+    normalize_info_fields,
+    now_iso,
+    parse_scalar,
+    slugify,
+    yaml_scalar,
+)
 
 
 BASELINE_DATA_DIR = Path(__file__).resolve().parent / "test-fixtures" / "baseline-data"
 
 
 class MarkdownContractTests(unittest.TestCase):
+    def test_server_keeps_compatible_markdown_helper_exports(self):
+        self.assertIs(server.dump_markdown, dump_markdown)
+        self.assertIs(server.load_markdown, load_markdown)
+        self.assertIs(server.load_markdown_text, load_markdown_text)
+        self.assertIs(server.normalize_info_fields, normalize_info_fields)
+        self.assertIs(server.now_iso, now_iso)
+        self.assertIs(server.parse_scalar, parse_scalar)
+        self.assertIs(server.slugify, slugify)
+        self.assertIs(server.yaml_scalar, yaml_scalar)
+
     def test_front_matter_scalars_and_mixed_lists(self):
         metadata, body = load_markdown_text(
             "---\r\n"

@@ -29,11 +29,11 @@
 | 项目 | 当前值 |
 | --- | --- |
 | 当前阶段 | 阶段 1：后端基础设施拆分 |
-| 当前工作项 | 无（阶段 0 门禁已通过） |
-| 最近完成 | RF-003 增加 Markdown 契约测试 |
-| 下一工作项 | RF-101 提取 Markdown 与时间/slug 工具 |
+| 当前工作项 | 无（RF-101 已完成） |
+| 最近完成 | RF-101 提取 Markdown 与时间/slug 工具 |
+| 下一工作项 | RF-102 提取路径和外部编辑器能力 |
 | 已知阻塞 | 无 |
-| 后端测试基线 | 50 项通过 |
+| 后端测试基线 | 51 项通过 |
 | 下一阶段门禁 | RF-101 至 RF-108 全部完成 |
 
 ## 3. 工作项状态
@@ -51,7 +51,7 @@
 
 | ID | 工作项 | 状态 | 开始 | 完成 | 负责人/执行者 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
-| RF-101 | 提取 Markdown 与时间/slug 工具 | 待开始 |  |  |  | 依赖 RF-003 |
+| RF-101 | 提取 Markdown 与时间/slug 工具 | 已完成 | 2026-09-16 | 2026-09-16 | Codex | 提取 `workbench/markdown_io.py`，保留 `server.py` 兼容导入 |
 | RF-102 | 提取路径和外部编辑器能力 | 待开始 |  |  |  | 依赖 RF-101 |
 | RF-103 | 提取概念图仓储 | 待开始 |  |  |  | 依赖 RF-101 |
 | RF-104 | 提取附件仓储 | 待开始 |  |  |  | 依赖 RF-101、RF-102 |
@@ -114,6 +114,8 @@
 | 2026-09-16 | RF-002 | 进行中 → 已完成 | 新增 `test_http.py`，实现临时仓储、系统分配端口、进程内服务线程及统一 HTTP 请求辅助；覆盖健康检查、静态文件、JSON 创建/读取、ZIP 字节流和 `400`/`404`/`500` | HTTP 测试 5 项、完整测试 44 项、Python/JavaScript 语法检查和 `git diff --check` 全部通过；每例关闭服务器并清理临时目录 | 数据/API 无变化；HTTP 保护层已建立，下一步 RF-003 Markdown 契约测试 |
 | 2026-09-16 | RF-003 | 待开始 → 进行中 | 计划新增 `test_markdown.py`，为轻量 front matter 解析、序列化和磁盘重读建立独立契约；覆盖标量、列表、旧字典、Unicode、多行信息字段、空正文及无效/缺失文件 | 计划运行 Markdown 专项测试、完整测试与全部基础门禁；新增 Python 文件纳入语法检查 | 风险：测试必须固定当前兼容语义，不把轻量解析器误当完整 YAML；不修改生产数据格式或解析行为 |
 | 2026-09-16 | RF-003 | 进行中 → 已完成 | 新增 `test_markdown.py`，覆盖 front matter 标量和混合列表、固定旧字典样本、Unicode、多行信息字段、空正文、磁盘写入重读、无 front matter、缺失分隔线、缺失文件和非 UTF-8 文件 | Markdown 专项 6 项、完整测试 50 项、Python/JavaScript 语法检查和 `git diff --check` 全部通过；阶段 0 门禁完成 | 数据/API 无变化；RISK-001 已有契约测试缓解但继续开放；下一步 RF-101 |
+| 2026-09-16 | RF-101 | 待开始 → 进行中 | 计划新增 `workbench/__init__.py` 与 `workbench/markdown_io.py`，从 `server.py` 纯移动时间、slug、front matter、Markdown I/O 和信息字段归一化函数，并通过兼容导入保留原公开名称 | 计划运行 Markdown 专项、仓储、HTTP、完整门禁；新增 Python 模块纳入语法检查 | 风险：测试会继续 patch `server.load_markdown`；兼容导入必须保留该名称，且不得改变序列化字节、旧字典读取或异常语义 |
+| 2026-09-16 | RF-101 | 进行中 → 已完成 | 新增 `workbench/__init__.py` 和 `workbench/markdown_io.py`；从 `server.py` 纯移动时间、slug、标量、front matter、Markdown I/O 与信息字段归一化函数；`test_markdown.py` 改为直接验证新模块并锁定兼容导出 | Markdown 专项 7 项、完整测试 51 项、全部 Python 模块语法检查、两个 JavaScript 语法检查和 `git diff --check` 通过 | 数据/API/序列化无变化；DEC-006 保留 `server.py` 同名兼容导出；下一步 RF-102 |
 
 ## 5. 验证记录
 
@@ -142,6 +144,12 @@
 | 2026-09-16 | RF-003 | `node --check app.js` | 通过 | 无输出；本工作项未修改前端代码 |
 | 2026-09-16 | RF-003 | `node --check concept-map.js` | 通过 | 无输出；本工作项未修改前端代码 |
 | 2026-09-16 | RF-003 | `git diff --check` | 通过 | 仅有 Windows LF/CRLF 提示，无内容错误 |
+| 2026-09-16 | RF-101 | `python -m unittest -v test_markdown` | 通过，7 项 | 直接验证新模块及 `server.py` 兼容导出 |
+| 2026-09-16 | RF-101 | `python -m unittest -v` | 通过，51 项 | 仓储与 HTTP 行为保持 |
+| 2026-09-16 | RF-101 | `python -m py_compile server.py workbench/__init__.py workbench/markdown_io.py test_server.py test_http.py test_markdown.py` | 通过 | 新模块已纳入语法检查 |
+| 2026-09-16 | RF-101 | `node --check app.js` | 通过 | 无输出；本工作项未修改前端代码 |
+| 2026-09-16 | RF-101 | `node --check concept-map.js` | 通过 | 无输出；本工作项未修改前端代码 |
+| 2026-09-16 | RF-101 | `git diff --check` | 通过 | 仅有 Windows LF/CRLF 提示，无内容错误 |
 
 ## 6. 决策记录
 
@@ -154,6 +162,7 @@
 | DEC-003 | 2026-09-16 | `Repository` 在后端拆分期间作为兼容门面 | 降低 HTTP、测试和领域模块同时变化的风险 | 领域实现可移动，但公开行为先保持稳定 |
 | DEC-004 | 2026-09-16 | 重构状态只以本台账为准 | 防止计划、提交说明和实际完成情况相互矛盾 | 每个工作项开始和结束都必须更新本文件 |
 | DEC-005 | 2026-09-16 | 前端先使用 `window.Workbench` 显式命名空间 | 当前脚本依赖全局加载顺序，直接切 ES Modules 会扩大变更面 | 模块边界稳定后再单独评估 ESM |
+| DEC-006 | 2026-09-16 | 后端提取期间由 `server.py` 兼容导出已移动的公共辅助函数 | 现有测试和潜在本地调用方可能仍从 `server` 导入或 patch 这些名称 | 新模块成为实现位置，旧导入路径在相关调用方迁移前继续有效 |
 
 ## 7. 风险记录
 

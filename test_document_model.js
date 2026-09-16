@@ -31,11 +31,16 @@
 
   if (typeof document !== 'undefined') {
     const source = [
-      '普通 **粗体**',
+      '# 一级标题',
+      '',
+      '普通 **粗体** *斜体* ~~删除线~~ <u>下划线</u> `inline()` [链接](https://example.com)',
+      '',
+      '<span style="color:#123456;background-color:#abcdef">受控颜色</span>',
       '',
       '## 标题',
       '',
       '- 项目',
+      '- [ ] 待处理',
       '- [x] 任务',
       '',
       '1. 第一',
@@ -47,11 +52,19 @@
       'const value = 1;',
       '```',
       '',
+      '```python',
+      'print("中文")',
+      '```',
+      '',
+      '```shell',
+      'printf "%s\\n" "ok"',
+      '```',
+      '',
       '---',
       '',
-      '| 左 | 右 |',
-      '| :--- | ---: |',
-      '| A | B |',
+      '| 左 | 中 | 右 |',
+      '| :--- | :---: | ---: |',
+      '| A\\|B | 两行<br>内容 | C |',
       '',
       '<div align="center">居中</div>',
     ].join('\n');
@@ -60,12 +73,17 @@
     const model = documentModel.normalize(editor);
     equal(documentModel.serialize(editor), source, '结构块往返结果');
     deepEqual(model.map(block => block.type), [
-      'paragraph', 'heading', 'task-list', 'number-list', 'quote', 'code', 'divider', 'table', 'paragraph'
+      'heading', 'paragraph', 'paragraph', 'heading', 'task-list', 'number-list', 'quote', 'code', 'code', 'code', 'divider', 'table', 'paragraph'
     ], '结构块类型');
     deepEqual(model.find(block => block.type === 'task-list').items.map(item => ({checked:item.checked, content:item.content})), [
       {checked:false, content:'项目'},
+      {checked:false, content:'待处理'},
       {checked:true, content:'任务'},
     ], '任务列表模型');
+    deepEqual(model.filter(block => block.type === 'code').map(block => block.markdown.split('\n')[0]), [
+      '```javascript', '```python', '```shell'
+    ], '代码语言');
+    equal(model.find(block => block.type === 'table').markdown, '| 左 | 中 | 右 |\n| :--- | :---: | ---: |\n| A\\|B | 两行<br>内容 | C |', '表格对齐与转义');
     equal(new Set(model.map(block => block.id)).size, model.length, '块 ID 唯一');
     document.body.dataset.testResult = 'passed';
     document.body.textContent = `PASS ${model.map(block => block.type).join(',')}`;

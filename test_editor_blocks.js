@@ -87,7 +87,26 @@
     const listStructures = ['bullet', 'number'].map(command => blocks.structure(command, document).nodes[0].nodeName);
     equal(listStructures.join(','), 'UL,OL', '普通列表结构');
 
-    const sharedSource = '# 同一内容\n\n正文 **加粗**\n\n- [x] 完成\n\n```javascript\nconst ok = true;\n```\n\n| 左 | 右 |\n| :--- | ---: |\n| A | B |';
+    const sharedSource = [
+      '# 同一内容',
+      '',
+      '正文 **加粗** *斜体* ~~删除~~ <u>下划线</u>',
+      '',
+      '<span style="color:#123456;background-color:#abcdef">受控颜色</span>',
+      '',
+      '- [ ] 待处理',
+      '- [x] 完成',
+      '',
+      '```javascript',
+      'const ok = true;',
+      '```',
+      '',
+      '| 左 | 中 | 右 |',
+      '| :--- | :---: | ---: |',
+      '| A | B | C |',
+      '',
+      '<div align="right">右对齐</div>',
+    ].join('\n');
     const recordSurface = createEditor('');
     const documentSurface = createEditor('');
     const recordHost = editorHost.create({editor:recordSurface});
@@ -106,7 +125,7 @@
     equal(recordHost.serialize(), '| 单元格 |\n| :--- |\n\n表格后正文', '表格后输入不会丢失');
     host.remove();
     document.body.dataset.testResult = 'passed';
-    document.body.textContent = 'PASS shared-host,round-trip,table-tail,selection,caret,bullet-list,number-list,task-list,reference,code,quote,table,divider';
+    document.body.textContent = 'PASS shared-host,round-trip,html-extension,task-states,code-language,table-alignment,table-tail,selection,caret,bullet-list,number-list,task-list,reference,code,quote,table,divider';
   } else {
     console.log('Editor selection and block contract tests passed.');
   }

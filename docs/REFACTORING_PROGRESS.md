@@ -29,11 +29,11 @@
 | 项目 | 当前值 |
 | --- | --- |
 | 当前阶段 | 阶段 1：后端基础设施拆分 |
-| 当前工作项 | 无（RF-101 已完成） |
-| 最近完成 | RF-101 提取 Markdown 与时间/slug 工具 |
-| 下一工作项 | RF-102 提取路径和外部编辑器能力 |
+| 当前工作项 | 无（RF-102 已完成） |
+| 最近完成 | RF-102 提取路径和外部编辑器能力 |
+| 下一工作项 | RF-103 提取概念图仓储 |
 | 已知阻塞 | 无 |
-| 后端测试基线 | 51 项通过 |
+| 后端测试基线 | 56 项通过 |
 | 下一阶段门禁 | RF-101 至 RF-108 全部完成 |
 
 ## 3. 工作项状态
@@ -52,7 +52,7 @@
 | ID | 工作项 | 状态 | 开始 | 完成 | 负责人/执行者 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
 | RF-101 | 提取 Markdown 与时间/slug 工具 | 已完成 | 2026-09-16 | 2026-09-16 | Codex | 提取 `workbench/markdown_io.py`，保留 `server.py` 兼容导入 |
-| RF-102 | 提取路径和外部编辑器能力 | 待开始 |  |  |  | 依赖 RF-101 |
+| RF-102 | 提取路径和外部编辑器能力 | 已完成 | 2026-09-16 | 2026-09-16 | Codex | 提取路径/迁移/导出与外部编辑器模块，保留兼容门面 |
 | RF-103 | 提取概念图仓储 | 待开始 |  |  |  | 依赖 RF-101 |
 | RF-104 | 提取附件仓储 | 待开始 |  |  |  | 依赖 RF-101、RF-102 |
 | RF-105 | 提取知识库与配置仓储 | 待开始 |  |  |  | 依赖 RF-101 |
@@ -116,6 +116,8 @@
 | 2026-09-16 | RF-003 | 进行中 → 已完成 | 新增 `test_markdown.py`，覆盖 front matter 标量和混合列表、固定旧字典样本、Unicode、多行信息字段、空正文、磁盘写入重读、无 front matter、缺失分隔线、缺失文件和非 UTF-8 文件 | Markdown 专项 6 项、完整测试 50 项、Python/JavaScript 语法检查和 `git diff --check` 全部通过；阶段 0 门禁完成 | 数据/API 无变化；RISK-001 已有契约测试缓解但继续开放；下一步 RF-101 |
 | 2026-09-16 | RF-101 | 待开始 → 进行中 | 计划新增 `workbench/__init__.py` 与 `workbench/markdown_io.py`，从 `server.py` 纯移动时间、slug、front matter、Markdown I/O 和信息字段归一化函数，并通过兼容导入保留原公开名称 | 计划运行 Markdown 专项、仓储、HTTP、完整门禁；新增 Python 模块纳入语法检查 | 风险：测试会继续 patch `server.load_markdown`；兼容导入必须保留该名称，且不得改变序列化字节、旧字典读取或异常语义 |
 | 2026-09-16 | RF-101 | 进行中 → 已完成 | 新增 `workbench/__init__.py` 和 `workbench/markdown_io.py`；从 `server.py` 纯移动时间、slug、标量、front matter、Markdown I/O 与信息字段归一化函数；`test_markdown.py` 改为直接验证新模块并锁定兼容导出 | Markdown 专项 7 项、完整测试 51 项、全部 Python 模块语法检查、两个 JavaScript 语法检查和 `git diff --check` 通过 | 数据/API/序列化无变化；DEC-006 保留 `server.py` 同名兼容导出；下一步 RF-102 |
+| 2026-09-16 | RF-102 | 待开始 → 进行中 | 计划新增 `workbench/paths.py` 与 `workbench/external_editor.py`，提取数据目录选择/迁移、导出位置、目录浏览、导出写入和外部编辑器发现/配置/启动；`server.py` 保留兼容名称及可 patch 的编辑器门面 | 计划补充自定义/系统编辑器启动参数、无效路径和兼容导出测试，并运行路径专项、仓储、HTTP及完整门禁 | 风险：模块不得反向导入 `server.Repository`；迁移通过当前仓储类型构造新实例，外部程序继续使用参数数组且禁止 shell 字符串 |
+| 2026-09-16 | RF-102 | 进行中 → 已完成 | 新增 `workbench/paths.py`、`workbench/external_editor.py` 和 `test_paths.py`；从 `server.py` 提取数据/导出目录、迁移、目录浏览、导出写入及编辑器发现/配置/启动；保留路径兼容导出和可 patch 的编辑器门面 | 路径与编辑器专项 5 项、完整测试 56 项、新增模块语法检查、两个 JavaScript 语法检查和 `git diff --check` 全部通过 | 数据/API/机器配置位置无变化；DEC-007 使用仓储类型构造和检测器注入避免反向依赖；下一步 RF-103 |
 
 ## 5. 验证记录
 
@@ -150,6 +152,12 @@
 | 2026-09-16 | RF-101 | `node --check app.js` | 通过 | 无输出；本工作项未修改前端代码 |
 | 2026-09-16 | RF-101 | `node --check concept-map.js` | 通过 | 无输出；本工作项未修改前端代码 |
 | 2026-09-16 | RF-101 | `git diff --check` | 通过 | 仅有 Windows LF/CRLF 提示，无内容错误 |
+| 2026-09-16 | RF-102 | `python -m unittest -v test_paths` | 通过，5 项 | 覆盖兼容导出、无效/嵌套路径、自定义/系统编辑器和参数数组启动 |
+| 2026-09-16 | RF-102 | `python -m unittest -v` | 通过，56 项 | 包含现有迁移、导出、编辑器选择及 HTTP 测试 |
+| 2026-09-16 | RF-102 | `python -m py_compile server.py workbench/__init__.py workbench/markdown_io.py workbench/paths.py workbench/external_editor.py test_server.py test_http.py test_markdown.py test_paths.py` | 通过 | 新模块与测试已纳入 |
+| 2026-09-16 | RF-102 | `node --check app.js` | 通过 | 无输出；本工作项未修改前端代码 |
+| 2026-09-16 | RF-102 | `node --check concept-map.js` | 通过 | 无输出；本工作项未修改前端代码 |
+| 2026-09-16 | RF-102 | `git diff --check` | 通过 | 仅有 Windows LF/CRLF 提示，无内容错误 |
 
 ## 6. 决策记录
 
@@ -163,6 +171,7 @@
 | DEC-004 | 2026-09-16 | 重构状态只以本台账为准 | 防止计划、提交说明和实际完成情况相互矛盾 | 每个工作项开始和结束都必须更新本文件 |
 | DEC-005 | 2026-09-16 | 前端先使用 `window.Workbench` 显式命名空间 | 当前脚本依赖全局加载顺序，直接切 ES Modules 会扩大变更面 | 模块边界稳定后再单独评估 ESM |
 | DEC-006 | 2026-09-16 | 后端提取期间由 `server.py` 兼容导出已移动的公共辅助函数 | 现有测试和潜在本地调用方可能仍从 `server` 导入或 patch 这些名称 | 新模块成为实现位置，旧导入路径在相关调用方迁移前继续有效 |
+| DEC-007 | 2026-09-16 | 路径模块通过当前仓储实例的类型创建迁移后仓储，编辑器模块通过检测器参数接受环境能力 | `paths.py` 和 `external_editor.py` 不应反向导入集中式 `server.py`，同时旧 patch 路径需要继续工作 | 消除循环依赖；`server.py` 编辑器兼容门面仍可注入测试检测结果 |
 
 ## 7. 风险记录
 

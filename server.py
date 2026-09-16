@@ -13,7 +13,6 @@ import shutil
 import socket
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import webbrowser
@@ -24,6 +23,8 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
+from workbench import external_editor as external_editor_module
+from workbench.external_editor import EXTERNAL_EDITOR_FILE
 from workbench.markdown_io import (
     dump_markdown,
     load_markdown,
@@ -34,13 +35,23 @@ from workbench.markdown_io import (
     slugify,
     yaml_scalar,
 )
+from workbench.paths import (
+    DEFAULT_DATA_DIR,
+    EXPORT_LOCATION_FILE,
+    LOCATION_FILE,
+    common_export_locations,
+    configured_data_dir,
+    configured_export_dir,
+    directory_browser_payload,
+    export_location_payload,
+    export_to_saved_location,
+    relocate_repository,
+    save_data_location,
+    save_export_location,
+)
 
 
 APP_DIR = Path(__file__).resolve().parent
-DEFAULT_DATA_DIR = APP_DIR / "workbench-data"
-LOCATION_FILE = APP_DIR / ".workbench-location.json"
-EXPORT_LOCATION_FILE = APP_DIR / ".workbench-export.json"
-EXTERNAL_EDITOR_FILE = APP_DIR / ".workbench-editor.json"
 APP_VERSION = "2026.09.16.2"
 TYPE_DIRS = {"issue": "issues", "todo": "todos", "idea": "ideas", "info": "infos"}
 TYPE_PREFIXES = {"issue": "ISSUE", "todo": "TODO", "idea": "IDEA", "info": "INFO"}
@@ -48,74 +59,20 @@ CONCEPT_MAP_WIDTH = 12_000.0
 CONCEPT_MAP_HEIGHT = 8_000.0
 
 
-def _environment_path(variable: str, *parts: str) -> str | None:
-    root = os.environ.get(variable)
-    return str(Path(root, *parts)) if root else None
-
-
 def detected_external_editors() -> list[dict]:
-    definitions = [
-        ("typora", "Typora", [os.environ.get("TYPORA_PATH"), shutil.which("Typora.exe"), shutil.which("Typora"), _environment_path("LOCALAPPDATA", "Programs", "Typora", "Typora.exe"), _environment_path("LOCALAPPDATA", "Typora", "Typora.exe"), _environment_path("PROGRAMFILES", "Typora", "Typora.exe"), _environment_path("PROGRAMFILES(X86)", "Typora", "Typora.exe")]),
-        ("vscode", "Visual Studio Code", [shutil.which("Code.exe"), _environment_path("LOCALAPPDATA", "Programs", "Microsoft VS Code", "Code.exe"), _environment_path("PROGRAMFILES", "Microsoft VS Code", "Code.exe"), shutil.which("code")]),
-        ("obsidian", "Obsidian", [shutil.which("Obsidian.exe"), shutil.which("obsidian"), _environment_path("LOCALAPPDATA", "Obsidian", "Obsidian.exe"), _environment_path("LOCALAPPDATA", "Programs", "Obsidian", "Obsidian.exe")]),
-        ("notepadpp", "Notepad++", [shutil.which("notepad++.exe"), _environment_path("PROGRAMFILES", "Notepad++", "notepad++.exe"), _environment_path("PROGRAMFILES(X86)", "Notepad++", "notepad++.exe")]),
-        ("sublime", "Sublime Text", [shutil.which("sublime_text.exe"), shutil.which("subl"), _environment_path("PROGRAMFILES", "Sublime Text", "sublime_text.exe")]),
-        ("marktext", "MarkText", [shutil.which("MarkText.exe"), shutil.which("marktext"), _environment_path("LOCALAPPDATA", "Programs", "MarkText", "MarkText.exe")]),
-        ("zettlr", "Zettlr", [shutil.which("Zettlr.exe"), shutil.which("zettlr"), _environment_path("LOCALAPPDATA", "Programs", "Zettlr", "Zettlr.exe")]),
-    ]
-    editors = []
-    for editor_id, name, candidates in definitions:
-        executable = next((Path(candidate).resolve() for candidate in candidates if candidate and Path(candidate).is_file()), None)
-        if executable:
-            editors.append({"id": editor_id, "name": name, "path": str(executable), "kind": "detected"})
-    editors.append({"id": "system", "name": "系统默认 Markdown 编辑器", "path": "", "kind": "system"})
-    return editors
+    return external_editor_module.detected_external_editors()
 
 
 def external_editor_payload(config_file: Path = EXTERNAL_EDITOR_FILE) -> dict:
-    try:
-        selected = json.loads(config_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        selected = {}
-    editors = detected_external_editors()
-    custom_path = str(selected.get("path", "")).strip()
-    if selected.get("id") == "custom" and custom_path and Path(custom_path).is_file():
-        editors.insert(0, {"id": "custom", "name": selected.get("name") or Path(custom_path).stem, "path": str(Path(custom_path).resolve()), "kind": "custom"})
-    available_ids = {editor["id"] for editor in editors}
-    selected_id = selected.get("id") if selected.get("id") in available_ids else ("typora" if "typora" in available_ids else "system")
-    selected_editor = next(editor for editor in editors if editor["id"] == selected_id)
-    return {"selected": selected_id, "selected_name": selected_editor["name"], "editors": editors}
+    return external_editor_module.external_editor_payload(config_file, detected_external_editors)
 
 
 def save_external_editor(editor_id: str, custom_path: str = "", config_file: Path = EXTERNAL_EDITOR_FILE) -> dict:
-    editor_id = str(editor_id or "").strip()
-    if editor_id == "custom":
-        executable = Path(str(custom_path or "").strip()).expanduser()
-        if not executable.is_file():
-            raise ValueError("自定义编辑器程序不存在，请填写可执行程序的完整路径")
-        config = {"id": "custom", "name": executable.stem, "path": str(executable.resolve())}
-    else:
-        editor = next((item for item in detected_external_editors() if item["id"] == editor_id), None)
-        if not editor:
-            raise ValueError("所选编辑器当前不可用")
-        config = {"id": editor["id"], "name": editor["name"], "path": editor["path"]}
-    config_file.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
-    return external_editor_payload(config_file)
+    return external_editor_module.save_external_editor(editor_id, custom_path, config_file, detected_external_editors)
 
 
 def open_markdown_external(path: Path, config_file: Path = EXTERNAL_EDITOR_FILE) -> str:
-    payload = external_editor_payload(config_file)
-    editor = next(item for item in payload["editors"] if item["id"] == payload["selected"])
-    if editor["kind"] != "system":
-        subprocess.Popen([editor["path"], str(path)], cwd=str(path.parent), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        return editor["name"]
-    if sys.platform == "win32":
-        os.startfile(str(path))
-    elif sys.platform == "darwin":
-        subprocess.Popen(["open", str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    else:
-        subprocess.Popen(["xdg-open", str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return editor["name"]
+    return external_editor_module.open_markdown_external(path, config_file, detected_external_editors)
 
 
 class Repository:
@@ -1850,158 +1807,6 @@ class Repository:
         ]
         for sample in samples:
             self.create_record(sample)
-
-
-def save_data_location(data_dir: Path, location_file: Path = LOCATION_FILE):
-    location_file.parent.mkdir(parents=True, exist_ok=True)
-    temporary = location_file.with_suffix(location_file.suffix + ".tmp")
-    temporary.write_text(json.dumps({"data_dir": str(data_dir.resolve())}, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(location_file)
-
-
-def relocate_repository(current: Repository, raw_path: str, migrate: bool, location_file: Path = LOCATION_FILE) -> Repository:
-    value = os.path.expandvars(str(raw_path).strip())
-    if not value:
-        raise ValueError("数据目录不能为空")
-    target = Path(value).expanduser()
-    if not target.is_absolute():
-        raise ValueError("请输入完整的绝对路径，例如 E:\\WorkBenchData")
-    target = target.resolve()
-    if target == current.root:
-        save_data_location(target, location_file)
-        return current
-    if migrate and (target.is_relative_to(current.root) or current.root.is_relative_to(target)):
-        raise ValueError("新旧数据目录不能互相嵌套，请选择独立目录")
-    if migrate:
-        if target.exists() and any(target.iterdir()):
-            raise ValueError("复制数据时目标目录必须为空；如需打开已有工作台，请选择“直接使用已有目录”")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(current.root, target, dirs_exist_ok=True)
-    else:
-        target.mkdir(parents=True, exist_ok=True)
-    repository = Repository(target)
-    save_data_location(repository.root, location_file)
-    return repository
-
-
-def configured_data_dir(command_line_value: Path | None) -> Path:
-    if command_line_value is not None:
-        return command_line_value
-    environment_value = os.environ.get("WORKBENCH_DATA_DIR")
-    if environment_value:
-        return Path(environment_value)
-    try:
-        saved = json.loads(LOCATION_FILE.read_text(encoding="utf-8"))
-        if saved.get("data_dir"):
-            return Path(saved["data_dir"])
-    except (OSError, json.JSONDecodeError, TypeError):
-        pass
-    return DEFAULT_DATA_DIR
-
-
-def common_export_locations() -> list[dict]:
-    home = Path.home()
-    choices = [
-        ("downloads", "下载", home / "Downloads"),
-        ("desktop", "桌面", home / "Desktop"),
-        ("documents", "文档", home / "Documents"),
-    ]
-    return [{"id": key, "label": label, "path": str(path.resolve())} for key, label, path in choices]
-
-
-def configured_export_dir(location_file: Path = EXPORT_LOCATION_FILE) -> Path | None:
-    try:
-        saved = json.loads(location_file.read_text(encoding="utf-8"))
-        path = Path(saved.get("export_dir", ""))
-        return path.resolve() if path.is_absolute() else None
-    except (OSError, json.JSONDecodeError, TypeError):
-        return None
-
-
-def export_location_payload(location_file: Path = EXPORT_LOCATION_FILE) -> dict:
-    directory = configured_export_dir(location_file)
-    return {
-        "path": str(directory) if directory else "",
-        "name": directory.name if directory else "",
-        "common": common_export_locations(),
-    }
-
-
-def save_export_location(raw_path: str, location_file: Path = EXPORT_LOCATION_FILE) -> dict:
-    value = os.path.expandvars(str(raw_path).strip())
-    if not value:
-        raise ValueError("请选择或填写导出目录")
-    target = Path(value).expanduser()
-    if not target.is_absolute():
-        raise ValueError("请输入完整的绝对路径，例如 C:\\Users\\用户名\\Downloads")
-    target.mkdir(parents=True, exist_ok=True)
-    target = target.resolve()
-    # 创建并立即删除探测文件，在保存设置前确认目录确实可写。
-    with tempfile.NamedTemporaryFile(prefix=".workbench-write-test-", dir=target, delete=True):
-        pass
-    location_file.parent.mkdir(parents=True, exist_ok=True)
-    temporary = location_file.with_suffix(location_file.suffix + ".tmp")
-    temporary.write_text(json.dumps({"export_dir": str(target)}, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(location_file)
-    return export_location_payload(location_file)
-
-
-def directory_browser_payload(raw_path: str = "") -> dict:
-    value = os.path.expandvars(str(raw_path).strip())
-    target = Path(value).expanduser() if value else (configured_export_dir() or Path.home())
-    if not target.is_absolute():
-        raise ValueError("请输入完整目录路径")
-    target = target.resolve()
-    if not target.is_dir():
-        raise ValueError("该目录不存在，请选择已有目录")
-    directories = []
-    try:
-        children = sorted((item for item in target.iterdir() if item.is_dir() and not item.name.startswith(".")), key=lambda item: item.name.casefold())
-        for child in children:
-            try:
-                directories.append({"name": child.name, "path": str(child.resolve())})
-            except OSError:
-                continue
-    except PermissionError as exc:
-        raise ValueError("没有权限浏览该目录，请返回上一级") from exc
-    roots = []
-    if sys.platform == "win32":
-        for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
-            drive = Path(f"{letter}:\\")
-            if drive.exists():
-                roots.append({"name": f"本地磁盘 ({letter}:)", "path": str(drive)})
-    else:
-        roots.append({"name": "根目录", "path": "/"})
-    parent = target.parent
-    return {
-        "path": str(target),
-        "name": target.name or str(target),
-        "parent": str(parent) if parent != target else "",
-        "directories": directories,
-        "roots": roots,
-    }
-
-
-def export_to_saved_location(repository: Repository, project_id: str | None, filename: str, location_file: Path = EXPORT_LOCATION_FILE) -> dict:
-    directory = configured_export_dir(location_file)
-    if not directory:
-        raise ValueError("请先选择导出位置")
-    if not directory.is_dir():
-        raise ValueError("已保存的导出目录不存在，请重新选择位置")
-    clean_name = Path(str(filename)).name
-    if clean_name != filename or not clean_name.lower().endswith(".zip"):
-        raise ValueError("导出文件名无效")
-    content = repository.export_zip(project_id)
-    destination = directory / clean_name
-    with tempfile.NamedTemporaryFile(prefix=f".{clean_name}.", suffix=".tmp", dir=directory, delete=False) as temporary:
-        temporary.write(content)
-        temporary_path = Path(temporary.name)
-    try:
-        temporary_path.replace(destination)
-    except Exception:
-        temporary_path.unlink(missing_ok=True)
-        raise
-    return {"ok": True, "path": str(destination), "directory": str(directory), "filename": clean_name, "size": len(content)}
 
 
 class WorkbenchHTTPServer(ThreadingHTTPServer):

@@ -136,9 +136,10 @@ async function main() {
       api:Workbench.api.request === api,
       dialogs:Workbench.dialogs.notify === notify && Workbench.dialogs.open === openAppDialog && Workbench.dialogs.confirm === appConfirm && Workbench.dialogs.prompt === appPrompt,
       state:Workbench.state.groups.join(',') === 'serverData,uiState,editorState,draftState' && Workbench.appState.serverData.projects === projects && Workbench.appState.uiState.selectedProjectId === selectedProjectId,
-      features:Workbench.search && Workbench.trash && Workbench.manage && searchFeature.diagnostics().bindCount === 1 && trashFeature.diagnostics().bindCount === 1 && usageFeature.diagnostics().bindCount === 1
+      features:Workbench.search && Workbench.trash && Workbench.manage && searchFeature.diagnostics().bindCount === 1 && trashFeature.diagnostics().bindCount === 1 && usageFeature.diagnostics().bindCount === 1,
+      homeProject:Workbench.home && Workbench.projectView && typeof Workbench.home.normalizeLayout === 'function' && typeof Workbench.projectView.mergeVisibleOrder === 'function'
     })`);
-    assert.deepEqual(result, {dom:true, api:true, dialogs:true, state:true, features:true});
+    assert.deepEqual(result, {dom:true, api:true, dialogs:true, state:true, features:true, homeProject:true});
     result = await client.evaluate(`(async () => {
       notify('核心通知', '错误详情', true);
       const toastState = {title:$('.toast strong').textContent, detail:$('.toast small').textContent, error:$('#toast').classList.contains('error')};
@@ -172,6 +173,9 @@ async function main() {
     const record = await request('/records', {method:'POST', body:{
       type:'issue', title:'RF-205 验收记录', project_id:project.id, status:'待处理', priority:'普通', body:'初始记录正文'
     }});
+    const orderRecord = await request('/records', {method:'POST', body:{
+      type:'issue', title:'RF-304 排序记录', project_id:project.id, status:'待处理', priority:'高', body:'排序写回验证'
+    }});
     const raceProject = await request('/projects', {method:'POST', body:{name:'RF-302 竞态项目'}});
     const raceRecord = await request('/records', {method:'POST', body:{
       type:'issue', title:'RF-302 后发记录', project_id:raceProject.id, status:'待处理', priority:'普通', body:'后发记录正文'
@@ -188,6 +192,7 @@ async function main() {
     await request(`/records/${trashRecord.id}`, {method:'DELETE'});
 
     const recordId = JSON.stringify(record.id);
+    const orderRecordId = JSON.stringify(orderRecord.id);
     const raceRecordId = JSON.stringify(raceRecord.id);
     const projectId = JSON.stringify(project.id);
     const raceProjectId = JSON.stringify(raceProject.id);
@@ -246,6 +251,47 @@ async function main() {
       } finally { window.fetch = nativeFetch; }
     })()`);
     assert.deepEqual(result, {id:raceDocument.id, title:'RF-302 后发文档', dirty:false, stateId:raceDocument.id});
+
+    result = await client.evaluate(`(async () => {
+      homeLayout = normalizeHomeLayout({columns:[
+        {id:'home_a', title:'第一栏', items:[${recordId}]},
+        {id:'home_b', title:'第二栏', items:[${orderRecordId}]}
+      ], statusWatch:['待处理']});
+      homeLayout = homeCore.fromBoard(homeLayout, [
+        {id:'home_b', items:[${orderRecordId}]},
+        {id:'home_a', items:[${recordId}]}
+      ]);
+      saveHomeLayout();
+      const reloadedLayout = homeCore.load(localStorage, HOME_LAYOUT_STORAGE_KEY, HOME_LAYOUT_LEGACY_KEY);
+      await refreshData();
+      selectedProjectId = ${projectId};
+      projectTab = 'issues';
+      projectViewMode = 'board';
+      projectFilters = {status:'', tag:'', priority:''};
+      renderProjectPage();
+      await persistRecordOrder([${orderRecordId}, ${recordId}], ['待处理']);
+      const columns = $$('.kanban-column', $('#kanban'));
+      let expectedColumns = columns.map(column => column.dataset.status);
+      if (columns.length > 1) {
+        columns[0].before(columns[1]);
+        expectedColumns = $$('.kanban-column', $('#kanban')).map(column => column.dataset.status);
+        await persistColumnOrder();
+      }
+      await refreshData();
+      selectedProjectId = ${projectId};
+      projectTab = 'issues';
+      renderProjectPage();
+      const persistedProject = projects.find(item => item.id === ${projectId});
+      const visibleCards = $$('.kanban-card', $('#kanban')).map(card => card.dataset.recordId);
+      const visibleColumns = $$('.kanban-column', $('#kanban')).map(column => column.dataset.status);
+      return {
+        homeColumns:reloadedLayout.columns.map(column => column.id),
+        recordOrder:persistedProject.issue_record_order.slice(0, 2),
+        visibleCards:visibleCards.filter(id => [${orderRecordId}, ${recordId}].includes(id)).slice(0, 2),
+        columnsPersisted:expectedColumns.every((name, index) => visibleColumns[index] === name),
+      };
+    })()`);
+    assert.deepEqual(result, {homeColumns:['home_b', 'home_a'], recordOrder:[orderRecord.id, record.id], visibleCards:[orderRecord.id, record.id], columnsPersisted:true});
 
     result = await client.evaluate(`(async () => {
       await refreshData();

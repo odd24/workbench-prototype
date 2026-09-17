@@ -6,6 +6,8 @@ const stateCore = window.Workbench.state;
 const searchCore = window.Workbench.search;
 const trashCore = window.Workbench.trash;
 const manageCore = window.Workbench.manage;
+const homeCore = window.Workbench.home;
+const projectViewCore = window.Workbench.projectView;
 const {$, $$, escapeHtml, safeColor} = domCore;
 const api = apiCore.request;
 const notify = dialogCore.notify;
@@ -980,30 +982,15 @@ function bindProjectNavigationDrag() {
 }
 
 function loadHomeLayout() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(HOME_LAYOUT_STORAGE_KEY) || 'null');
-    if (saved && Array.isArray(saved.columns)) return normalizeHomeLayout(saved);
-    const legacy = JSON.parse(localStorage.getItem(HOME_LAYOUT_LEGACY_KEY) || '[]');
-    const items = Array.isArray(legacy) ? legacy.filter(item => item && typeof item.id === 'string').map(item => item.id) : [];
-    return {columns:[{id:'home_focus', title:'重点工作', items:[...new Set(items)]}]};
-  } catch { return {columns:[{id:'home_focus', title:'重点工作', items:[]}]}; }
+  return homeCore.load(localStorage, HOME_LAYOUT_STORAGE_KEY, HOME_LAYOUT_LEGACY_KEY);
 }
 
 function normalizeHomeLayout(layout) {
-  const usedColumns = new Set(), usedItems = new Set();
-  const columns = (layout?.columns || []).filter(column => column && typeof column.id === 'string').map((column, index) => {
-    let id = column.id;
-    if (usedColumns.has(id)) id = `${id}_${index}`;
-    usedColumns.add(id);
-    const items = (Array.isArray(column.items) ? column.items : []).filter(item => typeof item === 'string' && !usedItems.has(item) && usedItems.add(item));
-    return {id, title:String(column.title || `分栏 ${index + 1}`).trim().slice(0, 30) || `分栏 ${index + 1}`, items};
-  });
-  const statusWatch = [...new Set((Array.isArray(layout?.statusWatch) ? layout.statusWatch : []).filter(status => typeof status === 'string').map(status => status.trim()).filter(Boolean))];
-  return {columns, statusWatch};
+  return homeCore.normalizeLayout(layout);
 }
 
 function saveHomeLayout() {
-  localStorage.setItem(HOME_LAYOUT_STORAGE_KEY, JSON.stringify(homeLayout));
+  homeLayout = homeCore.save(localStorage, HOME_LAYOUT_STORAGE_KEY, homeLayout);
 }
 
 function createHomeColumnId() {
@@ -1011,7 +998,7 @@ function createHomeColumnId() {
 }
 
 function homeLayoutItemCount(layout = homeLayout) {
-  return (layout?.columns || []).reduce((count, column) => count + column.items.length, 0);
+  return homeCore.itemCount(layout);
 }
 
 function homeRecordIsOverdue(record) {
@@ -1077,14 +1064,10 @@ function openStatusWatchDialog() {
 function bindHomeLayoutDrag() {
   const board = $('#homeLayoutGrid');
   const persistFromBoard = () => {
-    const titles = new Map(homeLayout.columns.map(column => [column.id, column.title]));
-    const originalItems = new Map(homeLayout.columns.map(column => [column.id, column.items]));
-    const visibleIds = new Set($$('[data-home-item]', board).map(item => item.dataset.homeItem));
-    homeLayout = {...homeLayout, columns:$$('[data-home-column]', board).map(column => {
-      const visible = $$('[data-home-item]', column).map(item => item.dataset.homeItem);
-      const hidden = (originalItems.get(column.dataset.homeColumn) || []).filter(id => !visibleIds.has(id));
-      return {id:column.dataset.homeColumn, title:titles.get(column.dataset.homeColumn) || '未命名分栏', items:[...visible, ...hidden]};
-    })};
+    homeLayout = homeCore.fromBoard(homeLayout, $$('[data-home-column]', board).map(column => ({
+      id:column.dataset.homeColumn,
+      items:$$('[data-home-item]', column).map(item => item.dataset.homeItem),
+    })));
     saveHomeLayout();
   };
   $$('[data-status-watch-item]', board).forEach(item => {
@@ -1323,30 +1306,11 @@ function cardHtml(record, extraClass = '') {
 }
 
 function recordSortKeys(tab = projectTab) {
-  return {
-    overview:{sort:'mixed_record_sort', order:'mixed_record_order', statusSorts:'mixed_status_record_sorts'},
-    issues:{sort:'issue_record_sort', order:'issue_record_order', statusSorts:'issue_status_record_sorts'},
-    todos:{sort:'todo_record_sort', order:'todo_record_order', statusSorts:'todo_status_record_sorts'},
-    infos:{sort:'info_record_sort', order:'info_record_order', statusSorts:null},
-  }[tab] || null;
+  return projectViewCore.recordSortKeys(tab);
 }
 
 function sortRecordsByMode(items, mode, savedOrder = []) {
-  const originalIndex = new Map(items.map((item, index) => [item.id, index]));
-  const priorityRank = {紧急:0, 高:1, 普通:2, 低:3};
-  const time = value => { const parsed = Date.parse(value || ''); return Number.isNaN(parsed) ? 0 : parsed; };
-  return [...items].sort((a, b) => {
-    if (mode === 'manual') {
-      const ai = savedOrder.indexOf(a.id), bi = savedOrder.indexOf(b.id);
-      return (ai < 0 ? savedOrder.length + originalIndex.get(a.id) : ai) - (bi < 0 ? savedOrder.length + originalIndex.get(b.id) : bi);
-    }
-    if (mode === 'updated') return time(b.updated) - time(a.updated);
-    if (mode === 'priority') return (priorityRank[a.priority] ?? 9) - (priorityRank[b.priority] ?? 9) || time(b.updated) - time(a.updated);
-    if (mode === 'due') return (a.due ? time(a.due) : Number.MAX_SAFE_INTEGER) - (b.due ? time(b.due) : Number.MAX_SAFE_INTEGER) || time(b.updated) - time(a.updated);
-    if (mode === 'title') return String(a.title || '').localeCompare(String(b.title || ''), 'zh-CN');
-    if (mode === 'created') return time(b.created) - time(a.created);
-    return 0;
-  });
+  return projectViewCore.sortRecords(items, mode, savedOrder);
 }
 
 function sortProjectRecords(items, project) {
@@ -1521,8 +1485,7 @@ function renderProjectAssets(project, projectRecords) {
   const recordItems = recordAttachmentItems(projectRecords);
   const allItems = [...independent, ...recordItems];
   const categories = projectAssetCategories;
-  const query = projectAssetSearch.trim().toLocaleLowerCase('zh-CN');
-  const visible = allItems.filter(entry => ((!projectAssetCategoryFilter || entry.category === projectAssetCategoryFilter) || (projectAssetCategoryFilter === '__uncategorized__' && !entry.category)) && (!query || `${entry.item.name} ${entry.category} ${entry.record?.title || ''}`.toLocaleLowerCase('zh-CN').includes(query)));
+  const visible = projectViewCore.filterAssets(allItems, projectAssetCategoryFilter, projectAssetSearch);
   const totalSize = allItems.reduce((sum, entry) => sum + Number(entry.item.size || 0), 0);
   const categoryOptions = categories.map(meta => `<option value="${escapeHtml(meta.name)}">${escapeHtml(meta.name)}</option>`).join('');
   const grouped = new Map();
@@ -1556,8 +1519,7 @@ function renderProjectPage() {
     const count = button.querySelector('span'); if (count && counts[button.dataset.projectTab] !== undefined) count.textContent = counts[button.dataset.projectTab];
   });
   const typeForTab = {issues:'issue', todos:'todo', infos:'info'};
-  let projectRecords = typeForTab[projectTab] ? allProjectRecords.filter(item => item.type === typeForTab[projectTab]) : allProjectRecords;
-  if (projectTab === 'overview') projectRecords = projectRecords.filter(item => ['issue', 'todo'].includes(item.type));
+  let projectRecords = projectViewCore.selectRecords(records, project.id, projectTab);
   const toolbar = $('.board-toolbar');
   toolbar.style.display = projectTab === 'assets' ? 'none' : 'flex';
   $$('.view-switch [data-view-mode]').forEach(button => button.classList.toggle('active', button.dataset.viewMode === projectViewMode));
@@ -1572,7 +1534,7 @@ function renderProjectPage() {
   $('#filterStatus').style.display = projectTab === 'infos' ? 'none' : '';
   $('#filterPriority').style.display = projectTab === 'infos' ? 'none' : '';
   $('.view-switch').style.display = projectTab === 'infos' ? 'none' : 'flex';
-  projectRecords = projectRecords.filter(item => (projectTab === 'infos' || !projectFilters.status || item.status === projectFilters.status) && (!projectFilters.tag || (item.tags || []).includes(projectFilters.tag)) && (projectTab === 'infos' || !projectFilters.priority || item.priority === projectFilters.priority));
+  projectRecords = projectViewCore.selectRecords(records, project.id, projectTab, projectFilters);
   projectRecords = sortProjectRecords(projectRecords, project);
   const recordKeys = recordSortKeys();
   const recordSortMode = recordKeys ? (project[recordKeys.sort] || 'manual') : 'manual';
@@ -3694,14 +3656,9 @@ async function persistRecordOrder(visibleOrder, manualStatuses = [], quiet = fal
   const statusSortsKey = board.dataset.statusRecordSortsKey;
   if (!project || !sortKey || !orderKey || !statusSortsKey) return;
   const displayed = visibleOrder || $$('.kanban-card', board).map(card => card.dataset.recordId);
-  const visibleSet = new Set(displayed);
   const tabType = {issues:'issue', todos:'todo'}[projectTab];
   const eligible = records.filter(record => record.project_id === selectedProjectId && (projectTab === 'overview' ? ['issue', 'todo'].includes(record.type) : (!tabType || record.type === tabType))).map(record => record.id);
-  const eligibleSet = new Set(eligible);
-  const base = [...(Array.isArray(project[orderKey]) ? project[orderKey] : []), ...eligible].filter((id, index, list) => eligibleSet.has(id) && list.indexOf(id) === index);
-  let cursor = 0;
-  const merged = base.map(id => visibleSet.has(id) ? displayed[cursor++] : id);
-  while (cursor < displayed.length) merged.push(displayed[cursor++]);
+  const merged = projectViewCore.mergeVisibleOrder(project[orderKey], eligible, displayed);
   const statusSorts = {...(project[statusSortsKey] || {})};
   manualStatuses.filter(Boolean).forEach(status => { statusSorts[status] = 'manual'; });
   const updated = await api(`/projects/${encodeURIComponent(selectedProjectId)}`, {method:'PATCH', body:JSON.stringify({[orderKey]:merged, [statusSortsKey]:statusSorts})});
@@ -3722,13 +3679,8 @@ async function persistInfoCardOrder() {
   const project = projects.find(item => item.id === selectedProjectId);
   if (!project) return;
   const displayed = currentInfoCardOrder();
-  const visibleSet = new Set(displayed);
   const eligible = records.filter(record => record.project_id === selectedProjectId && record.type === 'info').map(record => record.id);
-  const eligibleSet = new Set(eligible);
-  const base = [...(Array.isArray(project.info_record_order) ? project.info_record_order : []), ...eligible].filter((id, index, list) => eligibleSet.has(id) && list.indexOf(id) === index);
-  let cursor = 0;
-  const merged = base.map(id => visibleSet.has(id) ? displayed[cursor++] : id);
-  while (cursor < displayed.length) merged.push(displayed[cursor++]);
+  const merged = projectViewCore.mergeVisibleOrder(project.info_record_order, eligible, displayed);
   try {
     const updated = await api(`/projects/${encodeURIComponent(selectedProjectId)}`, {method:'PATCH', body:JSON.stringify({info_record_sort:'manual', info_record_order:merged})});
     const projectIndex = projects.findIndex(item => item.id === selectedProjectId);

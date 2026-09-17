@@ -1,0 +1,9 @@
+/* RF-403: tokens; rules retain their original relative order. */
+:root {
+  --bg: #f4f6f8; --surface: #ffffff; --surface-2: #f8fafb; --text: #18202a; --muted: #5f6c7a;
+  --line: #dfe5ec; --accent: #3768e5; --accent-soft: #ebf0ff; --shadow: 0 16px 42px rgba(28,42,64,.14);
+  --sidebar: #17202b; --sidebar-text: #d9e0e8; --danger: #df4b4b; --orange: #dc7a27; --green: #24966d; --purple: #7856c8;
+  --control-height: 40px; --control-radius: 9px; --dialog-radius: 14px; --focus-ring: 0 0 0 3px var(--accent-soft);
+  --type-page-title: 27px; --type-section-title: 16px; --type-card-title: 14px; --type-body: 13px; --type-meta: 12px; --type-chip: 12px;
+}
+body.dark { --bg:#11151b; --surface:#1a2029; --surface-2:#202731; --text:#edf1f5; --muted:#aab5c2; --line:#35404e; --accent-soft:#253359; --shadow:0 18px 48px rgba(0,0,0,.3); --sidebar:#0c1015; }

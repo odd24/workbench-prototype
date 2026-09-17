@@ -1,0 +1,18 @@
+/* RF-403: base; rules retain their original relative order. */
+* { box-sizing: border-box; }
+html { overflow-y: scroll; scrollbar-gutter: stable; }
+body { margin: 0; color: var(--text); background: var(--bg); font-family:"Segoe UI Variable Text","Segoe UI Variable","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif; font-size:14px; line-height:1.55; -webkit-font-smoothing:auto; text-rendering:optimizeLegibility; font-kerning:normal; }
+html.navigation-restoring .page{visibility:hidden}
+html.navigation-restoring .nav-item.active{background:transparent;color:#aeb9c6}
+button, input, select, textarea { color: inherit; font: inherit; }
+.history-dialog.external-editor-dialog{width:min(590px,calc(100vw - 28px));max-height:min(82vh,720px)}
+button { cursor:pointer; line-height:1.2; }
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[contenteditable]:focus-visible{outline:3px solid color-mix(in srgb,var(--accent) 24%,transparent);outline-offset:2px}
+button:disabled{opacity:.55;cursor:not-allowed;box-shadow:none}
+/* 全局显示与交互精修 */
+html{font-size:15px}body{font-variant-numeric:tabular-nums}small{font-size:12px;line-height:1.55}strong,b{font-weight:650}
+
+/* 按钮：统一尺寸、边界与点击反馈 */
+.dialog-close{font-size:19px;font-weight:700;color:#657382;background:transparent}.dialog-close:hover{background:#feeeee!important;color:#c83e48!important}.detail-drawer .dialog-close{margin-left:2px}
+/* Global typography system: project-page hierarchy shared by every workspace view. */
+.page,.detail-drawer,.search-panel,dialog{font-family:inherit;text-rendering:optimizeLegibility}.page-heading h1,.project-title-row h1{font-size:var(--type-page-title);line-height:1.3}.page-heading p:not(.eyebrow),.project-title-row p{font-size:14px;line-height:1.6}.eyebrow{font-size:var(--type-meta);line-height:1.45}.primary-button,.secondary-button,.filter-button,.view-switch button,.tabs button,.settings-actions button{font-size:var(--type-body);line-height:1.4}

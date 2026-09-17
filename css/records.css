@@ -64,7 +64,6 @@
 .timeline-filter-option{display:flex;align-items:center;gap:9px;min-height:36px;padding:7px 15px;color:var(--text);font-size:12px;cursor:pointer}.timeline-filter-option:hover{background:var(--surface-2)}.timeline-filter-option input{width:16px;height:16px;flex:none;accent-color:var(--accent)}.timeline-filter-option span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.timeline-filter-option em{color:var(--muted);font-size:11px;font-style:normal}.timeline-filter-all{border-top:1px solid var(--line);border-bottom:1px solid var(--line);font-weight:650}.timeline-filter-values{min-height:80px;overflow:auto;padding:4px 0}.timeline-filter-no-options{padding:30px 15px;text-align:center;color:var(--muted);font-size:12px}
 .timeline-filter-popover>footer{display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:7px;padding:11px 14px;border-top:1px solid var(--line)}.timeline-filter-popover>footer button{height:34px;border:1px solid var(--line);border-radius:7px;background:var(--surface);padding:0 11px;color:var(--text);font-size:12px}.timeline-filter-popover>footer button:first-child{border-color:transparent;background:transparent;color:var(--muted);padding-left:0}.timeline-filter-popover>footer .primary-button{border-color:var(--accent);background:var(--accent);color:#fff}
 
-
 /* 标签与状态管理：新建项就地保存 */
 .inline-config-save{width:auto!important;min-width:52px;height:28px!important;padding:0 8px!important;border:1px solid color-mix(in srgb,var(--accent) 55%,var(--line))!important;border-radius:7px!important;background:var(--accent)!important;color:#fff!important;font-size:11px!important;font-weight:700!important;box-shadow:0 3px 9px color-mix(in srgb,var(--accent) 24%,transparent)}.inline-config-save:hover{filter:brightness(1.06)}.add-config-card{min-height:58px;display:flex;align-items:center;justify-content:center;gap:8px;border:1px dashed color-mix(in srgb,var(--accent) 45%,var(--line));border-radius:9px;background:color-mix(in srgb,var(--accent-soft) 40%,transparent);color:var(--accent);font-size:12px;cursor:pointer}.add-config-card:hover{border-style:solid;background:var(--accent-soft)}.add-config-card>span{font-size:18px;font-weight:400}.new-config-row{animation:new-config-highlight 1.1s ease}@keyframes new-config-highlight{0%,45%{border-color:color-mix(in srgb,var(--accent) 65%,var(--line));box-shadow:0 0 0 4px var(--accent-soft)}100%{box-shadow:none}}
 
@@ -124,7 +123,6 @@
 .info-fields-panel{overflow:visible}
 .create-info-fields .info-field-note-wrap{grid-column:2/4;grid-row:2;grid-template-columns:72px minmax(0,1fr)}
 
-
 /* Group each structured field and its note as one clear information card. */
 #drawerInfoFieldList,#createInfoFieldList{display:grid;gap:11px}
 .info-field-row{position:relative;margin-top:0;padding:11px 9px 12px;overflow:hidden;border:1px solid color-mix(in srgb,var(--line) 88%,var(--text))!important;border-radius:11px;background:var(--surface);box-shadow:0 2px 7px rgba(25,38,57,.045);transition:border-color .15s ease,box-shadow .15s ease,background .15s ease}
@@ -144,7 +142,6 @@
 .info-fields-actions #infoColorPicker.tag-driven .color-picker-trigger{cursor:default}
 .info-fields-actions #infoColorPicker.tag-driven .color-picker-trigger:disabled{opacity:1}
 .info-fields-actions #infoColorPicker.tag-driven .color-picker-trigger i{width:24px;height:24px}
-
 
 /* The information composer needs document-like width and deterministic field columns. */
 .create-dialog.info-create-dialog{width:min(900px,calc(100vw - 32px))}

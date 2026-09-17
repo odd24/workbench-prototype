@@ -108,14 +108,27 @@ async function main() {
     const deadline = Date.now() + 10000;
     while (Date.now() < deadline && !await client.evaluate("typeof apiAvailable !== 'undefined' && apiAvailable")) await delay(100);
 
-    const environments = [
+    const standardEnvironments = [
       {name:'light-desktop', dark:false, width:1440, height:1000},
       {name:'dark-desktop', dark:true, width:1440, height:1000},
       {name:'light-narrow', dark:false, width:390, height:844},
       {name:'dark-narrow', dark:true, width:390, height:844},
     ];
+    const responsiveEnvironments = [1050, 920, 760, 620, 390]
+      .map(width => ({name:`responsive-${width}`, dark:false, width, height:844}));
+    const environments = process.env.WORKBENCH_BASELINE_RESPONSIVE === '1'
+      ? responsiveEnvironments
+      : standardEnvironments;
     const capture = async (environment, state) => {
       await delay(180);
+      const overflow = await client.evaluate(`(()=>{
+        const targets=['html','body','#documentDialog','.document-dialog-shell','.document-workspace','.document-workspace-main'];
+        return targets.map(selector=>{
+          const element=document.querySelector(selector);
+          return element&&element.getClientRects().length?{selector,clientWidth:element.clientWidth,scrollWidth:element.scrollWidth}:null;
+        }).filter(Boolean).filter(item=>item.scrollWidth>item.clientWidth+1);
+      })()`);
+      assert.deepEqual(overflow, [], `${environment.name}/${state} has horizontal viewport overflow`);
       const result = await client.call('Page.captureScreenshot', {format:'png', fromSurface:true});
       fs.writeFileSync(path.join(outputDirectory, `preview-${environment.name}-${state}.png`), Buffer.from(result.data, 'base64'));
     };
@@ -123,6 +136,9 @@ async function main() {
     for (const environment of environments) {
       await client.call('Emulation.setDeviceMetricsOverride', {width:environment.width, height:environment.height, deviceScaleFactor:1, mobile:environment.width < 500});
       await client.evaluate(`document.body.classList.toggle('dark', ${environment.dark}); localStorage.setItem('workbench-theme', ${JSON.stringify(environment.dark ? 'dark' : 'light')}); setPage('home'); true`);
+      if (environment.name.startsWith('responsive-')) {
+        await client.evaluate("(()=>{const title=document.querySelector('#homePage h1'); if(title) title.textContent='我的工作台连续长中文标题用于验证窄屏自然换行与布局边界'; return true})()");
+      }
       await capture(environment, emptyData ? 'empty' : 'home');
       if (emptyData) {
         assert.equal(await client.evaluate("document.body.textContent.includes('新建项目') && !document.body.textContent.includes('重构基线项目')"), true);

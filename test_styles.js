@@ -22,18 +22,35 @@ const css = stylesheets
 
 for (const file of stylesheets) {
   const source = fs.readFileSync(path.join(root, 'css', file), 'utf8');
-  assert.match(source, new RegExp(`^/\\* RF-403: ${file.replace('.css', '')};`));
+  const header = file === 'responsive.css'
+    ? /^\/\* RF-404: responsive overrides/
+    : new RegExp(`^/\\* RF-403: ${file.replace('.css', '')};`);
+  assert.match(source, header);
   assert.equal((source.match(/\{/g) || []).length, (source.match(/\}/g) || []).length, `${file} has unbalanced blocks`);
 }
-assert.match(fs.readFileSync(path.join(root, 'css', 'responsive.css'), 'utf8'), /@media\b/);
+const responsiveCss = fs.readFileSync(path.join(root, 'css', 'responsive.css'), 'utf8');
+assert.match(responsiveCss, /@media\b/);
+for (const file of stylesheets.filter(file => file !== 'responsive.css')) {
+  assert.doesNotMatch(fs.readFileSync(path.join(root, 'css', file), 'utf8'), /@media\b/, `${file} must not contain responsive overrides`);
+}
+const mediaConditions = [...responsiveCss.matchAll(/@media\s*\(([^)]+)\)/g)].map(match => match[1]);
+assert.equal(new Set(mediaConditions).size, mediaConditions.length, 'media conditions must be consolidated');
+assert.deepEqual(
+  mediaConditions.filter(condition => condition.startsWith('max-width')).map(condition => Number(condition.match(/\d+/)[0])),
+  [1050, 1000, 980, 920, 900, 800, 760, 720, 700, 680, 620, 600, 560, 520, 500, 480],
+  'max-width overrides must cascade from wide to narrow',
+);
+assert.match(responsiveCss, /\.document-dialog\.unified-editor-host\{max-width:100vw;overflow:hidden\}/);
+assert.match(responsiveCss, /\.document-dialog\.unified-editor-host \.document-outline\{flex-basis:min\(190px,72vw\);width:min\(190px,72vw\)/);
 
-const linkedStylesheets = [...html.matchAll(/href="css\/([^"?]+)\?v=20260917-2"/g)]
+const linkedStylesheets = [...html.matchAll(/href="css\/([^"?]+)\?v=20260917-3"/g)]
   .map(match => match[1]);
 assert.deepEqual(linkedStylesheets, stylesheets, 'stylesheet load order must match the refactoring plan');
 assert.equal(fs.existsSync(path.join(root, 'styles.css')), false, 'legacy stylesheet should be removed');
 
-assert.equal((css.match(/^:root\s*\{/gm) || []).length, 1, 'global tokens should have one root block');
-assert.equal((css.match(/^body\.dark\s*\{/gm) || []).length, 1, 'dark theme tokens should have one block');
+const tokenCss = fs.readFileSync(path.join(root, 'css', 'tokens.css'), 'utf8');
+assert.equal((tokenCss.match(/^:root\s*\{/gm) || []).length, 1, 'global tokens should have one root block');
+assert.equal((tokenCss.match(/^body\.dark\s*\{/gm) || []).length, 1, 'dark theme tokens should have one block');
 
 for (const token of [
   '--control-height',

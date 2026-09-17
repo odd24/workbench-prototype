@@ -11,12 +11,19 @@ from pathlib import Path
 from typing import Any
 
 from .persistence import atomic_write_bytes, atomic_write_json
+from .security import validate_portable_filename
 
 
 APP_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_DATA_DIR = APP_DIR / "workbench-data"
 LOCATION_FILE = APP_DIR / ".workbench-location.json"
 EXPORT_LOCATION_FILE = APP_DIR / ".workbench-export.json"
+
+
+def _validate_migration_source(root: Path):
+    for path in root.rglob("*"):
+        if path.is_symlink():
+            raise ValueError("数据目录包含符号链接，无法安全复制；请移除链接后重试")
 
 
 def save_data_location(data_dir: Path, location_file: Path = LOCATION_FILE):
@@ -41,6 +48,7 @@ def relocate_repository(current: Any, raw_path: str, migrate: bool, location_fil
         if target.exists() and any(target.iterdir()):
             raise ValueError("复制数据时目标目录必须为空；如需打开已有工作台，请选择“直接使用已有目录”")
         target.parent.mkdir(parents=True, exist_ok=True)
+        _validate_migration_source(current.root)
         shutil.copytree(current.root, target, dirs_exist_ok=True)
     else:
         target.mkdir(parents=True, exist_ok=True)
@@ -141,9 +149,7 @@ def export_to_saved_location(repository: Any, project_id: str | None, filename: 
         raise ValueError("请先选择导出位置")
     if not directory.is_dir():
         raise ValueError("已保存的导出目录不存在，请重新选择位置")
-    clean_name = Path(str(filename)).name
-    if clean_name != filename or not clean_name.lower().endswith(".zip"):
-        raise ValueError("导出文件名无效")
+    clean_name = validate_portable_filename(filename, label="导出文件名", suffixes={".zip"})
     content = repository.export_zip(project_id)
     destination = directory / clean_name
     atomic_write_bytes(destination, content)

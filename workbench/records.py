@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .markdown_io import dump_markdown, load_markdown_text, normalize_info_fields, now_iso, slugify
 from .persistence import atomic_write_text
+from .security import validate_portable_filename
 
 
 TYPE_DIRS = {"issue": "issues", "todo": "todos", "idea": "ideas", "info": "infos"}
@@ -46,12 +47,13 @@ class RecordRepository:
 
     def import_markdown(self, payload: dict) -> dict:
         content = str(payload.get("content", ""))
+        source_name = validate_portable_filename(payload.get("name", "导入记录.md"), label="导入文件名", suffixes={".md"})
         meta, body = load_markdown_text(content)
         record_type = payload.get("type") or meta.get("type") or "idea"
         title = payload.get("title") or meta.get("title")
         if not title:
             heading = re.search(r"^#\s+(.+)$", body, re.MULTILINE)
-            title = heading.group(1).strip() if heading else Path(payload.get("name", "导入记录.md")).stem
+            title = heading.group(1).strip() if heading else Path(source_name).stem
         project_id = payload.get("project_id") if payload.get("project_id") is not None else meta.get("project_id")
         return self.create_record({"type": record_type, "title": title, "project_id": project_id, "status": meta.get("status"), "priority": meta.get("priority", "普通"), "tags": meta.get("tags", []), "due": meta.get("due"), "info_fields": meta.get("info_fields", []), "body": body})
 

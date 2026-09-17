@@ -1,4 +1,5 @@
 import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -31,9 +32,9 @@ class AttachmentRepositoryTests(unittest.TestCase):
         self.assertNotIn(self.repo.attachment_path(self.record["id"], record_asset["name"]).resolve(), orphan_paths)
 
     def test_duplicate_names_are_renamed_inside_expected_roots(self):
-        first = self.repo.add_record_attachment_stream(self.record["id"], "../same.txt", io.BytesIO(b"one"), 3)
+        first = self.repo.add_record_attachment_stream(self.record["id"], "same.txt", io.BytesIO(b"one"), 3)
         second = self.repo.add_record_attachment_stream(self.record["id"], "same.txt", io.BytesIO(b"two"), 3)
-        project_first = self.repo.add_project_asset_stream(self.project["id"], "../same.txt", io.BytesIO(b"one"), 3)
+        project_first = self.repo.add_project_asset_stream(self.project["id"], "same.txt", io.BytesIO(b"one"), 3)
         project_second = self.repo.add_project_asset_stream(self.project["id"], "same.txt", io.BytesIO(b"two"), 3)
 
         self.assertEqual([first["name"], second["name"]], ["same.txt", "same-2.txt"])
@@ -42,6 +43,38 @@ class AttachmentRepositoryTests(unittest.TestCase):
             self.assertTrue(self.repo.attachment_path(self.record["id"], name).is_relative_to(self.repo.root))
         for asset in (project_first, project_second):
             self.assertTrue(self.repo.project_asset_path(self.project["id"], asset["id"]).is_relative_to(self.repo.projects_dir / self.project["id"]))
+
+    def test_unportable_attachment_names_are_rejected(self):
+        for name in ("../same.txt", "..\\same.txt", "CON.txt", "bad\x00name.txt", " trailing.txt "):
+            with self.subTest(name=repr(name)):
+                with self.assertRaisesRegex(ValueError, "文件名"):
+                    self.repo.add_record_attachment_stream(self.record["id"], name, io.BytesIO(b"x"), 1)
+                with self.assertRaisesRegex(ValueError, "文件名"):
+                    self.repo.add_project_asset_stream(self.project["id"], name, io.BytesIO(b"x"), 1)
+
+    def test_tampered_attachment_indexes_cannot_escape_asset_roots(self):
+        project_readme = self.repo.projects_dir / self.project["id"] / "README.md"
+        malicious = {"name": "README.md", "path": "../README.md", "size": project_readme.stat().st_size}
+        self.repo.update_record(self.record["id"], {"attachments": [json.dumps(malicious)]})
+
+        self.assertIsNone(self.repo.attachment_path(self.record["id"], "README.md"))
+        self.repo.delete_record_attachment(self.record["id"], "README.md")
+        self.assertTrue(project_readme.exists())
+
+        asset_index = self.repo.projects_dir / self.project["id"] / "assets" / "index.json"
+        asset_index.parent.mkdir(parents=True, exist_ok=True)
+        asset_index.write_text(json.dumps([{"id": "ASSET-BAD", "name": "README.md", "path": "README.md"}]), encoding="utf-8")
+        self.assertEqual(self.repo.project_assets(self.project["id"]), [])
+        self.assertIsNone(self.repo.project_asset_path(self.project["id"], "ASSET-BAD"))
+
+        unindexed = asset_index.parent / "library" / "unindexed.txt"
+        unindexed.parent.mkdir(parents=True, exist_ok=True)
+        unindexed.write_text("orphan", encoding="utf-8")
+        self.repo.update_record(self.record["id"], {
+            "attachments": [json.dumps({"name": "unindexed.txt", "path": "../assets/library/unindexed.txt"})],
+        })
+        orphan_paths = {Path(item["path"]).resolve() for item in self.repo.orphan_assets()}
+        self.assertIn(unindexed.resolve(), orphan_paths)
 
     def test_incomplete_stream_upload_removes_partial_files(self):
         with self.assertRaisesRegex(ValueError, "上传不完整"):

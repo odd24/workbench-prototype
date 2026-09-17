@@ -19,6 +19,7 @@ from .markdown_io import load_markdown, now_iso, slugify
 from .projects import ProjectRepository
 from .persistence import atomic_write_json
 from .records import RecordRepository
+from .security import archive_name_for, validate_zip_bytes
 
 
 class Repository:
@@ -210,6 +211,9 @@ class Repository:
         atomic_write_json(self.trash_dir / "index.json", index)
 
     def _move_to_trash(self, source: Path, item_id: str, kind: str, title: str) -> dict:
+        source = source.resolve()
+        if source == self.root or not source.is_relative_to(self.root) or source.is_relative_to(self.trash_dir) or not source.exists():
+            raise ValueError("待删除路径无效")
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         token = f"{kind}-{stamp}-{slugify(item_id)}"
         destination = self.trash_dir / token
@@ -224,8 +228,17 @@ class Repository:
 
     def list_trash(self) -> list[dict]:
         index = self._trash_index()
-        valid = [item for item in index.values() if Path(item["trash_path"]).exists()]
-        return sorted(valid, key=lambda item: item["deleted_at"], reverse=True)
+        valid = []
+        for item in index.values():
+            try:
+                if not isinstance(item, dict):
+                    continue
+                path = Path(item["trash_path"]).resolve()
+                if path.parent == self.trash_dir and path.exists():
+                    valid.append(item)
+            except (KeyError, OSError, TypeError):
+                continue
+        return sorted(valid, key=lambda item: str(item.get("deleted_at", "")), reverse=True)
 
     def cleanup_trash(self, retention_days: int = 30):
         cutoff = datetime.now(timezone.utc).timestamp() - retention_days * 86400
@@ -243,9 +256,11 @@ class Repository:
         if not item:
             raise FileNotFoundError(token)
         source = Path(item["trash_path"]).resolve()
-        if not source.is_relative_to(self.trash_dir) or not source.exists():
+        if source.parent != self.trash_dir or not source.exists():
             raise FileNotFoundError(token)
-        destination = Path(item["original_path"])
+        destination = Path(item["original_path"]).resolve()
+        if not destination.is_relative_to(self.root) or destination.is_relative_to(self.trash_dir):
+            raise ValueError("回收站恢复路径无效")
         if destination.exists():
             destination = destination.with_name(f"{destination.stem}-restored-{datetime.now().strftime('%H%M%S')}{destination.suffix}")
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -260,7 +275,7 @@ class Repository:
         if not item:
             raise FileNotFoundError(token)
         target = Path(item["trash_path"]).resolve()
-        if not target.is_relative_to(self.trash_dir):
+        if target.parent != self.trash_dir:
             raise ValueError("回收站路径无效")
         if target.is_dir():
             shutil.rmtree(target)
@@ -384,9 +399,15 @@ class Repository:
         memory = io.BytesIO()
         with zipfile.ZipFile(memory, "w", zipfile.ZIP_DEFLATED) as archive:
             for path in source.rglob("*"):
-                if path.is_file() and not path.is_relative_to(self.trash_dir):
-                    archive.write(path, path.relative_to(source))
-        return memory.getvalue()
+                if not path.is_file() or path.is_symlink():
+                    continue
+                resolved = path.resolve()
+                if resolved.is_relative_to(self.trash_dir):
+                    continue
+                archive_name = archive_name_for(source, path)
+                if archive_name:
+                    archive.write(path, archive_name)
+        return validate_zip_bytes(memory.getvalue())
 
     def import_markdown(self, payload: dict) -> dict:
         return self._record_repository.import_markdown(payload)

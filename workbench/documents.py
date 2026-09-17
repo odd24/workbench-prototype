@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .markdown_io import dump_markdown, load_markdown, load_markdown_text, now_iso, slugify
 from .persistence import atomic_write_text
+from .security import validate_archive_member, validate_portable_filename, validate_zip_bytes
 
 
 class DocumentRepository:
@@ -186,11 +187,12 @@ class DocumentRepository:
         content = str(payload.get("content", ""))
         if not content.strip():
             raise ValueError("导入的文档内容为空")
+        source_name = validate_portable_filename(payload.get("name", "导入文档.md"), label="导入文件名", suffixes={".md"})
         meta, body = load_markdown_text(content)
         title = str(payload.get("title") or meta.get("title") or "").strip()
         if not title:
             heading = re.search(r"^#\s+(.+)$", body, re.MULTILINE)
-            title = heading.group(1).strip() if heading else Path(str(payload.get("name", "导入文档.md"))).stem
+            title = heading.group(1).strip() if heading else Path(source_name).stem
         return self.create_document({
             "title": title,
             "category": payload.get("category") or meta.get("category") or "导入文档",
@@ -214,5 +216,5 @@ class DocumentRepository:
                 if meta.get("type") != "document" or (selected and str(meta.get("id", "")) not in selected):
                     continue
                 meta.pop("document_type", None)
-                archive.writestr(path.name, dump_markdown(meta, body))
-        return memory.getvalue()
+                archive.writestr(validate_archive_member(path.name), dump_markdown(meta, body))
+        return validate_zip_bytes(memory.getvalue())

@@ -1,4 +1,5 @@
 import io
+import http.client
 import json
 import tempfile
 import threading
@@ -59,6 +60,27 @@ class HTTPIntegrationTests(unittest.TestCase):
     def request_json(self, method, path, payload=None, body=None):
         status, headers, content = self.request(method, path, payload=payload, body=body)
         return status, headers, json.loads(content.decode("utf-8"))
+
+    def request_with_content_length(self, value):
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        try:
+            connection.putrequest("POST", "/api/projects")
+            connection.putheader("Content-Type", "application/json")
+            connection.putheader("Content-Length", value)
+            connection.endheaders()
+            response = connection.getresponse()
+            return response.status, json.loads(response.read().decode("utf-8"))
+        finally:
+            connection.close()
+
+    def test_truncated_json_body_is_rejected_before_parsing(self):
+        handler = object.__new__(WorkbenchHandler)
+        handler.headers = {"Content-Length": "5"}
+        handler.rfile = io.BytesIO(b"{}")
+        handler.close_connection = False
+
+        with self.assertRaisesRegex(ValueError, "请求内容不完整"):
+            handler._body()
 
     def test_health_uses_temporary_repository_and_dynamic_port(self):
         status, headers, payload = self.request_json("GET", "/api/health")
@@ -162,6 +184,16 @@ class HTTPIntegrationTests(unittest.TestCase):
         status, _, bad_request = self.request_json("POST", "/api/projects", body=b"{")
         self.assertEqual(status, 400)
         self.assertIn("error", bad_request)
+
+        status, _, wrong_shape = self.request_json("POST", "/api/projects", body=b"[]")
+        self.assertEqual(status, 400)
+        self.assertIn("JSON 对象", wrong_shape["error"])
+
+        for length in ("invalid", "-1", "15000001"):
+            with self.subTest(length=length):
+                status, invalid_length = self.request_with_content_length(length)
+                self.assertEqual(status, 400)
+                self.assertIn("error", invalid_length)
 
         status, _, missing = self.request_json("GET", "/api/records/ISSUE-9999")
         self.assertEqual(status, 404)

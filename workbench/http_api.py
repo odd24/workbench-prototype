@@ -24,6 +24,7 @@ from .paths import (
 
 APP_DIR = Path(__file__).resolve().parent.parent
 APP_VERSION = "2026.09.16.2"
+MAX_JSON_BODY_BYTES = 15_000_000
 
 
 class WorkbenchHTTPServer(ThreadingHTTPServer):
@@ -74,12 +75,27 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _body(self):
-        length = int(self.headers.get("Content-Length", "0"))
-        if length > 15_000_000:
+    def _content_length(self, maximum: int | None = None) -> int:
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("请求长度无效") from exc
+        if length < 0:
+            raise ValueError("请求长度无效")
+        if maximum is not None and length > maximum:
+            self.close_connection = True
             raise ValueError("请求内容过大")
+        return length
+
+    def _body(self):
+        length = self._content_length(MAX_JSON_BODY_BYTES)
         raw = self.rfile.read(length)
-        return json.loads(raw.decode("utf-8")) if raw else {}
+        if len(raw) != length:
+            raise ValueError("请求内容不完整")
+        payload = json.loads(raw.decode("utf-8")) if raw else {}
+        if not isinstance(payload, dict):
+            raise ValueError("请求内容必须是 JSON 对象")
+        return payload
 
     def _route(self):
         parsed = urlparse(self.path)
@@ -236,7 +252,7 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                 return self._json(self.repository.open_document_external(document_id))
             if path.startswith("/api/projects/") and path.endswith("/assets/upload"):
                 project_id = path.strip("/").split("/")[2]
-                length = int(self.headers.get("Content-Length", "0"))
+                length = self._content_length()
                 filename = (query.get("name") or [""])[0]
                 category = (query.get("category") or [""])[0]
                 return self._json(self.repository.add_project_asset_stream(project_id, filename, self.rfile, length, category), HTTPStatus.CREATED)
@@ -266,7 +282,7 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                 if len(parts) == 4 and parts[-1] == "open-external":
                     return self._json(self.repository.open_record_external(parts[-2]))
                 if len(parts) == 5 and parts[-2:] == ["attachments", "upload"]:
-                    length = int(self.headers.get("Content-Length", "0"))
+                    length = self._content_length()
                     filename = (query.get("name") or [""])[0]
                     append_to_body = (query.get("append") or ["1"])[0] != "0"
                     return self._json(self.repository.add_record_attachment_stream(parts[2], filename, self.rfile, length, append_to_body), HTTPStatus.CREATED)

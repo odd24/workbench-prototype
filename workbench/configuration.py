@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .markdown_io import dump_markdown, now_iso
 from .persistence import atomic_write_json, atomic_write_text
+from .security import validate_category_name
 
 
 class ConfigurationRepository:
@@ -158,11 +159,9 @@ class ConfigurationRepository:
             raise ValueError("文档分类格式无效")
         cleaned = []
         for value in categories:
-            name = str(value).strip()
+            name = validate_category_name(value, default="", label="分类名称")
             if not name:
                 continue
-            if len(name) > 80:
-                raise ValueError("分类名称不能超过 80 个字符")
             if name not in cleaned:
                 cleaned.append(name)
         for document in self.list_documents():
@@ -173,7 +172,7 @@ class ConfigurationRepository:
         return cleaned
 
     def ensure_document_category(self, category: str) -> str:
-        name = str(category or "未分类").strip() or "未分类"
+        name = validate_category_name(category)
         categories = self.document_categories()
         if name not in categories:
             categories.append(name)
@@ -182,14 +181,12 @@ class ConfigurationRepository:
 
     def rename_document_category(self, old_name: str, new_name: str) -> dict:
         old_name = str(old_name).strip()
-        new_name = str(new_name).strip()
+        new_name = validate_category_name(new_name, default="", label="分类名称")
         categories = self.document_categories()
         if old_name not in categories:
             raise FileNotFoundError(old_name)
         if not new_name:
             raise ValueError("分类名称不能为空")
-        if len(new_name) > 80:
-            raise ValueError("分类名称不能超过 80 个字符")
         if new_name != old_name and new_name in categories:
             raise ValueError("分类名称已存在")
         if new_name == old_name:

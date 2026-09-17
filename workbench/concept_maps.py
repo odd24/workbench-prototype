@@ -10,6 +10,7 @@ from typing import Any
 
 from workbench.markdown_io import now_iso
 from workbench.persistence import atomic_write_json
+from workbench.security import validate_category_name
 
 
 CONCEPT_MAP_WIDTH = 12_000.0
@@ -121,7 +122,7 @@ class ConceptMapRepository:
         return {
             "version": 2, "title": title,
             "project_id": str(payload.get("project_id", base.get("project_id", "")) or "").strip()[:80] or None,
-            "category": str(payload.get("category", base.get("category", "未分类"))).strip()[:80] or "未分类",
+            "category": validate_category_name(payload.get("category", base.get("category", "未分类"))),
             "focus_question": str(payload.get("focus_question", base.get("focus_question", ""))).strip()[:500],
             "theme": str(payload.get("theme", base.get("theme", "light"))) if str(payload.get("theme", base.get("theme", "light"))) in {"light", "paper", "dots"} else "light",
             "viewport": {"x": self.concept_map_number(viewport.get("x")), "y": self.concept_map_number(viewport.get("y")), "zoom": zoom},
@@ -164,11 +165,9 @@ class ConceptMapRepository:
             raise ValueError("概念图分类格式无效")
         cleaned = []
         for value in categories:
-            name = str(value).strip()
+            name = validate_category_name(value, default="", label="分类名称")
             if not name:
                 continue
-            if len(name) > 80:
-                raise ValueError("分类名称不能超过 80 个字符")
             if name not in cleaned:
                 cleaned.append(name)
         for concept_map in self.list():
@@ -179,9 +178,7 @@ class ConceptMapRepository:
         return cleaned
 
     def ensure_category(self, category: str) -> str:
-        name = str(category or "未分类").strip() or "未分类"
-        if len(name) > 80:
-            raise ValueError("分类名称不能超过 80 个字符")
+        name = validate_category_name(category)
         categories = self.categories()
         if name not in categories:
             categories.append(name)
@@ -189,14 +186,13 @@ class ConceptMapRepository:
         return name
 
     def rename_category(self, old_name: str, new_name: str) -> dict:
-        old_name, new_name = str(old_name).strip(), str(new_name).strip()
+        old_name = str(old_name).strip()
+        new_name = validate_category_name(new_name, default="", label="分类名称")
         categories = self.categories()
         if old_name not in categories:
             raise FileNotFoundError(old_name)
         if not new_name:
             raise ValueError("分类名称不能为空")
-        if len(new_name) > 80:
-            raise ValueError("分类名称不能超过 80 个字符")
         if new_name != old_name and new_name in categories:
             raise ValueError("分类名称已存在")
         changed = 0

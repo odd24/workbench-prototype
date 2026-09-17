@@ -12,6 +12,7 @@ from pathlib import Path
 
 from workbench.markdown_io import now_iso
 from workbench.persistence import atomic_write_json
+from workbench.security import validate_category_name, validate_portable_filename
 
 
 class AttachmentRepository:
@@ -54,9 +55,7 @@ class AttachmentRepository:
         record, record_path = self.get_record(record_id)
         if not record:
             raise FileNotFoundError(record_id)
-        filename = Path(filename).name
-        if not filename or filename in {".", ".."}:
-            raise ValueError("附件文件名无效")
+        filename = validate_portable_filename(filename, label="附件文件名")
         try:
             content = base64.b64decode(encoded_content, validate=True)
         except ValueError as exc:
@@ -78,6 +77,10 @@ class AttachmentRepository:
             counter += 1
         return candidate
 
+    def _record_attachment_roots(self, record: dict) -> tuple[Path, Path]:
+        base = self.projects_dir / record["project_id"] / "assets" if record.get("project_id") else self.global_assets_dir
+        return (base / "images").resolve(), (base / "files").resolve()
+
     def _register_record_attachment(self, record: dict, record_path: Path, candidate: Path, size: int, append_to_body: bool = True) -> dict:
         relative = Path(os.path.relpath(candidate, record_path.parent)).as_posix()
         attachments = list(record.get("attachments") or [])
@@ -95,9 +98,9 @@ class AttachmentRepository:
         record, record_path = self.get_record(record_id)
         if not record:
             raise FileNotFoundError(record_id)
-        filename = Path(filename).name
-        if not filename or filename in {".", ".."}:
-            raise ValueError("附件文件名无效")
+        if length < 0:
+            raise ValueError("附件大小无效")
+        filename = validate_portable_filename(filename, label="附件文件名")
         candidate = self._record_attachment_target(record, filename)
         remaining, written = length, 0
         try:
@@ -119,11 +122,16 @@ class AttachmentRepository:
         for raw in record.get("attachments") or []:
             try:
                 attachment = json.loads(raw) if isinstance(raw, str) else raw
-            except json.JSONDecodeError:
+                if not isinstance(attachment, dict) or not attachment.get("path"):
+                    continue
+            except (json.JSONDecodeError, OSError, TypeError, ValueError):
                 continue
             if attachment.get("name") == filename:
-                candidate = (record_path.parent / attachment["path"]).resolve()
-                if candidate.is_relative_to(self.root) and candidate.is_file():
+                try:
+                    candidate = (record_path.parent / attachment["path"]).resolve()
+                except (OSError, TypeError, ValueError):
+                    continue
+                if any(candidate.is_relative_to(root) for root in self._record_attachment_roots(record)) and candidate.is_file():
                     return candidate
         return None
 
@@ -144,11 +152,15 @@ class AttachmentRepository:
             items = []
         valid = []
         project_root = self.projects_dir / project_id
+        library_root = (project_root / "assets" / "library").resolve()
         for item in items:
             if not isinstance(item, dict) or not item.get("id") or not item.get("path"):
                 continue
-            candidate = (project_root / item["path"]).resolve()
-            if candidate.is_relative_to(project_root) and candidate.is_file():
+            try:
+                candidate = (project_root / item["path"]).resolve()
+            except (OSError, TypeError, ValueError):
+                continue
+            if candidate.is_relative_to(library_root) and candidate.is_file():
                 valid.append({**item, "size": candidate.stat().st_size})
         return sorted(valid, key=lambda item: item.get("created", ""), reverse=True)
 
@@ -163,12 +175,18 @@ class AttachmentRepository:
         for item in configured if isinstance(configured, list) else []:
             if not isinstance(item, dict):
                 continue
-            name = self._asset_category(item.get("name", ""), allow_empty=True)
+            try:
+                name = self._asset_category(item.get("name", ""), allow_empty=True)
+            except ValueError:
+                continue
             if name and name not in known:
                 categories.append({"name": name, "tag": str(item.get("tag", "")).strip()})
                 known.add(name)
         for asset in self.project_assets(project_id):
-            name = self._asset_category(asset.get("category", ""), allow_empty=True)
+            try:
+                name = self._asset_category(asset.get("category", ""), allow_empty=True)
+            except ValueError:
+                continue
             if name and name not in known:
                 categories.append({"name": name, "tag": ""})
                 known.add(name)
@@ -225,15 +243,14 @@ class AttachmentRepository:
 
     @staticmethod
     def _asset_category(value: str, allow_empty: bool = False) -> str:
-        category = re.sub(r"[\\/:*?\"<>|]+", "-", str(value or "").strip())[:40].strip(". ")
+        raw = validate_category_name(value, default="" if allow_empty else "未分类", label="附件分类", max_length=80)
+        category = re.sub(r"[\\/:*?\"<>|]+", "-", raw)[:40].strip(". ")
         return category if category or allow_empty else "未分类"
 
     def _new_project_asset_target(self, project_id: str, filename: str) -> tuple[Path, str]:
         if not self.project(project_id):
             raise FileNotFoundError(project_id)
-        filename = Path(filename).name
-        if not filename or filename in {".", ".."}:
-            raise ValueError("附件文件名无效")
+        filename = validate_portable_filename(filename, label="附件文件名")
         asset_root = self.projects_dir / project_id / "assets" / "library"
         asset_root.mkdir(parents=True, exist_ok=True)
         stem, suffix, candidate, counter = Path(filename).stem, Path(filename).suffix, asset_root / filename, 2
@@ -263,9 +280,7 @@ class AttachmentRepository:
         project = self.project(project_id)
         if not project:
             raise FileNotFoundError(project_id)
-        filename = Path(filename).name
-        if not filename or filename in {".", ".."}:
-            raise ValueError("附件文件名无效")
+        filename = validate_portable_filename(filename, label="附件文件名")
         try:
             content = base64.b64decode(encoded_content, validate=True)
         except ValueError as exc:
@@ -322,8 +337,12 @@ class AttachmentRepository:
         if not item:
             return None
         project_root = self.projects_dir / project_id
-        candidate = (project_root / item["path"]).resolve()
-        return candidate if candidate.is_relative_to(project_root) and candidate.is_file() else None
+        library_root = (project_root / "assets" / "library").resolve()
+        try:
+            candidate = (project_root / item["path"]).resolve()
+        except (KeyError, OSError, TypeError, ValueError):
+            return None
+        return candidate if candidate.is_relative_to(library_root) and candidate.is_file() else None
 
     def update_record_attachment_category(self, record_id: str, filename: str, category: str) -> dict:
         record, _ = self.get_record(record_id)
@@ -362,8 +381,11 @@ class AttachmentRepository:
                 kept.append(json.dumps(item, ensure_ascii=False, separators=(",", ":")))
         if not removed:
             raise FileNotFoundError(filename)
-        candidate = (record_path.parent / removed.get("path", "")).resolve()
-        if candidate.is_relative_to(self.root) and candidate.is_file():
+        try:
+            candidate = (record_path.parent / removed.get("path", "")).resolve()
+        except (OSError, TypeError, ValueError):
+            candidate = None
+        if candidate and any(candidate.is_relative_to(root) for root in self._record_attachment_roots(record)) and candidate.is_file():
             candidate.unlink()
         relative = removed.get("path", "")
         body = record.get("body", "")
@@ -404,11 +426,14 @@ class AttachmentRepository:
         referenced = set()
         for record in self.list_records():
             record_path = Path(record["file_path"])
+            roots = self._record_attachment_roots(record)
             for raw in record.get("attachments") or []:
                 try:
                     attachment = json.loads(raw) if isinstance(raw, str) else raw
-                    referenced.add((record_path.parent / attachment["path"]).resolve())
-                except (json.JSONDecodeError, KeyError, TypeError):
+                    candidate = (record_path.parent / attachment["path"]).resolve()
+                    if any(candidate.is_relative_to(root) for root in roots):
+                        referenced.add(candidate)
+                except (json.JSONDecodeError, KeyError, OSError, TypeError, ValueError):
                     continue
         for project in self.list_projects():
             index = self.projects_dir / project["id"] / "assets" / "index.json"
@@ -422,8 +447,15 @@ class AttachmentRepository:
         for root in roots:
             if not root.exists():
                 continue
+            resolved_root = root.resolve()
             for path in root.rglob("*"):
-                if path.is_file() and path.resolve() not in referenced:
+                try:
+                    candidate = path.resolve()
+                except (OSError, RuntimeError):
+                    continue
+                if path.is_symlink() or not candidate.is_relative_to(resolved_root):
+                    continue
+                if path.is_file() and candidate not in referenced:
                     orphaned.append({"path": str(path), "name": path.name, "size": path.stat().st_size})
         return orphaned
 
@@ -431,6 +463,6 @@ class AttachmentRepository:
         orphaned = self.orphan_assets()
         for item in orphaned:
             path = Path(item["path"]).resolve()
-            if path.is_relative_to(self.root) and path.is_file():
+            if path.is_relative_to(self.root.resolve()) and path.is_file():
                 path.unlink()
         return {"removed": len(orphaned), "bytes": sum(item["size"] for item in orphaned)}

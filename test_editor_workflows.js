@@ -139,9 +139,10 @@ async function main() {
       state:Workbench.state.groups.join(',') === 'serverData,uiState,editorState,draftState' && Workbench.appState.serverData.projects === projects && Workbench.appState.uiState.selectedProjectId === selectedProjectId,
       features:Workbench.search && Workbench.trash && Workbench.manage && searchFeature.diagnostics().bindCount === 1 && trashFeature.diagnostics().bindCount === 1 && usageFeature.diagnostics().bindCount === 1,
       homeProject:Workbench.home && Workbench.projectView && typeof Workbench.home.normalizeLayout === 'function' && typeof Workbench.projectView.mergeVisibleOrder === 'function',
-      recordKnowledge:Workbench.editorSession && Workbench.recordConflict && Workbench.knowledge && typeof Workbench.knowledge.buildCategoryEntries === 'function'
+      recordKnowledge:Workbench.editorSession && Workbench.recordConflict && Workbench.knowledge && typeof Workbench.knowledge.buildCategoryEntries === 'function',
+      conceptMap:Workbench.conceptMap && typeof Workbench.conceptMap.create === 'function' && typeof conceptMapFeature.renderLibrary === 'function'
     })`);
-    assert.deepEqual(result, {dom:true, api:true, dialogs:true, state:true, features:true, homeProject:true, recordKnowledge:true});
+    assert.deepEqual(result, {dom:true, api:true, dialogs:true, state:true, features:true, homeProject:true, recordKnowledge:true, conceptMap:true});
     result = await client.evaluate(`(async () => {
       notify('核心通知', '错误详情', true);
       const toastState = {title:$('.toast strong').textContent, detail:$('.toast small').textContent, error:$('#toast').classList.contains('error')};
@@ -149,10 +150,18 @@ async function main() {
       const escaped = $('#appDialogOptions').innerHTML.includes('&lt;不安全&gt;');
       $('[data-app-dialog-choice]').click();
       const value = await pending;
-      await renderConceptMapLibrary();
-      return {toastState, escaped, value, conceptMapLibrary:Boolean($('#conceptMapLibrary .concept-map-library-header'))};
+      await conceptMapFeature.renderLibrary();
+      const conceptMapLibrary = Boolean($('#conceptMapLibrary .concept-map-library-header'));
+      const createdMap = await api('/concept-maps', {method:'POST', body:JSON.stringify({title:'依赖边界验证'})});
+      await conceptMapFeature.open(createdMap.id);
+      $('#conceptMapTitle').value = '显式依赖已保存';
+      $('#conceptMapTitle').dispatchEvent(new Event('input', {bubbles:true}));
+      const conceptMapFlushed = await conceptMapFeature.flushSave();
+      const savedMap = await api('/concept-maps/' + encodeURIComponent(createdMap.id));
+      await conceptMapFeature.renderLibrary();
+      return {toastState, escaped, value, conceptMapLibrary, conceptMapFlushed, conceptMapTitle:savedMap.title};
     })()`);
-    assert.deepEqual(result, {toastState:{title:'核心通知', detail:'错误详情', error:true}, escaped:true, value:'unsafe-value', conceptMapLibrary:true});
+    assert.deepEqual(result, {toastState:{title:'核心通知', detail:'错误详情', error:true}, escaped:true, value:'unsafe-value', conceptMapLibrary:true, conceptMapFlushed:true, conceptMapTitle:'显式依赖已保存'});
 
     const request = async (resource, options = {}) => {
       const response = await fetch(`${baseUrl}/api${resource}`, {

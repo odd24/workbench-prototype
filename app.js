@@ -11,6 +11,7 @@ const projectViewCore = window.Workbench.projectView;
 const editorSessionCore = window.Workbench.editorSession;
 const recordConflictCore = window.Workbench.recordConflict;
 const knowledgeCore = window.Workbench.knowledge;
+const conceptMapCore = window.Workbench.conceptMap;
 const {$, $$, escapeHtml, safeColor} = domCore;
 const api = apiCore.request;
 const notify = dialogCore.notify;
@@ -167,11 +168,15 @@ const appState = stateCore.create({
     get currentPage() { return currentPage; }, set currentPage(value) { currentPage = value; },
     get projectViewMode() { return projectViewMode; }, set projectViewMode(value) { projectViewMode = value; },
     get activeManagePage() { return activeManagePage; }, set activeManagePage(value) { activeManagePage = value; },
+    get conceptMapSearch() { return conceptMapSearch; }, set conceptMapSearch(value) { conceptMapSearch = value; },
   },
   editorState:{
     get currentRecord() { return currentRecord; }, set currentRecord(value) { currentRecord = value; },
     get currentDocument() { return currentDocument; }, set currentDocument(value) { currentDocument = value; },
     get currentConceptMap() { return currentConceptMap; }, set currentConceptMap(value) { currentConceptMap = value; },
+    get conceptMapSelection() { return conceptMapSelection; }, set conceptMapSelection(value) { conceptMapSelection = value; },
+    get conceptMapConnectSource() { return conceptMapConnectSource; }, set conceptMapConnectSource(value) { conceptMapConnectSource = value; },
+    get conceptMapSaving() { return conceptMapSaving; }, set conceptMapSaving(value) { conceptMapSaving = value; },
     get recordMode() { return editorMode; }, set recordMode(value) { editorMode = value; },
     get recordDirty() { return recordSession.dirty; }, set recordDirty(value) { recordSession.dirty = value; },
     get recordConflict() { return recordConflict.current; }, set recordConflict(value) { recordConflict.current = value; },
@@ -186,10 +191,12 @@ const appState = stateCore.create({
     get documentOutlineCollapsed() { return documentOutlineCollapsed; }, set documentOutlineCollapsed(value) { documentOutlineCollapsed = value; },
     get homeLayoutDraft() { return homeLayoutDraft; }, set homeLayoutDraft(value) { homeLayoutDraft = value; },
     get statusWatchDraft() { return statusWatchDraft; }, set statusWatchDraft(value) { statusWatchDraft = value; },
+    get conceptMapSaveTimer() { return conceptMapSaveTimer; }, set conceptMapSaveTimer(value) { conceptMapSaveTimer = value; },
   },
 });
 window.Workbench.appState = appState;
 const requestRegistry = appState.requests;
+const conceptMapFeature = conceptMapCore.create({dom:domCore, api:apiCore, dialogs:dialogCore, appState});
 
 const PROJECT_CARD_COLLAPSE_LIMIT = 5;
 const PROJECT_LIST_COLLAPSE_LIMIT = 12;
@@ -876,7 +883,7 @@ function setPage(page, options = {}) {
     renderProjectPage();
   } else if (page === 'concept_maps') {
     $('#conceptMapPage').classList.add('active');
-    renderConceptMapLibrary().catch(error => notify('概念图加载失败', error.message, true));
+    conceptMapFeature.renderLibrary().catch(error => notify('概念图加载失败', error.message, true));
   } else if (managePages.includes(page)) {
     $('#managePage').classList.add('active');
     activeManagePage = page;

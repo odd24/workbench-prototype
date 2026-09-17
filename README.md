@@ -109,3 +109,7 @@ python server.py
 - 知识库文档采用接近全屏的宽幅编辑与阅读弹窗，并提供可折叠的章节导航；导航会同步可视化编辑、Markdown 源码、阅读预览及外部修改
 
 “想法”记录类型已从工作台界面和新建接口停用；已有想法 Markdown 文件会保留在原数据目录中，避免历史内容丢失。
+
+## 开发验收
+
+基础回归运行 `python -m unittest -v`。大数据验收运行 `python performance_acceptance.py`；它只使用系统临时目录，默认覆盖 1200 条记录、160 篇文档、120 个附件、长 Markdown 和 500 节点概念图。机器基线、可调规模和结果见 [大数据性能验收](docs/PERFORMANCE_ACCEPTANCE.md)。

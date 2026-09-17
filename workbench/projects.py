@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .markdown_io import dump_markdown, now_iso, slugify
+from .persistence import atomic_write_text
 from .records import TYPE_DIRS
 
 
@@ -75,7 +76,7 @@ class ProjectRepository:
         stamp = now_iso()
         meta = {"id": project_id, "type": "project", "name": name, "status": payload.get("status", "active"), "color": payload.get("color", "#4d78e8"), "workflow_template": payload.get("workflow_template", "standard"), "created": stamp, "updated": stamp}
         body = f"# {name}\n\n{payload.get('description', '').strip()}"
-        (folder / "README.md").write_text(dump_markdown(meta, body), encoding="utf-8")
+        atomic_write_text(folder / "README.md", dump_markdown(meta, body))
         sorting = self.project_sort()
         if sorting["mode"] == "custom":
             sorting["order"] = [project["id"] for project in self.list_projects()]
@@ -102,7 +103,7 @@ class ProjectRepository:
         meta["updated"] = now_iso()
         description = payload.get("description", project.get("description", ""))
         body = f"# {meta['name']}\n\n{str(description).strip()}"
-        readme.write_text(dump_markdown(meta, body), encoding="utf-8")
+        atomic_write_text(readme, dump_markdown(meta, body))
         return {**meta, "description": description, "path": str(readme.parent)}
 
     def delete_project(self, project_id: str) -> dict:

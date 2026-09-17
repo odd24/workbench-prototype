@@ -10,6 +10,8 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
+from .persistence import atomic_write_json
+
 
 APP_DIR = Path(__file__).resolve().parent.parent
 EXTERNAL_EDITOR_FILE = APP_DIR / ".workbench-editor.json"
@@ -68,7 +70,7 @@ def save_external_editor(editor_id: str, custom_path: str = "", config_file: Pat
         if not editor:
             raise ValueError("所选编辑器当前不可用")
         config = {"id": editor["id"], "name": editor["name"], "path": editor["path"]}
-    config_file.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_json(config_file, config)
     return external_editor_payload(config_file, detect)
 
 

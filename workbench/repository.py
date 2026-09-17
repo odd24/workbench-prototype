@@ -17,6 +17,7 @@ from .documents import DocumentRepository
 from .external_editor import open_markdown_external
 from .markdown_io import load_markdown, now_iso, slugify
 from .projects import ProjectRepository
+from .persistence import atomic_write_json
 from .records import RecordRepository
 
 
@@ -97,7 +98,7 @@ class Repository:
 
     def _ensure_config(self):
         settings = self.config_dir / "settings.json"
-        settings.write_text(json.dumps({"version": 1, "data_dir": str(self.root)}, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(settings, {"version": 1, "data_dir": str(self.root)})
         templates = self.config_dir / "status-templates.json"
         if not templates.exists():
             data = {
@@ -118,29 +119,29 @@ class Repository:
                     {"id": "adopted", "name": "已采纳", "color": "#2ba477", "completed": True},
                 ],
             }
-            templates.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            atomic_write_json(templates, data)
         workflows = self.config_dir / "workflow-templates.json"
         if not workflows.exists():
             default_statuses = json.loads(templates.read_text(encoding="utf-8"))
-            workflows.write_text(json.dumps([{"id": "standard", "name": "标准工作流", "statuses": default_statuses}], ensure_ascii=False, indent=2), encoding="utf-8")
+            atomic_write_json(workflows, [{"id": "standard", "name": "标准工作流", "statuses": default_statuses}])
         labels = self.config_dir / "labels.json"
         if not labels.exists():
-            labels.write_text(json.dumps([], ensure_ascii=False, indent=2), encoding="utf-8")
+            atomic_write_json(labels, [])
         project_sort = self.config_dir / "project-sort.json"
         if not project_sort.exists():
-            project_sort.write_text(json.dumps({"mode": "custom", "order": []}, ensure_ascii=False, indent=2), encoding="utf-8")
+            atomic_write_json(project_sort, {"mode": "custom", "order": []})
         document_sort = self.config_dir / "document-sort.json"
         if not document_sort.exists():
-            document_sort.write_text(json.dumps({"category_mode": "manual", "category_order": [], "file_mode": "updated", "file_modes": {}, "file_orders": {}}, ensure_ascii=False, indent=2), encoding="utf-8")
+            atomic_write_json(document_sort, {"category_mode": "manual", "category_order": [], "file_mode": "updated", "file_modes": {}, "file_orders": {}})
         document_categories = self.config_dir / "document-categories.json"
         if not document_categories.exists():
-            document_categories.write_text("[]", encoding="utf-8")
+            atomic_write_json(document_categories, [])
         concept_map_categories = self.config_dir / "concept-map-categories.json"
         if not concept_map_categories.exists():
-            concept_map_categories.write_text("[]", encoding="utf-8")
+            atomic_write_json(concept_map_categories, [])
         trash_index = self.trash_dir / "index.json"
         if not trash_index.exists():
-            trash_index.write_text("{}", encoding="utf-8")
+            atomic_write_json(trash_index, {})
 
     def config(self) -> dict:
         return self._configuration_repository.config()
@@ -206,7 +207,7 @@ class Repository:
         return json.loads((self.trash_dir / "index.json").read_text(encoding="utf-8"))
 
     def _write_trash_index(self, index: dict):
-        (self.trash_dir / "index.json").write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(self.trash_dir / "index.json", index)
 
     def _move_to_trash(self, source: Path, item_id: str, kind: str, title: str) -> dict:
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")

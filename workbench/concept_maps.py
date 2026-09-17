@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from workbench.markdown_io import now_iso
+from workbench.persistence import atomic_write_json
 
 
 CONCEPT_MAP_WIDTH = 12_000.0
@@ -174,7 +175,7 @@ class ConceptMapRepository:
             category = str(concept_map.get("category") or "未分类").strip() or "未分类"
             if category not in cleaned:
                 cleaned.append(category)
-        (self.config_dir / "concept-map-categories.json").write_text(json.dumps(cleaned, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(self.config_dir / "concept-map-categories.json", cleaned)
         return cleaned
 
     def ensure_category(self, category: str) -> str:
@@ -245,9 +246,7 @@ class ConceptMapRepository:
 
     @staticmethod
     def write(path: Path, item: dict) -> dict:
-        temporary = path.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(item, ensure_ascii=False, indent=2), encoding="utf-8")
-        temporary.replace(path)
+        atomic_write_json(path, item)
         return item
 
     def create(self, payload: dict) -> dict:

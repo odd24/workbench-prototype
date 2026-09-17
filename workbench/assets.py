@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 
 from workbench.markdown_io import now_iso
+from workbench.persistence import atomic_write_json
 
 
 class AttachmentRepository:
@@ -205,9 +206,7 @@ class AttachmentRepository:
                     if attachment.get("category") in removed:
                         self.update_record_attachment_category(record["id"], attachment.get("name", ""), "")
         path = self.projects_dir / project_id / "assets" / "categories.json"
-        temporary = path.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(cleaned, ensure_ascii=False, indent=2), encoding="utf-8")
-        temporary.replace(path)
+        atomic_write_json(path, cleaned)
         return cleaned
 
     def ensure_project_asset_category(self, project_id: str, category: str) -> str:
@@ -222,9 +221,7 @@ class AttachmentRepository:
 
     def _save_project_assets(self, project_id: str, items: list[dict]):
         index = self._project_asset_index(project_id)
-        temporary = index.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
-        temporary.replace(index)
+        atomic_write_json(index, items)
 
     @staticmethod
     def _asset_category(value: str, allow_empty: bool = False) -> str:

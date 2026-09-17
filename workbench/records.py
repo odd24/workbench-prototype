@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .markdown_io import dump_markdown, load_markdown_text, normalize_info_fields, now_iso, slugify
+from .persistence import atomic_write_text
 
 
 TYPE_DIRS = {"issue": "issues", "todo": "todos", "idea": "ideas", "info": "infos"}
@@ -194,7 +195,7 @@ class RecordRepository:
             body = str(payload.get("body", "")).strip() or f"# {title}\n\n"
             filename = f"{record_id}-{slugify(title)}.md"
             path = directory / filename
-            path.write_text(dump_markdown(meta, body), encoding="utf-8")
+            atomic_write_text(path, dump_markdown(meta, body))
         return self._load_record(path)
 
     def update_record(self, record_id: str, payload: dict) -> dict:
@@ -215,7 +216,7 @@ class RecordRepository:
         updated.pop("file_path", None)
         updated.pop("file_mtime", None)
         self._save_history(record_id, path)
-        path.write_text(dump_markdown(updated, body), encoding="utf-8")
+        atomic_write_text(path, dump_markdown(updated, body))
         self._forget_record(path)
         return self._load_record(path)
 
@@ -250,7 +251,7 @@ class RecordRepository:
         self._forget_record(source)
         shutil.move(str(source), str(destination))
         try:
-            destination.write_text(dump_markdown(metadata, body), encoding="utf-8")
+            atomic_write_text(destination, dump_markdown(metadata, body))
         except Exception:
             shutil.move(str(destination), str(source))
             raise

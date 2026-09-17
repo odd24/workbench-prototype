@@ -9,6 +9,7 @@ import zipfile
 from pathlib import Path
 
 from .markdown_io import dump_markdown, load_markdown, load_markdown_text, now_iso, slugify
+from .persistence import atomic_write_text
 
 
 class DocumentRepository:
@@ -148,7 +149,7 @@ class DocumentRepository:
         meta = {"id": document_id, "type": "document", "title": title, "category": category, "tags": tags, "created": stamp, "updated": stamp}
         body = str(payload.get("body", "")).strip() or f"# {title}\n\n"
         path = self.documents_dir / f"{document_id}-{slugify(title)}.md"
-        path.write_text(dump_markdown(meta, body), encoding="utf-8")
+        atomic_write_text(path, dump_markdown(meta, body))
         return {**meta, "body": body, "file_path": str(path), "file_mtime": path.stat().st_mtime_ns}
 
     def update_document(self, document_id: str, payload: dict) -> dict:
@@ -165,7 +166,7 @@ class DocumentRepository:
         category = self.ensure_document_category(str(payload.get("category", document.get("category", "未分类"))))
         meta.update({"title": title, "category": category, "tags": tags, "updated": now_iso()})
         body = str(payload.get("body", document.get("body", "")))
-        path.write_text(dump_markdown(meta, body), encoding="utf-8")
+        atomic_write_text(path, dump_markdown(meta, body))
         return {**meta, "body": body, "file_path": str(path), "file_mtime": path.stat().st_mtime_ns}
 
     def open_document_external(self, document_id: str) -> dict:

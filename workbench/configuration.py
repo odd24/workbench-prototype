@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from .markdown_io import dump_markdown, now_iso
+from .persistence import atomic_write_json, atomic_write_text
 
 
 class ConfigurationRepository:
@@ -68,7 +69,7 @@ class ConfigurationRepository:
         cleaned = list(dict.fromkeys(item for item in order if item in known_set))
         cleaned.extend(project_id for project_id in known if project_id not in cleaned)
         value = {"mode": mode, "order": cleaned}
-        (self.config_dir / "project-sort.json").write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(self.config_dir / "project-sort.json", value)
         return value
 
     def document_sort(self) -> dict:
@@ -134,7 +135,7 @@ class ConfigurationRepository:
             cleaned_orders[category] = cleaned
         cleaned_modes = {category: incoming_modes.get(category, file_mode) for category in categories}
         value = {"category_mode": category_mode, "category_order": cleaned_categories, "file_mode": file_mode, "file_modes": cleaned_modes, "file_orders": cleaned_orders}
-        (self.config_dir / "document-sort.json").write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(self.config_dir / "document-sort.json", value)
         return value
 
     def document_categories(self) -> list[str]:
@@ -168,7 +169,7 @@ class ConfigurationRepository:
             category = str(document.get("category") or "未分类").strip() or "未分类"
             if category not in cleaned:
                 cleaned.append(category)
-        (self.config_dir / "document-categories.json").write_text(json.dumps(cleaned, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(self.config_dir / "document-categories.json", cleaned)
         return cleaned
 
     def ensure_document_category(self, category: str) -> str:
@@ -201,7 +202,7 @@ class ConfigurationRepository:
             meta = {key: value for key, value in document.items() if key not in {"body", "file_path", "file_mtime"}}
             meta["category"] = new_name
             meta["updated"] = now_iso()
-            path.write_text(dump_markdown(meta, document.get("body", "")), encoding="utf-8")
+            atomic_write_text(path, dump_markdown(meta, document.get("body", "")))
             changed += 1
         renamed_categories = [new_name if category == old_name else category for category in categories]
         saved_categories = self.save_document_categories(renamed_categories)
@@ -230,7 +231,7 @@ class ConfigurationRepository:
             path = Path(document["file_path"])
             meta = {key: value for key, value in document.items() if key not in {"body", "file_path", "file_mtime"}}
             meta["category"], meta["updated"] = "未分类", now_iso()
-            path.write_text(dump_markdown(meta, document.get("body", "")), encoding="utf-8")
+            atomic_write_text(path, dump_markdown(meta, document.get("body", "")))
             changed += 1
         remaining = [category for category in categories if category != name]
         if "未分类" not in remaining:
@@ -299,7 +300,7 @@ class ConfigurationRepository:
                     details.append(f"状态「{status_name}」正在被使用：{preview}{suffix}")
                 raise ValueError("；".join(details) + "。请先把这些记录移动到其他状态")
 
-        (self.config_dir / "workflow-templates.json").write_text(json.dumps(workflows, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(self.config_dir / "workflow-templates.json", workflows)
         if renames:
             for record in self.list_records():
                 workflow_id = project_workflows.get(record.get("project_id"), default_workflow)
@@ -385,7 +386,7 @@ class ConfigurationRepository:
                 continue
             names.add(name)
             cleaned.append({"name": name, "color": item.get("color", "#60748a")})
-        (self.config_dir / "labels.json").write_text(json.dumps(cleaned, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(self.config_dir / "labels.json", cleaned)
         if renames or removed:
             for record in self.list_records():
                 old_tags = record.get("tags") or []
@@ -414,5 +415,5 @@ class ConfigurationRepository:
     def save_status_templates(self, templates: dict) -> dict:
         self._validate_statuses(templates)
         path = self.config_dir / "status-templates.json"
-        path.write_text(json.dumps(templates, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(path, templates)
         return templates

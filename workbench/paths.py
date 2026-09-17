@@ -10,6 +10,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from .persistence import atomic_write_bytes, atomic_write_json
+
 
 APP_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_DATA_DIR = APP_DIR / "workbench-data"
@@ -19,9 +21,7 @@ EXPORT_LOCATION_FILE = APP_DIR / ".workbench-export.json"
 
 def save_data_location(data_dir: Path, location_file: Path = LOCATION_FILE):
     location_file.parent.mkdir(parents=True, exist_ok=True)
-    temporary = location_file.with_suffix(location_file.suffix + ".tmp")
-    temporary.write_text(json.dumps({"data_dir": str(data_dir.resolve())}, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(location_file)
+    atomic_write_json(location_file, {"data_dir": str(data_dir.resolve())})
 
 
 def relocate_repository(current: Any, raw_path: str, migrate: bool, location_file: Path = LOCATION_FILE):
@@ -101,9 +101,7 @@ def save_export_location(raw_path: str, location_file: Path = EXPORT_LOCATION_FI
     with tempfile.NamedTemporaryFile(prefix=".workbench-write-test-", dir=target, delete=True):
         pass
     location_file.parent.mkdir(parents=True, exist_ok=True)
-    temporary = location_file.with_suffix(location_file.suffix + ".tmp")
-    temporary.write_text(json.dumps({"export_dir": str(target)}, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(location_file)
+    atomic_write_json(location_file, {"export_dir": str(target)})
     return export_location_payload(location_file)
 
 
@@ -148,12 +146,5 @@ def export_to_saved_location(repository: Any, project_id: str | None, filename: 
         raise ValueError("导出文件名无效")
     content = repository.export_zip(project_id)
     destination = directory / clean_name
-    with tempfile.NamedTemporaryFile(prefix=f".{clean_name}.", suffix=".tmp", dir=directory, delete=False) as temporary:
-        temporary.write(content)
-        temporary_path = Path(temporary.name)
-    try:
-        temporary_path.replace(destination)
-    except Exception:
-        temporary_path.unlink(missing_ok=True)
-        raise
+    atomic_write_bytes(destination, content)
     return {"ok": True, "path": str(destination), "directory": str(directory), "filename": clean_name, "size": len(content)}

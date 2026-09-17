@@ -117,10 +117,13 @@ class RecordRepository:
                 self._record_paths_by_id.pop(str(cached[2].get("id", "")), None)
         return sorted(records, key=lambda item: item.get("updated", ""), reverse=True)
 
-    def list_record_summaries(self, project_id=None, record_type=None) -> list[dict]:
+    def list_record_summaries(self, project_id=None, record_type=None, record_ids=None) -> list[dict]:
         """Return list-view data without transferring full Markdown bodies."""
+        selected_ids = set(record_ids or [])
         summaries = []
         for record in self.list_records(project_id, record_type):
+            if selected_ids and record.get("id") not in selected_ids:
+                continue
             summary = {
                 key: value for key, value in record.items()
                 if key not in {"body", "attachments", "file_path"}

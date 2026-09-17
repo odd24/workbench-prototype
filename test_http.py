@@ -97,6 +97,25 @@ class HTTPIntegrationTests(unittest.TestCase):
         self.assertEqual(loaded["body"], "# HTTP 中文往返\n\n正文 🧪")
         self.assertTrue(any(path.name.startswith(created["id"]) for path in self.repo.projects_dir.rglob("*.md")))
 
+    def test_incremental_refresh_endpoints_return_only_requested_payloads(self):
+        first = self.repo.create_record({
+            "type": "todo", "title": "增量一", "project_id": self.project["id"], "body": "正文一",
+        })
+        second = self.repo.create_record({
+            "type": "issue", "title": "增量二", "project_id": self.project["id"], "body": "正文二",
+        })
+        document = self.repo.create_document({"title": "增量文档", "category": "测试", "body": "文档正文"})
+
+        ids = f"id={quote(second['id'])}&id={quote(first['id'])}"
+        status, _, summaries = self.request_json("GET", f"/api/records?summary=1&{ids}")
+        self.assertEqual(status, 200)
+        self.assertEqual({item["id"] for item in summaries}, {first["id"], second["id"]})
+        self.assertTrue(all("body" not in item and "body_preview" in item for item in summaries))
+
+        status, _, signatures = self.request_json("GET", "/api/document-signatures")
+        self.assertEqual(status, 200)
+        self.assertEqual(signatures, [{"id": document["id"], "file_mtime": document["file_mtime"]}])
+
     def test_zip_export_returns_binary_stream(self):
         self.repo.create_record({
             "type": "todo",

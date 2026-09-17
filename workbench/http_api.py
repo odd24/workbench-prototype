@@ -104,6 +104,8 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             self._json(self.repository.list_document_backlinks(document_id))
         elif path == "/api/documents":
             self._json(self.repository.list_documents())
+        elif path == "/api/document-signatures":
+            self._json(self.repository.document_signatures())
         elif path == "/api/reference-targets":
             self._json(self.repository.list_reference_targets())
         elif path.startswith("/api/documents/"):
@@ -145,8 +147,10 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
 
     def _get_record_resource(self, path: str, query: dict) -> bool:
         if path == "/api/records":
-            loader = self.repository.list_record_summaries if (query.get("summary") or [""])[0] == "1" else self.repository.list_records
-            records = loader((query.get("project") or [None])[0], (query.get("type") or [None])[0])
+            summary = (query.get("summary") or [""])[0] == "1"
+            loader = self.repository.list_record_summaries if summary else self.repository.list_records
+            record_ids = query.get("id") if summary else None
+            records = loader((query.get("project") or [None])[0], (query.get("type") or [None])[0], record_ids) if record_ids else loader((query.get("project") or [None])[0], (query.get("type") or [None])[0])
             self._json([record for record in records if record.get("type") != "idea"])
         elif path == "/api/record-signatures":
             self._json([record for record in self.repository.record_signatures() if record.get("type") != "idea"])

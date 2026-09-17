@@ -3,6 +3,7 @@ const domCore = window.Workbench.dom;
 const apiCore = window.Workbench.api;
 const dialogCore = window.Workbench.dialogs;
 const stateCore = window.Workbench.state;
+const resourceRefreshCore = window.Workbench.resourceRefresh;
 const navigationCore = window.Workbench.navigation;
 const applicationCore = window.Workbench.application;
 const searchCore = window.Workbench.search;
@@ -1691,6 +1692,23 @@ function renderExternalEditorOptions() {
   $('#customEditorPathField').classList.toggle('visible', selected === 'custom');
 }
 
+async function refreshDocuments() {
+  const request = requestRegistry.begin('document-refresh');
+  const loaded = await api('/documents');
+  if (!requestRegistry.isCurrent(request)) return null;
+  documents = loaded;
+  return loaded;
+}
+
+async function refreshRecords() {
+  const request = requestRegistry.begin('record-refresh');
+  const loaded = (await api('/records?summary=1')).filter(record => record.type !== 'idea');
+  if (!requestRegistry.isCurrent(request)) return null;
+  records = loaded;
+  lastRecordSignature = recordSignature(records);
+  return loaded;
+}
+
 async function openExternalEditorDialog() {
   try {
     try { await loadExternalEditors(); }
@@ -1703,7 +1721,7 @@ async function openExternalEditorDialog() {
 async function openDrawer(recordId, options = {}) {
   if (!recordId || !apiAvailable) return;
   const request = requestRegistry.begin('record-detail', recordId);
-  requestRegistry.invalidate('record-poll');
+  requestRegistry.invalidate('record-refresh');
   requestRegistry.invalidate('record-attachment');
   try {
     const loadedRecord = await api(`/records/${encodeURIComponent(recordId)}`);
@@ -2080,7 +2098,7 @@ async function renderManagePage(page) {
   if (page === 'documents') {
     $('#manageEyebrow').textContent = '知识沉淀'; $('#manageTitle').textContent = '知识库'; $('#manageDescription').textContent = '使用自定义分类集中收纳与维护文档。'; $('#manageActions').innerHTML = '<button class="secondary-button" id="importKnowledgeDocuments">导入文档</button><button class="secondary-button" id="startDocumentExport">导出</button><button class="secondary-button" id="newDocumentCategory">＋ 新建分类</button><button class="primary-button" id="newDocument">＋ 新建文档</button>';
     $('#manageContent').innerHTML = '<div class="empty-state">正在加载文档…</div>';
-    try { documents = await api('/documents'); }
+    try { await refreshDocuments(); }
     catch {
       const index = documents.findIndex(item => item.id === saved.id);
       if (index >= 0) documents[index] = saved; else documents.unshift(saved);
@@ -2190,7 +2208,7 @@ async function renameDocumentCategory(oldName) {
     const result = await api('/document-categories/rename', {method:'PATCH', body:JSON.stringify({old_name:oldName, new_name:newName})});
     configData.document_categories = result.categories;
     configData.document_sort = result.document_sort;
-    documents = await api('/documents');
+    await refreshDocuments();
     if (Object.hasOwn(documentCategoryFileQueries, oldName)) {
       documentCategoryFileQueries[newName] = documentCategoryFileQueries[oldName];
       delete documentCategoryFileQueries[oldName];
@@ -2210,7 +2228,7 @@ async function deleteDocumentCategory(name) {
     const result = await api(`/document-categories/${encodeURIComponent(name)}`, {method:'DELETE'});
     configData.document_categories = result.categories;
     configData.document_sort = result.document_sort;
-    documents = await api('/documents');
+    await refreshDocuments();
     delete documentCategoryFileQueries[name]; documentOpenCategories.delete(name);
     renderDocumentsPage();
     notify('分类已删除', result.updated_documents ? `${result.updated_documents} 篇文档已移动到“未分类”` : '文档内容未受影响');
@@ -2296,7 +2314,7 @@ function bindKnowledgeDragAndDrop() {
     if (!item) return false;
     try {
       await api(`/documents/${encodeURIComponent(documentId)}`, {method:'PATCH', body:JSON.stringify({category:targetCategory})});
-      documents = await api('/documents');
+      await refreshDocuments();
       const current = knowledgeSortConfig();
       const fileOrders = Object.fromEntries(Object.entries(current.file_orders).map(([category, order]) => [category, order.filter(id => id !== documentId)]));
       fileOrders[targetCategory] = [...(fileOrders[targetCategory] || []), documentId];
@@ -2688,7 +2706,7 @@ function updateDocumentSelectionToolbar() {
 
 function openDocument(documentId = '', initialCategory = '') {
   requestRegistry.invalidate('document-save');
-  requestRegistry.invalidate('document-poll');
+  requestRegistry.invalidate('document-refresh');
   currentDocument = documents.find(item => item.id === documentId) || null;
   documentSession.dirty = false;
   documentSession.saving = false;
@@ -2730,18 +2748,19 @@ async function saveDocument({readAfterSave = false, notifyUser = true} = {}) {
   const previousDraftId = currentDocument?.id || 'new';
   const documentId = currentDocument?.id || '';
   const request = requestRegistry.begin('document-save', previousDraftId);
+  requestRegistry.invalidate('document-refresh');
   documentSession.saving = true;
   updateDocumentSaveState('正在保存…');
   try {
     const saved = await api(documentId ? `/documents/${encodeURIComponent(documentId)}` : '/documents', {method:documentId ? 'PATCH' : 'POST', body:JSON.stringify(payload)});
     if (!requestRegistry.isCurrent(request)) return saved;
-    const latestDocuments = await api('/documents');
+    const latestDocuments = await refreshDocuments();
     if (!requestRegistry.isCurrent(request)) return saved;
     currentDocument = saved;
     documentSession.dirty = false;
     clearDocumentDraft(previousDraftId);
     clearDocumentDraft(saved.id);
-    documents = latestDocuments;
+    documents = latestDocuments || documents;
     documentOpenCategories.add(saved.category || '未分类');
     renderDocumentsPage();
     refreshDocumentBacklinks(saved.id);
@@ -2798,7 +2817,7 @@ async function closeDocumentEditor() {
   $('#documentDialog').close();
   requestRegistry.invalidate('document-backlinks');
   requestRegistry.invalidate('document-save');
-  requestRegistry.invalidate('document-poll');
+  requestRegistry.invalidate('document-refresh');
   renderDocumentBacklinks();
   $('#documentColorPalette').hidden = true;
   documentEditorHost.clearSelection();
@@ -2828,7 +2847,7 @@ async function deleteDocument() {
   try {
     await api(`/documents/${encodeURIComponent(currentDocument.id)}`, {method:'DELETE'});
     clearDocumentDraft(currentDocument.id); documentSession.dirty = false;
-    $('#documentDialog').close(); currentDocument = null; documents = await api('/documents'); renderDocumentsPage(); notify('文档已移入回收站');
+    $('#documentDialog').close(); currentDocument = null; await refreshDocuments(); renderDocumentsPage(); notify('文档已移入回收站');
   } catch (error) { notify('文档删除失败', error.message, true); }
 }
 
@@ -2892,12 +2911,12 @@ async function importKnowledgeDocuments(files, category = '未分类') {
       await api('/documents/import', {method:'POST', body:JSON.stringify({name:file.name, content:await file.text(), category})});
       imported += 1;
     }
-    documents = await api('/documents');
+    await refreshDocuments();
     documentOpenCategories.add(category);
     renderDocumentsPage();
     notify(`已导入 ${imported} 篇文档`, `已保存到「${category}」`);
   } catch (error) {
-    documents = await api('/documents'); renderDocumentsPage();
+    await refreshDocuments(); renderDocumentsPage();
     notify('文档导入未全部完成', `${imported ? `「${category}」中已导入 ${imported} 篇；` : ''}${error.message}`, true);
   }
 }
@@ -3020,12 +3039,7 @@ async function saveTags() {
   const removed = (configData.tags || []).map(item => item.name).filter(name => !remainingOriginals.has(name) && !renames[name]);
   try {
     configData.tags = await api('/tags', {method:'PUT', body:JSON.stringify({tags:tags.map(({name,color}) => ({name,color})), renames, removed})});
-    const [recordsResult, documentsResult] = await Promise.allSettled([api('/records?summary=1'), api('/documents')]);
-    if (recordsResult.status === 'fulfilled') {
-      records = recordsResult.value.filter(record => record.type !== 'idea');
-      lastRecordSignature = recordSignature(records);
-    }
-    if (documentsResult.status === 'fulfilled') documents = documentsResult.value;
+    await Promise.allSettled([refreshRecords(), refreshDocuments()]);
     if (activeManagePage === 'tags') {
       const savedByName = new Map(configData.tags.map(tag => [tag.name, tag]));
       const seen = new Set();
@@ -3129,11 +3143,7 @@ async function saveTemplates() {
   try {
     workflow.statuses = statuses;
     configData.workflow_templates = await api('/workflow-templates', {method:'PUT', body:JSON.stringify(configData.workflow_templates)});
-    const recordsResult = await Promise.allSettled([api('/records?summary=1')]);
-    if (recordsResult[0].status === 'fulfilled') {
-      records = recordsResult[0].value.filter(record => record.type !== 'idea');
-      lastRecordSignature = recordSignature(records);
-    }
+    await Promise.allSettled([refreshRecords()]);
     if (activeManagePage === 'status_templates') {
       const savedWorkflow = configData.workflow_templates.find(item => item.id === selectedWorkflowId);
       $$('.template-panel').forEach(panel => {
@@ -3368,6 +3378,8 @@ async function saveEditorNow() {
   $('.save-indicator').textContent = '正在保存…';
   $('.save-indicator').classList.add('saving');
   $('#saveRecord').disabled = true;
+  recordSession.saving = true;
+  requestRegistry.invalidate('record-refresh');
   try {
     await updateRecord(recordId, changes);
     renderRelations();
@@ -3384,7 +3396,7 @@ async function saveEditorNow() {
     persistEditorDraft();
     updateSaveIndicator('保存失败，请重试');
     return false;
-  }
+  } finally { recordSession.saving = false; }
 }
 
 function autoSaveOnLeaveEnabled() {
@@ -3430,10 +3442,9 @@ async function closeRecordView() {
 }
 
 async function refreshData() {
-  const loaded = await Promise.all([api('/projects'), api('/records?summary=1')]);
-  projects = loaded[0];
-  records = loaded[1].filter(record => record.type !== 'idea');
-  lastRecordSignature = recordSignature(records);
+  const projectRequest = requestRegistry.begin('project-refresh');
+  const loaded = await Promise.all([api('/projects'), refreshRecords()]);
+  if (requestRegistry.isCurrent(projectRequest)) projects = loaded[0];
   if (!projects.some(project => project.id === selectedProjectId)) selectedProjectId = projects.find(project => project.status !== 'archived')?.id || projects[0]?.id || '';
   renderNavigation(); renderDashboard();
   if ($('#projectPage').classList.contains('active')) renderProjectPage();
@@ -3446,6 +3457,7 @@ function recordSignature(items) {
 
 async function updateRecord(recordId, changes, successMessage) {
   try {
+    requestRegistry.invalidate('record-refresh');
     const updated = await api(`/records/${encodeURIComponent(recordId)}`, {method:'PATCH', body:JSON.stringify(changes)});
     const index = records.findIndex(item => item.id === recordId);
     if (index >= 0) records[index] = updated;
@@ -4060,14 +4072,14 @@ document.addEventListener('click', async event => {
       const category = menuAction.dataset.category;
       try {
         await api(`/documents/${encodeURIComponent(menuDocumentId)}`, {method:'PATCH', body:JSON.stringify({category})});
-        documents = await api('/documents'); documentOpenCategories.add(category); renderDocumentsPage(); notify('文档分类已更新', `已移动到「${category}」`);
+        await refreshDocuments(); documentOpenCategories.add(category); renderDocumentsPage(); notify('文档分类已更新', `已移动到「${category}」`);
       } catch (error) { notify('文档分类更新失败', error.message, true); }
       return;
     }
     if (action === 'delete-document-card') {
       const item = documents.find(document => document.id === menuDocumentId);
       if (item && await appConfirm({title:'将文档移入回收站？', message:`「${item.title}」`, detail:'稍后可以在回收站中恢复。', confirmText:'移入回收站', danger:true})) {
-        try { await api(`/documents/${encodeURIComponent(menuDocumentId)}`, {method:'DELETE'}); documentSelection.delete(menuDocumentId); documents = await api('/documents'); renderDocumentsPage(); notify('文档已移入回收站'); }
+        try { await api(`/documents/${encodeURIComponent(menuDocumentId)}`, {method:'DELETE'}); documentSelection.delete(menuDocumentId); await refreshDocuments(); renderDocumentsPage(); notify('文档已移入回收站'); }
         catch (error) { notify('文档删除失败', error.message, true); }
       }
       return;
@@ -5076,33 +5088,43 @@ async function initialize() {
     setInterval(async () => {
       if (!apiAvailable || document.hidden) return;
       try {
-        const openRecordId = currentRecord?.id || '';
-        const recordPollRequest = requestRegistry.begin('record-poll', openRecordId);
-        const signatures = (await api('/record-signatures')).filter(record => record.type !== 'idea');
-        if (!requestRegistry.isCurrent(recordPollRequest)) return;
-        const signature = recordSignature(signatures);
-        if (signature !== lastRecordSignature) {
-          const latest = (await api('/records?summary=1')).filter(record => record.type !== 'idea');
+        if (!recordSession.saving) {
+          const openRecordId = currentRecord?.id || '';
+          const recordPollRequest = requestRegistry.begin('record-refresh', openRecordId);
+          const signatures = (await api('/record-signatures')).filter(record => record.type !== 'idea');
           if (!requestRegistry.isCurrent(recordPollRequest)) return;
-          const latestOpen = openRecordId ? latest.find(item => item.id === openRecordId) : null;
-          const openChanged = latestOpen && currentRecord?.id === openRecordId && latestOpen.file_mtime !== currentRecord.file_mtime;
-          if (openChanged && detailDrawer.classList.contains('visible') && recordSession.dirty) {
-            const latestDetail = await api(`/records/${encodeURIComponent(latestOpen.id)}`);
-            if (requestRegistry.isCurrent(recordPollRequest) && currentRecord?.id === openRecordId) showConflict(latestDetail);
+          const change = resourceRefreshCore.diff(records, signatures);
+          if (change.changed) {
+            const query = resourceRefreshCore.queryForIds(change.changedIds);
+            const changedRecords = query ? (await api(`/records?summary=1&${query}`)).filter(record => record.type !== 'idea') : [];
+            if (!requestRegistry.isCurrent(recordPollRequest)) return;
+            const openChanged = openRecordId && change.changedIds.includes(openRecordId) && currentRecord?.id === openRecordId;
+            let latestDetail = null;
+            if (openChanged && detailDrawer.classList.contains('visible')) {
+              latestDetail = await api(`/records/${encodeURIComponent(openRecordId)}`);
+              if (!requestRegistry.isCurrent(recordPollRequest) || currentRecord?.id !== openRecordId) return;
+            }
+            records = resourceRefreshCore.reconcile(records, changedRecords, signatures, change);
+            lastRecordSignature = recordSignature(signatures);
+            renderDashboard();
+            if ($('#projectPage').classList.contains('active')) renderProjectPage();
+            if (latestDetail && recordSession.dirty) showConflict(latestDetail);
+            else if (latestDetail) await openDrawer(openRecordId);
+            else if (!detailDrawer.classList.contains('visible')) notify('检测到外部 Markdown 修改', '工作台内容已重新载入');
           }
-          else if (openChanged && detailDrawer.classList.contains('visible')) openDrawer(latestOpen.id);
-          if (!requestRegistry.isCurrent(recordPollRequest)) return;
-          records = latest; lastRecordSignature = signature; renderDashboard();
-          if ($('#projectPage').classList.contains('active')) renderProjectPage();
-          if (!detailDrawer.classList.contains('visible')) notify('检测到外部 Markdown 修改', '工作台内容已重新载入');
         }
-        if ($('#documentDialog').open || activeManagePage === 'documents') {
+        if (!documentSession.saving && ($('#documentDialog').open || activeManagePage === 'documents')) {
           const openDocumentId = currentDocument?.id || '';
-          const documentPollRequest = requestRegistry.begin('document-poll', openDocumentId);
-          const latestDocuments = await api('/documents');
+          const documentPollRequest = requestRegistry.begin('document-refresh', openDocumentId);
+          const signatures = await api('/document-signatures');
           if (!requestRegistry.isCurrent(documentPollRequest)) return;
-          const latestOpenDocument = openDocumentId ? latestDocuments.find(item => item.id === openDocumentId) : null;
-          const documentChanged = latestOpenDocument && currentDocument?.id === openDocumentId && latestOpenDocument.file_mtime !== currentDocument.file_mtime;
+          const change = resourceRefreshCore.diff(documents, signatures);
+          const changedDocuments = change.changedIds.length
+            ? await Promise.all(change.changedIds.map(id => api(`/documents/${encodeURIComponent(id)}`)))
+            : [];
+          if (!requestRegistry.isCurrent(documentPollRequest)) return;
+          const latestOpenDocument = openDocumentId ? changedDocuments.find(item => item.id === openDocumentId) : null;
+          const documentChanged = Boolean(latestOpenDocument && currentDocument?.id === openDocumentId);
           if (documentChanged && $('#documentDialog').open) {
             if (documentHasUnsavedChanges()) {
               const mtime = String(latestOpenDocument.file_mtime || '');
@@ -5112,8 +5134,10 @@ async function initialize() {
               }
             } else reloadCurrentDocumentFromDisk(latestOpenDocument);
           }
-          documents = latestDocuments;
-          if (activeManagePage === 'documents') renderDocumentsPage();
+          if (change.changed) {
+            documents = resourceRefreshCore.reconcile(documents, changedDocuments, signatures, change);
+            if (activeManagePage === 'documents') renderDocumentsPage();
+          }
         }
       } catch { /* 保持当前内容，下一次轮询重试 */ }
     }, 15_000);

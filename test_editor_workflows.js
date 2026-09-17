@@ -483,9 +483,22 @@ async function main() {
     const restoredOnDisk = await request(`/records/${record.id}`);
     assert.equal(result.body, restoredOnDisk.body);
 
-    await client.evaluate(`(async () => { await openDrawer(${recordId}); return true; })()`);
+    await client.evaluate(`(async () => {
+      await openDrawer(${recordId});
+      window.__rf501Fetches = [];
+      window.__rf501NativeFetch = window.fetch.bind(window);
+      window.fetch = (url, options) => {
+        window.__rf501Fetches.push(String(url));
+        return window.__rf501NativeFetch(url, options);
+      };
+      return true;
+    })()`);
     await writeExternalBody(`/records/${record.id}`, '无 dirty 外部版本');
     await waitForPage(client, `currentRecord?.body === '无 dirty 外部版本' && localEditorContent() === '无 dirty 外部版本'`, 20000);
+    result = await client.evaluate(`window.__rf501Fetches.slice()`);
+    assert.ok(result.some(url => url.endsWith('/api/record-signatures')));
+    assert.ok(result.some(url => url.includes('/api/records?summary=1&id=' + encodeURIComponent(record.id))));
+    assert.equal(result.some(url => /\/api\/records\?summary=1$/.test(url)), false, '轮询不应重新下载全部记录摘要');
 
     await client.evaluate(`(() => { recordEditorHost.render('本地冲突内容', true); markEditorChanged(); recordSession.cancel(); return true; })()`);
     await writeExternalBody(`/records/${record.id}`, '磁盘冲突内容');
@@ -515,9 +528,13 @@ async function main() {
     await waitForPage(client, `!$('#conflictDialog').open && currentRecord?.body === '最终合并版本'`);
     assert.equal((await request(`/records/${record.id}`)).body, '最终合并版本');
 
-    await client.evaluate(`(async () => { documents = await api('/documents'); openDocument(${documentId}); return true; })()`);
+    await client.evaluate(`(async () => { documents = await api('/documents'); openDocument(${documentId}); window.__rf501Fetches.length = 0; return true; })()`);
     await writeExternalBody(`/documents/${documentItem.id}`, '外部文档干净刷新');
     await waitForPage(client, `currentDocument?.body === '外部文档干净刷新' && documentMarkdownContent() === '外部文档干净刷新'`, 20000);
+    result = await client.evaluate(`window.__rf501Fetches.slice()`);
+    assert.ok(result.some(url => url.endsWith('/api/document-signatures')));
+    assert.ok(result.some(url => url.endsWith('/api/documents/' + encodeURIComponent(documentItem.id))));
+    assert.equal(result.some(url => /\/api\/documents$/.test(url)), false, '轮询不应重新下载全部文档正文');
     await client.evaluate(`(() => {
       setDocumentMode('visual');
       documentEditorHost.render('文档本地未保存', true); markDocumentChanged(); documentSession.cancel();
@@ -527,8 +544,9 @@ async function main() {
     await waitForPage(client, `Boolean($('#documentDialog').dataset.pendingExternalMtime)`, 20000);
     result = await client.evaluate(`({body:documentMarkdownContent(), dirty:documentSession.dirty, pending:Boolean($('#documentDialog').dataset.pendingExternalMtime)})`);
     assert.deepEqual(result, {body:'文档本地未保存', dirty:true, pending:true});
+    await client.evaluate(`(() => { window.fetch = window.__rf501NativeFetch; delete window.__rf501NativeFetch; delete window.__rf501Fetches; return true; })()`);
 
-    console.log('Editor workflow browser tests passed: save,retry,close,switch,reopen,draft,history,external-refresh,record-conflicts,document-external-guard');
+    console.log('Editor workflow browser tests passed: save,retry,close,switch,reopen,draft,history,incremental-external-refresh,record-conflicts,document-external-guard');
   } finally {
     client?.close();
     browser?.kill();

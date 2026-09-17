@@ -300,6 +300,9 @@ class Repository:
     def list_documents(self) -> list[dict]:
         return self._document_repository.list_documents()
 
+    def document_signatures(self) -> list[dict]:
+        return self._document_repository.document_signatures()
+
     @staticmethod
     def _concept_map_number(value, default=0.0) -> float:
         return ConceptMapRepository.concept_map_number(value, default)
@@ -399,8 +402,8 @@ class Repository:
     def list_records(self, project_id=None, record_type=None) -> list[dict]:
         return self._record_repository.list_records(project_id, record_type)
 
-    def list_record_summaries(self, project_id=None, record_type=None) -> list[dict]:
-        return self._record_repository.list_record_summaries(project_id, record_type)
+    def list_record_summaries(self, project_id=None, record_type=None, record_ids=None) -> list[dict]:
+        return self._record_repository.list_record_summaries(project_id, record_type, record_ids)
 
     def record_signatures(self) -> list[dict]:
         return self._record_repository.record_signatures()

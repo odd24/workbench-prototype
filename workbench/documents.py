@@ -40,6 +40,26 @@ class DocumentRepository:
             documents.append({**meta, "body": body, "file_path": str(path), "file_mtime": path.stat().st_mtime_ns})
         return sorted(documents, key=lambda item: item.get("updated", ""), reverse=True)
 
+    def document_signatures(self) -> list[dict]:
+        """Return the small payload used by the browser's document change poll."""
+        signatures = []
+        for path in self.documents_dir.glob("*.md"):
+            front_matter = []
+            with path.open("r", encoding="utf-8") as source:
+                if source.readline().rstrip("\r\n") != "---":
+                    continue
+                front_matter.append("---\n")
+                for line in source:
+                    front_matter.append(line)
+                    if line.rstrip("\r\n") == "---":
+                        break
+            meta, _ = load_markdown_text("".join(front_matter))
+            if meta.get("type") != "document" or not meta.get("id"):
+                continue
+            signatures.append({"id": meta["id"], "file_mtime": path.stat().st_mtime_ns, "updated": meta.get("updated", "")})
+        signatures.sort(key=lambda item: item["updated"], reverse=True)
+        return [{"id": item["id"], "file_mtime": item["file_mtime"]} for item in signatures]
+
     def get_document(self, document_id: str) -> tuple[dict, Path] | tuple[None, None]:
         for document in self.list_documents():
             if document.get("id") == document_id:

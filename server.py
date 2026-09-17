@@ -63,6 +63,10 @@ def open_markdown_external(path: Path, config_file: Path = EXTERNAL_EDITOR_FILE)
     return external_editor_module.open_markdown_external(path, config_file, detected_external_editors)
 
 
+def open_file_external(path: Path, config_file: Path = EXTERNAL_EDITOR_FILE) -> str:
+    return external_editor_module.open_file_external(path, config_file, detected_external_editors)
+
+
 class Repository(BaseRepository):
     """Keep legacy patch points while assembling the extracted repository."""
 
@@ -71,6 +75,7 @@ class Repository(BaseRepository):
             data_dir,
             load_markdown_callback=lambda path: load_markdown(path),
             open_markdown_external_callback=lambda path: open_markdown_external(path),
+            open_file_external_callback=lambda path: open_file_external(path),
         )
 
 

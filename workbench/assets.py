@@ -26,6 +26,7 @@ class AttachmentRepository:
         project,
         list_records,
         list_projects,
+        open_file_external,
     ):
         self.root = root
         self.projects_dir = projects_dir
@@ -35,6 +36,7 @@ class AttachmentRepository:
         self._project = project
         self._list_records = list_records
         self._list_projects = list_projects
+        self.open_file_external = open_file_external
 
     def get_record(self, record_id: str):
         return self._get_record(record_id)
@@ -134,6 +136,13 @@ class AttachmentRepository:
                 if any(candidate.is_relative_to(root) for root in self._record_attachment_roots(record)) and candidate.is_file():
                     return candidate
         return None
+
+    def open_record_attachment_external(self, record_id: str, filename: str) -> dict:
+        path = self.attachment_path(record_id, filename)
+        if not path:
+            raise FileNotFoundError(filename)
+        application = self.open_file_external(path)
+        return {"ok": True, "application": application, "record_id": record_id, "file": path.name}
 
     def _project_asset_index(self, project_id: str) -> Path:
         if not self.project(project_id):
@@ -343,6 +352,13 @@ class AttachmentRepository:
         except (KeyError, OSError, TypeError, ValueError):
             return None
         return candidate if candidate.is_relative_to(library_root) and candidate.is_file() else None
+
+    def open_project_asset_external(self, project_id: str, asset_id: str) -> dict:
+        path = self.project_asset_path(project_id, asset_id)
+        if not path:
+            raise FileNotFoundError(asset_id)
+        application = self.open_file_external(path)
+        return {"ok": True, "application": application, "project_id": project_id, "asset_id": asset_id, "file": path.name}
 
     def update_record_attachment_category(self, record_id: str, filename: str, category: str) -> dict:
         record, _ = self.get_record(record_id)

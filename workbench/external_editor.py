@@ -80,10 +80,22 @@ def open_markdown_external(path: Path, config_file: Path = EXTERNAL_EDITOR_FILE,
     if editor["kind"] != "system":
         subprocess.Popen([editor["path"], str(path)], cwd=str(path.parent), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         return editor["name"]
+    _open_system_default(path)
+    return editor["name"]
+
+
+def _open_system_default(path: Path):
     if sys.platform == "win32":
         os.startfile(str(path))
     elif sys.platform == "darwin":
         subprocess.Popen(["open", str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     else:
         subprocess.Popen(["xdg-open", str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return editor["name"]
+
+
+def open_file_external(path: Path, config_file: Path = EXTERNAL_EDITOR_FILE, detector: EditorDetector | None = None) -> str:
+    """Open an attachment with its configured desktop application."""
+    if path.suffix.lower() in {".md", ".markdown"}:
+        return open_markdown_external(path, config_file, detector)
+    _open_system_default(path)
+    return "系统默认应用"

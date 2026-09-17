@@ -173,6 +173,29 @@ class HTTPIntegrationTests(unittest.TestCase):
         self.assertEqual(int(headers["Content-Length"]), len(content))
         self.assertEqual(downloaded, content)
 
+    def test_attachment_external_open_routes(self):
+        with patch.object(self.repo, "open_project_asset_external", return_value={"ok": True, "application": "系统默认应用", "file": "资料.docx"}) as project_open:
+            status, _, payload = self.request_json(
+                "POST", f"/api/projects/{quote(self.project['id'])}/assets/ASSET-1/open-external"
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["application"], "系统默认应用")
+        project_open.assert_called_once_with(self.project["id"], "ASSET-1")
+
+        with patch.object(self.repo, "open_record_attachment_external", return_value={"ok": True, "application": "Typora", "file": "中文说明.md"}) as record_open:
+            status, _, payload = self.request_json(
+                "POST", "/api/records/ISSUE-0001/attachments/%E4%B8%AD%E6%96%87%E8%AF%B4%E6%98%8E.md/open-external"
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["application"], "Typora")
+        record_open.assert_called_once_with("ISSUE-0001", "中文说明.md")
+
+        status, _, missing = self.request_json(
+            "POST", "/api/records/ISSUE-9999/attachments/missing.txt/open-external"
+        )
+        self.assertEqual(status, 404)
+        self.assertIn("资源不存在", missing["error"])
+
     def test_conflict_is_reported_as_409(self):
         with patch.object(self.repo, "create_project", side_effect=FileExistsError("项目冲突")):
             status, _, conflict = self.request_json("POST", "/api/projects", {"name": "冲突"})

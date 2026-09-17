@@ -1340,6 +1340,38 @@ function assetIcon(mime = '', name = '') {
   return '◇';
 }
 
+function browserCanPreviewAttachment(mime = '', name = '') {
+  return /^(?:image|audio|video)\//i.test(mime)
+    || mime.toLowerCase() === 'application/pdf'
+    || /\.(?:avif|bmp|gif|ico|jpe?g|png|svg|webp|m4a|mp3|ogg|wav|mp4|webm|pdf)$/i.test(name);
+}
+
+async function openRecordAttachment(recordId, name, mime = '') {
+  if (browserCanPreviewAttachment(mime, name)) {
+    window.open(`/api/attachments/${encodeURIComponent(recordId)}/${encodeURIComponent(name)}`, '_blank');
+    return;
+  }
+  try {
+    const result = await api(`/records/${encodeURIComponent(recordId)}/attachments/${encodeURIComponent(name)}/open-external`, {method:'POST'});
+    notify(`已使用${result.application}打开`, result.file);
+  } catch (error) {
+    notify('无法打开附件', error.message, true);
+  }
+}
+
+async function openProjectAttachment(projectId, assetId, name, mime = '') {
+  if (browserCanPreviewAttachment(mime, name)) {
+    window.open(`/api/project-assets/${encodeURIComponent(projectId)}/${encodeURIComponent(assetId)}`, '_blank');
+    return;
+  }
+  try {
+    const result = await api(`/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/open-external`, {method:'POST'});
+    notify(`已使用${result.application}打开`, result.file || name);
+  } catch (error) {
+    notify('无法打开附件', error.message, true);
+  }
+}
+
 function recordAttachmentItems(projectRecords) {
   return projectRecords.flatMap(record => (record.attachments || []).map(raw => {
     try { const item = typeof raw === 'string' ? JSON.parse(raw) : raw; return {source:'record', record, item, category:item.category || ''}; }
@@ -1482,9 +1514,9 @@ function projectAssetCardHtml(entry, categories) {
   const options = [`<option value="" ${!category ? 'selected' : ''}>无分类</option>`, ...categories.map(meta => `<option value="${escapeHtml(meta.name)}" ${meta.name === category ? 'selected' : ''}>${escapeHtml(meta.name)}</option>`)].join('');
   const checkbox = `<input type="checkbox" class="project-asset-select" ${assetSelectionAttributes(entry)} aria-label="选择附件 ${escapeHtml(item.name)}">`;
   if (entry.source === 'project') {
-    return `<article class="project-asset-card" data-project-asset-id="${escapeHtml(item.id)}" style="--asset-category-color:${color}">${checkbox}<div class="project-asset-icon">${assetIcon(item.mime, item.name)}</div><div class="project-asset-main"><strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong><div class="project-asset-meta"><span>项目附件</span><span>${formatFileSize(item.size)}</span><span title="${escapeHtml(item.mime || '未知类型')}">${escapeHtml(item.mime || '未知类型')}</span></div></div><select class="asset-category-select" data-project-asset-category="${escapeHtml(item.id)}" aria-label="附件分类">${options}<option value="__custom__">＋ 新建分类…</option></select><div class="asset-card-actions"><button type="button" class="secondary-button asset-open-button" data-open-project-asset="${escapeHtml(item.id)}">打开</button><button type="button" class="icon-button asset-delete-button" data-delete-single-asset aria-label="删除附件" title="删除附件">×</button></div></article>`;
+    return `<article class="project-asset-card" data-project-asset-id="${escapeHtml(item.id)}" style="--asset-category-color:${color}">${checkbox}<div class="project-asset-icon">${assetIcon(item.mime, item.name)}</div><div class="project-asset-main"><strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong><div class="project-asset-meta"><span>项目附件</span><span>${formatFileSize(item.size)}</span><span title="${escapeHtml(item.mime || '未知类型')}">${escapeHtml(item.mime || '未知类型')}</span></div></div><select class="asset-category-select" data-project-asset-category="${escapeHtml(item.id)}" aria-label="附件分类">${options}<option value="__custom__">＋ 新建分类…</option></select><div class="asset-card-actions"><button type="button" class="secondary-button asset-open-button" data-open-project-asset="${escapeHtml(item.id)}" data-asset-name="${escapeHtml(item.name)}" data-asset-mime="${escapeHtml(item.mime || '')}">打开</button><button type="button" class="icon-button asset-delete-button" data-delete-single-asset aria-label="删除附件" title="删除附件">×</button></div></article>`;
   }
-  return `<article class="project-asset-card record-source" data-record-id="${escapeHtml(entry.record.id)}" style="--asset-category-color:${color}">${checkbox}<div class="project-asset-icon">${assetIcon(item.mime, item.name)}</div><div class="project-asset-main"><strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong><div class="project-asset-meta"><span>记录附件</span><span>${formatFileSize(item.size)}</span><span title="${escapeHtml(entry.record.title)}">来自：${escapeHtml(entry.record.title)}</span></div></div><select class="asset-category-select" data-record-asset-category="${escapeHtml(entry.record.id)}" data-record-asset-name="${escapeHtml(item.name)}" aria-label="附件分类">${options}<option value="__custom__">＋ 新建分类…</option></select><div class="asset-card-actions"><button type="button" class="secondary-button asset-open-button" data-open-record-asset="${escapeHtml(entry.record.id)}" data-record-asset-name="${escapeHtml(item.name)}">打开</button><button type="button" class="icon-button asset-delete-button" data-delete-single-asset aria-label="删除附件" title="删除附件">×</button></div></article>`;
+  return `<article class="project-asset-card record-source" data-record-id="${escapeHtml(entry.record.id)}" style="--asset-category-color:${color}">${checkbox}<div class="project-asset-icon">${assetIcon(item.mime, item.name)}</div><div class="project-asset-main"><strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong><div class="project-asset-meta"><span>记录附件</span><span>${formatFileSize(item.size)}</span><span title="${escapeHtml(entry.record.title)}">来自：${escapeHtml(entry.record.title)}</span></div></div><select class="asset-category-select" data-record-asset-category="${escapeHtml(entry.record.id)}" data-record-asset-name="${escapeHtml(item.name)}" aria-label="附件分类">${options}<option value="__custom__">＋ 新建分类…</option></select><div class="asset-card-actions"><button type="button" class="secondary-button asset-open-button" data-open-record-asset="${escapeHtml(entry.record.id)}" data-record-asset-name="${escapeHtml(item.name)}" data-asset-mime="${escapeHtml(item.mime || '')}">打开</button><button type="button" class="icon-button asset-delete-button" data-delete-single-asset aria-label="删除附件" title="删除附件">×</button></div></article>`;
 }
 
 function renderProjectAssets(project, projectRecords) {
@@ -1870,7 +1902,7 @@ function parsedAttachments() {
 
 function renderAttachments() {
   const attachments = parsedAttachments();
-  $('#attachmentList').innerHTML = attachments.length ? attachments.map(item => `<button class="attachment-entry" data-attachment-name="${escapeHtml(item.name)}"><span class="attachment-icon">▧</span><span><strong>${escapeHtml(item.name)}</strong><small>${Math.max(1, Math.round((item.size || 0) / 1024))} KB · ${escapeHtml(item.mime)}</small></span><em>打开</em></button>`).join('') : '<div class="empty-state">暂无附件，可以粘贴截图或选择文件</div>';
+  $('#attachmentList').innerHTML = attachments.length ? attachments.map(item => `<button class="attachment-entry" data-attachment-name="${escapeHtml(item.name)}" data-attachment-mime="${escapeHtml(item.mime || '')}"><span class="attachment-icon">▧</span><span><strong>${escapeHtml(item.name)}</strong><small>${Math.max(1, Math.round((item.size || 0) / 1024))} KB · ${escapeHtml(item.mime)}</small></span><em>打开</em></button>`).join('') : '<div class="empty-state">暂无附件，可以粘贴截图或选择文件</div>';
 }
 
 function linkedReferenceTokens() {
@@ -2049,7 +2081,8 @@ async function openReferenceToken(token) {
   const detail = referenceTokenDetails(token);
   if (!detail.id) return;
   if (detail.kind === 'attachment') {
-    window.open(`/api/attachments/${encodeURIComponent(detail.id)}/${encodeURIComponent(detail.attachmentName)}`, '_blank');
+    const attachment = browserReferenceAttachments(detail.target?.attachments || []).find(item => item.name === detail.attachmentName);
+    await openRecordAttachment(detail.id, detail.attachmentName, attachment?.mime || '');
     return;
   }
   if (detail.kind === 'document') {
@@ -3981,13 +4014,13 @@ document.addEventListener('click', async event => {
   const openProjectAsset = event.target.closest('[data-open-project-asset]');
   if (openProjectAsset) {
     event.preventDefault(); event.stopPropagation();
-    window.open(`/api/project-assets/${encodeURIComponent(selectedProjectId)}/${encodeURIComponent(openProjectAsset.dataset.openProjectAsset)}`, '_blank');
+    await openProjectAttachment(selectedProjectId, openProjectAsset.dataset.openProjectAsset, openProjectAsset.dataset.assetName, openProjectAsset.dataset.assetMime);
     return;
   }
   const openRecordAsset = event.target.closest('[data-open-record-asset]');
   if (openRecordAsset) {
     event.preventDefault(); event.stopPropagation();
-    window.open(`/api/attachments/${encodeURIComponent(openRecordAsset.dataset.openRecordAsset)}/${encodeURIComponent(openRecordAsset.dataset.recordAssetName)}`, '_blank');
+    await openRecordAttachment(openRecordAsset.dataset.openRecordAsset, openRecordAsset.dataset.recordAssetName, openRecordAsset.dataset.assetMime);
     return;
   }
   const timelineFilterTrigger = event.target.closest('[data-timeline-filter]');
@@ -4259,7 +4292,7 @@ document.addEventListener('click', async event => {
     openDrawer(recordButton.dataset.recordId);
   }
   const attachment = event.target.closest('[data-attachment-name]');
-  if (attachment && currentRecord) window.open(`/api/attachments/${encodeURIComponent(currentRecord.id)}/${encodeURIComponent(attachment.dataset.attachmentName)}`, '_blank');
+  if (attachment && currentRecord) await openRecordAttachment(currentRecord.id, attachment.dataset.attachmentName, attachment.dataset.attachmentMime);
   const addStatus = event.target.closest('[data-add-status]');
   if (addStatus) {
     const list = $('.status-edit-list', addStatus.closest('.template-panel'));

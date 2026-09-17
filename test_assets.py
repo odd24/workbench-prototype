@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from server import Repository
 from workbench.assets import AttachmentRepository
@@ -84,6 +85,27 @@ class AttachmentRepositoryTests(unittest.TestCase):
 
         self.assertEqual(list(self.repo.root.rglob("partial-record.bin")), [])
         self.assertEqual(list(self.repo.root.rglob("partial-project.bin")), [])
+
+    def test_indexed_attachments_open_with_external_applications(self):
+        record_asset = self.repo.add_record_attachment_stream(self.record["id"], "说明.md", io.BytesIO(b"markdown"), 8)
+        project_asset = self.repo.add_project_asset_stream(self.project["id"], "调试工具.exe", io.BytesIO(b"binary"), 6)
+
+        with patch("server.open_file_external", side_effect=["Typora", "系统默认应用"]) as opener:
+            record_result = self.repo.open_record_attachment_external(self.record["id"], record_asset["name"])
+            project_result = self.repo.open_project_asset_external(self.project["id"], project_asset["id"])
+
+        self.assertEqual(record_result["application"], "Typora")
+        self.assertEqual(project_result["application"], "系统默认应用")
+        self.assertEqual(opener.call_args_list[0].args[0], self.repo.attachment_path(self.record["id"], record_asset["name"]))
+        self.assertEqual(opener.call_args_list[1].args[0], self.repo.project_asset_path(self.project["id"], project_asset["id"]))
+
+    def test_unindexed_attachments_cannot_be_opened_externally(self):
+        with patch("server.open_file_external") as opener:
+            with self.assertRaises(FileNotFoundError):
+                self.repo.open_record_attachment_external(self.record["id"], "missing.txt")
+            with self.assertRaises(FileNotFoundError):
+                self.repo.open_project_asset_external(self.project["id"], "ASSET-MISSING")
+        opener.assert_not_called()
 
 
 if __name__ == "__main__":

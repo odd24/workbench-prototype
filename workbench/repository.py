@@ -14,7 +14,7 @@ from .assets import AttachmentRepository
 from .concept_maps import ConceptMapRepository
 from .configuration import ConfigurationRepository
 from .documents import DocumentRepository
-from .external_editor import open_markdown_external
+from .external_editor import open_file_external, open_markdown_external
 from .markdown_io import load_markdown, now_iso, slugify
 from .projects import ProjectRepository
 from .persistence import atomic_write_json
@@ -28,6 +28,7 @@ class Repository:
         data_dir: Path,
         load_markdown_callback=load_markdown,
         open_markdown_external_callback=open_markdown_external,
+        open_file_external_callback=open_file_external,
     ):
         self.root = data_dir.resolve()
         self._record_id_lock = threading.Lock()
@@ -94,6 +95,7 @@ class Repository:
             self.project,
             self.list_records,
             self.list_projects,
+            lambda path: open_file_external_callback(path),
         )
         self.cleanup_trash()
 
@@ -474,6 +476,9 @@ class Repository:
     def attachment_path(self, record_id: str, filename: str) -> Path | None:
         return self._attachment_repository.attachment_path(record_id, filename)
 
+    def open_record_attachment_external(self, record_id: str, filename: str) -> dict:
+        return self._attachment_repository.open_record_attachment_external(record_id, filename)
+
     def _project_asset_index(self, project_id: str) -> Path:
         return self._attachment_repository._project_asset_index(project_id)
 
@@ -516,6 +521,9 @@ class Repository:
 
     def project_asset_path(self, project_id: str, asset_id: str) -> Path | None:
         return self._attachment_repository.project_asset_path(project_id, asset_id)
+
+    def open_project_asset_external(self, project_id: str, asset_id: str) -> dict:
+        return self._attachment_repository.open_project_asset_external(project_id, asset_id)
 
     def update_record_attachment_category(self, record_id: str, filename: str, category: str) -> dict:
         return self._attachment_repository.update_record_attachment_category(record_id, filename, category)

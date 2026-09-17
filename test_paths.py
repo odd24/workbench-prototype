@@ -81,6 +81,16 @@ class PathAndExternalEditorTests(unittest.TestCase):
             self.assertEqual(arguments[0], ["xdg-open", str(document)])
             self.assertNotIn("shell", options)
 
+    def test_attachment_opener_uses_markdown_setting_or_system_default(self):
+        markdown = Path("说明.md")
+        document = Path("资料.docx")
+        with patch("workbench.external_editor.open_markdown_external", return_value="Typora") as markdown_opener, patch("workbench.external_editor._open_system_default") as system_opener:
+            self.assertEqual(external_editor.open_file_external(markdown), "Typora")
+            self.assertEqual(external_editor.open_file_external(document), "系统默认应用")
+
+        markdown_opener.assert_called_once_with(markdown, external_editor.EXTERNAL_EDITOR_FILE, None)
+        system_opener.assert_called_once_with(document)
+
 
 if __name__ == "__main__":
     unittest.main()

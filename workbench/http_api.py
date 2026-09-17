@@ -23,7 +23,7 @@ from .paths import (
 
 
 APP_DIR = Path(__file__).resolve().parent.parent
-APP_VERSION = "2026.09.17.1"
+APP_VERSION = "2026.09.17.2"
 MAX_JSON_BODY_BYTES = 15_000_000
 
 
@@ -256,6 +256,10 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                 filename = (query.get("name") or [""])[0]
                 category = (query.get("category") or [""])[0]
                 return self._json(self.repository.add_project_asset_stream(project_id, filename, self.rfile, length, category), HTTPStatus.CREATED)
+            if path.startswith("/api/projects/") and path.endswith("/open-external"):
+                parts = path.strip("/").split("/")
+                if len(parts) == 6 and parts[3] == "assets":
+                    return self._json(self.repository.open_project_asset_external(parts[2], parts[4]))
             if path.startswith("/api/projects/") and path.endswith("/assets"):
                 project_id = path.strip("/").split("/")[2]
                 payload = self._body()
@@ -286,12 +290,16 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                     filename = (query.get("name") or [""])[0]
                     append_to_body = (query.get("append") or ["1"])[0] != "0"
                     return self._json(self.repository.add_record_attachment_stream(parts[2], filename, self.rfile, length, append_to_body), HTTPStatus.CREATED)
+                if len(parts) == 6 and parts[3] == "attachments" and parts[-1] == "open-external":
+                    return self._json(self.repository.open_record_attachment_external(parts[2], parts[4]))
                 if len(parts) == 4 and parts[-1] == "attachments":
                     payload = self._body()
                     return self._json(self.repository.add_attachment(parts[-2], payload.get("name", ""), payload.get("content", "")), HTTPStatus.CREATED)
                 if len(parts) == 4 and parts[-1] == "restore":
                     return self._json(self.repository.restore_history(parts[-2], self._body().get("version", "")))
             return self._json({"error": "接口不存在"}, HTTPStatus.NOT_FOUND)
+        except FileNotFoundError as exc:
+            return self._json({"error": f"资源不存在：{exc}"}, HTTPStatus.NOT_FOUND)
         except FileExistsError as exc:
             return self._json({"error": str(exc)}, HTTPStatus.CONFLICT)
         except (ValueError, json.JSONDecodeError) as exc:

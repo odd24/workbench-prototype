@@ -25,7 +25,7 @@ Python ThreadingHTTPServer
 - `workbench/markdown_io.py`：轻量 front matter 与 Markdown I/O。
 - `workbench/persistence.py`：同目录临时文件、flush/fsync 和 `os.replace` 原子覆盖。
 - `workbench/security.py`：文件名、分类、ZIP 成员和归档边界校验。
-- `workbench/paths.py`、`external_editor.py`：数据目录、导出位置和外部编辑器进程边界。
+- `workbench/paths.py`、`external_editor.py`：数据目录、导出位置、Markdown 编辑器和附件默认应用的进程边界。
 
 公开调用目前仍经 `Repository` 门面。兼容门面不是第二套实现；它只委托到组合仓储。删除它需要单独迁移所有导入和 patch 点，不能在日常维护中顺手移除。
 

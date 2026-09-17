@@ -140,9 +140,10 @@ async function main() {
       features:Workbench.search && Workbench.trash && Workbench.manage && searchFeature.diagnostics().bindCount === 1 && trashFeature.diagnostics().bindCount === 1 && usageFeature.diagnostics().bindCount === 1,
       homeProject:Workbench.home && Workbench.projectView && typeof Workbench.home.normalizeLayout === 'function' && typeof Workbench.projectView.mergeVisibleOrder === 'function',
       recordKnowledge:Workbench.editorSession && Workbench.recordConflict && Workbench.knowledge && typeof Workbench.knowledge.buildCategoryEntries === 'function',
-      conceptMap:Workbench.conceptMap && typeof Workbench.conceptMap.create === 'function' && typeof conceptMapFeature.renderLibrary === 'function'
+      conceptMap:Workbench.conceptMap && typeof Workbench.conceptMap.create === 'function' && typeof conceptMapFeature.renderLibrary === 'function',
+      entry:Workbench.navigation && Workbench.application && applicationFeature.diagnostics().started
     })`);
-    assert.deepEqual(result, {dom:true, api:true, dialogs:true, state:true, features:true, homeProject:true, recordKnowledge:true, conceptMap:true});
+    assert.deepEqual(result, {dom:true, api:true, dialogs:true, state:true, features:true, homeProject:true, recordKnowledge:true, conceptMap:true, entry:true});
     result = await client.evaluate(`(async () => {
       notify('核心通知', '错误详情', true);
       const toastState = {title:$('.toast strong').textContent, detail:$('.toast small').textContent, error:$('#toast').classList.contains('error')};

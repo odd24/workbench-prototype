@@ -3,6 +3,8 @@ const domCore = window.Workbench.dom;
 const apiCore = window.Workbench.api;
 const dialogCore = window.Workbench.dialogs;
 const stateCore = window.Workbench.state;
+const navigationCore = window.Workbench.navigation;
+const applicationCore = window.Workbench.application;
 const searchCore = window.Workbench.search;
 const trashCore = window.Workbench.trash;
 const manageCore = window.Workbench.manage;
@@ -197,6 +199,7 @@ const appState = stateCore.create({
 window.Workbench.appState = appState;
 const requestRegistry = appState.requests;
 const conceptMapFeature = conceptMapCore.create({dom:domCore, api:apiCore, dialogs:dialogCore, appState});
+const navigationFeature = navigationCore.create({storage:localStorage, location, history});
 
 const PROJECT_CARD_COLLAPSE_LIMIT = 5;
 const PROJECT_LIST_COLLAPSE_LIMIT = 12;
@@ -855,25 +858,16 @@ function updateEditorToolbarState() {
   });
 }
 
-function readNavigationState() {
-  try {
-    const value = JSON.parse(localStorage.getItem('workbench-navigation-state') || 'null');
-    return value && typeof value === 'object' ? value : {};
-  } catch { return {}; }
-}
-
 function persistNavigationState() {
-  try { localStorage.setItem('workbench-navigation-state', JSON.stringify({page:currentPage, projectId:selectedProjectId, projectTab})); }
-  catch { /* 存储受限时仍允许继续导航 */ }
+  navigationFeature.write({page:currentPage, projectId:selectedProjectId, projectTab});
 }
 
 function setPage(page, options = {}) {
-  const managePages = ['status_templates', 'archive', 'documents', 'timeline', 'tags', 'trash', 'settings'];
-  if (!['home', 'project', 'concept_maps', ...managePages].includes(page)) page = 'home';
-  if (page === 'project' && !projects.some(project => project.id === selectedProjectId)) page = 'home';
+  const managePages = navigationFeature.managePages;
+  page = navigationFeature.resolvePage(page, projects, selectedProjectId);
   currentPage = page;
   persistNavigationState();
-  if (!options.preserveHash && location.hash) history.replaceState(null, '', `${location.pathname}${location.search}`);
+  if (!options.preserveHash) navigationFeature.clearHash();
   if (!['tags', 'status_templates', 'settings'].includes(page) || page !== activeManagePage) savedManageSnapshot = null;
   $$('.page').forEach(node => node.classList.remove('active'));
   $$('.nav-item').forEach(node => node.classList.toggle('active', page === 'project' ? node.dataset.projectId === selectedProjectId : node.dataset.page === page));
@@ -5064,11 +5058,10 @@ async function initialize() {
     apiAvailable = health.ok;
     configData = config;
     window.workbenchDataDir = config.data_dir;
-    const navigation = readNavigationState();
+    const navigation = navigationFeature.read();
     selectedProjectId = typeof navigation.projectId === 'string' ? navigation.projectId : '';
     const storedProjectId = selectedProjectId;
-    if (navigation.projectTab === 'mixed') projectTab = 'overview';
-    else if (['overview','issues','todos','infos','assets'].includes(navigation.projectTab)) projectTab = navigation.projectTab;
+    projectTab = navigationFeature.normalizeProjectTab(navigation.projectTab);
     await refreshData();
     await loadExternalEditors();
     updateDocumentColorButtons();
@@ -5167,7 +5160,7 @@ document.addEventListener('input', event => {
   }
 });
 
-window.addEventListener('beforeunload', event => {
+function handleBeforeUnload(event) {
   persistEditorDraft();
   persistDocumentDraft();
   if (recordSession.dirty && autoSaveOnLeaveEnabled() && currentRecord) {
@@ -5181,8 +5174,12 @@ window.addEventListener('beforeunload', event => {
   if (!(recordSession.dirty && !autoSaveOnLeaveEnabled()) && !documentSession.dirty && !hasUnsavedManageChanges() && !hasUnsavedProjectEdit()) return;
   event.preventDefault();
   event.returnValue = '';
-});
+}
 
-window.addEventListener('pagehide', () => { persistEditorDraft(); persistDocumentDraft(); });
+function handlePageHide() {
+  persistEditorDraft();
+  persistDocumentDraft();
+}
 
-initialize();
+const applicationFeature = applicationCore.create({window, initialize, beforeUnload:handleBeforeUnload, pageHide:handlePageHide});
+applicationFeature.start();

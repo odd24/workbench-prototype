@@ -129,6 +129,7 @@ async function main() {
     await client.connect();
     await client.call('Page.enable');
     await client.call('Runtime.enable');
+    await client.call('Network.enable');
     await waitForPage(client, `typeof apiAvailable !== 'undefined' && apiAvailable && projects.length > 0`);
 
     let result = await client.evaluate(`({
@@ -137,9 +138,10 @@ async function main() {
       dialogs:Workbench.dialogs.notify === notify && Workbench.dialogs.open === openAppDialog && Workbench.dialogs.confirm === appConfirm && Workbench.dialogs.prompt === appPrompt,
       state:Workbench.state.groups.join(',') === 'serverData,uiState,editorState,draftState' && Workbench.appState.serverData.projects === projects && Workbench.appState.uiState.selectedProjectId === selectedProjectId,
       features:Workbench.search && Workbench.trash && Workbench.manage && searchFeature.diagnostics().bindCount === 1 && trashFeature.diagnostics().bindCount === 1 && usageFeature.diagnostics().bindCount === 1,
-      homeProject:Workbench.home && Workbench.projectView && typeof Workbench.home.normalizeLayout === 'function' && typeof Workbench.projectView.mergeVisibleOrder === 'function'
+      homeProject:Workbench.home && Workbench.projectView && typeof Workbench.home.normalizeLayout === 'function' && typeof Workbench.projectView.mergeVisibleOrder === 'function',
+      recordKnowledge:Workbench.editorSession && Workbench.recordConflict && Workbench.knowledge && typeof Workbench.knowledge.buildCategoryEntries === 'function'
     })`);
-    assert.deepEqual(result, {dom:true, api:true, dialogs:true, state:true, features:true, homeProject:true});
+    assert.deepEqual(result, {dom:true, api:true, dialogs:true, state:true, features:true, homeProject:true, recordKnowledge:true});
     result = await client.evaluate(`(async () => {
       notify('核心通知', '错误详情', true);
       const toastState = {title:$('.toast strong').textContent, detail:$('.toast small').textContent, error:$('#toast').classList.contains('error')};
@@ -237,7 +239,7 @@ async function main() {
       setDocumentMode('visual');
       documentEditorHost.render('延迟保存内容', true);
       markDocumentChanged();
-      clearTimeout(documentSaveTimer);
+      documentSession.cancel();
       const nativeFetch = window.fetch.bind(window);
       window.fetch = (url, options) => String(url).includes('/api/documents/' + ${documentId})
         ? new Promise(resolve => setTimeout(() => resolve(nativeFetch(url, options)), 250))
@@ -247,7 +249,7 @@ async function main() {
         await new Promise(resolve => setTimeout(resolve, 20));
         openDocument(${raceDocumentId});
         await first;
-        return {id:currentDocument?.id, title:$('#documentTitle').value, dirty:documentDirty, stateId:Workbench.appState.editorState.currentDocument?.id};
+        return {id:currentDocument?.id, title:$('#documentTitle').value, dirty:documentSession.dirty, stateId:Workbench.appState.editorState.currentDocument?.id};
       } finally { window.fetch = nativeFetch; }
     })()`);
     assert.deepEqual(result, {id:raceDocument.id, title:'RF-302 后发文档', dirty:false, stateId:raceDocument.id});
@@ -338,7 +340,7 @@ async function main() {
       markEditorChanged();
       const saved = await saveEditorNow();
       await openDrawer(${recordId});
-      return {saved, body:localEditorContent(), dirty:editorDirty, draft:localStorage.getItem(editorDraftKey(${recordId}))};
+      return {saved, body:localEditorContent(), dirty:recordSession.dirty, draft:localStorage.getItem(editorDraftKey(${recordId}))};
     })()`);
     assert.deepEqual(result, {saved:true, body:'# 自动保存\n\n- [x] 记录', dirty:false, draft:null});
 
@@ -350,9 +352,68 @@ async function main() {
       markDocumentChanged();
       const saved = await saveDocument({readAfterSave:false, notifyUser:false});
       openDocument(${documentId});
-      return {saved:Boolean(saved), body:documentMarkdownContent(), dirty:documentDirty, draft:localStorage.getItem(documentDraftKey(${documentId}))};
+      return {saved:Boolean(saved), body:documentMarkdownContent(), dirty:documentSession.dirty, draft:localStorage.getItem(documentDraftKey(${documentId}))};
     })()`);
     assert.deepEqual(result, {saved:true, body:'# 自动保存文档\n\n| 左 | 右 |\n| :--- | ---: |\n| A | B |', dirty:false, draft:null});
+
+    await client.call('Network.setBlockedURLs', {urls:['*/api/records/*']});
+    result = await client.evaluate(`(async () => {
+      await openDrawer(${recordId});
+      recordEditorHost.render('记录失败后重试', true);
+      markEditorChanged();
+      recordSession.cancel();
+      const saved = await saveEditorNow();
+      return {saved, dirty:recordSession.dirty, draft:Boolean(recordSession.read(${recordId})), state:$('.save-indicator').textContent};
+    })()`);
+    assert.deepEqual(result, {saved:false, dirty:true, draft:true, state:'保存失败，请重试'});
+    await client.call('Network.setBlockedURLs', {urls:[]});
+    result = await client.evaluate(`(async () => ({saved:await saveEditorNow(), dirty:recordSession.dirty, draft:recordSession.read(${recordId})}))()`);
+    assert.deepEqual(result, {saved:true, dirty:false, draft:null});
+
+    await client.call('Network.setBlockedURLs', {urls:['*/api/documents/*']});
+    result = await client.evaluate(`(async () => {
+      documents = await api('/documents');
+      openDocument(${documentId});
+      setDocumentMode('visual');
+      documentEditorHost.render('文档失败后重试', true);
+      markDocumentChanged();
+      documentSession.cancel();
+      const saved = await saveDocument({readAfterSave:false, notifyUser:false});
+      return {saved:Boolean(saved), dirty:documentSession.dirty, draft:Boolean(documentSession.read(${documentId})), state:$('#documentSaveState').textContent};
+    })()`);
+    assert.deepEqual(result, {saved:false, dirty:true, draft:true, state:'保存失败，请重试'});
+    await client.call('Network.setBlockedURLs', {urls:[]});
+    result = await client.evaluate(`(async () => ({saved:Boolean(await saveDocument({readAfterSave:false, notifyUser:false})), dirty:documentSession.dirty, draft:documentSession.read(${documentId})}))()`);
+    assert.deepEqual(result, {saved:true, dirty:false, draft:null});
+
+    result = await client.evaluate(`(async () => {
+      localStorage.setItem('workbench-save-on-leave', 'true');
+      $('#saveOnLeave').checked = true;
+      await openDrawer(${recordId});
+      recordEditorHost.render('关闭记录时保存', true); markEditorChanged(); recordSession.cancel();
+      const closed = await closeDrawer();
+      const closedBody = (await api('/records/' + ${recordId})).body;
+      await openDrawer(${recordId});
+      recordEditorHost.render('切换记录时保存', true); markEditorChanged(); recordSession.cancel();
+      if (await confirmLeaveRecord()) await openDrawer(${JSON.stringify(orderRecord.id)});
+      const switchedBody = (await api('/records/' + ${recordId})).body;
+      return {closed, closedBody, switchedBody, currentId:currentRecord?.id, dirty:recordSession.dirty};
+    })()`);
+    assert.deepEqual(result, {closed:true, closedBody:'关闭记录时保存', switchedBody:'切换记录时保存', currentId:orderRecord.id, dirty:false});
+
+    result = await client.evaluate(`(async () => {
+      documents = await api('/documents');
+      openDocument(${documentId});
+      setDocumentMode('visual');
+      documentEditorHost.render('关闭文档时保存', true); markDocumentChanged(); documentSession.cancel();
+      const closing = closeDocumentEditor();
+      await new Promise(resolve => setTimeout(resolve, 20));
+      $('#unsavedChangesDialog button[value="save"]').click();
+      const closed = await closing;
+      const savedBody = (await api('/documents/' + ${documentId})).body;
+      return {closed, open:$('#documentDialog').open, savedBody, dirty:documentSession.dirty};
+    })()`);
+    assert.deepEqual(result, {closed:true, open:false, savedBody:'关闭文档时保存', dirty:false});
 
     result = await client.evaluate(`(async () => {
       await openDrawer(${recordId});
@@ -365,8 +426,8 @@ async function main() {
       setDocumentMode('visual');
       documentEditorHost.render('刷新后恢复的文档草稿', true);
       markDocumentChanged();
-      clearTimeout(editorSaveTimer);
-      clearTimeout(documentSaveTimer);
+      recordSession.cancel();
+      documentSession.cancel();
       return {
         recordDraft:Boolean(localStorage.getItem(editorDraftKey(${recordId}))),
         documentDraft:Boolean(localStorage.getItem(documentDraftKey(${documentId})))
@@ -378,11 +439,11 @@ async function main() {
     await waitForPage(client, `performance.timeOrigin !== ${JSON.stringify(pageEpoch)} && typeof apiAvailable !== 'undefined' && apiAvailable && projects.length > 0`);
     result = await client.evaluate(`(async () => {
       await openDrawer(${recordId});
-      const recoveredRecord = {body:localEditorContent(), dirty:editorDirty};
+      const recoveredRecord = {body:localEditorContent(), dirty:recordSession.dirty};
       const recordSaved = await saveEditorNow();
       documents = await api('/documents');
       openDocument(${documentId});
-      const recoveredDocument = {body:documentMarkdownContent(), dirty:documentDirty};
+      const recoveredDocument = {body:documentMarkdownContent(), dirty:documentSession.dirty};
       const documentSaved = await saveDocument({readAfterSave:false, notifyUser:false});
       return {
         recoveredRecord, recoveredDocument, recordSaved, documentSaved:Boolean(documentSaved),
@@ -416,16 +477,16 @@ async function main() {
     await writeExternalBody(`/records/${record.id}`, '无 dirty 外部版本');
     await waitForPage(client, `currentRecord?.body === '无 dirty 外部版本' && localEditorContent() === '无 dirty 外部版本'`, 20000);
 
-    await client.evaluate(`(() => { recordEditorHost.render('本地冲突内容', true); markEditorChanged(); clearTimeout(editorSaveTimer); return true; })()`);
+    await client.evaluate(`(() => { recordEditorHost.render('本地冲突内容', true); markEditorChanged(); recordSession.cancel(); return true; })()`);
     await writeExternalBody(`/records/${record.id}`, '磁盘冲突内容');
-    await waitForPage(client, `$('#conflictDialog').open && conflictRecord?.body === '磁盘冲突内容'`, 20000);
-    result = await client.evaluate(`({local:$('#localConflictContent').value, external:$('#externalConflictContent').value, dirty:editorDirty})`);
+    await waitForPage(client, `$('#conflictDialog').open && recordConflict.current?.body === '磁盘冲突内容'`, 20000);
+    result = await client.evaluate(`({local:$('#localConflictContent').value, external:$('#externalConflictContent').value, dirty:recordSession.dirty})`);
     assert.deepEqual(result, {local:'本地冲突内容', external:'磁盘冲突内容', dirty:true});
 
     await client.evaluate(`(() => { $('#conflictExternal').click(); return true; })()`);
     await waitForPage(client, `!$('#conflictDialog').open && localEditorContent() === '磁盘冲突内容'`);
     await client.evaluate(`(async () => {
-      recordEditorHost.render('保留工作台版本', true); markEditorChanged(); clearTimeout(editorSaveTimer);
+      recordEditorHost.render('保留工作台版本', true); markEditorChanged(); recordSession.cancel();
       const latest = await api('/records/' + ${recordId});
       showConflict({...latest, body:'被替换的磁盘版本'});
       $('#conflictLocal').click();
@@ -434,7 +495,7 @@ async function main() {
     await waitForPage(client, `!$('#conflictDialog').open && currentRecord?.body === '保留工作台版本'`);
     assert.equal((await request(`/records/${record.id}`)).body, '保留工作台版本');
     await client.evaluate(`(async () => {
-      recordEditorHost.render('本地待合并', true); markEditorChanged(); clearTimeout(editorSaveTimer);
+      recordEditorHost.render('本地待合并', true); markEditorChanged(); recordSession.cancel();
       const latest = await api('/records/' + ${recordId});
       showConflict({...latest, body:'磁盘待合并'});
       $('#mergedConflictContent').value = '最终合并版本';
@@ -449,15 +510,15 @@ async function main() {
     await waitForPage(client, `currentDocument?.body === '外部文档干净刷新' && documentMarkdownContent() === '外部文档干净刷新'`, 20000);
     await client.evaluate(`(() => {
       setDocumentMode('visual');
-      documentEditorHost.render('文档本地未保存', true); markDocumentChanged(); clearTimeout(documentSaveTimer);
+      documentEditorHost.render('文档本地未保存', true); markDocumentChanged(); documentSession.cancel();
       return true;
     })()`);
     await writeExternalBody(`/documents/${documentItem.id}`, '文档磁盘新版本');
     await waitForPage(client, `Boolean($('#documentDialog').dataset.pendingExternalMtime)`, 20000);
-    result = await client.evaluate(`({body:documentMarkdownContent(), dirty:documentDirty, pending:Boolean($('#documentDialog').dataset.pendingExternalMtime)})`);
+    result = await client.evaluate(`({body:documentMarkdownContent(), dirty:documentSession.dirty, pending:Boolean($('#documentDialog').dataset.pendingExternalMtime)})`);
     assert.deepEqual(result, {body:'文档本地未保存', dirty:true, pending:true});
 
-    console.log('Editor workflow browser tests passed: save,reopen,draft,history,external-refresh,record-conflicts,document-external-guard');
+    console.log('Editor workflow browser tests passed: save,retry,close,switch,reopen,draft,history,external-refresh,record-conflicts,document-external-guard');
   } finally {
     client?.close();
     browser?.kill();

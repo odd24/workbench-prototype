@@ -8,6 +8,9 @@ const trashCore = window.Workbench.trash;
 const manageCore = window.Workbench.manage;
 const homeCore = window.Workbench.home;
 const projectViewCore = window.Workbench.projectView;
+const editorSessionCore = window.Workbench.editorSession;
+const recordConflictCore = window.Workbench.recordConflict;
+const knowledgeCore = window.Workbench.knowledge;
 const {$, $$, escapeHtml, safeColor} = domCore;
 const api = apiCore.request;
 const notify = dialogCore.notify;
@@ -30,6 +33,17 @@ const documentEditorHost = editorHostCore.create({
   renderOptions:() => ({renderReference:referenceTokenToHtml, renderImage:markdownImageHtml}),
 });
 const editorHosts = new Map([[recordEditorHost.editor, recordEditorHost], [documentEditorHost.editor, documentEditorHost]]);
+const recordSession = editorSessionCore.create({storage:localStorage, prefix:'workbench-editor-draft'});
+const documentSession = editorSessionCore.create({storage:localStorage, prefix:'workbench-document-draft'});
+const recordConflict = recordConflictCore.create({
+  dialog:$('#conflictDialog'),
+  localField:$('#localConflictContent'),
+  externalField:$('#externalConflictContent'),
+  mergedField:$('#mergedConflictContent'),
+  diffContainer:$('#conflictDiff'),
+  escapeHtml,
+  getLocalContent:() => localEditorContent(),
+});
 
 const sidebar = $('#sidebar');
 const main = $('.main');
@@ -90,8 +104,6 @@ let draggedProjectLink = null;
 let cardOrderChanged = false;
 let cardDropHandled = false;
 let draggedCardSourceStatus = '';
-let editorDirty = false;
-let conflictRecord = null;
 let selectedWorkflowId = 'standard';
 let pendingImport = null;
 let activeManagePage = '';
@@ -99,7 +111,6 @@ let savedManageSnapshot = null;
 let projectEditSnapshot = null;
 let unsavedPromptPromise = null;
 let recordNavigationStack = [];
-let editorSaveTimer = null;
 let editorExpanded = false;
 let editorContentExpanded = false;
 let createContext = {projectId:'', status:''};
@@ -107,8 +118,6 @@ let lastRecordSignature = '';
 let documents = [];
 let currentDocument = null;
 let documentMode = 'read';
-let documentDirty = false;
-let documentSaving = false;
 let documentFilters = {categoryQuery:''};
 let documentCategoryFileQueries = {};
 let documentOpenCategories = new Set();
@@ -117,7 +126,6 @@ let documentExportMode = false;
 let knowledgeImportCategory = '';
 let documentOutlineCollapsed = localStorage.getItem('workbench-document-outline-collapsed') === 'true';
 let documentOutlineTimer = null;
-let documentSaveTimer = null;
 let referenceTargets = [];
 let referenceDialogContext = 'record-editor';
 let referenceFilters = {type:'', project:'', category:''};
@@ -165,15 +173,15 @@ const appState = stateCore.create({
     get currentDocument() { return currentDocument; }, set currentDocument(value) { currentDocument = value; },
     get currentConceptMap() { return currentConceptMap; }, set currentConceptMap(value) { currentConceptMap = value; },
     get recordMode() { return editorMode; }, set recordMode(value) { editorMode = value; },
-    get recordDirty() { return editorDirty; }, set recordDirty(value) { editorDirty = value; },
-    get recordConflict() { return conflictRecord; }, set recordConflict(value) { conflictRecord = value; },
+    get recordDirty() { return recordSession.dirty; }, set recordDirty(value) { recordSession.dirty = value; },
+    get recordConflict() { return recordConflict.current; }, set recordConflict(value) { recordConflict.current = value; },
     get documentMode() { return documentMode; }, set documentMode(value) { documentMode = value; },
-    get documentDirty() { return documentDirty; }, set documentDirty(value) { documentDirty = value; },
-    get documentSaving() { return documentSaving; }, set documentSaving(value) { documentSaving = value; },
+    get documentDirty() { return documentSession.dirty; }, set documentDirty(value) { documentSession.dirty = value; },
+    get documentSaving() { return documentSession.saving; }, set documentSaving(value) { documentSession.saving = value; },
   },
   draftState:{
-    get recordSaveTimer() { return editorSaveTimer; }, set recordSaveTimer(value) { editorSaveTimer = value; },
-    get documentSaveTimer() { return documentSaveTimer; }, set documentSaveTimer(value) { documentSaveTimer = value; },
+    get recordSaveTimer() { return recordSession.timer; }, set recordSaveTimer(value) { if (value === null) recordSession.cancel(); },
+    get documentSaveTimer() { return documentSession.timer; }, set documentSaveTimer(value) { if (value === null) documentSession.cancel(); },
     get documentOutlineTimer() { return documentOutlineTimer; }, set documentOutlineTimer(value) { documentOutlineTimer = value; },
     get documentOutlineCollapsed() { return documentOutlineCollapsed; }, set documentOutlineCollapsed(value) { documentOutlineCollapsed = value; },
     get homeLayoutDraft() { return homeLayoutDraft; }, set homeLayoutDraft(value) { homeLayoutDraft = value; },
@@ -187,9 +195,7 @@ const PROJECT_CARD_COLLAPSE_LIMIT = 5;
 const PROJECT_LIST_COLLAPSE_LIMIT = 12;
 const EDITOR_COLLAPSE_HEIGHT = 420;
 
-function safeExportName(value) {
-  return String(value || 'workbench').replace(/[<>:"/\\|?*\x00-\x1F]/g, '-').replace(/[. ]+$/g, '').trim() || 'workbench';
-}
+const safeExportName = knowledgeCore.safeExportName;
 
 function exportDateStamp() {
   const date = new Date();
@@ -808,7 +814,7 @@ function wrapTextareaSelection(textarea, before, after = before) {
 
 function markEditorChanged() {
   hydrateEditorBlocks($('.editor'));
-  editorDirty = true;
+  recordSession.dirty = true;
   scheduleEditorSave();
   updateEditorToolbarState();
 }
@@ -1707,7 +1713,7 @@ async function openDrawer(recordId, options = {}) {
       if (!options.fromUsage) usageFeature.clearReturnContext();
     }
     currentRecord = loadedRecord;
-    editorDirty = false;
+    recordSession.dirty = false;
     editorContentExpanded = false;
     $('.editor-area').classList.remove('content-collapsed');
     const recoveryDraft = readEditorDraft(currentRecord.id);
@@ -1718,7 +1724,7 @@ async function openDrawer(recordId, options = {}) {
         currentRecord.info_fields = recoveryDraft.info_fields;
         currentRecord.info_color = recoveryDraft.info_color || currentRecord.info_color;
       }
-      editorDirty = true;
+      recordSession.dirty = true;
     } else if (recoveryDraft) clearEditorDraft(currentRecord.id);
     $('#drawerRecordId').textContent = currentRecord.id;
     $('#drawerRecordId').dataset.recordId = currentRecord.id;
@@ -1755,7 +1761,7 @@ async function openDrawer(recordId, options = {}) {
     renderAttachments();
     closeSearch(); showOverlay(); detailDrawer.classList.add('visible'); detailDrawer.setAttribute('aria-hidden', 'false');
     requestAnimationFrame(() => requestAnimationFrame(updateEditorAutoCollapse));
-    if (editorDirty) notify('已恢复异常退出前的草稿', '草稿尚未写入 Markdown，请检查后手动保存');
+    if (recordSession.dirty) notify('已恢复异常退出前的草稿', '草稿尚未写入 Markdown，请检查后手动保存');
   } catch (error) {
     if (requestRegistry.isCurrent(request)) notify('无法打开记录', error.message, true);
   }
@@ -1833,33 +1839,7 @@ function insertInfoFieldIntoEditor(row) {
 }
 
 function showConflict(latest) {
-  conflictRecord = latest;
-  $('#localConflictContent').value = localEditorContent();
-  $('#externalConflictContent').value = latest.body;
-  const diff = lineDiff($('#localConflictContent').value, latest.body);
-  $('#conflictDiff').innerHTML = diff.rows.map((row, index) => `<div class="diff-row ${row.type}"><span>${index + 1}</span><span>${escapeHtml(row.local ?? '')}</span><span>${escapeHtml(row.external ?? '')}</span></div>`).join('');
-  $('#mergedConflictContent').value = diff.merged;
-  if (!$('#conflictDialog').open) $('#conflictDialog').showModal();
-}
-
-function lineDiff(localText, externalText) {
-  const a = localText.split('\n'), b = externalText.split('\n');
-  if (a.length * b.length > 120000) {
-    const rows = Array.from({length:Math.max(a.length,b.length)}, (_,i) => ({type:a[i] === b[i] ? 'same' : 'changed', local:a[i] ?? '', external:b[i] ?? ''}));
-    return {rows, merged:`<<<<<<< 工作台\n${localText}\n=======\n${externalText}\n>>>>>>> 磁盘`};
-  }
-  const dp = Array.from({length:a.length + 1}, () => new Uint16Array(b.length + 1));
-  for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) dp[i][j] = a[i] === b[j] ? dp[i+1][j+1] + 1 : Math.max(dp[i+1][j], dp[i][j+1]);
-  const rows = []; let i = 0, j = 0;
-  while (i < a.length || j < b.length) {
-    if (i < a.length && j < b.length && a[i] === b[j]) { rows.push({type:'same', local:a[i], external:b[j]}); i++; j++; }
-    else if (i < a.length && (j >= b.length || dp[i+1][j] >= dp[i][j+1])) { rows.push({type:'removed', local:a[i], external:''}); i++; }
-    else { rows.push({type:'added', local:'', external:b[j]}); j++; }
-  }
-  const merged = []; let localChunk = [], externalChunk = [];
-  const flush = () => { if (!localChunk.length && !externalChunk.length) return; if (localChunk.join('\n') === externalChunk.join('\n')) merged.push(...localChunk); else merged.push('<<<<<<< 工作台', ...localChunk, '=======', ...externalChunk, '>>>>>>> 磁盘'); localChunk = []; externalChunk = []; };
-  rows.forEach(row => { if (row.type === 'same') { flush(); merged.push(row.local); } else { if (row.local) localChunk.push(row.local); if (row.external) externalChunk.push(row.external); } }); flush();
-  return {rows, merged:merged.join('\n')};
+  recordConflict.show(latest);
 }
 
 function parsedAttachments() {
@@ -2162,31 +2142,7 @@ function renderDocumentsPage() {
   });
   const sortConfig = knowledgeSortConfig();
   const categoryQuery = documentFilters.categoryQuery.trim().toLowerCase();
-  const categoryIndex = new Map(sortConfig.category_order.map((name, index) => [name, index]));
-  let categoryEntries = [...new Set([...(configData?.document_categories || []), ...documents.map(item => item.category || '未分类')])].map(name => {
-    const allItems = documents.filter(item => (item.category || '未分类') === name);
-    return {name, allItems, updated:Math.max(0, ...allItems.map(item => Date.parse(item.updated || '') || 0))};
-  }).filter(entry => !categoryQuery || entry.name.toLowerCase().includes(categoryQuery));
-  categoryEntries.sort((a,b) => {
-    if (a.name === '未分类') return 1;
-    if (b.name === '未分类') return -1;
-    if (sortConfig.category_mode === 'manual') return (categoryIndex.get(a.name) ?? 999999) - (categoryIndex.get(b.name) ?? 999999) || a.name.localeCompare(b.name, 'zh-CN');
-    if (sortConfig.category_mode === 'count') return b.allItems.length - a.allItems.length || a.name.localeCompare(b.name, 'zh-CN');
-    if (sortConfig.category_mode === 'updated') return b.updated - a.updated || a.name.localeCompare(b.name, 'zh-CN');
-    return a.name.localeCompare(b.name, 'zh-CN');
-  });
-  categoryEntries = categoryEntries.map(entry => {
-    const fileQuery = (documentCategoryFileQueries[entry.name] || '').trim().toLowerCase();
-    const fileMode = sortConfig.file_modes[entry.name] || sortConfig.file_mode;
-    const fileIndex = new Map((sortConfig.file_orders[entry.name] || []).map((id, index) => [id, index]));
-    const items = entry.allItems.filter(item => !fileQuery || `${item.title} ${item.body} ${(item.tags || []).join(' ')}`.toLowerCase().includes(fileQuery)).sort((a,b) => {
-      if (fileMode === 'manual') return (fileIndex.get(a.id) ?? 999999) - (fileIndex.get(b.id) ?? 999999) || String(a.title).localeCompare(String(b.title), 'zh-CN');
-      if (fileMode === 'title') return String(a.title).localeCompare(String(b.title), 'zh-CN');
-      const field = fileMode === 'created' ? 'created' : 'updated';
-      return (Date.parse(b[field] || '') || 0) - (Date.parse(a[field] || '') || 0);
-    });
-    return {...entry, items, fileQuery, fileMode};
-  });
+  const categoryEntries = knowledgeCore.buildCategoryEntries(documents, configData?.document_categories || [], sortConfig, categoryQuery, documentCategoryFileQueries);
   const visible = categoryEntries.flatMap(entry => entry.items);
   documentSelection = new Set([...documentSelection].filter(id => documents.some(item => item.id === id)));
   renderDocumentActions();
@@ -2261,8 +2217,7 @@ async function deleteDocumentCategory(name) {
 }
 
 function knowledgeSortConfig() {
-  const value = configData?.document_sort || {};
-  return {category_mode:value.category_mode || 'manual', category_order:Array.isArray(value.category_order) ? value.category_order : [], file_mode:value.file_mode || value.mode || 'updated', file_modes:value.file_modes && typeof value.file_modes === 'object' ? value.file_modes : {}, file_orders:value.file_orders && typeof value.file_orders === 'object' ? value.file_orders : {}};
+  return knowledgeCore.normalizeSortConfig(configData?.document_sort || {});
 }
 
 function openDocumentCategorySortMenu(button) {
@@ -2643,49 +2598,45 @@ function applyDocumentColor(value, command = $('#documentColorPalette').dataset.
 }
 
 function documentDraftKey(documentId = currentDocument?.id || 'new') {
-  return `workbench-document-draft:${documentId}`;
+  return documentSession.key(documentId);
 }
 
 function clearDocumentDraft(documentId = currentDocument?.id || 'new') {
-  try { localStorage.removeItem(documentDraftKey(documentId)); }
-  catch { /* 存储受限时仍允许继续编辑 */ }
+  documentSession.clear(documentId);
 }
 
 function persistDocumentDraft() {
-  if (!documentDirty || !$('#documentDialog')?.open) return;
-  try {
-    localStorage.setItem(documentDraftKey(), JSON.stringify({
-      title:$('#documentTitle').value,
-      category:$('#documentCategory').value,
-      tags:selectedDocumentTags(),
-      body:documentMarkdownContent(),
-      savedAt:new Date().toISOString(),
-    }));
-  } catch { /* 页面离开提示继续兜底 */ }
+  if (!documentSession.dirty || !$('#documentDialog')?.open) return;
+  documentSession.write(currentDocument?.id || 'new', {
+    title:$('#documentTitle').value,
+    category:$('#documentCategory').value,
+    tags:selectedDocumentTags(),
+    body:documentMarkdownContent(),
+    savedAt:new Date().toISOString(),
+  });
 }
 
 function readDocumentDraft(documentId = currentDocument?.id || 'new') {
-  try { return JSON.parse(localStorage.getItem(documentDraftKey(documentId)) || 'null'); }
-  catch { return null; }
+  return documentSession.read(documentId);
 }
 
 function updateDocumentSaveState(message = '') {
   const state = $('#documentSaveState');
-  if (state) state.textContent = message || (documentDirty ? '● 有未保存的修改' : '✓ 已保存');
-  if (state) state.classList.toggle('saving', documentDirty || documentSaving || /正在|失败/.test(message));
+  if (state) state.textContent = message || (documentSession.dirty ? '● 有未保存的修改' : '✓ 已保存');
+  if (state) state.classList.toggle('saving', documentSession.dirty || documentSession.saving || /正在|失败/.test(message));
   const button = $('#saveDocument');
-  if (button) button.disabled = !documentDirty || documentSaving;
+  if (button) button.disabled = !documentSession.dirty || documentSession.saving;
 }
 
 function markDocumentChanged() {
   hydrateEditorBlocks($('#documentVisualEditor'));
-  documentDirty = true;
+  documentSession.dirty = true;
   persistDocumentDraft();
   updateDocumentSaveState();
   updateDocumentToolbarState();
   scheduleDocumentOutlineUpdate();
-  clearTimeout(documentSaveTimer);
-  if (currentDocument) documentSaveTimer = setTimeout(() => saveDocument({readAfterSave:false, notifyUser:false}), 1400);
+  documentSession.cancel();
+  if (currentDocument) documentSession.schedule(() => saveDocument({readAfterSave:false, notifyUser:false}));
 }
 
 function updateDocumentToolbarState() {
@@ -2738,15 +2689,15 @@ function openDocument(documentId = '', initialCategory = '') {
   requestRegistry.invalidate('document-save');
   requestRegistry.invalidate('document-poll');
   currentDocument = documents.find(item => item.id === documentId) || null;
-  documentDirty = false;
-  documentSaving = false;
+  documentSession.dirty = false;
+  documentSession.saving = false;
   const draft = readDocumentDraft(currentDocument?.id || 'new');
   const base = {title:currentDocument?.title || '', category:currentDocument?.category || '', tags:currentDocument?.tags || [], body:currentDocument?.body || ''};
   const hasRecoveryDraft = Boolean(draft && (draft.title !== base.title || draft.category !== base.category || draft.body !== base.body || JSON.stringify(draft.tags || []) !== JSON.stringify(base.tags || [])));
   const content = hasRecoveryDraft ? {...base, ...draft} : base;
   if (!currentDocument && initialCategory) content.category = initialCategory;
   if (draft && !hasRecoveryDraft) clearDocumentDraft(currentDocument?.id || 'new');
-  documentDirty = hasRecoveryDraft;
+  documentSession.dirty = hasRecoveryDraft;
   $('#documentDialogTitle').textContent = currentDocument ? currentDocument.title : '新建文档';
   $('#documentTitle').value = content.title;
   $('#documentCategory').value = content.category;
@@ -2757,7 +2708,7 @@ function openDocument(documentId = '', initialCategory = '') {
   $('#deleteDocument').style.display = currentDocument ? '' : 'none';
   $('#exportDocument').style.display = currentDocument ? '' : 'none';
   $('.document-external-editor').style.display = currentDocument ? 'inline-flex' : 'none';
-  updateDocumentSaveState(documentDirty ? '' : currentDocument ? `✓ 已保存 · ${new Date(currentDocument.updated).toLocaleString('zh-CN')}` : '将保存为本地 Markdown');
+  updateDocumentSaveState(documentSession.dirty ? '' : currentDocument ? `✓ 已保存 · ${new Date(currentDocument.updated).toLocaleString('zh-CN')}` : '将保存为本地 Markdown');
   $('#documentDialog').classList.remove('expanded');
   $('#documentDialog').classList.toggle('outline-collapsed', documentOutlineCollapsed);
   setDocumentMode(currentDocument ? 'read' : 'visual');
@@ -2769,16 +2720,16 @@ function openDocument(documentId = '', initialCategory = '') {
 }
 
 async function saveDocument({readAfterSave = false, notifyUser = true} = {}) {
-  clearTimeout(documentSaveTimer);
-  if (documentSaving) return null;
-  if (!documentDirty && currentDocument) return currentDocument;
+  documentSession.cancel();
+  if (documentSession.saving) return null;
+  if (!documentSession.dirty && currentDocument) return currentDocument;
   const title = $('#documentTitle').value.trim();
   if (!title) { $('#documentTitle').focus(); notify('文档标题不能为空', '请输入标题后再保存', true); return null; }
   const payload = {title, category:$('#documentCategory').value.trim() || '未分类', tags:selectedDocumentTags(), body:documentMarkdownContent()};
   const previousDraftId = currentDocument?.id || 'new';
   const documentId = currentDocument?.id || '';
   const request = requestRegistry.begin('document-save', previousDraftId);
-  documentSaving = true;
+  documentSession.saving = true;
   updateDocumentSaveState('正在保存…');
   try {
     const saved = await api(documentId ? `/documents/${encodeURIComponent(documentId)}` : '/documents', {method:documentId ? 'PATCH' : 'POST', body:JSON.stringify(payload)});
@@ -2786,7 +2737,7 @@ async function saveDocument({readAfterSave = false, notifyUser = true} = {}) {
     const latestDocuments = await api('/documents');
     if (!requestRegistry.isCurrent(request)) return saved;
     currentDocument = saved;
-    documentDirty = false;
+    documentSession.dirty = false;
     clearDocumentDraft(previousDraftId);
     clearDocumentDraft(saved.id);
     documents = latestDocuments;
@@ -2804,14 +2755,14 @@ async function saveDocument({readAfterSave = false, notifyUser = true} = {}) {
     return saved;
   } catch (error) {
     if (!requestRegistry.isCurrent(request)) return null;
-    documentDirty = true;
+    documentSession.dirty = true;
     persistDocumentDraft();
     updateDocumentSaveState('保存失败，请重试');
     notify('文档保存失败', error.message, true);
     return null;
   } finally {
     if (requestRegistry.isCurrent(request)) {
-      documentSaving = false;
+      documentSession.saving = false;
       updateDocumentSaveState($('#documentSaveState').textContent);
     }
   }
@@ -2819,7 +2770,7 @@ async function saveDocument({readAfterSave = false, notifyUser = true} = {}) {
 
 async function openCurrentDocumentExternal() {
   if (!currentDocument) return;
-  if (documentDirty && !await saveDocument({readAfterSave:false, notifyUser:false})) return;
+  if (documentSession.dirty && !await saveDocument({readAfterSave:false, notifyUser:false})) return;
   const button = $('#openDocumentExternal');
   const label = $('#documentExternalEditorLabel');
   const original = label.textContent;
@@ -2832,16 +2783,16 @@ async function openCurrentDocumentExternal() {
 }
 
 function documentHasUnsavedChanges() {
-  return documentDirty;
+  return documentSession.dirty;
 }
 
 async function closeDocumentEditor() {
-  clearTimeout(documentSaveTimer);
+  documentSession.cancel();
   if (documentHasUnsavedChanges()) {
     const choice = await askUnsavedChanges(`文档「${$('#documentTitle').value.trim() || '未命名文档'}」`);
     if (choice === 'cancel') return false;
     if (choice === 'save' && !await saveDocument({readAfterSave:false, notifyUser:false})) return false;
-    if (choice === 'discard') { clearDocumentDraft(); documentDirty = false; }
+    if (choice === 'discard') { clearDocumentDraft(); documentSession.dirty = false; }
   }
   $('#documentDialog').close();
   requestRegistry.invalidate('document-backlinks');
@@ -2856,7 +2807,7 @@ async function closeDocumentEditor() {
 function reloadCurrentDocumentFromDisk(latest) {
   if (!latest || !currentDocument || latest.id !== currentDocument.id) return;
   currentDocument = latest;
-  documentDirty = false;
+  documentSession.dirty = false;
   clearDocumentDraft(latest.id);
   $('#documentDialogTitle').textContent = latest.title;
   $('#documentTitle').value = latest.title;
@@ -2875,7 +2826,7 @@ async function deleteDocument() {
   if (!currentDocument || !await appConfirm({title:'将文档移入回收站？', message:`「${currentDocument.title}」`, detail:'稍后可以在回收站中恢复。', confirmText:'移入回收站', danger:true})) return;
   try {
     await api(`/documents/${encodeURIComponent(currentDocument.id)}`, {method:'DELETE'});
-    clearDocumentDraft(currentDocument.id); documentDirty = false;
+    clearDocumentDraft(currentDocument.id); documentSession.dirty = false;
     $('#documentDialog').close(); currentDocument = null; documents = await api('/documents'); renderDocumentsPage(); notify('文档已移入回收站');
   } catch (error) { notify('文档删除失败', error.message, true); }
 }
@@ -2907,7 +2858,7 @@ async function exportSelectedDocuments() {
 }
 
 function knowledgeImportCategories() {
-  return [...new Set([...(configData?.document_categories || []), ...documents.map(item => item.category || '未分类'), '未分类'])];
+  return knowledgeCore.categoryNames(documents, configData?.document_categories || []);
 }
 
 async function chooseKnowledgeImportCategory() {
@@ -3291,7 +3242,7 @@ function cancelPastedImageInsertion(insertion) {
 async function uploadAttachment(file, options = {}) {
   if (!currentRecord || !file) return;
   const insertion = options.insertion || null;
-  if (!insertion && editorDirty && !await saveEditorNow()) return;
+  if (!insertion && recordSession.dirty && !await saveEditorNow()) return;
   if (!currentRecord) return;
   const recordId = currentRecord.id;
   const request = requestRegistry.begin('record-attachment', recordId);
@@ -3362,49 +3313,45 @@ async function uploadProjectAssets(files) {
 }
 
 function editorDraftKey(recordId) {
-  return `workbench-editor-draft:${recordId}`;
+  return recordSession.key(recordId);
 }
 
 function readEditorDraft(recordId) {
-  try { return JSON.parse(localStorage.getItem(editorDraftKey(recordId)) || 'null'); }
-  catch { return null; }
+  return recordSession.read(recordId);
 }
 
 function clearEditorDraft(recordId = currentRecord?.id) {
-  try { if (recordId) localStorage.removeItem(editorDraftKey(recordId)); }
-  catch { /* 隐私模式或存储受限时仍允许继续编辑 */ }
+  if (recordId) recordSession.clear(recordId);
 }
 
 function persistEditorDraft() {
-  if (!currentRecord || !editorDirty) return;
-  try {
-    localStorage.setItem(editorDraftKey(currentRecord.id), JSON.stringify({
-      title:$('.drawer-title').value,
-      body:localEditorContent(),
-      info_fields:currentRecord.type === 'info' ? infoFieldsFrom($('#drawerInfoFieldList')) : undefined,
-      info_color:currentRecord.type === 'info' ? drawerInfoColor() : undefined,
-      savedAt:new Date().toISOString()
-    }));
-  } catch { /* 存储不可用时由离开页面提示继续兜底 */ }
+  if (!currentRecord || !recordSession.dirty) return;
+  recordSession.write(currentRecord.id, {
+    title:$('.drawer-title').value,
+    body:localEditorContent(),
+    info_fields:currentRecord.type === 'info' ? infoFieldsFrom($('#drawerInfoFieldList')) : undefined,
+    info_color:currentRecord.type === 'info' ? drawerInfoColor() : undefined,
+    savedAt:new Date().toISOString()
+  });
 }
 
 function updateSaveIndicator(message = '') {
   const indicator = $('.save-indicator');
-  indicator.textContent = message || (editorDirty ? '● 有未保存的修改' : '✓ 已保存');
-  indicator.classList.toggle('saving', editorDirty || /正在|失败/.test(message));
-  $('#saveRecord').disabled = !editorDirty;
+  indicator.textContent = message || (recordSession.dirty ? '● 有未保存的修改' : '✓ 已保存');
+  indicator.classList.toggle('saving', recordSession.dirty || /正在|失败/.test(message));
+  $('#saveRecord').disabled = !recordSession.dirty;
 }
 
 function scheduleEditorSave() {
-  clearTimeout(editorSaveTimer);
+  recordSession.cancel();
   persistEditorDraft();
   updateSaveIndicator();
-  if (autoSaveOnLeaveEnabled() && currentRecord && !conflictRecord) editorSaveTimer = setTimeout(() => saveEditorNow(), 1400);
+  if (autoSaveOnLeaveEnabled() && currentRecord && !recordConflict.current) recordSession.schedule(() => saveEditorNow());
 }
 
 async function saveEditorNow() {
-  clearTimeout(editorSaveTimer);
-  if (!currentRecord || !editorDirty || conflictRecord) return !editorDirty;
+  recordSession.cancel();
+  if (!currentRecord || !recordSession.dirty || recordConflict.current) return !recordSession.dirty;
   const recordId = currentRecord.id;
   const title = $('.drawer-title').value.trim();
   if (!title) {
@@ -3427,12 +3374,12 @@ async function saveEditorNow() {
       $('#drawerTags').innerHTML = `${(currentRecord.tags || []).map(drawerTagHtml).join('')}<button id="addRecordTag">＋ 添加标签</button>`;
       applyInfoRecordPalette(currentRecord);
     }
-    editorDirty = false;
+    recordSession.dirty = false;
     clearEditorDraft(recordId);
     updateSaveIndicator('✓ 已保存 · 刚刚');
     return true;
   } catch {
-    editorDirty = true;
+    recordSession.dirty = true;
     persistEditorDraft();
     updateSaveIndicator('保存失败，请重试');
     return false;
@@ -3444,13 +3391,13 @@ function autoSaveOnLeaveEnabled() {
 }
 
 async function confirmLeaveRecord() {
-  if (!editorDirty) return true;
+  if (!recordSession.dirty) return true;
   if (autoSaveOnLeaveEnabled()) return saveEditorNow();
   const choice = await askUnsavedChanges(`记录「${$('.drawer-title').value.trim() || currentRecord?.id}」`);
   if (choice === 'cancel') return false;
   if (choice === 'save') return saveEditorNow();
   clearEditorDraft();
-  editorDirty = false;
+  recordSession.dirty = false;
   return true;
 }
 
@@ -3538,20 +3485,13 @@ async function createItem() {
 }
 
 function prepareImportPreview(name, content) {
-  const normalized = content.replace(/\r\n/g, '\n');
-  const frontmatterEnd = normalized.indexOf('\n---\n', 4);
-  const frontmatter = normalized.startsWith('---\n') && frontmatterEnd >= 0 ? normalized.slice(4, frontmatterEnd) : '';
-  const body = frontmatter ? normalized.slice(frontmatterEnd + 5).trim() : normalized.trim();
-  const readMeta = key => { const match = frontmatter.match(new RegExp(`^${key}:\\s*["']?([^"'\\n]+)`, 'm')); return match?.[1]?.trim(); };
-  const detectedType = ['issue','todo','info'].includes(readMeta('type')) ? readMeta('type') : 'issue';
-  const heading = body.match(/^#\s+(.+)$/m)?.[1]?.trim();
+  const parsed = knowledgeCore.parseMarkdownImport(name, content);
   pendingImport = {name, content};
-  $('#importType').value = detectedType;
-  $('#importTitle').value = readMeta('title') || heading || name.replace(/\.md$/i, '');
+  $('#importType').value = parsed.type;
+  $('#importTitle').value = parsed.title;
   $('#importProject').innerHTML = `<option value="">不属于项目</option>${projects.map(project => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)}</option>`).join('')}`;
-  const detectedProject = readMeta('project_id');
-  $('#importProject').value = projects.some(item => item.id === detectedProject) ? detectedProject : (selectedProjectId || '');
-  $('#importContentPreview').value = body.slice(0, 4000);
+  $('#importProject').value = projects.some(item => item.id === parsed.projectId) ? parsed.projectId : (selectedProjectId || '');
+  $('#importContentPreview').value = parsed.body.slice(0, 4000);
   $('#importSourceName').textContent = name;
   $('#importPreviewDialog').showModal();
 }
@@ -4645,7 +4585,7 @@ $('#saveRecord').addEventListener('click', async () => {
 });
 $('#openExternalEditor').addEventListener('click', async () => {
   if (!currentRecord) return;
-  if (editorDirty && !await saveEditorNow()) return;
+  if (recordSession.dirty && !await saveEditorNow()) return;
   const button = $('#openExternalEditor');
   const label = $('#externalEditorButtonLabel');
   button.disabled = true;
@@ -4681,8 +4621,8 @@ $('#saveExternalEditor').addEventListener('click', async () => {
 });
 $('#saveOnLeave').addEventListener('change', event => {
   localStorage.setItem('workbench-save-on-leave', String(event.target.checked));
-  if (event.target.checked && editorDirty) scheduleEditorSave();
-  else clearTimeout(editorSaveTimer);
+  if (event.target.checked && recordSession.dirty) scheduleEditorSave();
+  else recordSession.cancel();
   notify(event.target.checked ? '已开启自动保存' : '已关闭自动保存', event.target.checked ? '停止输入片刻后会自动写入 Markdown' : '未保存修改离开前会询问你');
 });
 $('#showHistory').addEventListener('click', showHistory);
@@ -4718,7 +4658,7 @@ $('#drawerDue').addEventListener('change', event => { if (currentRecord) updateR
 $('#convertRecord').addEventListener('click', async () => {
   if (!currentRecord) return;
   const targetType = currentRecord.type === 'todo' ? 'issue' : 'todo';
-  if (editorDirty && !await saveEditorNow()) return;
+  if (recordSession.dirty && !await saveEditorNow()) return;
   const recordId = currentRecord.id;
   try {
     const converted = await api(`/records/${encodeURIComponent(recordId)}/convert`, {method:'POST', body:JSON.stringify({type:targetType})});
@@ -4728,7 +4668,7 @@ $('#convertRecord').addEventListener('click', async () => {
 });
 $('#deleteRecord').addEventListener('click', async () => {
   if (!currentRecord || !await appConfirm({title:'将记录移入回收站？', message:`「${currentRecord.title}」`, detail:'记录文件不会立即永久删除，可稍后从回收站恢复。', confirmText:'移入回收站', danger:true})) return;
-  try { const deletedId = currentRecord.id; await api(`/records/${deletedId}`, {method:'DELETE'}); clearEditorDraft(deletedId); editorDirty = false; await closeDrawer(); currentRecord = null; await refreshData(); notify('记录已移入回收站'); }
+  try { const deletedId = currentRecord.id; await api(`/records/${deletedId}`, {method:'DELETE'}); clearEditorDraft(deletedId); recordSession.dirty = false; await closeDrawer(); currentRecord = null; await refreshData(); notify('记录已移入回收站'); }
   catch (error) { notify('删除失败', error.message, true); }
 });
 $('#deleteProject').addEventListener('click', async () => {
@@ -4782,21 +4722,21 @@ $$('dialog').forEach(dialog => dialog.addEventListener('click', event => {
   if (outside) dismissDialogFromBackdrop(dialog);
 }));
 $('#conflictExternal').addEventListener('click', async () => {
-  if (!conflictRecord) return; const id = conflictRecord.id; editorDirty = false; clearEditorDraft(id); $('#conflictDialog').close(); conflictRecord = null; await refreshData(); await openDrawer(id); notify('已载入磁盘版本');
+  if (!recordConflict.current) return; const id = recordConflict.current.id; recordSession.dirty = false; clearEditorDraft(id); recordConflict.close(); await refreshData(); await openDrawer(id); notify('已载入磁盘版本');
 });
 $('#conflictLocal').addEventListener('click', async () => {
-  if (!conflictRecord || !currentRecord) return; const id = currentRecord.id; const body = $('#localConflictContent').value; const changes = {body, ...(currentRecord.type === 'info' ? drawerInfoPayload() : {})}; $('#conflictDialog').close(); conflictRecord = null; editorDirty = false; await updateRecord(id, changes, '已保留工作台版本'); clearEditorDraft(id); await openDrawer(id);
+  if (!recordConflict.current || !currentRecord) return; const id = currentRecord.id; const body = $('#localConflictContent').value; const changes = {body, ...(currentRecord.type === 'info' ? drawerInfoPayload() : {})}; recordConflict.close(); recordSession.dirty = false; await updateRecord(id, changes, '已保留工作台版本'); clearEditorDraft(id); await openDrawer(id);
 });
 $('#conflictCopy').addEventListener('click', async () => {
-  if (!conflictRecord || !currentRecord) return;
+  if (!recordConflict.current || !currentRecord) return;
   try {
     const copyPayload = {type:currentRecord.type, title:`${currentRecord.title}（冲突副本）`, project_id:currentRecord.project_id, tags:currentRecord.tags || [], body:$('#localConflictContent').value, links:[currentRecord.id], ...(currentRecord.type === 'info' ? drawerInfoPayload() : {status:currentRecord.status, priority:currentRecord.priority})};
     const copy = await api('/records', {method:'POST', body:JSON.stringify(copyPayload)});
-    const originalId = conflictRecord.id; editorDirty = false; clearEditorDraft(originalId); $('#conflictDialog').close(); conflictRecord = null; await refreshData(); await openDrawer(originalId); notify(`已保留两个版本`, `工作台内容已另存为 ${copy.id}`);
+    const originalId = recordConflict.current.id; recordSession.dirty = false; clearEditorDraft(originalId); recordConflict.close(); await refreshData(); await openDrawer(originalId); notify(`已保留两个版本`, `工作台内容已另存为 ${copy.id}`);
   } catch (error) { notify('副本保存失败', error.message, true); }
 });
 $('#conflictMerged').addEventListener('click', async () => {
-  if (!conflictRecord || !currentRecord) return; const id = currentRecord.id; const body = $('#mergedConflictContent').value; const changes = {body, ...(currentRecord.type === 'info' ? drawerInfoPayload() : {})}; $('#conflictDialog').close(); conflictRecord = null; editorDirty = false; await updateRecord(id, changes, '合并结果已保存'); clearEditorDraft(id); await openDrawer(id);
+  if (!recordConflict.current || !currentRecord) return; const id = currentRecord.id; const body = $('#mergedConflictContent').value; const changes = {body, ...(currentRecord.type === 'info' ? drawerInfoPayload() : {})}; recordConflict.close(); recordSession.dirty = false; await updateRecord(id, changes, '合并结果已保存'); clearEditorDraft(id); await openDrawer(id);
 });
 $('#confirmImport').addEventListener('click', async () => {
   if (!pendingImport) return;
@@ -4901,8 +4841,8 @@ $('.editor').addEventListener('keydown', event => {
   }
 });
 $('.editor').addEventListener('input', event => { markEditorChanged(); showSlashCommandMenu(event.currentTarget); });
-$('.editor').addEventListener('change', event => { if (event.target.matches('input[type="checkbox"]')) { editorDirty = true; scheduleEditorSave(); } });
-$('.markdown-source').addEventListener('input', event => { editorDirty = true; $('.markdown-preview').innerHTML = markdownToHtml(event.target.value); scheduleEditorSave(); });
+$('.editor').addEventListener('change', event => { if (event.target.matches('input[type="checkbox"]')) { recordSession.dirty = true; scheduleEditorSave(); } });
+$('.markdown-source').addEventListener('input', event => { recordSession.dirty = true; $('.markdown-preview').innerHTML = markdownToHtml(event.target.value); scheduleEditorSave(); });
 $('.markdown-source').addEventListener('keydown', event => {
   if (!(event.ctrlKey || event.metaKey) || event.isComposing) return;
   const key = event.key.toLowerCase();
@@ -5146,7 +5086,7 @@ async function initialize() {
           if (!requestRegistry.isCurrent(recordPollRequest)) return;
           const latestOpen = openRecordId ? latest.find(item => item.id === openRecordId) : null;
           const openChanged = latestOpen && currentRecord?.id === openRecordId && latestOpen.file_mtime !== currentRecord.file_mtime;
-          if (openChanged && detailDrawer.classList.contains('visible') && editorDirty) {
+          if (openChanged && detailDrawer.classList.contains('visible') && recordSession.dirty) {
             const latestDetail = await api(`/records/${encodeURIComponent(latestOpen.id)}`);
             if (requestRegistry.isCurrent(recordPollRequest) && currentRecord?.id === openRecordId) showConflict(latestDetail);
           }
@@ -5223,7 +5163,7 @@ document.addEventListener('input', event => {
 window.addEventListener('beforeunload', event => {
   persistEditorDraft();
   persistDocumentDraft();
-  if (editorDirty && autoSaveOnLeaveEnabled() && currentRecord) {
+  if (recordSession.dirty && autoSaveOnLeaveEnabled() && currentRecord) {
     fetch(`/api/records/${encodeURIComponent(currentRecord.id)}`, {
       method:'PATCH',
       headers:{'Content-Type':'application/json'},
@@ -5231,7 +5171,7 @@ window.addEventListener('beforeunload', event => {
       keepalive:true
     }).catch(() => {});
   }
-  if (!(editorDirty && !autoSaveOnLeaveEnabled()) && !documentDirty && !hasUnsavedManageChanges() && !hasUnsavedProjectEdit()) return;
+  if (!(recordSession.dirty && !autoSaveOnLeaveEnabled()) && !documentSession.dirty && !hasUnsavedManageChanges() && !hasUnsavedProjectEdit()) return;
   event.preventDefault();
   event.returnValue = '';
 });

@@ -6,6 +6,9 @@
 
 - 执行方案：[docs/REFACTORING_PLAN.md](docs/REFACTORING_PLAN.md)
 - 进度台账：[docs/REFACTORING_PROGRESS.md](docs/REFACTORING_PROGRESS.md)
+- 当前架构：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- 数据格式：[docs/DATA_FORMAT.md](docs/DATA_FORMAT.md)
+- 维护发布：[docs/MAINTENANCE.md](docs/MAINTENANCE.md)
 
 规则优先级：数据安全与兼容性 → 用户明确需求 → 本文件 → 重构计划 → 邻近代码惯例。若文档和代码事实冲突，先记录冲突，再以不损坏已有数据的方式处理并同步文档。
 
@@ -44,27 +47,33 @@ python server.py --data-dir <一次性目录> --port 4174
 ## 3. 当前代码边界
 
 - `server.py`
-  - Markdown 辅助函数、`Repository`、HTTP Handler、导入导出和 CLI 当前集中于此。
-  - 日常修改应把业务规则放在仓储层，HTTP 路由保持薄。
-  - 重构按计划逐步迁移到 `workbench/`，不得一次性重写。
+  - 只负责 CLI、旧进程替换、服务生命周期和兼容导出。
+  - `server.Repository` 是保留动态 patch 点的轻量装配子类，不是领域实现位置。
+- `workbench/`
+  - `repository.py` 是组合门面；项目、记录、文档、概念图、附件和配置规则分别位于对应领域仓储。
+  - `http_api.py` 只处理协议、路由和错误映射；Markdown、原子写、安全、路径和外部编辑器有独立基础模块。
+  - 新业务规则进入领域仓储，不回填到 `server.py` 或 HTTP Handler。
 - `index.html`
   - 页面、抽屉、对话框和工具栏的静态骨架。
-  - `app.js` 当前必须先于 `concept-map.js` 加载。
+  - 它是 CSS/JavaScript 加载顺序和 `?v=` 缓存版本的唯一事实源；`concept-map.js` 先定义工厂，`app.js` 最后装配。
 - `app.js`
-  - 主应用状态、API、渲染、事件、记录、知识库、管理页和共享编辑器能力。
-  - Markdown 渲染和文档模型属于记录/知识库共享契约。
+  - 负责模块装配、页面 DOM 适配和剩余跨功能协调；不得新增已由 `js/` 模块提供的平行实现。
+- `js/core/`、`js/editor/`、`js/features/`
+  - 分别承载核心浏览器服务、共享编辑器内核和功能模型/控制器，公开接口位于 `window.Workbench`。
+  - 记录与知识库必须继续共享 Markdown、文档模型、结构块、选区和编辑器宿主。
 - `concept-map.js`
   - 概念图的图库、画布、撤销重做、自动保存和导出。
-  - 当前仍依赖 `app.js` 全局能力；依赖显式化前不要随意调整脚本顺序或全局名称。
-- `styles.css`
-  - 设计令牌、组件、页面和响应式规则。
-  - 存在后置覆盖，修改选择器前必须搜索全部定义。
-- `test_server.py`
-  - 当前 38 个测试主要覆盖仓储行为，不能替代 HTTP 和浏览器验收。
+  - 通过 `Workbench.conceptMap.create(...)` 接收 DOM、API、对话框和状态依赖；不要恢复对未声明词法全局的读取。
+- `css/`
+  - 按令牌、基础、组件、布局、业务功能和响应式拆分；所有媒体查询只进入 `responsive.css`。
+  - 加载和断点顺序由 `index.html` 与 `test_styles.js` 锁定。
+- `test_*.py`、`test*.js`
+  - 当前 91 个 Python 测试覆盖仓储、HTTP、持久化、安全和启动；13 个 Node 契约包含真实浏览器保存/冲突工作流。
+  - `visual_baseline.js` 和 `performance_acceptance.py` 是显式运行的视觉/大数据验收，不进入快速测试发现。
 - `docs/`
-  - 重构计划和进度记录。更新必须反映真实状态，不写预计结果。
+  - 架构、数据格式、维护、验收基线、重构计划和进度记录；更新必须反映真实状态，不写预计结果。
 
-目标结构以重构方案为准。现状未完成迁移前，不得假装目标模块已经存在。
+当前实现事实见 `docs/ARCHITECTURE.md`；数据契约见 `docs/DATA_FORMAT.md`；发布步骤见 `docs/MAINTENANCE.md`。重构方案定义历史范围，不能用旧目标文件名覆盖当前代码事实。
 
 ## 4. 重构执行与记录
 

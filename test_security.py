@@ -77,6 +77,17 @@ class SecurityValidationTests(unittest.TestCase):
             self.assertEqual(archive_name_for(source, inside), "inside.txt")
             self.assertIsNone(archive_name_for(source, outside))
 
+    def test_full_export_excludes_machine_specific_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Repository(Path(directory))
+            (repository.root / ".workbench-private.json").write_text('{"path":"C:/private"}', encoding="utf-8")
+            with zipfile.ZipFile(io.BytesIO(repository.export_zip())) as archive:
+                names = set(archive.namelist())
+
+            self.assertNotIn("config/settings.json", names)
+            self.assertNotIn(".workbench-private.json", names)
+            self.assertIn("config/labels.json", names)
+
     def test_imports_reject_unportable_source_names_without_changing_data(self):
         with tempfile.TemporaryDirectory() as directory:
             repository = Repository(Path(directory))

@@ -391,18 +391,20 @@ class Repository:
 
     def export_zip(self, project_id: str | None = None) -> bytes:
         source = self.root
+        excluded_files = {(self.config_dir / "settings.json").resolve()}
         if project_id:
             project = self.project(project_id)
             if not project:
                 raise FileNotFoundError(project_id)
             source = self.projects_dir / project_id
+            excluded_files = set()
         memory = io.BytesIO()
         with zipfile.ZipFile(memory, "w", zipfile.ZIP_DEFLATED) as archive:
             for path in source.rglob("*"):
                 if not path.is_file() or path.is_symlink():
                     continue
                 resolved = path.resolve()
-                if resolved.is_relative_to(self.trash_dir):
+                if resolved.is_relative_to(self.trash_dir) or resolved in excluded_files or path.name.startswith(".workbench-"):
                     continue
                 archive_name = archive_name_for(source, path)
                 if archive_name:

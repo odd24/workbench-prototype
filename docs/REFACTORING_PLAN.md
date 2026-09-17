@@ -6,9 +6,9 @@
 > 配套台账：[REFACTORING_PROGRESS.md](./REFACTORING_PROGRESS.md)  
 > 执行规范：[../AGENTS.md](../AGENTS.md)
 
-## 1. 项目现状
+## 1. 重构启动时现状（2026-09-16 基线）
 
-本项目是无构建链、零运行时第三方依赖的本地优先单页应用。当前主要规模：
+本项目是无构建链、零运行时第三方依赖的本地优先单页应用。启动重构时的主要规模如下；完成后的实现事实以 [ARCHITECTURE.md](./ARCHITECTURE.md) 和进度台账为准：
 
 | 文件 | 规模 | 主要职责 |
 | --- | ---: | --- |
@@ -114,6 +114,8 @@ js/
 ```
 
 第一轮使用普通脚本和显式 `window.Workbench` 命名空间。只有边界稳定后，才单独评估 ES Modules。
+
+> 上述结构是重构启动时的职责草图，不要求为每个名称机械创建文件。最终实现把导入导出规则留在各领域仓储与 `paths.py`，避免无职责的 `import_export.py`；编辑器工具栏由结构块模块和 `app.js` DOM 适配共同装配；实际模块名与保留兼容入口见 [ARCHITECTURE.md](./ARCHITECTURE.md)。
 
 ### 5.3 样式
 

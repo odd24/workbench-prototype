@@ -29,7 +29,12 @@ for (const file of stylesheets) {
   assert.equal((source.match(/\{/g) || []).length, (source.match(/\}/g) || []).length, `${file} has unbalanced blocks`);
 }
 const responsiveCss = fs.readFileSync(path.join(root, 'css', 'responsive.css'), 'utf8');
+const managementCss = fs.readFileSync(path.join(root, 'css', 'management.css'), 'utf8');
 assert.match(responsiveCss, /@media\b/);
+assert.match(managementCss, /\.tag-edit\{grid-template-columns:20px 36px minmax\(80px,1fr\) auto\}/);
+assert.match(managementCss, /\.status-edit-row\{grid-template-columns:20px 34px minmax\(70px,1fr\) 22px auto\}/);
+assert.match(responsiveCss, /\.tag-edit\{grid-template-columns:20px 36px minmax\(70px,1fr\) auto\}/);
+assert.match(responsiveCss, /\.status-edit-row\{grid-template-columns:20px 34px minmax\(64px,1fr\) 22px auto\}/);
 for (const file of stylesheets.filter(file => file !== 'responsive.css')) {
   assert.doesNotMatch(fs.readFileSync(path.join(root, 'css', file), 'utf8'), /@media\b/, `${file} must not contain responsive overrides`);
 }
@@ -43,7 +48,7 @@ assert.deepEqual(
 assert.match(responsiveCss, /\.document-dialog\.unified-editor-host\{max-width:100vw;overflow:hidden\}/);
 assert.match(responsiveCss, /\.document-dialog\.unified-editor-host \.document-outline\{flex-basis:min\(190px,72vw\);width:min\(190px,72vw\)/);
 
-const linkedStylesheets = [...html.matchAll(/href="css\/([^"?]+)\?v=20260917-3"/g)]
+const linkedStylesheets = [...html.matchAll(/href="css\/([^"?]+)\?v=20260918-1"/g)]
   .map(match => match[1]);
 assert.deepEqual(linkedStylesheets, stylesheets, 'stylesheet load order must match the refactoring plan');
 assert.equal(fs.existsSync(path.join(root, 'styles.css')), false, 'legacy stylesheet should be removed');

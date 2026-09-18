@@ -126,6 +126,7 @@ class HTTPIntegrationTests(unittest.TestCase):
         second = self.repo.create_record({
             "type": "issue", "title": "增量二", "project_id": self.project["id"], "body": "正文二",
         })
+        attachment = self.repo.add_record_attachment_stream(first["id"], "条目附件.txt", io.BytesIO(b"asset"), 5)
         document = self.repo.create_document({"title": "增量文档", "category": "测试", "body": "文档正文"})
 
         ids = f"id={quote(second['id'])}&id={quote(first['id'])}"
@@ -133,6 +134,15 @@ class HTTPIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual({item["id"] for item in summaries}, {first["id"], second["id"]})
         self.assertTrue(all("body" not in item and "body_preview" in item for item in summaries))
+        self.assertTrue(all("attachments" not in item for item in summaries))
+
+        status, _, asset_summaries = self.request_json(
+            "GET", f"/api/records?summary=1&project={quote(self.project['id'])}&attachments=1"
+        )
+        self.assertEqual(status, 200)
+        first_summary = next(item for item in asset_summaries if item["id"] == first["id"])
+        self.assertEqual(first_summary["attachments"][0]["name"], attachment["name"])
+        self.assertNotIn("body", first_summary)
 
         status, _, signatures = self.request_json("GET", "/api/document-signatures")
         self.assertEqual(status, 200)

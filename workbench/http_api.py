@@ -23,7 +23,7 @@ from .paths import (
 
 
 APP_DIR = Path(__file__).resolve().parent.parent
-APP_VERSION = "2026.09.17.2"
+APP_VERSION = "2026.09.18.1"
 MAX_JSON_BODY_BYTES = 15_000_000
 
 
@@ -164,9 +164,15 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
     def _get_record_resource(self, path: str, query: dict) -> bool:
         if path == "/api/records":
             summary = (query.get("summary") or [""])[0] == "1"
-            loader = self.repository.list_record_summaries if summary else self.repository.list_records
-            record_ids = query.get("id") if summary else None
-            records = loader((query.get("project") or [None])[0], (query.get("type") or [None])[0], record_ids) if record_ids else loader((query.get("project") or [None])[0], (query.get("type") or [None])[0])
+            project_id = (query.get("project") or [None])[0]
+            record_type = (query.get("type") or [None])[0]
+            if summary:
+                records = self.repository.list_record_summaries(
+                    project_id, record_type, query.get("id"),
+                    include_attachments=(query.get("attachments") or [""])[0] == "1",
+                )
+            else:
+                records = self.repository.list_records(project_id, record_type)
             self._json([record for record in records if record.get("type") != "idea"])
         elif path == "/api/record-signatures":
             self._json([record for record in self.repository.record_signatures() if record.get("type") != "idea"])

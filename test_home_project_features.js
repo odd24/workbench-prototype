@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const home = require('./js/features/home.js');
 const projectView = require('./js/features/project-view.js');
 
@@ -25,5 +26,9 @@ assert.deepEqual(projectView.sortRecords(records.slice(0, 2), 'title').map(item 
 assert.deepEqual(projectView.sortRecords(records.slice(0, 2), 'created').map(item => item.id), ['T-1', 'I-1']);
 assert.deepEqual(projectView.mergeVisibleOrder(['I-1', 'HIDDEN', 'T-1'], ['I-1', 'HIDDEN', 'T-1'], ['T-1', 'I-1']), ['T-1', 'HIDDEN', 'I-1']);
 assert.deepEqual(projectView.filterAssets([{category:'图', item:{name:'架构.png'}}, {category:'', item:{name:'说明.txt'}}], '__uncategorized__', '说明').map(entry => entry.item.name), ['说明.txt']);
+
+const appSource = fs.readFileSync('./app.js', 'utf8');
+assert.match(appSource, /records\?summary=1&project=\$\{encodeURIComponent\(projectId\)\}&attachments=1/);
+assert.match(appSource, /renderProjectAssets\(project, projectAssetRecords\)/);
 
 console.log('Home and project feature contract tests passed.');

@@ -164,6 +164,11 @@ class RepositoryTests(unittest.TestCase):
         self.assertLessEqual(len(summary["body_preview"]), 600)
         self.assertIn("正文", summary["body_preview"])
 
+        asset_summary = self.repo.list_record_summaries(project_id=project["id"], include_attachments=True)[0]
+        self.assertEqual(asset_summary["attachments"], record["attachments"])
+        self.assertNotIn("body", asset_summary)
+        self.assertNotIn("file_path", asset_summary)
+
     def test_information_record_uses_structured_fields_without_status(self):
         project = self.repo.create_project({"name": "信息记录项目"})
         record = self.repo.create_record({

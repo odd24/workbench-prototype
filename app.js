@@ -92,6 +92,7 @@ let projects = [];
 let records = [];
 let projectAssetLibrary = [];
 let projectAssetCategories = [];
+let projectAssetRecords = [];
 let projectAssetProjectId = '';
 let projectAssetCategoryFilter = '';
 let projectAssetSearch = '';
@@ -163,6 +164,7 @@ const appState = stateCore.create({
     get conceptMaps() { return conceptMaps; }, set conceptMaps(value) { conceptMaps = value; },
     get projectAssets() { return projectAssetLibrary; }, set projectAssets(value) { projectAssetLibrary = value; },
     get projectAssetCategories() { return projectAssetCategories; }, set projectAssetCategories(value) { projectAssetCategories = value; },
+    get projectAssetRecords() { return projectAssetRecords; }, set projectAssetRecords(value) { projectAssetRecords = value; },
   },
   uiState:{
     get selectedType() { return selectedType; }, set selectedType(value) { selectedType = value; },
@@ -1383,20 +1385,23 @@ async function loadProjectAssets(projectId, {force = false} = {}) {
   if (!force && projectAssetProjectId === projectId) return projectAssetLibrary;
   const request = requestRegistry.begin('project-assets', projectId);
   try {
-    const [library, categories] = await Promise.all([
+    const [library, categories, recordSummaries] = await Promise.all([
       api(`/projects/${encodeURIComponent(projectId)}/assets`),
       api(`/projects/${encodeURIComponent(projectId)}/asset-categories`),
+      api(`/records?summary=1&project=${encodeURIComponent(projectId)}&attachments=1`),
     ]);
     if (!requestRegistry.isCurrent(request) || selectedProjectId !== projectId) return [];
     projectAssetProjectId = projectId;
     projectAssetLibrary = library;
     projectAssetCategories = categories;
+    projectAssetRecords = recordSummaries;
   }
   catch (error) {
     if (!requestRegistry.isCurrent(request) || selectedProjectId !== projectId) return [];
     projectAssetProjectId = projectId;
     projectAssetLibrary = [];
     projectAssetCategories = [];
+    projectAssetRecords = [];
     notify('无法读取项目附件', error.message, true);
   }
   return projectAssetLibrary;
@@ -1594,7 +1599,7 @@ function renderProjectPage() {
       loadProjectAssets(project.id).then(() => { if (selectedProjectId === project.id && projectTab === 'assets') renderProjectPage(); });
       return;
     }
-    renderProjectAssets(project, allProjectRecords);
+    renderProjectAssets(project, projectAssetRecords);
     return;
   }
   if (projectTab === 'infos') {
@@ -1737,6 +1742,8 @@ async function refreshRecords() {
   const loaded = (await api('/records?summary=1')).filter(record => record.type !== 'idea');
   if (!requestRegistry.isCurrent(request)) return null;
   records = loaded;
+  projectAssetProjectId = '';
+  projectAssetRecords = [];
   lastRecordSignature = recordSignature(records);
   return loaded;
 }
@@ -3308,6 +3315,11 @@ async function uploadAttachment(file, options = {}) {
       $('.markdown-preview').innerHTML = markdownToHtml(currentRecord.body);
     }
     renderAttachments();
+    if (projectAssetProjectId === latest.project_id) {
+      projectAssetProjectId = '';
+      projectAssetRecords = [];
+      if ($('#projectPage').classList.contains('active') && projectTab === 'assets') renderProjectPage();
+    }
     notify(`附件已保存：${file.name}`, insertion ? '图片已插入当前光标位置，保存正文后写入 Markdown' : 'Markdown 正文已加入相对路径引用');
     return result;
   } catch (error) {
@@ -3496,6 +3508,10 @@ async function updateRecord(recordId, changes, successMessage) {
     if (index >= 0) records[index] = updated;
     lastRecordSignature = recordSignature(records);
     if (currentRecord?.id === recordId) currentRecord = updated;
+    if (projectAssetProjectId === updated.project_id) {
+      projectAssetProjectId = '';
+      projectAssetRecords = [];
+    }
     renderDashboard();
     if ($('#projectPage').classList.contains('active')) renderProjectPage();
     if (successMessage) notify(successMessage);
@@ -5138,6 +5154,8 @@ async function initialize() {
               if (!requestRegistry.isCurrent(recordPollRequest) || currentRecord?.id !== openRecordId) return;
             }
             records = resourceRefreshCore.reconcile(records, changedRecords, signatures, change);
+            projectAssetProjectId = '';
+            projectAssetRecords = [];
             lastRecordSignature = recordSignature(signatures);
             renderDashboard();
             if ($('#projectPage').classList.contains('active')) renderProjectPage();

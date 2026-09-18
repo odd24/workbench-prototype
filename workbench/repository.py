@@ -428,8 +428,8 @@ class Repository:
     def list_records(self, project_id=None, record_type=None) -> list[dict]:
         return self._record_repository.list_records(project_id, record_type)
 
-    def list_record_summaries(self, project_id=None, record_type=None, record_ids=None) -> list[dict]:
-        return self._record_repository.list_record_summaries(project_id, record_type, record_ids)
+    def list_record_summaries(self, project_id=None, record_type=None, record_ids=None, include_attachments: bool = False) -> list[dict]:
+        return self._record_repository.list_record_summaries(project_id, record_type, record_ids, include_attachments)
 
     def record_signatures(self) -> list[dict]:
         return self._record_repository.record_signatures()

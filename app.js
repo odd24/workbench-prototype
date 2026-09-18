@@ -4303,7 +4303,7 @@ document.addEventListener('click', async event => {
     await openReferenceToken(internalReference.dataset.referenceToken || internalReference.dataset.referenceId);
   }
   const recordButton = event.target.closest('[data-record-id]:not(.todo-row)');
-  if (recordButton && !internalReference && !event.target.closest('input') && !event.target.closest('#drawerRecordId') && !event.target.closest('.card-menu-button')) {
+  if (recordButton && !internalReference && !event.target.closest('input, select') && !event.target.closest('#drawerRecordId') && !event.target.closest('.card-menu-button')) {
     if (detailDrawer.classList.contains('visible') && recordButton.dataset.recordId !== currentRecord?.id && !await confirmLeaveRecord()) return;
     openDrawer(recordButton.dataset.recordId);
   }

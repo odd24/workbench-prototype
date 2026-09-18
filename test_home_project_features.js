@@ -30,5 +30,6 @@ assert.deepEqual(projectView.filterAssets([{category:'图', item:{name:'架构.p
 const appSource = fs.readFileSync('./app.js', 'utf8');
 assert.match(appSource, /records\?summary=1&project=\$\{encodeURIComponent\(projectId\)\}&attachments=1/);
 assert.match(appSource, /renderProjectAssets\(project, projectAssetRecords\)/);
+assert.match(appSource, /recordButton && !internalReference && !event\.target\.closest\('input, select'\)/);
 
 console.log('Home and project feature contract tests passed.');

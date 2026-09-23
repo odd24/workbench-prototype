@@ -87,7 +87,8 @@
       },
       handleStructuralKeydown(event) {
         const blockOptions = {editor, onChange:change};
-        const handled = blocksCore.handleTaskListEnter(event, blockOptions)
+        const handled = blocksCore.handleCodeBlockSelectAll(event, blockOptions)
+          || blocksCore.handleTaskListEnter(event, blockOptions)
           || blocksCore.handleCodeBlockEnter(event, blockOptions)
           || blocksCore.handleQuoteEnter(event, blockOptions);
         if (handled) this.captureSelection();

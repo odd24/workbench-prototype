@@ -21,7 +21,7 @@
   }
 
   ['inside', 'capture', 'restore', 'placeCaret', 'insertText'].forEach(name => equal(typeof selectionCore[name], 'function', `selection.${name}`));
-  ['replaceWithStructure', 'insertTaskList', 'insertCodeBlock', 'toggleBlockquote', 'insertReference'].forEach(name => equal(typeof blocks[name], 'function', `blocks.${name}`));
+  ['replaceWithStructure', 'insertTaskList', 'insertCodeBlock', 'toggleBlockquote', 'insertReference', 'handleCodeBlockSelectAll'].forEach(name => equal(typeof blocks[name], 'function', `blocks.${name}`));
   equal(typeof editorHost.create, 'function', 'editorHost.create');
 
   if (typeof document !== 'undefined') {
@@ -71,6 +71,11 @@
     equal(codeEditor.querySelector('[data-copy-code]').contentEditable, 'false', '复制按钮不可编辑');
     equal(codeEditor.textContent.includes('复制'), false, '复制按钮文案不混入编辑正文');
     equal(documentModel.serialize(codeEditor), '```javascript\nconst value = 1;\n```', '代码块结果');
+    let selectAllPrevented = false;
+    const selectAllEvent = {key:'a', ctrlKey:true, metaKey:false, isComposing:false, preventDefault:() => { selectAllPrevented = true; }};
+    equal(blocks.handleCodeBlockSelectAll(selectAllEvent, {editor:codeEditor}), true, '代码块内 Ctrl+A 被处理');
+    equal(selectAllPrevented, true, '代码块内 Ctrl+A 阻止页面全选');
+    equal(window.getSelection().toString(), 'const value = 1;', '代码块内 Ctrl+A 只选择代码内容');
 
     const referenceEditor = createEditor('引用：');
     selectionCore.placeCaret(referenceEditor.firstElementChild, false);

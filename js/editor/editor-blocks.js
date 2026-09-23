@@ -354,6 +354,23 @@
     return true;
   }
 
+  function handleCodeBlockSelectAll(event, options = {}) {
+    if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'a' || event.isComposing) return false;
+    const editor = options.editor || event.currentTarget;
+    const selection = selectionCore.inside(editor, options.selection);
+    if (!selection?.rangeCount) return false;
+    const anchor = selection.anchorNode?.nodeType === Node.ELEMENT_NODE ? selection.anchorNode : selection.anchorNode?.parentElement;
+    const focus = selection.focusNode?.nodeType === Node.ELEMENT_NODE ? selection.focusNode : selection.focusNode?.parentElement;
+    const code = anchor?.closest('code');
+    if (!code || !code.contains(selection.anchorNode) || !code.contains(selection.focusNode) || !focus?.closest('code')?.isSameNode(code)) return false;
+    event.preventDefault();
+    const range = editor.ownerDocument.createRange();
+    range.selectNodeContents(code);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return true;
+  }
+
   function insertReference(editor, html, options = {}) {
     requireDependencies();
     editor.focus();
@@ -384,6 +401,7 @@
   const api = {
     createBlock,
     handleCodeBlockEnter,
+    handleCodeBlockSelectAll,
     handleQuoteEnter,
     handleTaskListEnter,
     insertCodeBlock,

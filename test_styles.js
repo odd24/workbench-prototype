@@ -48,7 +48,7 @@ assert.deepEqual(
 assert.match(responsiveCss, /\.document-dialog\.unified-editor-host\{max-width:100vw;overflow:hidden\}/);
 assert.match(responsiveCss, /\.document-dialog\.unified-editor-host \.document-outline\{flex-basis:min\(190px,72vw\);width:min\(190px,72vw\)/);
 
-const linkedStylesheets = [...html.matchAll(/href="css\/([^"?]+)\?v=20260918-1"/g)]
+const linkedStylesheets = [...html.matchAll(/href="css\/([^"?]+)\?v=\d{8}-\d+"/g)]
   .map(match => match[1]);
 assert.deepEqual(linkedStylesheets, stylesheets, 'stylesheet load order must match the refactoring plan');
 assert.equal(fs.existsSync(path.join(root, 'styles.css')), false, 'legacy stylesheet should be removed');

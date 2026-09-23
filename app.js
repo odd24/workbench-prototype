@@ -3803,6 +3803,24 @@ function bindDragAndDrop() {
 }
 
 document.addEventListener('click', async event => {
+  const codeCopyButton = event.target.closest('[data-copy-code]');
+  if (codeCopyButton) {
+    const code = codeCopyButton.closest('.code-block')?.querySelector('pre code');
+    if (!code) return;
+    const value = code.textContent || '';
+    try {
+      await navigator.clipboard.writeText(value);
+      codeCopyButton.textContent = '已复制';
+      codeCopyButton.classList.add('copied');
+      setTimeout(() => {
+        codeCopyButton.textContent = '复制';
+        codeCopyButton.classList.remove('copied');
+      }, 1600);
+    } catch {
+      await appPrompt({title:'复制代码块', message:'浏览器未允许自动复制，请从下方手动复制：', confirmText:'完成', cancelText:'关闭', input:{label:'代码内容', value, readOnly:true}});
+    }
+    return;
+  }
   if (event.target.closest('#openGlobalStats')) { openGlobalStats(); return; }
   if (event.target.closest('#closeGlobalStats') || event.target.closest('#dismissGlobalStats')) { $('#globalStatsDialog').close(); return; }
   const globalStatsProject = event.target.closest('[data-global-stats-project]');
@@ -4919,6 +4937,7 @@ $('.editor-area').addEventListener('focusin', event => {
   if (event.target.matches('.editor, .markdown-source')) expandEditorContent();
 });
 $('.editor-area').addEventListener('click', event => {
+  if (event.target.closest('[data-copy-code]')) return;
   if (event.target.closest('.editor-auto-expand, .editor, .markdown-source, .markdown-preview')) expandEditorContent({focus:Boolean(event.target.closest('.editor-auto-expand'))});
 });
 $('.editor-area').addEventListener('dragover', event => { event.preventDefault(); event.currentTarget.classList.add('drop-active'); });

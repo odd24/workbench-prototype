@@ -31,6 +31,14 @@ assert.equal(markdown.cssColorToHex('rgba(1, 2, 3, 0)'), '');
 
 assert.equal(markdown.syntaxHighlightCode('<script>', 'txt'), '&lt;script&gt;');
 assert.match(markdown.syntaxHighlightCode('const value = 2;', 'javascript'), /token-keyword/);
+assert.equal(
+  markdown.markdownToHtml('```javascript\nconst value = 2;\nconsole.log(value);\n```'),
+  '<div class="code-block"><button type="button" class="code-copy-button" data-copy-code aria-label="复制代码块内容" title="复制代码块内容">复制</button><pre><code data-language="javascript"><span class="code-token token-keyword">const</span> value = <span class="code-token token-number">2</span>;\nconsole.log(value);</code></pre></div>'
+);
+assert.doesNotMatch(
+  markdown.markdownToHtml('```txt\n完整内容\n```', {interactive:true}),
+  /data-copy-code/
+);
 assert.equal(markdown.markdownToHtml('---'), '<hr>');
 assert.equal(
   markdown.markdownToPlainText('# 标题\n\n[[DOC-12]]', 110, '标题', id => ({id, type:'document', title:'说明'})),

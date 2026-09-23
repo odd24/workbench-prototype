@@ -4555,8 +4555,10 @@ document.addEventListener('click', async event => {
     catch (error) { notify('无法读取标签库', error.message, true); }
     const selected = new Set(currentRecord.tags || []);
     const choices = (configData?.tags || []).filter(tag => !selected.has(tag.name)).map(tag => ({label:tag.name, value:tag.name, color:tag.color}));
-    const value = await appPrompt({title:'添加标签', message:choices.length ? '选择已有标签，或输入一个新标签。' : '当前没有其他可选标签，也可以直接创建新标签。', detail:choices.length ? '点击标签即可立即添加；输入新名称后按 Enter 或点击“添加”。' : '取消、右上角关闭和 Esc 均可直接退出。', confirmText:'添加', input:{label:'新标签名称（可选）', placeholder:'例如：前端、紧急、待确认', choices}});
-    if (value?.trim()) updateRecord(currentRecord.id, {tags:[...new Set([...(currentRecord.tags || []), value.trim()])]}, '标签已添加').then(async () => { configData.tags = await api('/tags'); await openDrawer(currentRecord.id); });
+    const result = await openAppDialog({title:'添加标签', message:choices.length ? '可连续选择多个已有标签，也可以输入一个新标签。' : '当前没有其他可选标签，也可以直接创建新标签。', detail:choices.length ? '点击标签切换选中状态，完成后点击“添加所选”。' : '取消、右上角关闭和 Esc 均可直接退出。', confirmText:'添加所选', input:{label:'新标签名称（可选）', placeholder:'例如：前端、紧急、待确认', choices, multiple:true, required:false}});
+    const typed = result.value?.trim();
+    const additions = [...(result.values || []), ...(typed ? [typed] : [])];
+    if (result.confirmed && additions.length) updateRecord(currentRecord.id, {tags:[...new Set([...(currentRecord.tags || []), ...additions])]}, additions.length > 1 ? `已添加 ${additions.length} 个标签` : '标签已添加').then(async () => { configData.tags = await api('/tags'); await openDrawer(currentRecord.id); });
   }
   if (event.target.closest('#addRelation') && currentRecord) { await openReferenceDialog('record-relation'); }
   const openRelated = event.target.closest('[data-open-related]');

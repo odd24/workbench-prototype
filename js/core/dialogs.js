@@ -20,6 +20,18 @@
     notify.timer = setTimeout(() => toast.classList.remove('visible'), 3000);
   }
 
+  function chooseOption(choice, {multiple = false, field, dialog} = {}) {
+    if (!choice) return false;
+    if (multiple) {
+      const selected = choice.getAttribute('aria-pressed') === 'true';
+      choice.setAttribute('aria-pressed', String(!selected));
+      return true;
+    }
+    if (field) field.value = choice.dataset.appDialogChoice || '';
+    dialog?.close('confirm');
+    return true;
+  }
+
   function open({title, message = '', detail = '', confirmText = '确认', cancelText = '取消', danger = false, input = null}) {
     const {$, escapeHtml, safeColor} = requireDomCore();
     const dialog = $('#appDialog');
@@ -35,6 +47,7 @@
     $('button[value="cancel"]:not(.dialog-close)', dialog).textContent = cancelText;
     const field = $('#appDialogInput');
     const options = $('#appDialogOptions');
+    const multipleChoices = Boolean(input?.multiple);
     if (input) {
       $('#appDialogInputLabel').textContent = input.label || '请输入内容';
       field.type = input.type || 'text';
@@ -44,12 +57,10 @@
       field.readOnly = Boolean(input.readOnly);
       const choices = Array.isArray(input.choices) ? input.choices.filter(choice => choice?.value || choice?.label) : [];
       options.hidden = !choices.length;
-      options.innerHTML = choices.map(choice => `<button type="button" data-app-dialog-choice="${escapeHtml(choice.value || choice.label)}" style="--choice-color:${safeColor(choice.color)}"><i></i><span>${escapeHtml(choice.label || choice.value)}</span></button>`).join('');
+      options.innerHTML = choices.map(choice => `<button type="button" data-app-dialog-choice="${escapeHtml(choice.value || choice.label)}" ${multipleChoices ? 'aria-pressed="false"' : ''} style="--choice-color:${safeColor(choice.color)}"><i></i><span>${escapeHtml(choice.label || choice.value)}</span></button>`).join('');
       options.onclick = event => {
         const choice = event.target.closest('[data-app-dialog-choice]');
-        if (!choice) return;
-        field.value = choice.dataset.appDialogChoice;
-        dialog.close('confirm');
+        chooseOption(choice, {multiple:multipleChoices, field, dialog});
       };
     } else {
       field.value = '';
@@ -65,7 +76,11 @@
       if (input) { field.focus(); if (input.select !== false) field.select(); }
       else $('#appDialogConfirm').focus();
     }, 20);
-    return new Promise(resolve => dialog.addEventListener('close', () => resolve({confirmed:dialog.returnValue === 'confirm', value:field.value}), {once:true}));
+    return new Promise(resolve => dialog.addEventListener('close', () => resolve({
+      confirmed:dialog.returnValue === 'confirm',
+      value:field.value,
+      values:multipleChoices ? [...options.querySelectorAll('[data-app-dialog-choice][aria-pressed="true"]')].map(choice => choice.dataset.appDialogChoice) : [],
+    }), {once:true}));
   }
 
   async function confirm(options) {
@@ -84,7 +99,7 @@
     if (event.currentTarget.reportValidity()) global.document.querySelector('#appDialog').close('confirm');
   });
 
-  const api = {notify, open, confirm, prompt};
+  const api = {chooseOption, notify, open, confirm, prompt};
   global.Workbench = global.Workbench || {};
   global.Workbench.dialogs = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

@@ -3805,15 +3805,16 @@ function bindDragAndDrop() {
 document.addEventListener('click', async event => {
   const codeCopyButton = event.target.closest('[data-copy-code]');
   if (codeCopyButton) {
-    const code = codeCopyButton.closest('.code-block')?.querySelector('pre code');
+    const code = codeCopyButton.closest('pre')?.querySelector('code')
+      || codeCopyButton.closest('.code-block')?.querySelector('pre code');
     if (!code) return;
     const value = code.textContent || '';
     try {
       await navigator.clipboard.writeText(value);
-      codeCopyButton.textContent = '已复制';
+      codeCopyButton.dataset.copyLabel = '已复制';
       codeCopyButton.classList.add('copied');
       setTimeout(() => {
-        codeCopyButton.textContent = '复制';
+        codeCopyButton.dataset.copyLabel = '复制';
         codeCopyButton.classList.remove('copied');
       }, 1600);
     } catch {

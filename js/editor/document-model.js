@@ -144,6 +144,17 @@
     [...editor.children].forEach(block => {
       block.dataset.editorBlockType = editorBlockType(block);
       if (!block.dataset.editorBlockId) block.dataset.editorBlockId = nextEditorBlockId();
+      if (block.nodeName === 'PRE' && block.querySelector('code') && !block.querySelector('[data-copy-code]')) {
+        const copyButton = editor.ownerDocument.createElement('button');
+        copyButton.type = 'button';
+        copyButton.className = 'code-copy-button';
+        copyButton.dataset.copyCode = '';
+        copyButton.dataset.copyLabel = '复制';
+        copyButton.contentEditable = 'false';
+        copyButton.setAttribute('aria-label', '复制代码块内容');
+        copyButton.title = '复制代码块内容';
+        block.appendChild(copyButton);
+      }
       if (['UL', 'OL'].includes(block.nodeName)) {
         [...block.children].forEach(item => {
           if (!item.dataset.editorBlockId) item.dataset.editorBlockId = nextEditorBlockId();

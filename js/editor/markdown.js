@@ -196,7 +196,7 @@
         const codeBlock = `<pre><code data-language="${language}">${rawCode ? syntaxHighlightCode(rawCode, language) : '<br>'}</code></pre>`;
         output.push(interactive
           ? codeBlock
-          : `<div class="code-block"><button type="button" class="code-copy-button" data-copy-code aria-label="复制代码块内容" title="复制代码块内容">复制</button>${codeBlock}</div>`);
+          : `<div class="code-block"><button type="button" class="code-copy-button" data-copy-code data-copy-label="复制" aria-label="复制代码块内容" title="复制代码块内容"></button>${codeBlock}</div>`);
         continue;
       }
       const task = line.match(/^- \[([ xX])\](?: (.*))?$/);

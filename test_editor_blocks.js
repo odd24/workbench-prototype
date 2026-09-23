@@ -67,6 +67,9 @@
     const codeEditor = createEditor('const value = 1;');
     selectContents(codeEditor.firstElementChild);
     equal(Boolean(blocks.insertCodeBlock(codeEditor, {language:'javascript', mode:'replace-block'})), true, '插入代码块');
+    equal(codeEditor.querySelectorAll('[data-copy-code]').length, 1, '记录编辑代码块提供复制按钮');
+    equal(codeEditor.querySelector('[data-copy-code]').contentEditable, 'false', '复制按钮不可编辑');
+    equal(codeEditor.textContent.includes('复制'), false, '复制按钮文案不混入编辑正文');
     equal(documentModel.serialize(codeEditor), '```javascript\nconst value = 1;\n```', '代码块结果');
 
     const referenceEditor = createEditor('引用：');
@@ -113,6 +116,8 @@
     const documentHost = editorHost.create({editor:documentSurface});
     recordHost.render(sharedSource, true);
     documentHost.render(sharedSource, true);
+    equal(recordSurface.querySelectorAll('[data-copy-code]').length, 1, '记录编辑器渲染复制按钮');
+    equal(documentSurface.querySelectorAll('[data-copy-code]').length, 1, '知识库编辑器渲染复制按钮');
     equal(recordHost.serialize(), documentHost.serialize(), '双编辑器序列化一致');
     equal(recordHost.serialize(), sharedSource, '共享 Markdown 往返');
     documentHost.render(documentHost.serialize(), true);

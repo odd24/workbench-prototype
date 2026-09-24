@@ -3523,6 +3523,9 @@ async function createItem() {
   const title = $('#createTitle').value.trim();
   if (!title) { $('#createTitle').focus(); $('#createTitle').style.borderColor = '#df4b4b'; return; }
   $('#createTitle').style.borderColor = '';
+  const submitButton = $('#createSubmit');
+  if (submitButton.disabled) return;
+  submitButton.disabled = true;
   try {
     if (selectedType === '项目') {
       const project = await api('/projects', {method:'POST', body:JSON.stringify({name:title, description:$('#createBodyField textarea').value})});
@@ -3544,6 +3547,7 @@ async function createItem() {
     await refreshData();
     notify(`已创建${selectedType}：${title}`, selectedType === '项目' ? '项目目录与 README.md 已生成' : 'Markdown 文件已保存到本地目录');
   } catch (error) { notify('创建失败', error.message, true); }
+  finally { submitButton.disabled = false; }
 }
 
 function prepareImportPreview(name, content) {
@@ -4642,6 +4646,7 @@ document.addEventListener('dragend', () => {
 });
 $('#projectSelect').addEventListener('change', () => renderCreateStatusOptions());
 createDialog.addEventListener('close', hideOverlayIfClear);
+createDialog.addEventListener('keydown', event => dialogCore.submitOnEnter(event, $('#createSubmit')));
 $('#createSubmit').addEventListener('click', createItem);
 $('#chooseExportLocation').addEventListener('click', chooseExportDirectory);
 $('#saveExportLocation').addEventListener('click', saveChosenExportDirectory);

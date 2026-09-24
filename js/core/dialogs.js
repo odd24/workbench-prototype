@@ -32,6 +32,19 @@
     return true;
   }
 
+  function submitOnEnter(event, button) {
+    if (!event || event.key !== 'Enter' || event.isComposing || event.repeat) return false;
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !button || button.disabled) return false;
+    const target = event.target;
+    const tagName = target?.tagName?.toLowerCase();
+    const inputType = target?.type?.toLowerCase();
+    const isTextInput = tagName === 'input' && !['button', 'checkbox', 'color', 'file', 'radio', 'range', 'reset', 'submit'].includes(inputType);
+    if (!isTextInput && tagName !== 'select') return false;
+    event.preventDefault();
+    button.click();
+    return true;
+  }
+
   function open({title, message = '', detail = '', confirmText = '确认', cancelText = '取消', danger = false, input = null}) {
     const {$, escapeHtml, safeColor} = requireDomCore();
     const dialog = $('#appDialog');
@@ -99,7 +112,7 @@
     if (event.currentTarget.reportValidity()) global.document.querySelector('#appDialog').close('confirm');
   });
 
-  const api = {chooseOption, notify, open, confirm, prompt};
+  const api = {chooseOption, submitOnEnter, notify, open, confirm, prompt};
   global.Workbench = global.Workbench || {};
   global.Workbench.dialogs = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

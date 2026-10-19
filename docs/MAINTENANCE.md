@@ -31,6 +31,8 @@ $tests = Get-ChildItem -File test*.js | Sort-Object Name
 foreach ($test in $tests) { node $test.FullName; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
 ```
 
+概念图交互可单独运行 `node test_concept_map_workflows.js`。该测试自动使用临时数据目录与真实浏览器，覆盖缩放、概念/连接词连线、拖拽中断恢复、编辑后拖动、空白处扩展、撤销重做和保存重开，并检查浅色/深色与桌面/窄屏。设置 `WORKBENCH_CONCEPT_SCREENSHOTS=1` 可将截图写入系统临时目录。
+
 视觉验收使用 `visual_baseline.js`，清单见 [BASELINE_CHECKLIST.md](BASELINE_CHECKLIST.md)。编辑器矩阵见 [EDITOR_ACCEPTANCE_MATRIX.md](EDITOR_ACCEPTANCE_MATRIX.md)。大数据验收运行 `python performance_acceptance.py`，基线见 [PERFORMANCE_ACCEPTANCE.md](PERFORMANCE_ACCEPTANCE.md)。
 
 ## 安全的手工环境

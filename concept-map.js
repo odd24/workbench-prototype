@@ -392,8 +392,9 @@ function applyConceptMapViewport() {
 }
 
 function conceptMapPoint(clientX, clientY) {
-  const rect = $('#conceptMapCanvasShell').getBoundingClientRect(), viewport = conceptState.current.viewport;
-  return {x:(clientX - rect.left - viewport.x) / viewport.zoom, y:(clientY - rect.top - viewport.y) / viewport.zoom};
+  const rect = $('#conceptMapStage').getBoundingClientRect(), zoom = conceptState.current.viewport.zoom;
+  // Use the rendered origin: viewport translation is snapped to device pixels.
+  return {x:(clientX - rect.left) / zoom, y:(clientY - rect.top) / zoom};
 }
 
 function addConceptNodeAt(x, y, text = '???', edit = true, persist = true) {
@@ -421,13 +422,14 @@ function bindConceptNode(element) {
     };
     const start = {x:event.clientX, y:event.clientY};
     const gesture = {pointerId:event.pointerId, moved:false, finished:false};
-    element.setPointerCapture(event.pointerId);
+    // Inline-editor blur can replace every node; the canvas remains mounted.
+    const capture = $('#conceptMapCanvasShell');
     const move = moveEvent => {
       if (moveEvent.pointerId !== gesture.pointerId || gesture.finished) return;
       const rawDx = (moveEvent.clientX - start.x) / conceptState.current.viewport.zoom, rawDy = (moveEvent.clientY - start.y) / conceptState.current.viewport.zoom;
       const dx = Math.max(-limits.minX, Math.min(CONCEPT_MAP_WIDTH - limits.maxX, rawDx));
       const dy = Math.max(-limits.minY, Math.min(CONCEPT_MAP_HEIGHT - limits.maxY, rawDy));
-      if (Math.abs(dx) + Math.abs(dy) > 2 && !gesture.moved) { gesture.moved = true; scheduleConceptMapSave(); }
+      if (Math.abs(dx) + Math.abs(dy) > 2 && !gesture.moved) { gesture.moved = true; capture.setPointerCapture(gesture.pointerId); scheduleConceptMapSave(); }
       movedNodes.forEach(item => { const original = positions.get(item.id); item.x = original.x + dx; item.y = original.y + dy; });
       const movedPhrases = new Map();
       movedNodes.filter(item => item.type === 'concept').forEach(item => recenterLinkingPhrasesForConcept(item.id, moveIds).forEach(phrase => movedPhrases.set(phrase.id, phrase)));
@@ -437,11 +439,11 @@ function bindConceptNode(element) {
     const finish = finishEvent => {
       if (finishEvent.pointerId !== gesture.pointerId || gesture.finished) return;
       gesture.finished = true;
-      element.removeEventListener('pointermove', move); element.removeEventListener('pointerup', finish); element.removeEventListener('pointercancel', finish);
+      document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', finish); document.removeEventListener('pointercancel', finish); capture.removeEventListener('lostpointercapture', finish);
       if (gesture.moved) { renderConceptMapEdges(); renderConceptMapLabels(); scheduleConceptMapSave(); }
       else { conceptState.selection = {type:'node', id:node.id}; updateConceptMapSelectionUi(); }
     };
-    element.addEventListener('pointermove', move); element.addEventListener('pointerup', finish, {once:true}); element.addEventListener('pointercancel', finish, {once:true});
+    document.addEventListener('pointermove', move); document.addEventListener('pointerup', finish); document.addEventListener('pointercancel', finish); capture.addEventListener('lostpointercapture', finish);
   });
   element.addEventListener('dblclick', event => { event.stopPropagation(); beginConceptNodeEdit(element.dataset.conceptNode); });
 }
@@ -449,7 +451,7 @@ function bindConceptNode(element) {
 function beginConceptNodeEdit(nodeId) {
   const node = conceptNode(nodeId), element = $(`[data-concept-node="${nodeId}"]`), text = $('strong', element);
   if (!node || !element || text.isContentEditable) return;
-  conceptMapMultiSelection.clear(); conceptState.selection = {type:'node', id:nodeId}; updateConceptMapSelectionUi(); element.classList.add('editing'); text.contentEditable = 'true'; text.focus();
+  conceptMapMultiSelection.clear(); conceptState.selection = {type:'node', id:nodeId}; updateConceptMapSelectionUi(); element.classList.add('editing'); text.contentEditable = 'true'; text.focus({preventScroll:true});
   const selection = window.getSelection(), range = document.createRange(); range.selectNodeContents(text); selection.removeAllRanges(); selection.addRange(range);
   const finish = () => {
     text.contentEditable = 'false'; element.classList.remove('editing'); node.text = text.textContent.trim() || '???';
@@ -461,7 +463,7 @@ function beginConceptNodeEdit(nodeId) {
 
 function beginConceptEdgeEdit(edgeId) {
   const edge = conceptEdge(edgeId), label = $(`[data-concept-edge-label="${edgeId}"]`); if (!edge || !label || label.isContentEditable) return;
-  conceptState.selection = {type:'edge', id:edgeId}; updateConceptMapSelectionUi(); label.contentEditable = 'true'; label.focus();
+  conceptState.selection = {type:'edge', id:edgeId}; updateConceptMapSelectionUi(); label.contentEditable = 'true'; label.focus({preventScroll:true});
   const selection = window.getSelection(), range = document.createRange(); range.selectNodeContents(label); selection.removeAllRanges(); selection.addRange(range);
   const finish = () => { label.contentEditable = 'false'; edge.label = label.textContent.trim(); renderConceptMapLabels(); scheduleConceptMapSave(); };
   label.addEventListener('blur', finish, {once:true}); label.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); label.blur(); } });
@@ -510,7 +512,8 @@ function bindConceptPort(port) {
     event.preventDefault(); event.stopPropagation();
     const sourceElement = port.closest('[data-concept-node]'), source = conceptNode(sourceElement.dataset.conceptNode), start = {x:event.clientX, y:event.clientY};
     const gesture = {pointerId:event.pointerId, sourceId:source.id, moved:false, finished:false, direct:event.ctrlKey && event.shiftKey};
-    conceptMapLinkGesture = gesture; port.setPointerCapture(event.pointerId);
+    const capture = $('#conceptMapCanvasShell');
+    conceptMapLinkGesture = gesture; capture.setPointerCapture(event.pointerId);
     const sourceCenter = {x:source.x + source.width / 2, y:source.y + source.height / 2};
     const move = moveEvent => {
       if (moveEvent.pointerId !== gesture.pointerId || gesture.finished) return;
@@ -523,7 +526,7 @@ function bindConceptPort(port) {
       $('#conceptMapDraftEdge')?.remove(); $('#conceptMapEdges').insertAdjacentHTML('beforeend', `<path id="conceptMapDraftEdge" class="concept-map-draft-line" vector-effect="non-scaling-stroke" d="M ${sourceCenter.x} ${sourceCenter.y} L ${point.x} ${point.y}"/>`);
     };
     const cleanup = () => {
-      port.removeEventListener('pointermove', move); port.removeEventListener('pointerup', up); port.removeEventListener('pointercancel', cancel);
+      capture.removeEventListener('pointermove', move); capture.removeEventListener('pointerup', up); capture.removeEventListener('pointercancel', cancel); capture.removeEventListener('lostpointercapture', cancel);
       $('#conceptMapDraftEdge')?.remove(); $$('.concept-node.drop-target').forEach(element => element.classList.remove('drop-target'));
       conceptMapLinkGesture = null; conceptMapLinkGestureBlockedUntil = performance.now() + 180;
     };
@@ -546,12 +549,17 @@ function bindConceptPort(port) {
       createConceptEdge(source.id, target.id, gesture.direct ? '' : '连接'); renderConceptMap(); scheduleConceptMapSave(); requestAnimationFrame(() => beginConceptNodeEdit(target.id));
     };
     const cancel = cancelEvent => { if (cancelEvent.pointerId !== gesture.pointerId || gesture.finished) return; gesture.finished = true; cleanup(); renderConceptMapEdges(); };
-    port.addEventListener('pointermove', move); port.addEventListener('pointerup', up, {once:true}); port.addEventListener('pointercancel', cancel, {once:true});
+    capture.addEventListener('pointermove', move); capture.addEventListener('pointerup', up); capture.addEventListener('pointercancel', cancel); capture.addEventListener('lostpointercapture', cancel);
   });
 }
 
 function conceptDropTarget(clientX, clientY, sourceId, tolerance = 14) {
-  const candidates = $$('[data-concept-node]', $('#conceptMapNodes')).filter(element => element.dataset.conceptNode !== sourceId).map(element => ({element, rect:element.getBoundingClientRect()}));
+  const point = conceptMapPoint(clientX, clientY), zoom = conceptState.current.viewport.zoom;
+  clientX = point.x; clientY = point.y; tolerance /= zoom;
+  const candidates = $$('[data-concept-node]', $('#conceptMapNodes')).filter(element => element.dataset.conceptNode !== sourceId).map(element => {
+    const node = conceptNode(element.dataset.conceptNode);
+    return {element, rect:{left:node.x, top:node.y, right:node.x + element.offsetWidth, bottom:node.y + element.offsetHeight}};
+  });
   const exact = candidates.find(({rect}) => clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom);
   if (exact) return exact.element;
   const nearby = candidates.filter(({rect}) => clientX >= rect.left - tolerance && clientX <= rect.right + tolerance && clientY >= rect.top - tolerance && clientY <= rect.bottom + tolerance);
@@ -746,10 +754,12 @@ async function flushConceptMapSave() {
 }
 
 function changeConceptMapZoom(nextZoom, anchorX = null, anchorY = null) {
-  const shell = $('#conceptMapCanvasShell'), rect = shell.getBoundingClientRect(), viewport = conceptState.current.viewport, oldZoom = viewport.zoom;
+  const shell = $('#conceptMapCanvasShell'), rect = shell.getBoundingClientRect(), viewport = conceptState.current.viewport;
   const zoom = Math.min(3, Math.max(.2, nextZoom)), px = anchorX ?? rect.left + rect.width / 2, py = anchorY ?? rect.top + rect.height / 2;
-  const localX = px - rect.left, localY = py - rect.top;
-  viewport.x = localX - (localX - viewport.x) * zoom / oldZoom; viewport.y = localY - (localY - viewport.y) * zoom / oldZoom; viewport.zoom = zoom;
+  const point = conceptMapPoint(px, py);
+  // Fold any native scrolling into the viewport without moving the zoom anchor.
+  viewport.x = px - rect.left - point.x * zoom; viewport.y = py - rect.top - point.y * zoom; viewport.zoom = zoom;
+  shell.scrollLeft = 0; shell.scrollTop = 0;
   applyConceptMapViewport(); scheduleConceptMapSave();
 }
 

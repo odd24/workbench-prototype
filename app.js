@@ -2524,6 +2524,8 @@ function documentMarkdownContent() {
 }
 
 function restoreDocumentSelection() {
+  // Toolbar selects and dialogs can move focus; refocus without scrolling before restoring the range.
+  $('#documentVisualEditor').focus({preventScroll:true});
   return documentEditorHost.restoreSelection();
 }
 
@@ -2634,8 +2636,7 @@ function finishDocumentColorBoundaryInput() {
 
 function applyDocumentColor(value, command = $('#documentColorPalette').dataset.command || 'foreColor', remember = true) {
   const palette = $('#documentColorPalette');
-  const editor = $('#documentVisualEditor');
-  editor.focus(); restoreDocumentSelection();
+  restoreDocumentSelection();
   const selection = window.getSelection();
   const hadSelectedText = Boolean(selection?.rangeCount && !selection.getRangeAt(0).collapsed);
   const clearing = ['transparent','inherit'].includes(value);
@@ -3974,15 +3975,15 @@ document.addEventListener('click', async event => {
   if (event.target.closest('#closeDocumentDialog')) { await closeDocumentEditor(); return; }
   if (event.target.closest('#toggleDocumentMode')) { setDocumentMode(documentMode === 'read' ? 'visual' : 'read'); return; }
   const documentCommand = event.target.closest('[data-document-command]');
-  if (documentCommand) { $('#documentVisualEditor').focus(); restoreDocumentSelection(); document.execCommand(documentCommand.dataset.documentCommand, false); markDocumentChanged(); return; }
-  if (event.target.closest('[data-document-block="blockquote"]')) { $('#documentVisualEditor').focus(); restoreDocumentSelection(); toggleBlockquote($('#documentVisualEditor'), markDocumentChanged); return; }
-  if (event.target.closest('#documentChecklist')) { $('#documentVisualEditor').focus(); restoreDocumentSelection(); insertTaskListBlock($('#documentVisualEditor'), markDocumentChanged); return; }
+  if (documentCommand) { restoreDocumentSelection(); document.execCommand(documentCommand.dataset.documentCommand, false); markDocumentChanged(); return; }
+  if (event.target.closest('[data-document-block="blockquote"]')) { restoreDocumentSelection(); toggleBlockquote($('#documentVisualEditor'), markDocumentChanged); return; }
+  if (event.target.closest('#documentChecklist')) { restoreDocumentSelection(); insertTaskListBlock($('#documentVisualEditor'), markDocumentChanged); return; }
   if (event.target.closest('#documentCodeBlock')) {
     insertDocumentCodeBlock(); return;
   }
   if (event.target.closest('#documentLink')) {
     const url = await appPrompt({title:'插入链接', confirmText:'插入', input:{label:'链接地址', placeholder:'https://example.com'}});
-    if (url?.trim()) { $('#documentVisualEditor').focus(); restoreDocumentSelection(); document.execCommand('createLink', false, /^(https?:|mailto:)/i.test(url.trim()) ? url.trim() : `https://${url.trim()}`); markDocumentChanged(); }
+    if (url?.trim()) { restoreDocumentSelection(); document.execCommand('createLink', false, /^(https?:|mailto:)/i.test(url.trim()) ? url.trim() : `https://${url.trim()}`); markDocumentChanged(); }
     return;
   }
   if (event.target.closest('#documentContentReference')) {
@@ -3991,11 +3992,11 @@ document.addEventListener('click', async event => {
   }
   if (event.target.closest('#documentSelectionLink')) {
     const url = await appPrompt({title:'插入链接', confirmText:'插入', input:{label:'链接地址', placeholder:'https://example.com'}});
-    if (url?.trim()) { $('#documentVisualEditor').focus(); restoreDocumentSelection(); document.execCommand('createLink', false, /^(https?:|mailto:)/i.test(url.trim()) ? url.trim() : `https://${url.trim()}`); markDocumentChanged(); }
+    if (url?.trim()) { restoreDocumentSelection(); document.execCommand('createLink', false, /^(https?:|mailto:)/i.test(url.trim()) ? url.trim() : `https://${url.trim()}`); markDocumentChanged(); }
     return;
   }
   if (event.target.closest('#documentSelectionCode')) {
-    const text = documentEditorHost.savedSelection()?.toString() || '代码'; $('#documentVisualEditor').focus(); restoreDocumentSelection(); document.execCommand('insertHTML', false, `<code>${escapeHtml(text)}</code>`); markDocumentChanged(); return;
+    const text = documentEditorHost.savedSelection()?.toString() || '代码'; restoreDocumentSelection(); document.execCommand('insertHTML', false, `<code>${escapeHtml(text)}</code>`); markDocumentChanged(); return;
   }
   if (event.target.closest('#saveDocument')) { await saveDocument(); return; }
   if (event.target.closest('#deleteDocument')) { await deleteDocument(); return; }
@@ -4964,7 +4965,6 @@ $('.editor-area').addEventListener('paste', event => {
 });
 $('#documentCodeLanguage').addEventListener('change', event => {
   const editor = $('#documentVisualEditor');
-  editor.focus();
   restoreDocumentSelection();
   const selection = selectionInsideEditor(editor);
   const element = selection && (selection.anchorNode.nodeType === Node.ELEMENT_NODE ? selection.anchorNode : selection.anchorNode.parentElement);
@@ -5010,8 +5010,13 @@ document.addEventListener('selectionchange', () => {
   updateEditorToolbarState();
 });
 document.addEventListener('selectionchange', () => requestAnimationFrame(() => { updateDocumentSelectionToolbar(); updateDocumentToolbarState(); }));
-$('#documentFormatToolbar').addEventListener('mousedown', event => { if (event.target.closest('button')) event.preventDefault(); });
-$('#documentSelectionToolbar').addEventListener('mousedown', event => { if (event.target.closest('button')) event.preventDefault(); });
+function handleDocumentToolbarMouseDown(event) {
+  if (event.target.closest('button')) event.preventDefault();
+  // Pre-focus native selects so their default mouse action does not scroll the writing pane.
+  if (event.target.matches('select')) event.target.focus({preventScroll:true});
+}
+$('#documentFormatToolbar').addEventListener('mousedown', handleDocumentToolbarMouseDown);
+$('#documentSelectionToolbar').addEventListener('mousedown', handleDocumentToolbarMouseDown);
 $('#documentColorPalette').addEventListener('mousedown', event => { if (event.target.closest('button')) event.preventDefault(); });
 $('#slashCommandMenu').addEventListener('mousedown', event => event.preventDefault());
 $('#slashCommandMenu').addEventListener('click', event => {
@@ -5074,8 +5079,8 @@ document.addEventListener('change', async event => {
     if (event.target.checked) documentSelection.add(id); else documentSelection.delete(id);
     updateDocumentSelectionUI(); return;
   }
-  if (event.target.id === 'documentHeading') { $('#documentVisualEditor').focus(); restoreDocumentSelection(); document.execCommand('formatBlock', false, event.target.value); markDocumentChanged(); return; }
-  if (event.target.matches('[data-selection-heading]')) { $('#documentVisualEditor').focus(); restoreDocumentSelection(); document.execCommand('formatBlock', false, event.target.value); markDocumentChanged(); return; }
+  if (event.target.id === 'documentHeading') { restoreDocumentSelection(); document.execCommand('formatBlock', false, event.target.value); markDocumentChanged(); return; }
+  if (event.target.matches('[data-selection-heading]')) { restoreDocumentSelection(); document.execCommand('formatBlock', false, event.target.value); markDocumentChanged(); return; }
   if (event.target.matches('#documentTagOptions input')) { updateDocumentTagSummary(); markDocumentChanged(); return; }
   if (event.target.matches('#createTagOptions input')) { updateCreateTagSummary(); return; }
   if (event.target.id === 'projectAssetInput') {

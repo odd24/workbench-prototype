@@ -59,6 +59,10 @@ class DevToolsClient {
     });
     this.socket.addEventListener('message', event => {
       const message = JSON.parse(String(event.data));
+      // Trusted toolbar clicks activate Chromium's unload confirmation during the draft reload test.
+      if (message.method === 'Page.javascriptDialogOpening' && message.params.type === 'beforeunload') {
+        this.call('Page.handleJavaScriptDialog', {accept:true}).catch(() => {});
+      }
       if (!message.id) return;
       const pending = this.pending.get(message.id);
       if (!pending) return;
@@ -118,7 +122,7 @@ async function main() {
   try {
     await waitForHttp(`${baseUrl}/api/health`);
     browser = childProcess.spawn(browserExecutable(), [
-      '--headless', '--disable-gpu', '--no-first-run', '--disable-extensions', '--disable-background-networking',
+      '--headless', '--disable-gpu', '--no-first-run', '--disable-extensions', '--disable-background-networking', '--disable-sync',
       `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profileDirectory}`, baseUrl,
     ], {stdio:['ignore', 'ignore', 'pipe'], windowsHide:true});
     await waitForHttp(`http://127.0.0.1:${debugPort}/json/version`);
@@ -365,6 +369,58 @@ async function main() {
       return {saved:Boolean(saved), body:documentMarkdownContent(), dirty:documentSession.dirty, draft:localStorage.getItem(documentDraftKey(${documentId}))};
     })()`);
     assert.deepEqual(result, {saved:true, body:'# 自动保存文档\n\n| 左 | 右 |\n| :--- | ---: |\n| A | B |', dirty:false, draft:null});
+
+    for (const width of [1280, 600]) {
+      for (const theme of ['light', 'dark']) {
+        await client.call('Emulation.setDeviceMetricsOverride', {width, height:900, deviceScaleFactor:1, mobile:false});
+        await client.evaluate(`document.body.classList.toggle('dark', ${theme === 'dark'})`);
+        // Long documents must keep the current paragraph visible when toolbar controls take focus.
+        await client.evaluate(`(() => {
+          setDocumentMode('visual');
+          documentEditorHost.render(Array.from({length:100}, (_, index) => '长文档段落 ' + index + '：保留当前编辑位置。').join('\\n\\n'), true);
+          const editor = $('#documentVisualEditor');
+          const paragraph = editor.children[60];
+          editor.focus();
+          const range = document.createRange();
+          range.selectNodeContents(paragraph);
+          window.getSelection().removeAllRanges();
+          window.getSelection().addRange(range);
+          captureDocumentSelection();
+          paragraph.scrollIntoView({block:'center'});
+          return true;
+        })()`);
+        await delay(150);
+        const scrollBefore = await client.evaluate(`$('#documentVisualEditor').children[60].getBoundingClientRect().top`);
+        const headingControl = await client.evaluate(`(() => { const rect = $('#documentHeading').getBoundingClientRect(); return {x:rect.x + rect.width / 2, y:rect.y + rect.height / 2}; })()`);
+        await client.call('Input.dispatchMouseEvent', {type:'mousePressed', button:'left', clickCount:1, ...headingControl});
+        await client.call('Input.dispatchMouseEvent', {type:'mouseReleased', button:'left', clickCount:1, ...headingControl});
+        await client.call('Input.dispatchKeyEvent', {type:'keyDown', key:'ArrowDown', code:'ArrowDown', windowsVirtualKeyCode:40});
+        await client.call('Input.dispatchKeyEvent', {type:'keyUp', key:'ArrowDown', code:'ArrowDown', windowsVirtualKeyCode:40});
+        await client.call('Input.dispatchKeyEvent', {type:'keyDown', key:'Enter', code:'Enter', windowsVirtualKeyCode:13});
+        await client.call('Input.dispatchKeyEvent', {type:'keyUp', key:'Enter', code:'Enter', windowsVirtualKeyCode:13});
+        await delay(200);
+        result = await client.evaluate(`(() => {
+          const editor = $('#documentVisualEditor');
+          const rect = editor.children[60].getBoundingClientRect();
+          return {top:rect.top, selected:window.getSelection().toString(), heading:editor.children[60].nodeName};
+        })()`);
+        assert.equal(result.heading, 'H1');
+        assert.equal(result.selected, '长文档段落 60：保留当前编辑位置。');
+        assert.ok(Math.abs(result.top - scrollBefore) < 60, '标题工具不应使长文档离开当前编辑位置：' + JSON.stringify({scrollBefore, ...result}));
+        const boldBefore = await client.evaluate(`document.queryCommandState('bold')`);
+        const boldControl = await client.evaluate(`(() => { const rect = $('#documentFormatToolbar [data-document-command="bold"]').getBoundingClientRect(); return {x:rect.x + rect.width / 2, y:rect.y + rect.height / 2}; })()`);
+        await client.call('Input.dispatchMouseEvent', {type:'mousePressed', button:'left', clickCount:1, ...boldControl});
+        await client.call('Input.dispatchMouseEvent', {type:'mouseReleased', button:'left', clickCount:1, ...boldControl});
+        await delay(150);
+        result = await client.evaluate(`({bold:document.queryCommandState('bold'), top:$('#documentVisualEditor').children[60].getBoundingClientRect().top, selected:window.getSelection().toString()})`);
+        assert.equal(result.bold, !boldBefore);
+        assert.equal(result.selected, '长文档段落 60：保留当前编辑位置。');
+        assert.ok(Math.abs(result.top - scrollBefore) < 60, '加粗后应保留当前段落位置');
+      }
+    }
+    await client.call('Emulation.clearDeviceMetricsOverride');
+    await client.evaluate(`(async () => { markDocumentChanged(); await saveDocument({readAfterSave:false, notifyUser:false}); openDocument(${documentId}); return true; })()`);
+    assert.match(await client.evaluate('documentMarkdownContent()'), /# .*长文档段落 60/);
 
     await client.call('Network.setBlockedURLs', {urls:['*/api/records/*']});
     result = await client.evaluate(`(async () => {

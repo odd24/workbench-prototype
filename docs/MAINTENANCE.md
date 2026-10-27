@@ -52,6 +52,7 @@ python server.py --data-dir $testData --seed-demo --port 4174
 4. 涉及编辑器时完成记录和知识库的可视化 → Markdown → 保存 → 重开，以及失败、草稿、外部修改和冲突路径。
 5. 涉及数据时用新仓储实例重新读取；涉及导出时验证 ZIP CRC 和成员路径。
 6. 确认 `index.html` 资源版本、README、架构/数据文档和进度台账同步。
+   后端功能变化还须更新 `workbench/http_api.py` 的 `APP_VERSION`；`--replace` 会复用版本号相同的进程，未更新会造成新前端调用旧后端接口。
 7. 形成一笔可独立回滚、验证通过的本地提交。
 
 ## 已知后续方向

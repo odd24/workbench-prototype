@@ -23,7 +23,7 @@ from .paths import (
 
 
 APP_DIR = Path(__file__).resolve().parent.parent
-APP_VERSION = "2026.09.18.1"
+APP_VERSION = "2026.10.27.1"
 MAX_JSON_BODY_BYTES = 15_000_000
 
 

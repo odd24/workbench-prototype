@@ -203,6 +203,9 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
         try:
             if path == "/api/health":
                 return self._json({"ok": True, "data_dir": str(self.repository.root), "app_version": APP_VERSION})
+            if path.startswith("/api/markdown-images/"):
+                file_path = self.repository.markdown_image_path(path.rsplit("/", 1)[-1], (query.get("path") or [""])[0])
+                return self._inline_file(file_path) if file_path else self._json({"error": "图片不存在"}, HTTPStatus.NOT_FOUND)
             if path == "/api/config":
                 return self._json(self.repository.config())
             if path == "/api/export-location":

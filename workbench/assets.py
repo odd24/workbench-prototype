@@ -16,6 +16,21 @@ from workbench.security import validate_category_name, validate_portable_filenam
 
 
 class AttachmentRepository:
+    def markdown_image_path(self, markdown_path: Path, source: str, allowed_roots: tuple[Path, ...]) -> Path | None:
+        """Resolve external-editor images without exposing arbitrary local files."""
+        source = str(source).replace("\\", "/")
+        if not source or source.startswith("/") or ":" in source or "\x00" in source:
+            raise ValueError("图片路径必须是相对路径")
+        try:
+            candidate = (markdown_path.parent / source).resolve()
+            if not any(candidate.is_relative_to(root.resolve()) for root in allowed_roots):
+                raise ValueError("图片路径超出允许目录")
+            if not (mimetypes.guess_type(candidate.name)[0] or "").startswith("image/"):
+                raise ValueError("仅允许读取图片")
+            return candidate if candidate.is_file() else None
+        except (OSError, RuntimeError) as exc:
+            raise ValueError("图片路径无效") from exc
+
     def __init__(
         self,
         root: Path,

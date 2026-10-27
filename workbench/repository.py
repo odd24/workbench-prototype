@@ -473,6 +473,17 @@ class Repository:
     def add_record_attachment_stream(self, record_id: str, filename: str, stream, length: int, append_to_body: bool = True) -> dict:
         return self._attachment_repository.add_record_attachment_stream(record_id, filename, stream, length, append_to_body)
 
+    def markdown_image_path(self, resource_id: str, source: str) -> Path | None:
+        if resource_id.startswith("DOC-"):
+            item, path = self.get_document(resource_id)
+            roots = (self.documents_dir, self.global_assets_dir)
+        else:
+            item, path = self.get_record(resource_id)
+            roots = (self.projects_dir / item["project_id"],) if item and item.get("project_id") else (self.global_ideas_dir, self.global_assets_dir)
+        if not item:
+            return None
+        return self._attachment_repository.markdown_image_path(path, source, roots)
+
     def attachment_path(self, record_id: str, filename: str) -> Path | None:
         return self._attachment_repository.attachment_path(record_id, filename)
 

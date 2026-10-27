@@ -34,7 +34,7 @@ const recordEditorHost = editorHostCore.create({
 const documentEditorHost = editorHostCore.create({
   editor:$('#documentVisualEditor'),
   onChange:() => markDocumentChanged(),
-  renderOptions:() => ({renderReference:referenceTokenToHtml, renderImage:markdownImageHtml}),
+  renderOptions:() => ({renderReference:referenceTokenToHtml, renderImage:(alt, source) => markdownImageHtml(alt, source, currentDocument)}),
 });
 const editorHosts = new Map([[recordEditorHost.editor, recordEditorHost], [documentEditorHost.editor, documentEditorHost]]);
 const recordSession = editorSessionCore.create({storage:localStorage, prefix:'workbench-editor-draft'});
@@ -627,14 +627,15 @@ function referenceTokenToHtml(token) {
   return markdownCore.referenceTokenToHtml(token, referenceTarget);
 }
 
-function markdownImageHtml(alt, source) {
+function markdownImageHtml(alt, source, resource = currentRecord) {
   const normalized = String(source || '').trim().replace(/^<|>$/g, '');
   let filename = normalized.split(/[\\/]/).at(-1) || '';
   try { filename = decodeURIComponent(filename); } catch { /* 保留包含不完整百分号的原始文件名 */ }
   filename = filename.replace(/[?#].*$/, '');
-  const attachment = currentRecord && parsedAttachments().find(item => item.name === filename || item.path === normalized);
+  const attachment = resource === currentRecord && currentRecord && parsedAttachments().find(item => item.name === filename || item.path === normalized);
   let url = normalized;
   if (attachment) url = `/api/attachments/${encodeURIComponent(currentRecord.id)}/${encodeURIComponent(attachment.name)}`;
+  else if (resource && normalized && !/^(?:[a-z][a-z0-9+.-]*:|\/)/i.test(normalized)) url = `/api/markdown-images/${encodeURIComponent(resource.id)}?path=${encodeURIComponent(normalized)}`;
   else if (!/^(?:https?:\/\/|\/api\/attachments\/|\.{0,2}\/)/i.test(normalized)) return `![${escapeHtml(alt)}](${escapeHtml(normalized)})`;
   return `<img class="editor-inline-image" src="${escapeHtml(url)}" alt="${escapeHtml(alt)}" data-markdown-src="${escapeHtml(normalized)}">`;
 }
@@ -663,8 +664,8 @@ function markdownTableHtml(lines, startIndex) {
   return markdownCore.markdownTableHtml(lines, startIndex, {renderReference:referenceTokenToHtml, renderImage:markdownImageHtml});
 }
 
-function markdownToHtml(markdown = '', interactive = false) {
-  return markdownCore.markdownToHtml(markdown, {interactive, renderReference:referenceTokenToHtml, renderImage:markdownImageHtml});
+function markdownToHtml(markdown = '', interactive = false, resource = currentRecord) {
+  return markdownCore.markdownToHtml(markdown, {interactive, renderReference:referenceTokenToHtml, renderImage:(alt, source) => markdownImageHtml(alt, source, resource)});
 }
 
 function cssColorToHex(value = '') {
@@ -2514,7 +2515,7 @@ function setDocumentMode(mode) {
   $('#documentVisualEditor').style.display = mode === 'visual' ? 'block' : 'none';
   $('#documentBody').style.display = 'none';
   $('#documentFormatToolbar').style.display = mode === 'visual' ? 'flex' : 'none';
-  if (reading) $('#documentReadPane').innerHTML = markdownToHtml($('#documentBody').value || currentDocument?.body || '');
+  if (reading) $('#documentReadPane').innerHTML = markdownToHtml($('#documentBody').value || currentDocument?.body || '', false, currentDocument);
   requestAnimationFrame(updateDocumentOutline);
 }
 
@@ -2876,7 +2877,7 @@ function reloadCurrentDocumentFromDisk(latest) {
   renderDocumentTagOptions(latest.tags || []);
   $('#documentBody').value = latest.body || '';
   renderMarkdownEditor($('#documentVisualEditor'), latest.body || '', true);
-  if (documentMode === 'read') $('#documentReadPane').innerHTML = markdownToHtml(latest.body || '');
+  if (documentMode === 'read') $('#documentReadPane').innerHTML = markdownToHtml(latest.body || '', false, currentDocument);
   scheduleDocumentOutlineUpdate();
   updateDocumentSaveState(`✓ 已同步外部修改 · ${new Date(latest.updated).toLocaleTimeString('zh-CN')}`);
   delete $('#documentDialog').dataset.pendingExternalMtime;

@@ -208,6 +208,49 @@ async function main() {
     await request(`/records/${trashRecord.id}`, {method:'DELETE'});
 
     const recordId = JSON.stringify(record.id);
+    // External editors can create image directories without attachment metadata.
+    const imageProject = await request('/projects', {method:'POST', body:{name:'相对图片验收'}});
+    const imageSource = './${img}/图片 #1%.png';
+    const imageMarkdown = `![外部图片](${imageSource})`;
+    for (const kind of ['records', 'documents']) {
+      const payload = kind === 'records'
+        ? {type:'issue', project_id:imageProject.id, title:'相对图片记录', body:imageMarkdown}
+        : {title:'相对图片文档', body:imageMarkdown};
+      const item = await request(`/${kind}`, {method:'POST', body:payload});
+      const imagePath = path.join(path.dirname(item.file_path), '${img}', '图片 #1%.png');
+      fs.mkdirSync(path.dirname(imagePath), {recursive:true});
+      fs.writeFileSync(imagePath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=', 'base64'));
+      const isRecord = kind === 'records';
+      const id = JSON.stringify(item.id);
+      const editor = isRecord ? '.editor' : '#documentVisualEditor';
+      const open = isRecord ? `await openDrawer(${id}); setEditorMode('wysiwyg');` : `documents = await api('/documents'); openDocument(${id}); setDocumentMode('visual');`;
+      await client.evaluate(`(async () => { ${open} return true; })()`);
+      for (const theme of ['light', 'dark']) {
+        for (const width of [1440, 390]) {
+          await client.call('Emulation.setDeviceMetricsOverride', {width, height:900, deviceScaleFactor:1, mobile:false});
+          await client.evaluate(`document.body.classList.toggle('dark', ${theme === 'dark'})`);
+          await waitForPage(client, `Boolean($('${editor} img')?.naturalWidth)`);
+          assert.equal(await client.evaluate(`$('${editor} img').dataset.markdownSrc`), imageSource);
+        }
+      }
+      result = await client.evaluate(`(async () => {
+        const markdown = editorToMarkdown($('${editor}'));
+        ${isRecord ? "setEditorMode('markdown'); markEditorChanged(); await saveEditorNow();" : "documentMarkdownContent(); markDocumentChanged(); await saveDocument({readAfterSave:false, notifyUser:false});"}
+        ${open}
+        return markdown;
+      })()`);
+      assert.equal(result.trim(), imageMarkdown);
+      assert.equal((await request(`/${kind}/${item.id}`)).body.trim(), imageMarkdown);
+      await waitForPage(client, `Boolean($('${editor} img')?.naturalWidth)`);
+      if (!isRecord) {
+        await client.evaluate("setDocumentMode('read')");
+        await waitForPage(client, "Boolean($('#documentReadPane img')?.naturalWidth)");
+        await client.evaluate('closeDocumentEditor()');
+      } else {
+        await client.evaluate('closeDrawer()');
+      }
+    }
+    await client.call('Emulation.clearDeviceMetricsOverride');
     const orderRecordId = JSON.stringify(orderRecord.id);
     const raceRecordId = JSON.stringify(raceRecord.id);
     const projectId = JSON.stringify(project.id);

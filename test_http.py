@@ -91,6 +91,25 @@ class HTTPIntegrationTests(unittest.TestCase):
         self.assertEqual(payload["data_dir"], str(self.repo.root))
         self.assertEqual(payload["app_version"], APP_VERSION)
 
+    def test_relative_markdown_images_and_directory_boundaries(self):
+        record = self.repo.create_record({"type": "issue", "project_id": self.project["id"], "title": "图片"})
+        document = self.repo.create_document({"title": "图片文档"})
+        image_bytes = b"\x89PNG\r\n\x1a\n"
+        for item, getter in ((record, self.repo.get_record), (document, self.repo.get_document)):
+            _, path = getter(item["id"])
+            relative = "./${img}/图片 #1%.png"
+            image = path.parent / "${img}" / "图片 #1%.png"
+            image.parent.mkdir(exist_ok=True)
+            image.write_bytes(image_bytes)
+            endpoint = f'/api/markdown-images/{item["id"]}?path='
+            status, headers, body = self.request("GET", endpoint + quote(relative, safe=""))
+            self.assertEqual((status, body), (200, image_bytes))
+            self.assertEqual(headers.get_content_type(), "image/png")
+            self.assertEqual(self.request("GET", endpoint + quote("./missing.png", safe=""))[0], 404)
+            for invalid in ("../../../outside.png", "file:///outside.png", "C:/outside.png", "//outside.png", "./secret.md", ""):
+                self.assertEqual(self.request("GET", endpoint + quote(invalid, safe=""))[0], 400, invalid)
+        self.assertEqual(self.request("GET", "/api/markdown-images/ISSUE-9999?path=missing.png")[0], 404)
+
     def test_server_keeps_compatible_extracted_http_exports(self):
         self.assertIs(WorkbenchHandler, ExtractedWorkbenchHandler)
         self.assertIs(WorkbenchHTTPServer, ExtractedWorkbenchHTTPServer)

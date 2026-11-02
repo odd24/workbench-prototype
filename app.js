@@ -1592,7 +1592,11 @@ function renderProjectPage() {
   $('#filterStatus').value = projectFilters.status;
   $('#filterTag').value = projectFilters.tag;
   $('#filterPriority').value = projectFilters.priority;
-  $('#clearProjectFilters').disabled = !Object.values(projectFilters).some(Boolean);
+  const clearFiltersButton = $('#clearProjectFilters');
+  const hasProjectFilters = Object.values(projectFilters).some(Boolean);
+  clearFiltersButton.disabled = !hasProjectFilters;
+  clearFiltersButton.classList.toggle('primary-button', hasProjectFilters);
+  clearFiltersButton.classList.toggle('secondary-button', !hasProjectFilters);
   $('#filterStatus').style.display = projectTab === 'infos' ? 'none' : '';
   $('#filterPriority').style.display = projectTab === 'infos' ? 'none' : '';
   $('.view-switch').style.display = projectTab === 'infos' ? 'none' : 'flex';

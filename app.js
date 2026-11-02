@@ -85,6 +85,7 @@ let projectTab = 'issues';
 let currentPage = 'home';
 let projectViewMode = 'board';
 let projectFilters = {status:'', tag:'', priority:''};
+let projectFilterContext = '';
 let timelineFilters = {type:[], project:[], status:[], priority:[], tag:[]};
 let timelineSort = {field:'updated', direction:'desc'};
 let editorMode = 'wysiwyg';
@@ -1551,6 +1552,11 @@ function renderProjectPage() {
   if (!selectedProjectId && firstActive) selectedProjectId = firstActive.id;
   const project = projects.find(item => item.id === selectedProjectId);
   if (!project) return;
+  const filterContext = JSON.stringify([project.id, projectTab]);
+  if (projectFilterContext !== filterContext) {
+    projectFilters = {status:'', tag:'', priority:''};
+    projectFilterContext = filterContext;
+  }
   $('#projectPage').dataset.projectId = project.id;
   $('.project-heading .breadcrumb span:last-child').textContent = project.name;
   $('.project-heading .title-with-avatar h1').textContent = project.name;
@@ -1577,6 +1583,16 @@ function renderProjectPage() {
   $('#filterStatus').innerHTML = `<option value="">状态：全部</option>${rawStatuses.map(value => `<option ${value === projectFilters.status ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('')}`;
   $('#filterTag').innerHTML = `<option value="">标签：全部</option>${rawTags.map(value => `<option ${value === projectFilters.tag ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('')}`;
   $('#filterPriority').value = projectFilters.priority;
+  // Rebuilt selects may no longer contain a saved value after an external edit.
+  projectFilters = {
+    status:projectTab === 'infos' ? '' : $('#filterStatus').value,
+    tag:$('#filterTag').value,
+    priority:projectTab === 'infos' ? '' : $('#filterPriority').value,
+  };
+  $('#filterStatus').value = projectFilters.status;
+  $('#filterTag').value = projectFilters.tag;
+  $('#filterPriority').value = projectFilters.priority;
+  $('#clearProjectFilters').disabled = !Object.values(projectFilters).some(Boolean);
   $('#filterStatus').style.display = projectTab === 'infos' ? 'none' : '';
   $('#filterPriority').style.display = projectTab === 'infos' ? 'none' : '';
   $('.view-switch').style.display = projectTab === 'infos' ? 'none' : 'flex';
@@ -4407,6 +4423,11 @@ document.addEventListener('click', async event => {
     api(`/records/${currentRecord.id}/restore`, {method:'POST', body:JSON.stringify({version:restoreButton.dataset.restoreVersion})}).then(async restored => {
       currentRecord = restored; $('#historyDialog').close(); await refreshData(); await openDrawer(restored.id); notify('历史版本已恢复');
     }).catch(error => notify('恢复失败', error.message, true));
+  }
+  if (event.target.closest('#clearProjectFilters')) {
+    projectFilters = {status:'', tag:'', priority:''};
+    renderProjectPage();
+    return;
   }
   const projectTabButton = event.target.closest('[data-project-tab]');
   if (projectTabButton) { projectTab = projectTabButton.dataset.projectTab; persistNavigationState(); renderProjectPage(); }

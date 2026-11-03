@@ -46,7 +46,7 @@ const recordConflict = recordConflictCore.create({
   mergedField:$('#mergedConflictContent'),
   diffContainer:$('#conflictDiff'),
   escapeHtml,
-  getLocalContent:() => localEditorContent(),
+  getLocalContent:() => conflictKind === 'document' ? documentMarkdownContent() : localEditorContent(),
 });
 
 const sidebar = $('#sidebar');
@@ -1917,7 +1917,16 @@ function insertInfoFieldIntoEditor(row) {
   notify('键值对已插入正文', note ? '字段值和说明已生成正文块' : '字段值已生成正文块');
 }
 
+let conflictKind = 'record';
+function showDocumentConflict(latest) {
+  conflictKind = 'document';
+  recordConflict.show({...latest, body:latest.body});
+  $('#localConflictContent').value = documentMarkdownContent();
+
+}
+
 function showConflict(latest) {
+  conflictKind = 'record';
   recordConflict.show(latest);
 }
 
@@ -2788,6 +2797,7 @@ function openDocument(documentId = '', initialCategory = '') {
   $('#documentCategoryOptions').innerHTML = [...new Set([...(configData?.document_categories || []), ...documents.map(item => item.category).filter(Boolean)])].map(value => `<option value="${escapeHtml(value)}"></option>`).join('');
   $('#deleteDocument').style.display = currentDocument ? '' : 'none';
   $('#exportDocument').style.display = currentDocument ? '' : 'none';
+  $('#showDocumentHistory').style.display = currentDocument ? '' : 'none';
   $('.document-external-editor').style.display = currentDocument ? 'inline-flex' : 'none';
   updateDocumentSaveState(documentSession.dirty ? '' : currentDocument ? `✓ 已保存 · ${new Date(currentDocument.updated).toLocaleString('zh-CN')}` : '将保存为本地 Markdown');
   $('#documentDialog').classList.remove('expanded');
@@ -2806,7 +2816,7 @@ async function saveDocument({readAfterSave = false, notifyUser = true} = {}) {
   if (!documentSession.dirty && currentDocument) return currentDocument;
   const title = $('#documentTitle').value.trim();
   if (!title) { $('#documentTitle').focus(); notify('文档标题不能为空', '请输入标题后再保存', true); return null; }
-  const payload = {title, category:$('#documentCategory').value.trim() || '未分类', tags:selectedDocumentTags(), body:documentMarkdownContent()};
+  const payload = {title, category:$('#documentCategory').value.trim() || '未分类', tags:selectedDocumentTags(), body:documentMarkdownContent(), expected_revision:currentDocument?.revision};
   const previousDraftId = currentDocument?.id || 'new';
   const documentId = currentDocument?.id || '';
   const request = requestRegistry.begin('document-save', previousDraftId);
@@ -2831,6 +2841,7 @@ async function saveDocument({readAfterSave = false, notifyUser = true} = {}) {
     $('#documentOutlineTitle').textContent = saved.title;
     $('#deleteDocument').style.display = '';
     $('#exportDocument').style.display = '';
+    $('#showDocumentHistory').style.display = '';
     $('.document-external-editor').style.display = 'inline-flex';
     updateDocumentSaveState('✓ 已保存 · 刚刚');
     if (notifyUser) notify('文档已保存', saved.category);
@@ -2840,7 +2851,8 @@ async function saveDocument({readAfterSave = false, notifyUser = true} = {}) {
     documentSession.dirty = true;
     persistDocumentDraft();
     updateDocumentSaveState('保存失败，请重试');
-    notify('文档保存失败', error.message, true);
+    if (error.status === 409 && currentDocument?.id === documentId) showDocumentConflict(await api(`/documents/${encodeURIComponent(documentId)}`));
+    else notify('文档保存失败', error.message, true);
     return null;
   } finally {
     if (requestRegistry.isCurrent(request)) {
@@ -3263,11 +3275,20 @@ async function applyDataDirectory() {
   }
 }
 
-async function showHistory() {
-  if (!currentRecord) return;
+let historyKind = 'record';
+let historyItem = null;
+async function showHistory(kind = 'record') {
+  const item = kind === 'document' ? currentDocument : currentRecord;
+  if (!item) return;
+  if (kind === 'document' ? documentSession.dirty : recordSession.dirty) {
+    notify('请先保存当前修改', '历史恢复前需要处理未保存内容', true);
+    return;
+  }
+  historyKind = kind;
+  historyItem = item;
   try {
-    const versions = await api(`/records/${currentRecord.id}/history`);
-    $('#historyList').innerHTML = versions.length ? versions.map(version => `<div class="history-row"><div><strong>${escapeHtml(version.title || currentRecord.title)}</strong><small>${escapeHtml(version.updated || version.version)} · ${escapeHtml(version.status || '')}</small></div><button data-restore-version="${version.version}">恢复此版</button><p>${escapeHtml(version.preview || '')}</p></div>`).join('') : '<div class="empty-state">这条记录还没有历史版本；首次修改后会自动生成。</div>';
+    const versions = await api(`/${kind === 'document' ? 'documents' : 'records'}/${encodeURIComponent(item.id)}/history`);
+    $('#historyList').innerHTML = versions.length ? versions.map(version => `<div class="history-row"><div><strong>${escapeHtml(version.title || item.title)}</strong><small>${escapeHtml(version.updated || version.version)} · ${escapeHtml(version.status || '')}</small></div><button data-preview-version="${escapeHtml(version.version)}">查看此版</button><button data-restore-version="${escapeHtml(version.version)}">恢复此版</button><p>${escapeHtml(version.preview || '')}</p></div>`).join('') : '<div class="empty-state">还没有历史版本；首次修改后会自动生成。</div>';
     $('#historyDialog').showModal();
   } catch (error) { notify('历史记录加载失败', error.message, true); }
 }
@@ -3525,7 +3546,8 @@ function recordSignature(items) {
 async function updateRecord(recordId, changes, successMessage) {
   try {
     requestRegistry.invalidate('record-refresh');
-    const updated = await api(`/records/${encodeURIComponent(recordId)}`, {method:'PATCH', body:JSON.stringify(changes)});
+    const base = currentRecord?.id === recordId ? currentRecord : records.find(item => item.id === recordId);
+    const updated = await api(`/records/${encodeURIComponent(recordId)}`, {method:'PATCH', body:JSON.stringify({expected_revision:base?.revision, ...changes})});
     const index = records.findIndex(item => item.id === recordId);
     if (index >= 0) records[index] = updated;
     lastRecordSignature = recordSignature(records);
@@ -3538,7 +3560,11 @@ async function updateRecord(recordId, changes, successMessage) {
     if ($('#projectPage').classList.contains('active')) renderProjectPage();
     if (successMessage) notify(successMessage);
     return updated;
-  } catch (error) { notify('保存失败', error.message, true); throw error; }
+  } catch (error) {
+    if (error.status === 409 && currentRecord?.id === recordId) showConflict(await api(`/records/${encodeURIComponent(recordId)}`));
+    else notify('保存失败', error.message, true);
+    throw error;
+  }
 }
 
 async function createItem() {
@@ -4422,11 +4448,27 @@ document.addEventListener('click', async event => {
     else if (configData.workflow_templates.length <= 1) notify('无法删除', '至少需要保留一套工作流', true);
     else if (await appConfirm({title:'删除这套工作流？', message:'删除后无法恢复这套工作流配置。', detail:'只有未被任何项目使用的工作流才能删除。', confirmText:'删除工作流', danger:true})) { configData.workflow_templates = configData.workflow_templates.filter(item => item.id !== selectedWorkflowId); selectedWorkflowId = configData.workflow_templates[0].id; api('/workflow-templates', {method:'PUT', body:JSON.stringify(configData.workflow_templates)}).then(saved => { configData.workflow_templates = saved; renderManagePage('status_templates'); notify('工作流已删除'); }); }
   }
+  const previewVersion = event.target.closest('[data-preview-version]');
+  if (previewVersion && historyItem) {
+    try {
+      const snapshot = await api(`/${historyKind === 'document' ? 'documents' : 'records'}/${encodeURIComponent(historyItem.id)}/history/${encodeURIComponent(previewVersion.dataset.previewVersion)}`);
+      let preview = $('#historySnapshot');
+      if (!preview) { preview = document.createElement('pre'); preview.id = 'historySnapshot'; $('#historyList').append(preview); }
+      preview.textContent = JSON.stringify({...snapshot, body:undefined}, null, 2) + '\n\n' + snapshot.body;
+    } catch (error) { notify('历史版本加载失败', error.message, true); }
+    return;
+  }
   const restoreButton = event.target.closest('[data-restore-version]');
-  if (restoreButton && currentRecord) {
-    api(`/records/${currentRecord.id}/restore`, {method:'POST', body:JSON.stringify({version:restoreButton.dataset.restoreVersion})}).then(async restored => {
-      currentRecord = restored; $('#historyDialog').close(); await refreshData(); await openDrawer(restored.id); notify('历史版本已恢复');
-    }).catch(error => notify('恢复失败', error.message, true));
+  if (restoreButton && historyItem) {
+    if (!await appConfirm({title:'恢复此历史版本？', message:'当前内容会先保存为历史版本。', confirmText:'恢复此版'})) return;
+    try {
+      const restored = await api(`/${historyKind === 'document' ? 'documents' : 'records'}/${encodeURIComponent(historyItem.id)}/restore`, {method:'POST', body:JSON.stringify({version:restoreButton.dataset.restoreVersion, expected_revision:historyItem.revision})});
+      $('#historyDialog').close();
+      if (historyKind === 'document') { reloadCurrentDocumentFromDisk(restored); await refreshDocuments(); }
+      else { currentRecord = restored; await refreshData(); await openDrawer(restored.id); }
+      notify('历史版本已恢复');
+    } catch (error) { notify('恢复失败', error.message, true); }
+    return;
   }
   if (event.target.closest('#clearProjectFilters')) {
     projectFilters = {status:'', tag:'', priority:''};
@@ -4740,7 +4782,8 @@ $('#saveOnLeave').addEventListener('change', event => {
   else recordSession.cancel();
   notify(event.target.checked ? '已开启自动保存' : '已关闭自动保存', event.target.checked ? '停止输入片刻后会自动写入 Markdown' : '未保存修改离开前会询问你');
 });
-$('#showHistory').addEventListener('click', showHistory);
+$('#showHistory').addEventListener('click', () => showHistory());
+$('#showDocumentHistory').addEventListener('click', () => showHistory('document'));
 $('#closeHistory').addEventListener('click', () => $('#historyDialog').close());
 $('#closeRelation').addEventListener('click', () => $('#relationDialog').close());
 $('#relationSearch').addEventListener('input', event => renderRelationResults(event.target.value));
@@ -4836,13 +4879,51 @@ $$('dialog').forEach(dialog => dialog.addEventListener('click', event => {
   const outside = event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom;
   if (outside) dismissDialogFromBackdrop(dialog);
 }));
+async function resolveDocumentConflict(mode) {
+  const latest = recordConflict.current;
+  if (!latest || !currentDocument || latest.id !== currentDocument.id) return;
+  try {
+    if (mode === 'external') {
+      reloadCurrentDocumentFromDisk(latest);
+      clearDocumentDraft(latest.id);
+    } else {
+      const body = $(mode === 'merged' ? '#mergedConflictContent' : '#localConflictContent').value;
+      if (mode === 'copy') {
+        await api('/documents', {method:'POST', body:JSON.stringify({title:`${$('#documentTitle').value}（冲突副本）`, category:$('#documentCategory').value, tags:selectedDocumentTags(), body})});
+        reloadCurrentDocumentFromDisk(latest);
+      } else {
+        const saved = await api(`/documents/${encodeURIComponent(latest.id)}`, {method:'PATCH', body:JSON.stringify({title:$('#documentTitle').value, category:$('#documentCategory').value, tags:selectedDocumentTags(), body, expected_revision:latest.revision})});
+        reloadCurrentDocumentFromDisk(saved);
+      }
+      clearDocumentDraft(latest.id);
+    }
+    recordConflict.close();
+    await refreshDocuments();
+    notify('文档冲突已处理');
+  } catch (error) {
+    documentSession.dirty = true;
+    persistDocumentDraft();
+    if (error.status === 409) showDocumentConflict(await api(`/documents/${encodeURIComponent(latest.id)}`));
+    else notify('冲突处理失败', error.message, true);
+  }
+}
+
 $('#conflictExternal').addEventListener('click', async () => {
+  if (conflictKind === 'document') { await resolveDocumentConflict('external'); return; }
   if (!recordConflict.current) return; const id = recordConflict.current.id; recordSession.dirty = false; clearEditorDraft(id); recordConflict.close(); await refreshData(); await openDrawer(id); notify('已载入磁盘版本');
 });
 $('#conflictLocal').addEventListener('click', async () => {
-  if (!recordConflict.current || !currentRecord) return; const id = currentRecord.id; const body = $('#localConflictContent').value; const changes = {body, ...(currentRecord.type === 'info' ? drawerInfoPayload() : {})}; recordConflict.close(); recordSession.dirty = false; await updateRecord(id, changes, '已保留工作台版本'); clearEditorDraft(id); await openDrawer(id);
+  if (conflictKind === 'document') { await resolveDocumentConflict('local'); return; }
+  if (!recordConflict.current || !currentRecord) return;
+  const id = currentRecord.id;
+  const changes = {body:$('#localConflictContent').value, expected_revision:recordConflict.current.revision, ...(currentRecord.type === 'info' ? drawerInfoPayload() : {})};
+  try {
+    await updateRecord(id, changes, '已保留工作台版本');
+    recordConflict.close(); recordSession.dirty = false; clearEditorDraft(id); await openDrawer(id);
+  } catch { recordSession.dirty = true; persistEditorDraft(); }
 });
 $('#conflictCopy').addEventListener('click', async () => {
+  if (conflictKind === 'document') { await resolveDocumentConflict('copy'); return; }
   if (!recordConflict.current || !currentRecord) return;
   try {
     const copyPayload = {type:currentRecord.type, title:`${currentRecord.title}（冲突副本）`, project_id:currentRecord.project_id, tags:currentRecord.tags || [], body:$('#localConflictContent').value, links:[currentRecord.id], ...(currentRecord.type === 'info' ? drawerInfoPayload() : {status:currentRecord.status, priority:currentRecord.priority})};
@@ -4851,7 +4932,14 @@ $('#conflictCopy').addEventListener('click', async () => {
   } catch (error) { notify('副本保存失败', error.message, true); }
 });
 $('#conflictMerged').addEventListener('click', async () => {
-  if (!recordConflict.current || !currentRecord) return; const id = currentRecord.id; const body = $('#mergedConflictContent').value; const changes = {body, ...(currentRecord.type === 'info' ? drawerInfoPayload() : {})}; recordConflict.close(); recordSession.dirty = false; await updateRecord(id, changes, '合并结果已保存'); clearEditorDraft(id); await openDrawer(id);
+  if (conflictKind === 'document') { await resolveDocumentConflict('merged'); return; }
+  if (!recordConflict.current || !currentRecord) return;
+  const id = currentRecord.id;
+  const changes = {body:$('#mergedConflictContent').value, expected_revision:recordConflict.current.revision, ...(currentRecord.type === 'info' ? drawerInfoPayload() : {})};
+  try {
+    await updateRecord(id, changes, '合并结果已保存');
+    recordConflict.close(); recordSession.dirty = false; clearEditorDraft(id); await openDrawer(id);
+  } catch { recordSession.dirty = true; persistEditorDraft(); }
 });
 $('#confirmImport').addEventListener('click', async () => {
   if (!pendingImport) return;
@@ -5239,7 +5327,7 @@ async function initialize() {
               const mtime = String(latestOpenDocument.file_mtime || '');
               if ($('#documentDialog').dataset.pendingExternalMtime !== mtime) {
                 $('#documentDialog').dataset.pendingExternalMtime = mtime;
-                notify('检测到外部文档修改', '当前还有未保存编辑，请先保存或放弃后重新打开文档', true);
+                showDocumentConflict(latestOpenDocument);
               }
             } else reloadCurrentDocumentFromDisk(latestOpenDocument);
           }
@@ -5300,7 +5388,7 @@ function handleBeforeUnload(event) {
     fetch(`/api/records/${encodeURIComponent(currentRecord.id)}`, {
       method:'PATCH',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({title:$('.drawer-title').value.trim() || currentRecord.title, body:localEditorContent(), ...(currentRecord.type === 'info' ? drawerInfoPayload() : {})}),
+      body:JSON.stringify({expected_revision:currentRecord.revision, title:$('.drawer-title').value.trim() || currentRecord.title, body:localEditorContent(), ...(currentRecord.type === 'info' ? drawerInfoPayload() : {})}),
       keepalive:true
     }).catch(() => {});
   }

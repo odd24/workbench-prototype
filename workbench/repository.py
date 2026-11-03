@@ -18,6 +18,7 @@ from .external_editor import open_file_external, open_markdown_external
 from .markdown_io import load_markdown, now_iso, slugify
 from .projects import ProjectRepository
 from .persistence import atomic_write_json
+from .write_coordinator import coordinated
 from .records import RecordRepository
 from .security import archive_name_for, validate_zip_bytes
 
@@ -31,7 +32,9 @@ class Repository:
         open_file_external_callback=open_file_external,
     ):
         self.root = data_dir.resolve()
-        self._record_id_lock = threading.Lock()
+        self.write_lock = threading.RLock()
+        self.write_guard = None
+        self._record_id_lock = self.write_lock
         self.projects_dir = self.root / "projects"
         self.global_ideas_dir = self.root / "ideas"
         self.global_assets_dir = self.root / "assets"
@@ -152,30 +155,37 @@ class Repository:
     def project_sort(self) -> dict:
         return self._configuration_repository.project_sort()
 
+    @coordinated
     def save_project_sort(self, payload: dict) -> dict:
         return self._configuration_repository.save_project_sort(payload)
 
     def document_sort(self) -> dict:
         return self._configuration_repository.document_sort()
 
+    @coordinated
     def save_document_sort(self, payload: dict) -> dict:
         return self._configuration_repository.save_document_sort(payload)
 
     def document_categories(self) -> list[str]:
         return self._configuration_repository.document_categories()
 
+    @coordinated
     def save_document_categories(self, categories: list) -> list[str]:
         return self._configuration_repository.save_document_categories(categories)
 
+    @coordinated
     def ensure_document_category(self, category: str) -> str:
         return self._configuration_repository.ensure_document_category(category)
 
+    @coordinated
     def rename_document_category(self, old_name: str, new_name: str) -> dict:
         return self._configuration_repository.rename_document_category(old_name, new_name)
 
+    @coordinated
     def delete_document_category(self, name: str) -> dict:
         return self._configuration_repository.delete_document_category(name)
 
+    @coordinated
     def save_workflow_templates(self, payload) -> list[dict]:
         return self._configuration_repository.save_workflow_templates(payload)
 
@@ -185,9 +195,11 @@ class Repository:
     def list_tags(self) -> list[dict]:
         return self._configuration_repository.list_tags()
 
+    @coordinated
     def save_tags(self, payload) -> list[dict]:
         return self._configuration_repository.save_tags(payload)
 
+    @coordinated
     def save_status_templates(self, templates: dict) -> dict:
         return self._configuration_repository.save_status_templates(templates)
 
@@ -200,9 +212,11 @@ class Repository:
     def project(self, project_id: str) -> dict | None:
         return self._project_repository.project(project_id)
 
+    @coordinated
     def create_project(self, payload: dict) -> dict:
         return self._project_repository.create_project(payload)
 
+    @coordinated
     def update_project(self, project_id: str, payload: dict) -> dict:
         return self._project_repository.update_project(project_id, payload)
 
@@ -225,6 +239,7 @@ class Repository:
         self._write_trash_index(index)
         return index[token]
 
+    @coordinated
     def delete_project(self, project_id: str) -> dict:
         return self._project_repository.delete_project(project_id)
 
@@ -242,6 +257,7 @@ class Repository:
                 continue
         return sorted(valid, key=lambda item: str(item.get("deleted_at", "")), reverse=True)
 
+    @coordinated
     def cleanup_trash(self, retention_days: int = 30):
         cutoff = datetime.now(timezone.utc).timestamp() - retention_days * 86400
         for item in list(self.list_trash()):
@@ -252,6 +268,7 @@ class Repository:
             if deleted < cutoff:
                 self.purge_trash(item["token"])
 
+    @coordinated
     def restore_trash(self, token: str) -> dict:
         index = self._trash_index()
         item = index.get(token)
@@ -271,6 +288,7 @@ class Repository:
         self._write_trash_index(index)
         return {**item, "restored_path": str(destination)}
 
+    @coordinated
     def purge_trash(self, token: str) -> dict:
         index = self._trash_index()
         item = index.get(token)
@@ -297,6 +315,7 @@ class Repository:
             raise ValueError("请选择回收站内容")
         return cleaned
 
+    @coordinated
     def batch_restore_trash(self, payload: dict) -> dict:
         tokens = self._trash_tokens(payload)
         index = self._trash_index()
@@ -306,6 +325,7 @@ class Repository:
         restored = [self.restore_trash(token) for token in tokens]
         return {"restored": restored, "count": len(restored)}
 
+    @coordinated
     def batch_purge_trash(self, payload: dict) -> dict:
         tokens = self._trash_tokens(payload)
         index = self._trash_index()
@@ -334,15 +354,19 @@ class Repository:
     def concept_map_categories(self) -> list[str]:
         return self._concept_map_repository.categories()
 
+    @coordinated
     def save_concept_map_categories(self, categories: list) -> list[str]:
         return self._concept_map_repository.save_categories(categories)
 
+    @coordinated
     def ensure_concept_map_category(self, category: str) -> str:
         return self._concept_map_repository.ensure_category(category)
 
+    @coordinated
     def rename_concept_map_category(self, old_name: str, new_name: str) -> dict:
         return self._concept_map_repository.rename_category(old_name, new_name)
 
+    @coordinated
     def delete_concept_map_category(self, name: str) -> dict:
         return self._concept_map_repository.delete_category(name)
 
@@ -352,12 +376,15 @@ class Repository:
     def _write_concept_map(self, path: Path, item: dict) -> dict:
         return self._concept_map_repository.write(path, item)
 
+    @coordinated
     def create_concept_map(self, payload: dict) -> dict:
         return self._concept_map_repository.create(payload)
 
+    @coordinated
     def update_concept_map(self, map_id: str, payload: dict) -> dict:
         return self._concept_map_repository.update(map_id, payload)
 
+    @coordinated
     def delete_concept_map(self, map_id: str) -> dict:
         return self._concept_map_repository.delete(map_id)
 
@@ -370,18 +397,22 @@ class Repository:
     def list_document_backlinks(self, document_id: str) -> list[dict]:
         return self._document_repository.list_document_backlinks(document_id)
 
+    @coordinated
     def create_document(self, payload: dict) -> dict:
         return self._document_repository.create_document(payload)
 
+    @coordinated
     def update_document(self, document_id: str, payload: dict) -> dict:
         return self._document_repository.update_document(document_id, payload)
 
     def open_document_external(self, document_id: str) -> dict:
         return self._document_repository.open_document_external(document_id)
 
+    @coordinated
     def delete_document(self, document_id: str) -> dict:
         return self._document_repository.delete_document(document_id)
 
+    @coordinated
     def import_document(self, payload: dict) -> dict:
         return self._document_repository.import_document(payload)
 
@@ -406,13 +437,14 @@ class Repository:
                 if not path.is_file() or path.is_symlink():
                     continue
                 resolved = path.resolve()
-                if resolved.is_relative_to(self.trash_dir) or resolved in excluded_files or path.name.startswith(".workbench-"):
+                if resolved.is_relative_to(self.trash_dir) or resolved in excluded_files or path.name.startswith(".workbench-") or resolved.is_relative_to(self.root / ".agent"):
                     continue
                 archive_name = archive_name_for(source, path)
                 if archive_name:
                     archive.write(path, archive_name)
         return validate_zip_bytes(memory.getvalue())
 
+    @coordinated
     def import_markdown(self, payload: dict) -> dict:
         return self._record_repository.import_markdown(payload)
 
@@ -440,12 +472,15 @@ class Repository:
     def _next_id(self, record_type: str) -> str:
         return self._record_repository._next_id(record_type)
 
+    @coordinated
     def create_record(self, payload: dict) -> dict:
         return self._record_repository.create_record(payload)
 
+    @coordinated
     def update_record(self, record_id: str, payload: dict) -> dict:
         return self._record_repository.update_record(record_id, payload)
 
+    @coordinated
     def convert_record(self, record_id: str, target_type: str) -> dict:
         return self._record_repository.convert_record(record_id, target_type)
 
@@ -458,9 +493,26 @@ class Repository:
     def list_history(self, record_id: str) -> list[dict]:
         return self._record_repository.list_history(record_id)
 
-    def restore_history(self, record_id: str, version: str) -> dict:
-        return self._record_repository.restore_history(record_id, version)
+    def read_history(self, item_id: str, version: str) -> dict:
+        from .history import read_snapshot
+        return read_snapshot(self.history_dir, item_id, version)
 
+    def list_document_history(self, document_id: str) -> list[dict]:
+        from .history import list_snapshots
+        if not self.get_document(document_id)[0]:
+            raise FileNotFoundError(document_id)
+        return list_snapshots(self.history_dir, document_id)
+
+    @coordinated
+    def restore_document_history(self, document_id: str, version: str, expected_revision=None) -> dict:
+        snapshot = self.read_history(document_id, version)
+        return self.update_document(document_id, {**snapshot, "expected_revision": expected_revision})
+
+    @coordinated
+    def restore_history(self, record_id: str, version: str, expected_revision=None) -> dict:
+        return self._record_repository.restore_history(record_id, version, expected_revision)
+
+    @coordinated
     def add_attachment(self, record_id: str, filename: str, encoded_content: str) -> dict:
         return self._attachment_repository.add_attachment(record_id, filename, encoded_content)
 
@@ -470,6 +522,7 @@ class Repository:
     def _register_record_attachment(self, record: dict, record_path: Path, candidate: Path, size: int, append_to_body: bool = True) -> dict:
         return self._attachment_repository._register_record_attachment(record, record_path, candidate, size, append_to_body)
 
+    @coordinated
     def add_record_attachment_stream(self, record_id: str, filename: str, stream, length: int, append_to_body: bool = True) -> dict:
         return self._attachment_repository.add_record_attachment_stream(record_id, filename, stream, length, append_to_body)
 
@@ -499,9 +552,11 @@ class Repository:
     def project_asset_categories(self, project_id: str) -> list[dict]:
         return self._attachment_repository.project_asset_categories(project_id)
 
+    @coordinated
     def save_project_asset_categories(self, project_id: str, categories: list[dict]) -> list[dict]:
         return self._attachment_repository.save_project_asset_categories(project_id, categories)
 
+    @coordinated
     def ensure_project_asset_category(self, project_id: str, category: str) -> str:
         return self._attachment_repository.ensure_project_asset_category(project_id, category)
 
@@ -518,15 +573,19 @@ class Repository:
     def _register_project_asset(self, project_id: str, candidate: Path, size: int, category: str) -> dict:
         return self._attachment_repository._register_project_asset(project_id, candidate, size, category)
 
+    @coordinated
     def add_project_asset(self, project_id: str, filename: str, encoded_content: str, category: str = "未分类") -> dict:
         return self._attachment_repository.add_project_asset(project_id, filename, encoded_content, category)
 
+    @coordinated
     def add_project_asset_stream(self, project_id: str, filename: str, stream, length: int, category: str = "") -> dict:
         return self._attachment_repository.add_project_asset_stream(project_id, filename, stream, length, category)
 
+    @coordinated
     def update_project_asset(self, project_id: str, asset_id: str, payload: dict) -> dict:
         return self._attachment_repository.update_project_asset(project_id, asset_id, payload)
 
+    @coordinated
     def delete_project_asset(self, project_id: str, asset_id: str) -> dict:
         return self._attachment_repository.delete_project_asset(project_id, asset_id)
 
@@ -536,30 +595,37 @@ class Repository:
     def open_project_asset_external(self, project_id: str, asset_id: str) -> dict:
         return self._attachment_repository.open_project_asset_external(project_id, asset_id)
 
+    @coordinated
     def update_record_attachment_category(self, record_id: str, filename: str, category: str) -> dict:
         return self._attachment_repository.update_record_attachment_category(record_id, filename, category)
 
+    @coordinated
     def delete_record_attachment(self, record_id: str, filename: str) -> dict:
         return self._attachment_repository.delete_record_attachment(record_id, filename)
 
+    @coordinated
     def batch_update_assets(self, project_id: str, selections: list[dict], category: str) -> dict:
         return self._attachment_repository.batch_update_assets(project_id, selections, category)
 
+    @coordinated
     def batch_delete_assets(self, project_id: str, selections: list[dict]) -> dict:
         return self._attachment_repository.batch_delete_assets(project_id, selections)
 
     def orphan_assets(self) -> list[dict]:
         return self._attachment_repository.orphan_assets()
 
+    @coordinated
     def cleanup_orphan_assets(self) -> dict:
         return self._attachment_repository.cleanup_orphan_assets()
 
+    @coordinated
     def delete_record(self, record_id: str) -> dict:
         return self._record_repository.delete_record(record_id)
 
     def search(self, query: str) -> list[dict]:
         return self._record_repository.search(query)
 
+    @coordinated
     def seed_demo(self):
         if self.list_projects():
             return

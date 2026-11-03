@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from .write_coordinator import DataDirectoryLock
 from .persistence import atomic_write_bytes, atomic_write_json
 from .security import validate_portable_filename
 
@@ -44,16 +45,23 @@ def relocate_repository(current: Any, raw_path: str, migrate: bool, location_fil
         return current
     if migrate and (target.is_relative_to(current.root) or current.root.is_relative_to(target)):
         raise ValueError("新旧数据目录不能互相嵌套，请选择独立目录")
-    if migrate:
-        if target.exists() and any(target.iterdir()):
-            raise ValueError("复制数据时目标目录必须为空；如需打开已有工作台，请选择“直接使用已有目录”")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        _validate_migration_source(current.root)
-        shutil.copytree(current.root, target, dirs_exist_ok=True)
-    else:
-        target.mkdir(parents=True, exist_ok=True)
-    repository = current.__class__(target)
-    save_data_location(repository.root, location_file)
+    if migrate and target.exists() and any(target.iterdir()):
+        raise ValueError("复制数据时目标目录必须为空；如需打开已有工作台，请选择直接使用已有目录")
+    target.mkdir(parents=True, exist_ok=True)
+    ownership = DataDirectoryLock(target) if getattr(current, "service_lock", None) else None
+    try:
+        if migrate:
+            _validate_migration_source(current.root)
+            shutil.copytree(current.root, target, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".workbench-service.lock"))
+        repository = current.__class__(target)
+        save_data_location(repository.root, location_file)
+    except BaseException:
+        if ownership:
+            ownership.close()
+        raise
+    if ownership:
+        repository.service_lock = ownership
+        current.service_lock.close()
     return repository
 
 

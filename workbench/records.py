@@ -10,6 +10,8 @@ from pathlib import Path
 
 from .markdown_io import dump_markdown, load_markdown_text, normalize_info_fields, now_iso, slugify
 from .persistence import atomic_write_text
+from .write_coordinator import check_revision, file_revision
+from .history import save_snapshot, list_snapshots, read_snapshot
 from .security import validate_portable_filename
 
 
@@ -86,7 +88,7 @@ class RecordRepository:
                 if previous_id:
                     self._record_paths_by_id.pop(previous_id, None)
                 return None
-            record = {**meta, "body": body, "file_path": str(path), "file_mtime": stat.st_mtime_ns}
+            record = {**meta, "body": body, "file_path": str(path), "file_mtime": stat.st_mtime_ns, "revision": file_revision(path)}
             self._record_cache[path] = (stat.st_mtime_ns, stat.st_size, record)
             record_id = str(record.get("id", ""))
             if previous_id and previous_id != record_id:
@@ -206,6 +208,9 @@ class RecordRepository:
         record, path = self.get_record(record_id)
         if not record:
             raise FileNotFoundError(record_id)
+        check_revision(path, payload)
+        self._forget_record(path)
+        record, _ = self.get_record(record_id)
         editable = {"title", "status", "priority", "tags", "due", "completed", "links", "attachments", "info_fields", "info_color", "body"}
         if record.get("type") == "info":
             editable -= {"status", "priority", "due", "completed"}
@@ -219,6 +224,7 @@ class RecordRepository:
         body = updated.pop("body")
         updated.pop("file_path", None)
         updated.pop("file_mtime", None)
+        updated.pop("revision", None)
         self._save_history(record_id, path)
         atomic_write_text(path, dump_markdown(updated, body))
         self._forget_record(path)
@@ -247,7 +253,7 @@ class RecordRepository:
         body = record.get("body", "")
         metadata = {
             key: value for key, value in record.items()
-            if key not in {"body", "file_path", "file_mtime"}
+            if key not in {"body", "file_path", "file_mtime", "revision"}
         }
         metadata["type"] = target_type
         metadata["updated"] = now_iso()
@@ -269,34 +275,15 @@ class RecordRepository:
         return {"ok": True, "editor": editor, "record_id": record_id, "file": path.name}
 
     def _save_history(self, record_id: str, source: Path):
-        directory = self.history_dir / record_id
-        directory.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-        shutil.copy2(source, directory / f"{stamp}.md")
-        versions = sorted(directory.glob("*.md"), reverse=True)
-        for old_version in versions[30:]:
-            old_version.unlink()
+        save_snapshot(self.history_dir, record_id, source)
 
     def list_history(self, record_id: str) -> list[dict]:
-        directory = self.history_dir / record_id
-        if not directory.exists():
-            return []
-        versions = []
-        for path in sorted(directory.glob("*.md"), reverse=True):
-            meta, body = self.load_markdown(path)
-            versions.append({"version": path.stem, "updated": meta.get("updated"), "title": meta.get("title"), "status": meta.get("status"), "preview": body[:180]})
-        return versions
+        return list_snapshots(self.history_dir, record_id)
 
-    def restore_history(self, record_id: str, version: str) -> dict:
-        if not re.fullmatch(r"\d{8}-\d{6}-\d{6}", version):
-            raise ValueError("历史版本标识无效")
-        source = self.history_dir / record_id / f"{version}.md"
-        current, current_path = self.get_record(record_id)
-        if not current or not source.exists():
-            raise FileNotFoundError(record_id)
-        restored_meta, restored_body = self.load_markdown(source)
-        payload = {key: value for key, value in restored_meta.items() if key not in {"id", "type", "project_id", "created", "updated"}}
-        payload["body"] = restored_body
+    def restore_history(self, record_id: str, version: str, expected_revision=None) -> dict:
+        restored = read_snapshot(self.history_dir, record_id, version)
+        payload = {key: value for key, value in restored.items() if key not in {"id", "type", "project_id", "created", "updated", "version"}}
+        payload["expected_revision"] = expected_revision
         return self.update_record(record_id, payload)
 
     def delete_record(self, record_id: str) -> dict:

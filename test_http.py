@@ -61,6 +61,22 @@ class HTTPIntegrationTests(unittest.TestCase):
         status, headers, content = self.request(method, path, payload=payload, body=body)
         return status, headers, json.loads(content.decode("utf-8"))
 
+    def test_revision_conflicts_and_document_history_http(self):
+        for endpoint, extra in [("records", {"type": "issue", "project_id": self.project["id"]}), ("documents", {})]:
+            status, _, item = self.request_json("POST", f"/api/{endpoint}", {"title": "条件保存", "body": "旧正文", **extra})
+            self.assertEqual(status, 201)
+            status, _, saved = self.request_json("PATCH", f"/api/{endpoint}/{item['id']}", {"body": "新正文", "expected_revision": item["revision"]})
+            self.assertEqual(status, 200)
+            status, _, error = self.request_json("PATCH", f"/api/{endpoint}/{item['id']}", {"body": "不能覆盖", "expected_revision": item["revision"]})
+            self.assertEqual(status, 409)
+            status, _, versions = self.request_json("GET", f"/api/{endpoint}/{item['id']}/history")
+            self.assertEqual(status, 200)
+            status, _, snapshot = self.request_json("GET", f"/api/{endpoint}/{item['id']}/history/{versions[0]['version']}")
+            self.assertEqual(snapshot["body"], "旧正文")
+            status, _, restored = self.request_json("POST", f"/api/{endpoint}/{item['id']}/restore", {"version": versions[0]["version"], "expected_revision": saved["revision"]})
+            self.assertEqual(status, 200)
+            self.assertEqual(restored["body"], "旧正文")
+
     def request_with_content_length(self, value):
         connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
         try:

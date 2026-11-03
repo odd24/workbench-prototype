@@ -10,6 +10,8 @@ from pathlib import Path
 
 from .markdown_io import dump_markdown, load_markdown, load_markdown_text, now_iso, slugify
 from .persistence import atomic_write_text
+from .write_coordinator import check_revision, file_revision
+from .history import save_snapshot
 from .security import validate_archive_member, validate_portable_filename, validate_zip_bytes
 
 
@@ -39,7 +41,7 @@ class DocumentRepository:
             if meta.get("type") != "document":
                 continue
             meta.pop("document_type", None)
-            documents.append({**meta, "body": body, "file_path": str(path), "file_mtime": path.stat().st_mtime_ns})
+            documents.append({**meta, "body": body, "file_path": str(path), "file_mtime": path.stat().st_mtime_ns, "revision": file_revision(path)})
         return sorted(documents, key=lambda item: item.get("updated", ""), reverse=True)
 
     def document_signatures(self) -> list[dict]:
@@ -151,24 +153,26 @@ class DocumentRepository:
         body = str(payload.get("body", "")).strip() or f"# {title}\n\n"
         path = self.documents_dir / f"{document_id}-{slugify(title)}.md"
         atomic_write_text(path, dump_markdown(meta, body))
-        return {**meta, "body": body, "file_path": str(path), "file_mtime": path.stat().st_mtime_ns}
+        return {**meta, "body": body, "file_path": str(path), "file_mtime": path.stat().st_mtime_ns, "revision": file_revision(path)}
 
     def update_document(self, document_id: str, payload: dict) -> dict:
         document, path = self.get_document(document_id)
         if not document or not path:
             raise FileNotFoundError(document_id)
+        check_revision(path, payload)
         title = str(payload.get("title", document.get("title", ""))).strip()
         if not title:
             raise ValueError("文档标题不能为空")
-        meta = {key: value for key, value in document.items() if key not in {"body", "file_path", "file_mtime"}}
+        meta = {key: value for key, value in document.items() if key not in {"body", "file_path", "file_mtime", "revision"}}
         tags_payload = payload.get("tags", document.get("tags", []))
         tags = list(dict.fromkeys(str(tag).strip() for tag in tags_payload if str(tag).strip())) if isinstance(tags_payload, list) else document.get("tags", [])
         meta.pop("document_type", None)
         category = self.ensure_document_category(str(payload.get("category", document.get("category", "未分类"))))
         meta.update({"title": title, "category": category, "tags": tags, "updated": now_iso()})
         body = str(payload.get("body", document.get("body", "")))
+        save_snapshot(self.documents_dir.parent / "history", document_id, path)
         atomic_write_text(path, dump_markdown(meta, body))
-        return {**meta, "body": body, "file_path": str(path), "file_mtime": path.stat().st_mtime_ns}
+        return {**meta, "body": body, "file_path": str(path), "file_mtime": path.stat().st_mtime_ns, "revision": file_revision(path)}
 
     def open_document_external(self, document_id: str) -> dict:
         document, path = self.get_document(document_id)
@@ -204,7 +208,7 @@ class DocumentRepository:
         document, path = self.get_document(document_id)
         if not document or not path:
             raise FileNotFoundError(document_id)
-        meta = {key: value for key, value in document.items() if key not in {"body", "file_path", "file_mtime", "document_type"}}
+        meta = {key: value for key, value in document.items() if key not in {"body", "file_path", "file_mtime", "revision", "document_type"}}
         return dump_markdown(meta, document.get("body", "")).encode("utf-8"), f"{document_id}.md"
 
     def export_documents_zip(self, document_ids: list[str] | None = None) -> bytes:

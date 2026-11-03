@@ -23,6 +23,8 @@ Python ThreadingHTTPServer
 - `workbench/projects.py`、`records.py`、`documents.py`、`concept_maps.py`、`assets.py`：领域文件、校验、缓存和 CRUD。
 - `workbench/configuration.py`：工作流、标签、分类和排序配置。
 - `workbench/markdown_io.py`：轻量 front matter 与 Markdown I/O。
+- `workbench/write_coordinator.py`：Repository 共享可重入写锁、SHA-256 内容版本检查及服务数据目录独占锁；服务取得目录锁后才装配仓储。
+- `workbench/history.py`：记录与知识库共用的原子 Markdown 历史快照、读取和保留规则。
 - `workbench/persistence.py`：同目录临时文件、flush/fsync 和 `os.replace` 原子覆盖。
 - `workbench/security.py`：文件名、分类、ZIP 成员和归档边界校验。
 - `workbench/paths.py`、`external_editor.py`：数据目录、导出位置、Markdown 编辑器和附件默认应用的进程边界。
@@ -59,7 +61,7 @@ Markdown
 
 ## 状态与并发
 
-`Workbench.appState` 将服务器数据、UI、编辑器和草稿状态分组。请求注册表按通道和资源身份拒绝过期异步结果。记录与文档轮询先比较轻量签名，只下载变化资源；脏编辑进入冲突流程，不能静默覆盖。
+`Workbench.appState` 将服务器数据、UI、编辑器和草稿状态分组。请求注册表按通道和资源身份拒绝过期异步结果。记录与文档轮询先比较轻量签名，只下载变化资源；脏编辑进入冲突流程，不能静默覆盖。记录和文档保存携带 `expected_revision`，服务端在共享写锁内比较实际文件 SHA-256；不匹配返回 409 并保留草稿。旧调用方省略版本时保持兼容，但不具备条件写入保护。外部编辑器不受服务锁控制，校验与替换间仍存在跨程序竞态；更新前历史保留旧内容。
 
 ## 样式
 

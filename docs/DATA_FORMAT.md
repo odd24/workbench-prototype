@@ -51,7 +51,7 @@ workbench-data/
 
 ## 历史、删除和兼容
 
-记录更新前的版本写入 `history/<record-id>/`。项目、记录、文档和概念图删除默认移动到 `.trash`，只有明确永久删除才不可恢复。
+记录和知识库文档更新前的版本写入 `history/<record-id>/`。项目、记录、文档和概念图删除默认移动到 `.trash`，只有明确永久删除才不可恢复。
 
 旧文件采用兼容读取，不要求批量原地迁移。读取异常旧项时应跳过或降级，而不是清空整个配置。任何格式变更都必须增加旧格式与写入后重读测试。
 
@@ -60,3 +60,11 @@ workbench-data/
 `config/settings.json` 保存当前绝对数据目录，只供本机运行使用；仓库根目录的 `.workbench-location.json`、`.workbench-export.json` 和 `.workbench-editor.json` 也属于本机配置。这些文件不得提交，也不进入可移植 ZIP。
 
 完整 ZIP 包含业务 Markdown、概念图、可移植配置、附件和历史，但排除 `.trash`、符号链接及本机路径设置。项目 ZIP 只包含该项目目录。当前没有 ZIP 一键导入；恢复完整备份时解压到新目录并以 `--data-dir` 打开。
+
+## 内容版本与历史 API
+
+读取记录/文档返回 `revision`（磁盘字节 SHA-256），保存和历史恢复可传 `expected_revision`；旧 `file_mtime` 保留。版本字段只存在于 API，不写入 front matter。条件失败返回 409，不写正文和历史。
+
+记录 `/api/records/<ID>/history` 与文档 `/api/documents/<ID>/history` 提供历史列表；后接 `/<version>` 可读取完整快照，`POST /api/{records|documents}/<ID>/restore` 接受 version 和 expected_revision。恢复本身会保存当前内容的历史。历史保留最近 30 份，新版本名为时间戳加唯一后缀，旧时间戳版本继续可读。
+
+数据目录根的 `.workbench-service.lock` 是操作系统持有的运行锁，不属于业务数据、导出或迁移内容；文件存在不代表服务仍运行，锁随进程结束释放。

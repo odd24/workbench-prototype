@@ -40,6 +40,7 @@ from workbench.paths import (
     save_data_location,
     save_export_location,
 )
+from workbench.write_coordinator import DataDirectoryLock
 from workbench.records import TYPE_DIRS, TYPE_PREFIXES
 from workbench.repository import Repository as BaseRepository
 
@@ -140,16 +141,23 @@ def build_argument_parser() -> argparse.ArgumentParser:
 
 def main(argv=None):
     args = build_argument_parser().parse_args(argv)
-    repository = Repository(configured_data_dir(args.data_dir))
-    if args.seed_demo:
-        repository.seed_demo()
-    if args.replace and replace_existing_workbench(args.host, args.port, repository.root):
+    data_root = configured_data_dir(args.data_dir).resolve()
+    if args.replace and replace_existing_workbench(args.host, args.port, data_root):
         print(f"本地工作台已在运行：http://{args.host}:{args.port}")
         if args.open:
             webbrowser.open(f"http://{args.host}:{args.port}/?session={int(time.time())}")
         return
-    WorkbenchHandler.repository = repository
-    server = WorkbenchHTTPServer((args.host, args.port), WorkbenchHandler)
+    ownership = DataDirectoryLock(data_root)
+    try:
+        repository = Repository(data_root)
+        repository.service_lock = ownership
+        WorkbenchHandler.repository = repository
+        server = WorkbenchHTTPServer((args.host, args.port), WorkbenchHandler)
+    except BaseException:
+        ownership.close()
+        raise
+    if args.seed_demo:
+        repository.seed_demo()
     print(f"本地工作台已启动：http://{args.host}:{args.port}")
     print(f"Markdown 数据目录：{repository.root}")
     if args.open:
@@ -159,6 +167,8 @@ def main(argv=None):
         server.serve_forever()
     except KeyboardInterrupt:
         print("\n服务已停止")
+    finally:
+        server.server_close()
 
 
 if __name__ == "__main__":

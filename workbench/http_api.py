@@ -12,6 +12,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
+from .write_coordinator import DataDirectoryLock
 from .external_editor import external_editor_payload, save_external_editor
 from .paths import (
     directory_browser_payload,
@@ -23,7 +24,7 @@ from .paths import (
 
 
 APP_DIR = Path(__file__).resolve().parent.parent
-APP_VERSION = "2026.10.27.1"
+APP_VERSION = "2026.11.03.1"
 MAX_JSON_BODY_BYTES = 15_000_000
 
 
@@ -31,6 +32,19 @@ class WorkbenchHTTPServer(ThreadingHTTPServer):
     """Use an exclusive port so repeated launches cannot mix server versions."""
 
     allow_reuse_address = False
+
+    def __init__(self, address, handler):
+        repository = handler.repository
+        repository.service_lock = getattr(repository, "service_lock", None) or DataDirectoryLock(repository.root)
+        try:
+            super().__init__(address, handler)
+        except BaseException:
+            repository.service_lock.close()
+            raise
+
+    def server_close(self):
+        super().server_close()
+        self.RequestHandlerClass.repository.service_lock.close()
 
     def server_bind(self):
         if sys.platform == "win32" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
@@ -111,7 +125,10 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
         self.wfile.write(content)
 
     def _get_document_resource(self, path: str) -> bool:
-        if path.startswith("/api/documents/") and path.endswith("/export"):
+        parts = path.strip("/").split("/")
+        if len(parts) in {4, 5} and parts[:2] == ["api", "documents"] and parts[3] == "history":
+            self._json(self.repository.read_history(parts[2], parts[4]) if len(parts) == 5 else self.repository.list_document_history(parts[2]))
+        elif path.startswith("/api/documents/") and path.endswith("/export"):
             document_id = path.strip("/").split("/")[-2]
             content, filename = self.repository.export_document(document_id)
             self._bytes(content, "text/markdown; charset=utf-8", filename)
@@ -178,7 +195,9 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             self._json([record for record in self.repository.record_signatures() if record.get("type") != "idea"])
         elif path.startswith("/api/records/"):
             parts = path.strip("/").split("/")
-            if len(parts) == 4 and parts[-1] == "history":
+            if len(parts) == 5 and parts[3] == "history":
+                self._json(self.repository.read_history(parts[2], parts[4]))
+            elif len(parts) == 4 and parts[-1] == "history":
                 self._json(self.repository.list_history(parts[-2]))
             else:
                 record, _ = self.repository.get_record(parts[-1])
@@ -252,6 +271,9 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                 return self._bytes(self.repository.export_documents_zip(cleaned), "application/zip", "knowledge-documents.zip")
             if path == "/api/documents/import":
                 return self._json(self.repository.import_document(self._body()), HTTPStatus.CREATED)
+            if path.startswith("/api/documents/") and path.endswith("/restore"):
+                payload = self._body()
+                return self._json(self.repository.restore_document_history(path.split("/")[-2], payload.get("version", ""), payload.get("expected_revision")))
             if path == "/api/documents":
                 return self._json(self.repository.create_document(self._body()), HTTPStatus.CREATED)
             if path == "/api/concept-maps":
@@ -305,7 +327,8 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                     payload = self._body()
                     return self._json(self.repository.add_attachment(parts[-2], payload.get("name", ""), payload.get("content", "")), HTTPStatus.CREATED)
                 if len(parts) == 4 and parts[-1] == "restore":
-                    return self._json(self.repository.restore_history(parts[-2], self._body().get("version", "")))
+                    payload = self._body()
+                    return self._json(self.repository.restore_history(parts[-2], payload.get("version", ""), payload.get("expected_revision")))
             return self._json({"error": "接口不存在"}, HTTPStatus.NOT_FOUND)
         except FileNotFoundError as exc:
             return self._json({"error": f"资源不存在：{exc}"}, HTTPStatus.NOT_FOUND)
@@ -323,7 +346,7 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
         try:
             if path == "/api/data-directory":
                 payload = self._body()
-                with self.repository_switch_lock:
+                with self.repository_switch_lock, self.repository.write_lock:
                     repository = relocate_repository(
                         self.repository,
                         str(payload.get("path", "")),

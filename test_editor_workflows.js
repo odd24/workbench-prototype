@@ -577,6 +577,8 @@ async function main() {
     assert.ok(result.rows >= 2, '历史列表应至少包含两个版本');
     assert.match(result.previews, /历史版本一/);
     await client.evaluate(`(() => { $('[data-restore-version]', $('#historyList')).click(); return true; })()`);
+    await waitForPage(client, `$('#appDialog').open`);
+    await client.evaluate(`(() => { $('#appDialogConfirm').click(); return true; })()`);
     await waitForPage(client, `!$('#historyDialog').open && currentRecord?.id === ${recordId} && localEditorContent() !== '历史版本二'`);
     result = await client.evaluate(`({body:localEditorContent(), id:currentRecord.id})`);
     const restoredOnDisk = await request(`/records/${record.id}`);
@@ -645,6 +647,44 @@ async function main() {
     assert.deepEqual(result, {body:'文档本地未保存', dirty:true, pending:true});
     await client.evaluate(`(() => { window.fetch = window.__rf501NativeFetch; delete window.__rf501NativeFetch; delete window.__rf501Fetches; return true; })()`);
 
+    for (const mode of ['local', 'merged', 'external']) {
+      await client.evaluate(`(() => {
+        if ($('#conflictDialog').open) recordConflict.close();
+        setDocumentMode('visual');
+        documentEditorHost.render('文档工作台 ${mode}', true); markDocumentChanged(); documentSession.cancel();
+        return true;
+      })()`);
+      await writeExternalBody(`/documents/${documentItem.id}`, `文档磁盘 ${mode}`);
+      await client.evaluate(`(async () => { await saveDocument({notifyUser:false}); return true; })()`);
+      await waitForPage(client, `$('#conflictDialog').open && conflictKind === 'document'`);
+      await client.evaluate(`(() => { if (${JSON.stringify(mode)} === 'merged') $('#mergedConflictContent').value = '文档合并结果'; $('#conflict${mode === 'local' ? 'Local' : mode === 'merged' ? 'Merged' : 'External'}').click(); return true; })()`);
+      await waitForPage(client, `!$('#conflictDialog').open && !documentSession.dirty`);
+      const savedDocument = await request(`/documents/${documentItem.id}`);
+      assert.equal(savedDocument.body, mode === 'local' ? `文档工作台 ${mode}` : mode === 'merged' ? '文档合并结果' : `文档磁盘 ${mode}`);
+    }
+    await client.evaluate(`(async () => { await showHistory('document'); return true; })()`);
+    assert.ok(await client.evaluate(`$$('[data-restore-version]', $('#historyList')).length > 0`));
+    await client.evaluate(`(() => { $('[data-preview-version]', $('#historyList')).click(); return true; })()`);
+    await waitForPage(client, `Boolean($('#historySnapshot'))`);
+    await client.evaluate(`(() => { $('[data-restore-version]', $('#historyList')).click(); return true; })()`);
+    await waitForPage(client, `$('#appDialog').open`);
+    await client.evaluate(`(() => { $('#appDialogConfirm').click(); return true; })()`);
+    await waitForPage(client, `!$('#historyDialog').open && !documentSession.dirty`);
+    const documentRestoredOnDisk = await request(`/documents/${documentItem.id}`);
+    assert.equal(await client.evaluate('documentMarkdownContent()'), documentRestoredOnDisk.body);
+
+    if (process.env.WORKBENCH_EDITOR_SCREENSHOTS) {
+      for (const theme of ['light', 'dark']) {
+        for (const width of [1440, 390]) {
+          await client.call('Emulation.setDeviceMetricsOverride', {width, height:900, deviceScaleFactor:1, mobile:false});
+          await client.evaluate(`document.body.classList.toggle('dark', ${theme === 'dark'})`);
+          await client.evaluate(`(() => { documentOutlineCollapsed = ${width < 600}; $('#documentOutline').classList.toggle('collapsed', documentOutlineCollapsed); return true; })()`);
+          await delay(250);
+          const screenshot = await client.call('Page.captureScreenshot', {format:'png'});
+          fs.writeFileSync(path.join(process.env.WORKBENCH_EDITOR_SCREENSHOTS, `editor-${theme}-${width}.png`), Buffer.from(screenshot.data, 'base64'));
+        }
+      }
+    }
     console.log('Editor workflow browser tests passed: save,retry,close,switch,reopen,draft,history,incremental-external-refresh,record-conflicts,document-external-guard');
   } finally {
     client?.close();

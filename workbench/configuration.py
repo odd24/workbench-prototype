@@ -195,11 +195,7 @@ class ConfigurationRepository:
         for document in self.list_documents():
             if str(document.get("category") or "未分类") != old_name:
                 continue
-            path = Path(document["file_path"])
-            meta = {key: value for key, value in document.items() if key not in {"body", "file_path", "file_mtime"}}
-            meta["category"] = new_name
-            meta["updated"] = now_iso()
-            atomic_write_text(path, dump_markdown(meta, document.get("body", "")))
+            self.update_document(document["id"], {"category": new_name, "expected_revision": document["revision"]})
             changed += 1
         renamed_categories = [new_name if category == old_name else category for category in categories]
         saved_categories = self.save_document_categories(renamed_categories)
@@ -225,10 +221,7 @@ class ConfigurationRepository:
         for document in self.list_documents():
             if str(document.get("category") or "未分类") != name:
                 continue
-            path = Path(document["file_path"])
-            meta = {key: value for key, value in document.items() if key not in {"body", "file_path", "file_mtime"}}
-            meta["category"], meta["updated"] = "未分类", now_iso()
-            atomic_write_text(path, dump_markdown(meta, document.get("body", "")))
+            self.update_document(document["id"], {"category": "未分类", "expected_revision": document["revision"]})
             changed += 1
         remaining = [category for category in categories if category != name]
         if "未分类" not in remaining:

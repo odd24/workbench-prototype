@@ -48,7 +48,7 @@ python server.py
 
 ## 开发与维护
 
-通用 AI Agent 接入正在实施，当前提供需显式启用的本机认证和只读 HTTP 接口。预览确认入库与 Codex MCP 仍在开发；运行和授权见 [接入说明](docs/AGENT_INTEGRATION.md)，范围与进度见 [实施方案](docs/AI_AGENT_PLAN.md) 和 [实施台账](docs/AI_AGENT_PROGRESS.md)。
+通用 AI Agent 接入正在实施，当前提供需显式启用的本机认证、查询、提案预览和确认入库 HTTP 接口。Codex MCP 仍在开发；运行和授权见 [接入说明](docs/AGENT_INTEGRATION.md)，范围与进度见 [实施方案](docs/AI_AGENT_PLAN.md) 和 [实施台账](docs/AI_AGENT_PROGRESS.md)。
 
 项目没有包管理器或构建步骤。架构和模块职责见 [架构说明](docs/ARCHITECTURE.md)，日常修改、测试和发布步骤见 [维护说明](docs/MAINTENANCE.md)。重构执行事实记录在 [进度台账](docs/REFACTORING_PROGRESS.md)。
 

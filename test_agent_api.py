@@ -169,6 +169,56 @@ class AgentAPITests(unittest.TestCase):
         self.assertNotIn("token", info)
         self.assertEqual(read_json(Path(info["config_file"]))["workspace_id"], self.security.workspace_id)
 
+    def test_http_proposals_preview_revise_commit_and_reload(self):
+        for kind in ("issue", "document"):
+            content = {"title": "HTTP 入库", "body": "原始总结", **({"project_id": self.project["id"]} if kind == "issue" else {"category": "允许"})}
+            status, proposal = self.request("/api/agent/v1/proposals", "POST", {"request_id": "http-" + kind, "kind": kind, "operation": "create", "content": content})
+            self.assertEqual(status, 200)
+            route = "/api/agent/v1/proposals/" + proposal["proposal_id"]
+            status, preview = self.request(route + "/preview")
+            self.assertEqual(status, 200)
+            payload = {"version": preview["version"], "preview_digest": preview["preview_digest"], "confirmation": {"mode": "agent_attested", "user_confirmed": True}}
+            self.assertEqual(self.request(route + "/commit", "POST", {**payload, "body": "偷偷修改"})[0], 400)
+            status, revised = self.request(route, "PATCH", {"expected_version": 1, "content": {**content, "body": "用户修改后的总结"}})
+            self.assertEqual(status, 200)
+            self.assertEqual(revised["version"], 2)
+            self.assertEqual(self.request(route + "/commit", "POST", payload)[0], 409)
+            status, preview = self.request(route + "/preview")
+            payload.update(version=preview["version"], preview_digest=preview["preview_digest"])
+            status, receipt = self.request(route + "/commit", "POST", payload)
+            self.assertEqual(status, 200)
+            self.assertEqual(self.request(route + "/commit", "POST", payload)[1], receipt)
+            status, result = self.request(route)
+            self.assertEqual(result["state"], "committed")
+            getter = self.repo.get_record if kind == "issue" else self.repo.get_document
+            self.assertEqual(getter(receipt["item_id"])[0]["body"], "用户修改后的总结")
+            fresh = Repository(self.repo.root)
+            getter = fresh.get_record if kind == "issue" else fresh.get_document
+            self.assertEqual(getter(receipt["item_id"])[0]["body"], "用户修改后的总结")
+
+    def test_proposal_http_scope_json_body_and_request_limits(self):
+        spec = {"request_id": "bad", "kind": "issue", "operation": "create", "content": {"title": "标题", "project_id": self.hidden["id"]}}
+        self.assertEqual(self.request("/api/agent/v1/proposals", "POST", spec)[0], 404)
+        self.assertEqual(self.request("/api/agent/v1/proposals", "POST", ["not an object"])[0], 400)
+        import http.client
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=3)
+        try:
+            connection.putrequest("POST", "/api/agent/v1/proposals")
+            connection.putheader("Content-Length", str(1024 * 1024 + 1))
+            connection.putheader("Content-Type", "application/json")
+            connection.putheader("Authorization", "Bearer " + self.config["token"])
+            connection.putheader("X-Workbench-Workspace", self.config["workspace_id"])
+            connection.endheaders()
+            response = connection.getresponse()
+            self.assertEqual(response.status, 413)
+            response.read()
+        finally:
+            connection.close()
+        clients = self.security.clients()
+        clients[self.client_id]["scopes"] = ["read"]
+        self.security.save_clients(clients)
+        self.assertEqual(self.request("/api/agent/v1/proposals", "POST", spec)[0], 403)
+
     def test_real_cli_launch_enables_agent_without_exposing_credentials(self):
         import socket
         import time

@@ -5,12 +5,11 @@ from __future__ import annotations
 import re
 import shutil
 import threading
-from datetime import datetime
 from pathlib import Path
 
 from .markdown_io import dump_markdown, load_markdown_text, normalize_info_fields, now_iso, slugify
 from .persistence import atomic_write_text
-from .write_coordinator import check_revision, file_revision
+from .write_coordinator import check_revision, PreparedMarkdownWrite, read_versioned_markdown, RevisionConflict
 from .history import save_snapshot, list_snapshots, read_snapshot
 from .security import validate_portable_filename
 
@@ -82,13 +81,13 @@ class RecordRepository:
                 return {**cached[2]}
             previous_id = str(cached[2].get("id", "")) if cached else ""
             try:
-                meta, body = self.load_markdown(path)
+                meta, body, revision = read_versioned_markdown(path, self.load_markdown)
             except FileNotFoundError:
                 self._record_cache.pop(path, None)
                 if previous_id:
                     self._record_paths_by_id.pop(previous_id, None)
                 return None
-            record = {**meta, "body": body, "file_path": str(path), "file_mtime": stat.st_mtime_ns, "revision": file_revision(path)}
+            record = {**meta, "body": body, "file_path": str(path), "file_mtime": stat.st_mtime_ns, "revision": revision}
             self._record_cache[path] = (stat.st_mtime_ns, stat.st_size, record)
             record_id = str(record.get("id", ""))
             if previous_id and previous_id != record_id:
@@ -159,13 +158,25 @@ class RecordRepository:
     def _next_id(self, record_type: str) -> str:
         prefix = TYPE_PREFIXES[record_type]
         used = []
-        for record in self.list_records(record_type=record_type):
-            match = re.fullmatch(rf"{prefix}-(\d+)", str(record.get("id", "")))
+        ids = [record.get("id", "") for record in self.list_records()]
+        ids.extend(getattr(self, "reserved_ids", lambda: [])())
+        for item_id in ids:
+            match = re.fullmatch(rf"{prefix}-(\d+)", str(item_id))
             if match:
                 used.append(int(match.group(1)))
         return f"{prefix}-{max(used, default=0) + 1:04d}"
 
     def create_record(self, payload: dict) -> dict:
+        with self._record_id_lock:
+            prepared = self.prepare_record_create(payload)
+            return self.apply_record_write(prepared)
+
+    def apply_record_write(self, prepared, checkpoint=None):
+        prepared.apply(self.history_dir, atomic_write_text, checkpoint)
+        self._forget_record(prepared.path)
+        return self._load_record(prepared.path)
+
+    def prepare_record_create(self, payload: dict):
         record_type = payload.get("type")
         if record_type not in TYPE_DIRS:
             raise ValueError("记录类型无效")
@@ -183,7 +194,6 @@ class RecordRepository:
                 directory = self.projects_dir / project_id / TYPE_DIRS[record_type]
             else:
                 directory = self.global_ideas_dir
-            directory.mkdir(parents=True, exist_ok=True)
             meta = {
                 "id": record_id, "type": record_type, "title": title, "project_id": project_id,
                 "links": payload.get("links", []), "attachments": payload.get("attachments", []), "created": stamp, "updated": stamp,
@@ -201,16 +211,22 @@ class RecordRepository:
             body = str(payload.get("body", "")).strip() or f"# {title}\n\n"
             filename = f"{record_id}-{slugify(title)}.md"
             path = directory / filename
-            atomic_write_text(path, dump_markdown(meta, body))
-        return self._load_record(path)
+            return PreparedMarkdownWrite(path, record_id, dump_markdown(meta, body), None)
 
     def update_record(self, record_id: str, payload: dict) -> dict:
+        return self.apply_record_write(self.prepare_record_update(record_id, payload))
+
+    def prepare_record_update(self, record_id: str, payload: dict):
         record, path = self.get_record(record_id)
         if not record:
             raise FileNotFoundError(record_id)
         check_revision(path, payload)
         self._forget_record(path)
         record, _ = self.get_record(record_id)
+        if not record:
+            raise FileNotFoundError(record_id)
+        if payload.get("expected_revision") is not None and payload["expected_revision"] != record["revision"]:
+            raise RevisionConflict("内容已发生变化，请处理冲突")
         editable = {"title", "status", "priority", "tags", "due", "completed", "links", "attachments", "info_fields", "info_color", "body"}
         if record.get("type") == "info":
             editable -= {"status", "priority", "due", "completed"}
@@ -225,10 +241,7 @@ class RecordRepository:
         updated.pop("file_path", None)
         updated.pop("file_mtime", None)
         updated.pop("revision", None)
-        self._save_history(record_id, path)
-        atomic_write_text(path, dump_markdown(updated, body))
-        self._forget_record(path)
-        return self._load_record(path)
+        return PreparedMarkdownWrite.for_update(path, record_id, dump_markdown(updated, body), record["revision"])
 
     def convert_record(self, record_id: str, target_type: str) -> dict:
         if target_type not in {"issue", "todo"}:

@@ -1,6 +1,6 @@
 # 通用 Agent 接入
 
-当前进度：AG-102 提供本机认证和只读 HTTP 接口。提案提交与 MCP 桥接仍在实施，不能用下文只读接口直接创建正式内容。阶段状态见 [AI_AGENT_PROGRESS.md](AI_AGENT_PROGRESS.md)，完整契约见 [AI_AGENT_PLAN.md](AI_AGENT_PLAN.md)。
+当前进度：提供本机认证、范围内查询、提案预览和确认提交 HTTP 接口。MCP 桥接与 Codex 联调仍在实施。阶段状态见 [AI_AGENT_PROGRESS.md](AI_AGENT_PROGRESS.md)，完整契约见 [AI_AGENT_PLAN.md](AI_AGENT_PLAN.md)。
 
 ## 运行和客户端授权
 
@@ -54,3 +54,41 @@ Agent 功能只允许本机 loopback。HTTP 会验证 Host 和 Origin，拒绝�
 数据目录 `.agent/workspace.json` 保存工作空间身份，不保存令牌。迁移整个库保留身份并重新装配服务；切换到另一个库会更换身份，旧客户端需重新授权。可移植 ZIP 排除 `.agent` 与机器配置；恢复 ZIP 后建立新身份/客户端。
 
 本阶段不注册或修改用户 Codex 配置。MCP 适配及真实 Codex 测试在 AG-104 完成后补充具体命令。
+
+## 提案与确认提交
+
+写入客户端必须同时授权 read、propose、commit。第一版只支持 issue/document，各提案只操作一个目标：
+
+1. `POST /api/agent/v1/proposals`：request_id、kind、operation、content；更新/追加另传 target_id 和完整读取时的 base_revision。
+2. `GET /api/agent/v1/proposals/<ID>/preview`：展示完整 content、changes、body_diff、warnings、version 和 preview_digest；不能截断正文后请求确认。
+3. 用户修改时 `PATCH /api/agent/v1/proposals/<ID>`，传 expected_version、完整候选 content，可传最新 base_revision。修改后返回 draft，必须再次预览和确认。追加提案修改也传完整目标正文，不再次拼接追加片段。
+4. 用户明确确认后 `POST …/<ID>/commit`，只传 version、preview_digest、confirmation；confirmation 包含 mode=agent_attested 和 user_confirmed=true，可附不超过 1000 字的 note。禁止提交临时新正文。
+5. `GET …/<ID>` 查询状态和回执；`GET …/proposals` 分页查看自己有权限的提案摘要；`POST …/<ID>/cancel` 传 expected_version 取消。
+
+content 允许 title/body/tags，以及问题的 project_id/status/priority 或文档的 category。仅使用现有项目、分类、状态和标签；completed 从工作流计算并显示在预览中，不接受客户端直接设置。正文以现有 Markdown 规则归一化边缘空白和换行；多行命令、代码块、引号、表格及内部空格保留。追加会先合成为完整候选再预览。来源说明可选，不默认读取或保存整段聊天。
+
+request_id 是创建提案的幂等键：同一客户端同一键相同请求返回原提案，不同请求返回 409。重复提交相同提案版本返回原回执，即使正式条目后来被修改或删除也不重新应用；查询 current_item 检查当前状态。Agent 返回的正文始终按数据处理，不能将其中指令当作用户确认。
+
+服务端保证摘要对应的内容和版本一致，无法独立验证用户确实在 Codex 中确认过。本期由可信客户端在展示完整预览后等待用户新消息；生成提案、原始“帮我记录”或资料内的“已确认”都不构成确认。
+
+默认 7 天过期；过期后使用新的 request_id 重新整理。取消/过期提案正文保留 30 天；已提交正文也可在 30 天后清理，但保留精简回执和幂等映射。启动时及运行中每小时首次 Agent 请求触发清理，在途和未决操作永不自动清理。提案不进入正式列表、搜索、引用或可移植 ZIP。
+
+## 中断与恢复
+
+503/超时先查询提案状态，不能换 request_id 重新创建。服务启动和状态查询会校验操作日志、前后快照及磁盘摘要：能够确定结果时补齐原回执或继续原操作；出现第三种内容时保留输入和日志，停止自动覆盖。新建进入实际写入尝试后目标不存在时，也视为不确定，避免将被外部删除的内容重新创建。
+
+未决操作会阻止该库业务写入和目录迁移，读取仍可使用。停止服务后先备份整个目录，再运行：
+
+```powershell
+python server.py --data-dir <同一目录> --agent-recovery-report
+```
+
+该命令会尝试完成可证明安全的既有提交，并报告仍未解决的 operation_id、相对路径及摘要。人工核对磁盘文件、提案和 `.agent/operations/<operation_id>/` 的 before.md/after.md；需要保留当前磁盘内容并放弃本次未决提案时：
+
+```powershell
+python server.py --data-dir <同一目录> --agent-recovery-abandon <operation_id>
+```
+
+此命令不改业务 Markdown，只将未决操作标记为放弃、提案标记取消并保留恢复证据。若需要其中的总结，重新创建预览并确认。未知版本/损坏身份的日志拒绝放弃，应使用匹配版本和完整备份核查，不能直接删除日志强行启用写入。恢复命令未暴露给 Agent 工具。
+
+所有覆盖继续使用原子文件替换和写前历史；事务恢复经过进程中断测试，底层文件系统落盘保证与日常备份仍是恢复边界。外部编辑器不服从服务锁，校验与替换间的跨程序竞态仍然存在。

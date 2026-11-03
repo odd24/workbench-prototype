@@ -72,3 +72,11 @@ workbench-data/
 ## Agent 工作空间身份（AG-102）
 
 启用 Agent 或创建客户端时按需生成 .agent/workspace.json，包含 schema_version=1 与随机 workspace_id；旧库无该目录仍可正常使用。未知版本拒绝启用。凭据在本机外部用户配置目录，业务目录只存身份；.agent 不进入可移植 ZIP。迁移整个目录保留身份，切换已有目录重新校验身份。
+
+## Agent 提案和提交日志（AG-103）
+
+.agent/proposals/<UUID>.json 保存 schema_version=1、workspace/client 身份、版本、候选内容、基础版本、预览摘要和状态；与编辑器 localStorage 草稿完全分离。正常状态为 draft/previewed/committing/committed，另有 conflicted/cancelled/expired/recovery_required。
+
+.agent/operations/<proposal-id>-<version>/ 保存 manifest.json 和前后 Markdown 快照。日志只使用库内相对目标路径，状态为 prepared/applying/committed/abandoned；.agent/receipts/<proposal-id>.json 保留正式 ID、版本、提交摘要和位置。历史快照版本写入日志，使更新恢复不会重复消耗历史保留数。精简回执/已记录操作参与新 ID 分配，防止旧操作重试引用已复用的 ID。
+
+所有新增 JSON 使用原子替换；进程中断后依次比较回执和磁盘摘要恢复，不能简单把多文件原子写称为单一事务。第三方内容和不确定删除不自动覆盖。提案清理只删除已终结内容及对应安全快照，幂等映射仍保留；在途数据不清理。完整 ZIP 不包含这些流程状态，文件级灾难恢复需停止服务后完整复制，降级前须处理在途日志。

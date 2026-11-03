@@ -142,6 +142,8 @@ def build_argument_parser() -> argparse.ArgumentParser:
     admin.add_argument("--agent-client-add", metavar="NAME", help="创建 Agent 客户端后退出")
     admin.add_argument("--agent-client-revoke", metavar="ID", help="撤销 Agent 客户端后退出")
     admin.add_argument("--agent-client-rotate", metavar="ID", help="轮换 Agent 客户端令牌后退出")
+    admin.add_argument("--agent-recovery-report", action="store_true", help="停止服务后检查 Agent 恢复状态")
+    admin.add_argument("--agent-recovery-abandon", metavar="OPERATION_ID", help="停止服务后接受当前磁盘状态并取消未决提案")
     parser.add_argument("--agent-scope", action="append", choices=["read", "propose", "commit"], help="允许操作，可重复；默认只读")
     parser.add_argument("--agent-project", action="append", default=[], help="允许项目 ID，可重复；* 表示全部")
     parser.add_argument("--agent-category", action="append", default=[], help="允许文档分类，可重复；* 表示全部")
@@ -151,6 +153,13 @@ def build_argument_parser() -> argparse.ArgumentParser:
 def main(argv=None):
     args = build_argument_parser().parse_args(argv)
     data_root = configured_data_dir(args.data_dir).resolve()
+    if args.agent_recovery_report or args.agent_recovery_abandon:
+        with DataDirectoryLock(data_root):
+            repository = Repository(data_root)
+            store = getattr(repository, "agent_proposals", None)
+            result = ({"blocked": False, "operations": []} if store is None else store.abandon(args.agent_recovery_abandon) if args.agent_recovery_abandon else store.recovery_report())
+            print(json.dumps(result, ensure_ascii=False))
+        return
     if args.enable_agent and args.host not in {"127.0.0.1", "localhost", "::1"}:
         raise ValueError("Agent 接入只允许监听本机 loopback")
     if args.agent_client_add or args.agent_client_revoke or args.agent_client_rotate:

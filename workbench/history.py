@@ -10,10 +10,18 @@ from .persistence import atomic_write_bytes
 
 
 def save_snapshot(history_dir: Path, item_id: str, source: Path):
+    save_snapshot_bytes(history_dir, item_id, source.read_bytes())
+
+
+def save_snapshot_bytes(history_dir: Path, item_id: str, content: bytes, version=None):
     directory = history_dir / item_id
     directory.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f") + "-" + uuid.uuid4().hex[:8]
-    atomic_write_bytes(directory / f"{stamp}.md", source.read_bytes())
+    stamp = version or datetime.now().strftime("%Y%m%d-%H%M%S-%f") + "-" + uuid.uuid4().hex[:8]
+    target = history_path(history_dir, item_id, stamp)
+    if target.exists() and target.read_bytes() != content:
+        raise ValueError("历史快照内容冲突")
+    if not target.exists():
+        atomic_write_bytes(target, content)
     for old in sorted(directory.glob("*.md"), reverse=True)[30:]:
         old.unlink()
 

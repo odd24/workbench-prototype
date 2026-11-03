@@ -10,8 +10,7 @@ from pathlib import Path
 
 from .markdown_io import dump_markdown, load_markdown, load_markdown_text, now_iso, slugify
 from .persistence import atomic_write_text
-from .write_coordinator import check_revision, file_revision
-from .history import save_snapshot
+from .write_coordinator import check_revision, PreparedMarkdownWrite, read_versioned_markdown
 from .security import validate_archive_member, validate_portable_filename, validate_zip_bytes
 
 
@@ -37,11 +36,11 @@ class DocumentRepository:
     def list_documents(self) -> list[dict]:
         documents = []
         for path in self.documents_dir.glob("*.md"):
-            meta, body = load_markdown(path)
+            meta, body, revision = read_versioned_markdown(path, load_markdown)
             if meta.get("type") != "document":
                 continue
             meta.pop("document_type", None)
-            documents.append({**meta, "body": body, "file_path": str(path), "file_mtime": path.stat().st_mtime_ns, "revision": file_revision(path)})
+            documents.append({**meta, "body": body, "file_path": str(path), "file_mtime": path.stat().st_mtime_ns, "revision": revision})
         return sorted(documents, key=lambda item: item.get("updated", ""), reverse=True)
 
     def document_signatures(self) -> list[dict]:
@@ -137,12 +136,22 @@ class DocumentRepository:
         return sorted(backlinks, key=lambda item: item.get("updated", ""), reverse=True)
 
     def create_document(self, payload: dict) -> dict:
+        return self.apply_document_write(self.prepare_document_create(payload))
+
+    def apply_document_write(self, prepared, checkpoint=None):
+        prepared.apply(self.documents_dir.parent / "history", atomic_write_text, checkpoint)
+        meta, body, revision = read_versioned_markdown(prepared.path, load_markdown)
+        return {**meta, "body": body, "file_path": str(prepared.path), "file_mtime": prepared.path.stat().st_mtime_ns, "revision": revision}
+
+    def prepare_document_create(self, payload: dict):
         title = str(payload.get("title", "")).strip()
         if not title:
             raise ValueError("文档标题不能为空")
         used = []
-        for document in self.list_documents():
-            match = re.fullmatch(r"DOC-(\d+)", str(document.get("id", "")))
+        ids = [document.get("id", "") for document in self.list_documents()]
+        ids.extend(getattr(self, "reserved_ids", lambda: [])())
+        for item_id in ids:
+            match = re.fullmatch(r"DOC-(\d+)", str(item_id))
             if match:
                 used.append(int(match.group(1)))
         document_id = f"DOC-{max(used, default=0) + 1:04d}"
@@ -152,10 +161,12 @@ class DocumentRepository:
         meta = {"id": document_id, "type": "document", "title": title, "category": category, "tags": tags, "created": stamp, "updated": stamp}
         body = str(payload.get("body", "")).strip() or f"# {title}\n\n"
         path = self.documents_dir / f"{document_id}-{slugify(title)}.md"
-        atomic_write_text(path, dump_markdown(meta, body))
-        return {**meta, "body": body, "file_path": str(path), "file_mtime": path.stat().st_mtime_ns, "revision": file_revision(path)}
+        return PreparedMarkdownWrite(path, document_id, dump_markdown(meta, body), None)
 
     def update_document(self, document_id: str, payload: dict) -> dict:
+        return self.apply_document_write(self.prepare_document_update(document_id, payload))
+
+    def prepare_document_update(self, document_id: str, payload: dict):
         document, path = self.get_document(document_id)
         if not document or not path:
             raise FileNotFoundError(document_id)
@@ -170,9 +181,7 @@ class DocumentRepository:
         category = self.ensure_document_category(str(payload.get("category", document.get("category", "未分类"))))
         meta.update({"title": title, "category": category, "tags": tags, "updated": now_iso()})
         body = str(payload.get("body", document.get("body", "")))
-        save_snapshot(self.documents_dir.parent / "history", document_id, path)
-        atomic_write_text(path, dump_markdown(meta, body))
-        return {**meta, "body": body, "file_path": str(path), "file_mtime": path.stat().st_mtime_ns, "revision": file_revision(path)}
+        return PreparedMarkdownWrite.for_update(path, document_id, dump_markdown(meta, body), document["revision"])
 
     def open_document_external(self, document_id: str) -> dict:
         document, path = self.get_document(document_id)

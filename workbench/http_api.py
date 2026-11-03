@@ -14,6 +14,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
+from .agent_security import AgentError
 from .write_coordinator import DataDirectoryLock
 from .external_editor import external_editor_payload, save_external_editor
 from .paths import (
@@ -26,7 +27,7 @@ from .paths import (
 
 
 APP_DIR = Path(__file__).resolve().parent.parent
-APP_VERSION = "2026.11.04.1"
+APP_VERSION = "2026.11.04.2"
 MAX_JSON_BODY_BYTES = 15_000_000
 
 
@@ -308,6 +309,8 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             if self._get_project_asset_resource(path) or self._get_record_resource(path, query):
                 return
             return self._json({"error": "接口不存在"}, HTTPStatus.NOT_FOUND)
+        except AgentError as exc:
+            return self._json({"error": str(exc), **exc.payload()}, exc.status)
         except FileExistsError as exc:
             return self._json({"error": str(exc)}, HTTPStatus.CONFLICT)
         except ValueError as exc:
@@ -396,6 +399,8 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             return self._json({"error": "接口不存在"}, HTTPStatus.NOT_FOUND)
         except FileNotFoundError as exc:
             return self._json({"error": f"资源不存在：{exc}"}, HTTPStatus.NOT_FOUND)
+        except AgentError as exc:
+            return self._json({"error": str(exc), **exc.payload()}, exc.status)
         except FileExistsError as exc:
             return self._json({"error": str(exc)}, HTTPStatus.CONFLICT)
         except (ValueError, json.JSONDecodeError) as exc:
@@ -444,6 +449,8 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             if path == "/api/tags":
                 return self._json(self.repository.save_tags(self._body()))
             return self._json({"error": "接口不存在"}, HTTPStatus.NOT_FOUND)
+        except AgentError as exc:
+            return self._json({"error": str(exc), **exc.payload()}, exc.status)
         except FileExistsError as exc:
             return self._json({"error": str(exc)}, HTTPStatus.CONFLICT)
         except (ValueError, json.JSONDecodeError) as exc:
@@ -484,6 +491,8 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             return self._json({"error": "接口不存在"}, HTTPStatus.NOT_FOUND)
         except FileNotFoundError:
             return self._json({"error": "记录不存在"}, HTTPStatus.NOT_FOUND)
+        except AgentError as exc:
+            return self._json({"error": str(exc), **exc.payload()}, exc.status)
         except FileExistsError as exc:
             return self._json({"error": str(exc)}, HTTPStatus.CONFLICT)
         except (ValueError, json.JSONDecodeError) as exc:
@@ -521,6 +530,8 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             return self._json({"error": "接口不存在"}, HTTPStatus.NOT_FOUND)
         except FileNotFoundError:
             return self._json({"error": "记录不存在"}, HTTPStatus.NOT_FOUND)
+        except AgentError as exc:
+            return self._json({"error": str(exc), **exc.payload()}, exc.status)
         except FileExistsError as exc:
             return self._json({"error": str(exc)}, HTTPStatus.CONFLICT)
         except (ValueError, json.JSONDecodeError) as exc:

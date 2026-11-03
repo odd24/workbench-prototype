@@ -100,7 +100,37 @@ class Repository:
             self.list_projects,
             lambda path: open_file_external_callback(path),
         )
-        self.cleanup_trash()
+        self._record_repository.reserved_ids = self.reserved_resource_ids
+        self._document_repository.reserved_ids = self.reserved_resource_ids
+        if (self.root / ".agent" / "workspace.json").exists():
+            from .agent_proposals import ProposalStore
+            self.agent_proposals = ProposalStore(self)
+            self.agent_proposals.recover()
+            self.write_guard = self.agent_proposals.guard_writes
+            if not self.agent_proposals.blocked:
+                self.agent_proposals.cleanup()
+        if not getattr(getattr(self, "agent_proposals", None), "blocked", False):
+            self.cleanup_trash()
+
+    def reserved_resource_ids(self):
+        ids = {path.name for path in self.history_dir.iterdir() if path.is_dir()}
+        ids.update(item.get("id", "") for item in self._trash_index().values())
+        for path in (self.root / ".agent" / "receipts").glob("*.json"):
+            ids.add(json.loads(path.read_text(encoding="utf-8")).get("item_id", ""))
+        for path in (self.root / ".agent" / "operations").glob("*/manifest.json"):
+            ids.add(json.loads(path.read_text(encoding="utf-8")).get("item_id", ""))
+        return ids
+
+    def prepare_markdown_write(self, kind, content, target_id=None, base_revision=None):
+        domain = self._document_repository if kind == "document" else self._record_repository
+        name = "document" if kind == "document" else "record"
+        if target_id:
+            return getattr(domain, f"prepare_{name}_update")(target_id, {**content, "expected_revision": base_revision})
+        return getattr(domain, f"prepare_{name}_create")({**content, **({"type": "issue"} if kind == "issue" else {})})
+
+    def apply_markdown_write(self, kind, prepared, checkpoint=None):
+        domain = self._document_repository if kind == "document" else self._record_repository
+        return (domain.apply_document_write if kind == "document" else domain.apply_record_write)(prepared, checkpoint)
 
     def _ensure_config(self):
         settings = self.config_dir / "settings.json"

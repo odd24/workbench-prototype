@@ -59,6 +59,43 @@ class WriteCoordinatorTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.repo.restore_document_history(item["id"], bad.stem)
 
+    def test_parser_race_never_pairs_old_body_with_new_revision(self):
+        from workbench.markdown_io import load_markdown, dump_markdown
+        from workbench.persistence import atomic_write_text
+        item = self.repo.create_record({"type": "issue", "title": "读取竞态", "body": "旧正文", "project_id": self.project["id"]})
+        path = Path(item["file_path"])
+        self.repo._forget_record(path)
+        original = self.repo._record_repository.load_markdown
+        changed = False
+        def racing_parser(source):
+            nonlocal changed
+            meta, body = original(source)
+            if source == path and not changed:
+                changed = True
+                atomic_write_text(source, dump_markdown(meta, "新正文"))
+            return meta, body
+        self.repo._record_repository.load_markdown = racing_parser
+        read, _ = self.repo.get_record(item["id"])
+        self.assertEqual(read["body"], "新正文")
+        self.assertEqual(read["revision"], hashlib.sha256(path.read_bytes()).hexdigest())
+        with self.assertRaises(RevisionConflict):
+            self.repo.update_record(item["id"], {"body": "旧页面保存", "expected_revision": item["revision"]})
+
+    def test_change_after_initial_version_check_is_not_overwritten(self):
+        from workbench.markdown_io import load_markdown, dump_markdown
+        from workbench.persistence import atomic_write_text
+        from workbench.write_coordinator import check_revision
+        item = self.repo.create_record({"type": "issue", "title": "条件检查竞态", "body": "原文", "project_id": self.project["id"]})
+        path = Path(item["file_path"])
+        def check_then_change(source, payload):
+            check_revision(source, payload)
+            meta, _ = load_markdown(source)
+            atomic_write_text(source, dump_markdown(meta, "外部刚刚保存"))
+        with patch("workbench.records.check_revision", side_effect=check_then_change):
+            with self.assertRaises(RevisionConflict):
+                self.repo.update_record(item["id"], {"body": "不能覆盖", "expected_revision": item["revision"]})
+        self.assertEqual(load_markdown(path)[1], "外部刚刚保存")
+
     def test_category_migration_keeps_revision_out_of_metadata_and_saves_history(self):
         doc = self.repo.create_document({"title": "分类迁移", "category": "旧分类"})
         self.repo.rename_document_category("旧分类", "新分类")

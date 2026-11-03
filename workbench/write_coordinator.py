@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
 
@@ -13,7 +14,21 @@ class RevisionConflict(FileExistsError):
 
 
 def file_revision(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return content_revision(path.read_bytes())
+
+
+def content_revision(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
+
+
+def read_versioned_markdown(path, loader):
+    # Retain the injectable parser, but never pair old content with a new hash.
+    for _attempt in range(3):
+        before = path.read_bytes()
+        meta, body = loader(path)
+        if path.read_bytes() == before:
+            return meta, body, content_revision(before)
+    raise RevisionConflict("文件在读取过程中持续变化，请稍后重试")
 
 
 def check_revision(path: Path, payload: dict):
@@ -31,6 +46,43 @@ def coordinated(method):
                 guard()
             return method(self, *args, **kwargs)
     return call
+
+
+@dataclass
+class PreparedMarkdownWrite:
+    """Domain-produced bytes that can be journaled before application."""
+
+    path: Path
+    item_id: str
+    text: str
+    before: bytes | None
+    history_version: str | None = None
+
+    @classmethod
+    def for_update(cls, path, item_id, text, revision):
+        before = path.read_bytes()
+        if content_revision(before) != revision:
+            raise RevisionConflict("文件在准备过程中发生变化，请重新预览")
+        return cls(path, item_id, text, before)
+
+    @property
+    def after(self):
+        return self.text.encode("utf-8")
+
+    def apply(self, history_dir, writer, checkpoint=None):
+        from .history import save_snapshot_bytes
+        current = self.path.read_bytes() if self.path.exists() else None
+        if current != self.before:
+            raise RevisionConflict("文件在准备写入后发生变化，请重新预览")
+        if self.before is not None:
+            save_snapshot_bytes(history_dir, self.item_id, self.before, self.history_version)
+        if checkpoint:
+            checkpoint("history")
+        writer(self.path, self.text)
+        if self.path.read_bytes() != self.after:
+            raise RevisionConflict("文件在提交过程中发生变化，请检查恢复日志")
+        if checkpoint:
+            checkpoint("target")
 
 
 class DataDirectoryLock:

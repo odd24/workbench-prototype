@@ -72,3 +72,5 @@ CSS 按以下固定次序加载：令牌、基础、组件、布局、记录、�
 显式 --enable-agent 后装配 AgentSecurity 和 AgentService，/api/agent/v1/* 由 agent_http.py 分派；不在桥接进程装配 Repository。业务逻辑位于 agent_service.py，提案和恢复位于 agent_proposals.py；正式写入复用领域仓储的 PreparedMarkdownWrite，不在协议层复制 CRUD。Agent 凭据在仓库/数据目录外保存，工作空间身份在 .agent/workspace.json；迁移后重新装配服务。提案独立于业务文件；提交持久操作日志后应用正式 Markdown，最后写入回执。未决日志会阻止普通写入，重启即使关闭 Agent 接入仍要执行恢复。
 
 静态服务只允许 index.html 和其显式版本化资源，拒绝目录与源码访问。Host/Origin 校验和旧接口拒绝 Agent Authorization 在协议层处理；HTTP 写入与目录切换串行化，领域写入仍使用 Repository 的可重入锁。
+
+stdio MCP 入口为 agent_bridge.py，workbench/mcp_stdio.py 只负责协议和本机 HTTP 调用，agent_tools.py 定义公开工具及 Schema/使用规则；不会装配 Repository 或调用模型。协议/凭据错误输出脱敏，stdout 只含 JSON-RPC。真实 Codex 联调脚本使用隔离配置和临时工作空间，不更改用户现有设置。

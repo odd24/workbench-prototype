@@ -89,7 +89,7 @@ class AgentSecurity:
                 raise ValueError("范围必须是非空字符串列表；空列表表示不授权")
         from urllib.parse import urlsplit
         parsed = urlsplit(base_url)
-        if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"} or parsed.username or parsed.password or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+        if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"} or parsed.username or parsed.password or parsed.path not in {"", "/"} or parsed.query or parsed.fragment or not 1 <= (parsed.port if parsed.port is not None else 80) <= 65535:
             raise ValueError("Agent 地址必须是本机 HTTP origin")
         client_id, token = str(uuid.uuid4()), secrets.token_urlsafe(32)
         with DataDirectoryLock(self.config_dir):

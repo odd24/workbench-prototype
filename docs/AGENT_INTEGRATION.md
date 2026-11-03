@@ -1,6 +1,6 @@
 # 通用 Agent 接入
 
-当前进度：提供本机认证、范围内查询、提案预览和确认提交 HTTP 接口。MCP 桥接与 Codex 联调仍在实施。阶段状态见 [AI_AGENT_PROGRESS.md](AI_AGENT_PROGRESS.md)，完整契约见 [AI_AGENT_PLAN.md](AI_AGENT_PLAN.md)。
+当前进度：提供本机认证、范围内查询、提案预览和确认提交 HTTP 接口，以及已通过真实 Codex 客户端验证的 stdio MCP 桥接。网页打开链接和最终发布验收在 AG-105 完成。阶段状态见 [AI_AGENT_PROGRESS.md](AI_AGENT_PROGRESS.md)，完整契约见 [AI_AGENT_PLAN.md](AI_AGENT_PLAN.md)。
 
 ## 运行和客户端授权
 
@@ -53,7 +53,39 @@ Agent 功能只允许本机 loopback。HTTP 会验证 Host 和 Origin，拒绝�
 
 数据目录 `.agent/workspace.json` 保存工作空间身份，不保存令牌。迁移整个库保留身份并重新装配服务；切换到另一个库会更换身份，旧客户端需重新授权。可移植 ZIP 排除 `.agent` 与机器配置；恢复 ZIP 后建立新身份/客户端。
 
-本阶段不注册或修改用户 Codex 配置。MCP 适配及真实 Codex 测试在 AG-104 完成后补充具体命令。
+安装和验收不会自动修改用户的 Codex 配置；正式接入按下面步骤登记。
+
+## Codex 和通用 MCP 客户端
+
+先创建拥有 read/propose/commit 的客户端，并选择明确的项目和知识库分类范围。使用前述创建命令分别重复 --agent-scope read、--agent-scope propose、--agent-scope commit；保留返回的 config_file 路径。启动带 --enable-agent 的工作台后，在 Codex CLI 登记：
+
+```powershell
+codex mcp add workbench -- python "<仓库绝对路径>/agent_bridge.py" --config "<config_file 绝对路径>"
+codex mcp list
+```
+
+路径含空格必须加引号；python 必须指向 Python 3.11+，必要时使用解释器绝对路径。桥接与仓库脚本位置相关，但启动工作目录可以不同。登记后在新 Codex 会话中检查 workbench 工具；已运行会话不保证自动加载新配置。更换项目范围通过客户端授权管理，不能在提示词里覆盖权限。
+
+其他 MCP 客户端使用相同程序和参数数组：command 为 Python 解释器，args 为 agent_bridge.py 的绝对路径、--config 和配置文件绝对路径，不需要 Codex SDK、模型 API Key 或第二个 Repository。当前只声明并实现 MCP `2025-11-25` 握手协议的 tools 能力；不同版本客户端需接受版本协商，不宣称支持未实现的新协议。
+
+提供 12 个工具：capabilities、list_projects、get_catalog、search、get_item、list_proposals、prepare_proposal、revise_proposal、preview_proposal、commit_proposal、get_proposal、cancel_proposal（均带 workbench_ 前缀）。完整规则见 [AGENT_USAGE.md](AGENT_USAGE.md)，可复制到其他客户端的项目指令。
+
+桥接进程不启动工作台服务、不扫描聊天、不执行命令、不调用模型。标准输出只有 UTF-8 JSON-RPC，诊断写标准错误；配置每次请求重读，令牌轮换生效。HTTP 仅使用配置的 loopback origin（localhost 固定连接 127.0.0.1），不使用环境代理、不跟随重定向，默认超时 10 秒，响应上限 8 MiB。输入单消息最多 1 MiB。EOF、取消通知和断线都不撤销已经接受的提交，需要查询原提案状态。
+
+停用时执行 `codex mcp remove workbench`，并撤销对应工作台客户端；移除配置不等于撤销令牌。工作台默认 Codex 权限设置与入库预览是不同层次，接入指引不会替用户关闭客户端审批设置。
+
+开发验收命令：
+
+```powershell
+python -m unittest test_mcp_stdio -v
+python codex_agent_acceptance.py
+```
+
+第二个命令使用真实 Codex App Server、独立临时配置目录、临时工作台和临时会话，通过其 MCP 工具调用接口执行完整流程，不启动模型 turn，不读取用户 Codex 登录资料或修改现有配置。它验证工具发现、两类新建、预览修改后确认、问题追加、文档更新、重试、取消、重启和撤销；确认声明使用测试夹具，不能当成独立人类认证。当前实测客户端为 codex-cli 0.163.0-alpha.10.2。
+
+协议错误 -32002 表示尚未初始化，-32602 表示参数/顺序错误；工具业务失败通过 isError 和结构化错误体返回。服务离线返回可重试 service_unavailable，身份/响应无效返回 invalid_connection，均不回显令牌或原始异常。需要协议诊断时可在桥接进程环境显式设置 WORKBENCH_MCP_TRACE=1，只记录失败方法、参数字段名及错误码，不记录值。
+
+依据：[Codex MCP 官方文档](https://learn.chatgpt.com/docs/extend/mcp)、[Codex App Server 工具调用接口](https://learn.chatgpt.com/docs/app-server)、[MCP 2025-11-25 工具规范](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)。接入命令和协议以实际安装版本的帮助及独立验收结果为准。
 
 ## 提案与确认提交
 

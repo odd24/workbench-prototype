@@ -51,7 +51,7 @@ class StartupBoundaryTests(unittest.TestCase):
             configured.assert_called_once_with(data_dir)
             repository_type.assert_not_called()  # Reusing a service must not touch its data directory.
             repository.seed_demo.assert_not_called()  # Reused service owns all writes.
-            replace.assert_called_once_with("127.0.0.1", 4174, data_dir.resolve())
+            replace.assert_called_once_with("127.0.0.1", 4174, data_dir.resolve(), agent_enabled=False)
             browser_open.assert_called_once()
             http_server.assert_not_called()
 

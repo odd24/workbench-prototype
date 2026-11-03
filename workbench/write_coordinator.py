@@ -67,3 +67,9 @@ class DataDirectoryLock:
             import fcntl
             fcntl.flock(self.stream.fileno(), fcntl.LOCK_UN)
         self.stream.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        self.close()

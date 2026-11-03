@@ -68,3 +68,7 @@ workbench-data/
 记录 `/api/records/<ID>/history` 与文档 `/api/documents/<ID>/history` 提供历史列表；后接 `/<version>` 可读取完整快照，`POST /api/{records|documents}/<ID>/restore` 接受 version 和 expected_revision。恢复本身会保存当前内容的历史。历史保留最近 30 份，新版本名为时间戳加唯一后缀，旧时间戳版本继续可读。
 
 数据目录根的 `.workbench-service.lock` 是操作系统持有的运行锁，不属于业务数据、导出或迁移内容；文件存在不代表服务仍运行，锁随进程结束释放。
+
+## Agent 工作空间身份（AG-102）
+
+启用 Agent 或创建客户端时按需生成 .agent/workspace.json，包含 schema_version=1 与随机 workspace_id；旧库无该目录仍可正常使用。未知版本拒绝启用。凭据在本机外部用户配置目录，业务目录只存身份；.agent 不进入可移植 ZIP。迁移整个目录保留身份，切换已有目录重新校验身份。

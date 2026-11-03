@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import re
+from functools import wraps
 import socket
 import sys
 import threading
@@ -24,8 +26,17 @@ from .paths import (
 
 
 APP_DIR = Path(__file__).resolve().parent.parent
-APP_VERSION = "2026.11.03.1"
+APP_VERSION = "2026.11.04.1"
 MAX_JSON_BODY_BYTES = 15_000_000
+
+
+def serialized_write(method):
+    @wraps(method)
+    def call(self):
+        with self.repository_switch_lock, self.repository.write_lock:
+            return method(self)
+    return call
+
 
 
 class WorkbenchHTTPServer(ThreadingHTTPServer):
@@ -37,6 +48,8 @@ class WorkbenchHTTPServer(ThreadingHTTPServer):
         repository = handler.repository
         repository.service_lock = getattr(repository, "service_lock", None) or DataDirectoryLock(repository.root)
         try:
+            if address[0] == "::1":
+                self.address_family = socket.AF_INET6
             super().__init__(address, handler)
         except BaseException:
             repository.service_lock.close()
@@ -54,10 +67,56 @@ class WorkbenchHTTPServer(ThreadingHTTPServer):
 
 class WorkbenchHandler(SimpleHTTPRequestHandler):
     repository: object
-    repository_switch_lock = threading.Lock()
+    repository_switch_lock = threading.RLock()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(APP_DIR), **kwargs)
+
+    def parse_request(self):
+        if not super().parse_request():
+            return False
+        port = self.server.server_address[1]
+        hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+        bound_host = self.server.server_address[0]
+        if bound_host not in {"0.0.0.0", "::"}:
+            hosts.add(f"{bound_host}:{port}")
+        if port == 80:
+            hosts.update({"127.0.0.1", "localhost", "[::1]"})
+        path = unquote(urlparse(self.path).path)
+        error = None
+        if self.headers.get("Host", "") not in hosts:
+            error = "请求主机不受信任"
+        elif self.headers.get("Origin") and self.headers["Origin"] not in {f"http://{host}" for host in hosts}:
+            error = "不允许跨来源访问工作台"
+        elif path.startswith('/api/') and self.headers.get('Sec-Fetch-Site') == 'cross-site':
+            error = "不允许跨站点访问工作台"
+        elif path.startswith('/api/') and not path.startswith('/api/agent/') and self.headers.get('Authorization'):
+            error = "Agent 凭据只能用于 Agent 接口"
+        if error:
+            self.close_connection = True
+            self._json({"error": error, "code": "forbidden", "message": error, "retryable": False, "details": {}, "request_id": None}, 403)
+            return False
+        return True
+
+    def send_head(self):
+        # Only resources explicitly loaded by the static entry point are public.
+        path = unquote(urlparse(self.path).path)
+        entry = APP_DIR / "index.html"
+        resources = {"/", "/index.html"}
+        resources.update("/" + match for match in re.findall(r'(?:src|href)="([^"?]+)\?v=[^" ]+"', entry.read_text(encoding="utf-8")))
+        target = APP_DIR / ("index.html" if path == "/" else path.lstrip("/"))
+        if path not in resources or target.resolve() != target.absolute() or not target.is_file():
+            self.send_error(404, "Resource not found")
+            return None
+        return super().send_head()
+
+    def _dispatch_agent(self):
+        if not unquote(urlparse(self.path).path).startswith("/api/agent/"):
+            return False
+        from .agent_http import dispatch
+        with self.repository_switch_lock:
+            dispatch(self)
+        return True
 
     def log_message(self, fmt, *args):
         sys.stdout.write(f"[{self.log_date_time_string()}] {fmt % args}\n")
@@ -216,12 +275,14 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
         return True
 
     def do_GET(self):
+        if self._dispatch_agent():
+            return
         path, query = self._route()
         if not path.startswith("/api/"):
             return super().do_GET()
         try:
             if path == "/api/health":
-                return self._json({"ok": True, "data_dir": str(self.repository.root), "app_version": APP_VERSION})
+                return self._json({"ok": True, "data_dir": str(self.repository.root), "app_version": APP_VERSION, "agent_enabled": bool(getattr(self.repository, "agent_service", None))})
             if path.startswith("/api/markdown-images/"):
                 file_path = self.repository.markdown_image_path(path.rsplit("/", 1)[-1], (query.get("path") or [""])[0])
                 return self._inline_file(file_path) if file_path else self._json({"error": "图片不存在"}, HTTPStatus.NOT_FOUND)
@@ -254,7 +315,10 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             return self._json({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
+    @serialized_write
     def do_POST(self):
+        if self._dispatch_agent():
+            return
         path, query = self._route()
         try:
             if path == "/api/projects":
@@ -341,7 +405,10 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             return self._json({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
+    @serialized_write
     def do_PUT(self):
+        if self._dispatch_agent():
+            return
         path, _ = self._route()
         try:
             if path == "/api/data-directory":
@@ -386,7 +453,10 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             return self._json({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
+    @serialized_write
     def do_PATCH(self):
+        if self._dispatch_agent():
+            return
         path, _ = self._route()
         try:
             if path == "/api/assets/batch":
@@ -421,7 +491,10 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             return self._json({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
+    @serialized_write
     def do_DELETE(self):
+        if self._dispatch_agent():
+            return
         path, _ = self._route()
         try:
             if path == "/api/assets/batch":

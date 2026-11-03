@@ -54,6 +54,10 @@ def relocate_repository(current: Any, raw_path: str, migrate: bool, location_fil
             _validate_migration_source(current.root)
             shutil.copytree(current.root, target, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".workbench-service.lock"))
         repository = current.__class__(target)
+        if getattr(current, "agent_service", None):
+            from .agent_security import AgentSecurity
+            from .agent_service import AgentService
+            repository.agent_service = AgentService(repository, AgentSecurity(target, current.agent_service.security.config_dir.parent))
         save_data_location(repository.root, location_file)
     except BaseException:
         if ownership:

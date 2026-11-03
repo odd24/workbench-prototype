@@ -99,7 +99,7 @@ def windows_listener_pids(port: int) -> set[int]:
     return pids
 
 
-def replace_existing_workbench(host: str, port: int, data_dir: Path) -> bool:
+def replace_existing_workbench(host: str, port: int, data_dir: Path, agent_enabled=None) -> bool:
     """Stop stale copies only after confirming the port serves this data directory."""
     pids = windows_listener_pids(port)
     if not pids:
@@ -112,7 +112,7 @@ def replace_existing_workbench(host: str, port: int, data_dir: Path) -> bool:
         return False
     if Path(health.get("data_dir", "")).resolve() != data_dir.resolve():
         return False
-    if len(pids) == 1 and health.get("app_version") == APP_VERSION:
+    if len(pids) == 1 and health.get("app_version") == APP_VERSION and (agent_enabled is None or bool(health.get("agent_enabled")) == agent_enabled):
         return True
     print(f"检测到 {len(pids)} 个旧工作台服务，正在安全重启……")
     for pid in pids:
@@ -136,13 +136,40 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed-demo", action="store_true", help="数据为空时创建演示项目和记录")
     parser.add_argument("--open", action="store_true", help="启动后自动打开浏览器")
     parser.add_argument("--replace", action="store_true", help="启动时替换同一数据目录的旧工作台服务")
+    parser.add_argument("--enable-agent", action="store_true", help="启用本机 Agent 接口")
+    parser.add_argument("--agent-config-dir", type=Path, help="本机凭据根目录（必须在仓库和数据目录外）")
+    admin = parser.add_mutually_exclusive_group()
+    admin.add_argument("--agent-client-add", metavar="NAME", help="创建 Agent 客户端后退出")
+    admin.add_argument("--agent-client-revoke", metavar="ID", help="撤销 Agent 客户端后退出")
+    admin.add_argument("--agent-client-rotate", metavar="ID", help="轮换 Agent 客户端令牌后退出")
+    parser.add_argument("--agent-scope", action="append", choices=["read", "propose", "commit"], help="允许操作，可重复；默认只读")
+    parser.add_argument("--agent-project", action="append", default=[], help="允许项目 ID，可重复；* 表示全部")
+    parser.add_argument("--agent-category", action="append", default=[], help="允许文档分类，可重复；* 表示全部")
     return parser
 
 
 def main(argv=None):
     args = build_argument_parser().parse_args(argv)
     data_root = configured_data_dir(args.data_dir).resolve()
-    if args.replace and replace_existing_workbench(args.host, args.port, data_root):
+    if args.enable_agent and args.host not in {"127.0.0.1", "localhost", "::1"}:
+        raise ValueError("Agent 接入只允许监听本机 loopback")
+    if args.agent_client_add or args.agent_client_revoke or args.agent_client_rotate:
+        from workbench.agent_security import AgentSecurity
+        # Administration never opens a second business repository.
+        existing = (data_root / ".agent" / "workspace.json").exists()
+        lock = None if existing else DataDirectoryLock(data_root)
+        try:
+            security = AgentSecurity(data_root, args.agent_config_dir)
+            if args.agent_client_add:
+                result = security.add_client(args.agent_client_add, args.agent_scope or ["read"], args.agent_project, args.agent_category, f"http://{'[::1]' if args.host == '::1' else args.host}:{args.port}")
+            else:
+                result = security.change_client(args.agent_client_revoke or args.agent_client_rotate, bool(args.agent_client_rotate))
+            print(json.dumps(result, ensure_ascii=False))
+        finally:
+            if lock:
+                lock.close()
+        return
+    if args.replace and replace_existing_workbench(args.host, args.port, data_root, agent_enabled=args.enable_agent):
         print(f"本地工作台已在运行：http://{args.host}:{args.port}")
         if args.open:
             webbrowser.open(f"http://{args.host}:{args.port}/?session={int(time.time())}")
@@ -151,6 +178,10 @@ def main(argv=None):
     try:
         repository = Repository(data_root)
         repository.service_lock = ownership
+        if args.enable_agent:
+            from workbench.agent_security import AgentSecurity
+            from workbench.agent_service import AgentService
+            repository.agent_service = AgentService(repository, AgentSecurity(data_root, args.agent_config_dir))
         WorkbenchHandler.repository = repository
         server = WorkbenchHTTPServer((args.host, args.port), WorkbenchHandler)
     except BaseException:

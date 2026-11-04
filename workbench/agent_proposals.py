@@ -9,6 +9,7 @@ import uuid
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlencode
 
 from .agent_security import AgentError, allows, read_json
 from .markdown_io import load_markdown_text
@@ -205,7 +206,8 @@ class ProposalStore:
         receipt = {"proposal_id": proposal["proposal_id"], "version": version, "kind": proposal["kind"],
                    "item_id": prepared.item_id, "revision": byte_digest(prepared.after), "committed_at": stamp(),
                    "title": proposal["normalized_content"]["title"], "project_id": proposal["normalized_content"].get("project_id"),
-                   "category": proposal["normalized_content"].get("category"), "web_path": None}
+                   "category": proposal["normalized_content"].get("category"),
+                   "web_path": "/?" + urlencode({"item": proposal["kind"], "itemId": prepared.item_id})}
         manifest = {"schema_version": 1, "workspace_id": self.workspace_id, "operation_id": operation_id,
                     "proposal_id": proposal["proposal_id"], "version": version, "kind": proposal["kind"],
                     "item_id": prepared.item_id, "relative_path": prepared.path.relative_to(self.repository.root).as_posix(),

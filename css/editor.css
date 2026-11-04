@@ -97,7 +97,7 @@
 .document-dialog.unified-editor-host .document-tag-field{max-width:var(--author-width);width:100%;margin:0 auto 5px}
 .document-dialog.unified-editor-host .document-editor-shell{max-width:var(--author-width);width:100%;margin:0 auto;border:0;background:transparent;box-shadow:none}
 .document-dialog.unified-editor-host .document-visual-editor,.document-dialog.unified-editor-host .document-markdown-source,.document-dialog.unified-editor-host .document-inline-preview{width:100%;min-height:520px;margin:0!important;padding:46px 64px!important}
-.document-dialog.unified-editor-host .document-read-pane{max-width:980px;margin:0 auto;padding:58px 72px!important;background:var(--surface)!important}
+.document-dialog.unified-editor-host .document-read-pane{width:100%;min-width:0;box-sizing:border-box;overflow-wrap:anywhere;max-width:980px;margin:0 auto;padding:58px 72px!important;background:var(--surface)!important}
 .document-dialog.unified-editor-host .document-outline{flex-basis:220px;width:220px;padding:14px 10px;background:color-mix(in srgb,var(--surface) 76%,var(--bg))}
 .document-dialog.unified-editor-host .document-outline nav button{min-height:32px;font-size:12px}
 .document-save-state,.save-indicator{font-variant-numeric:tabular-nums}

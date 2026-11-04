@@ -1,8 +1,8 @@
 # 通用 AI Agent 接入实施方案
 
-日期：2026-11-03。状态：分阶段实施中；以 AI_AGENT_PROGRESS.md 的实际状态和验证记录为准。
+日期：2026-11-03；实施验收：2026-11-04。状态：AG-000～105 已完成；实际验证与剩余边界见 [AI_AGENT_ACCEPTANCE.md](AI_AGENT_ACCEPTANCE.md)。
 
-本方案定义新增功能，不改变已完成 RF-000～RF-505 的历史状态。实施状态见 [AI_AGENT_PROGRESS.md](AI_AGENT_PROGRESS.md)，执行约束见 [AGENTS.md](../AGENTS.md)。文中新增模块、路径、接口和命令均为拟定契约，不代表当前已经可用。
+本方案定义新增功能，不改变已完成 RF-000～RF-505 的历史状态。实施状态见 [AI_AGENT_PROGRESS.md](AI_AGENT_PROGRESS.md)，执行约束见 [AGENTS.md](../AGENTS.md)。下文保留设计时的范围与契约，当前运行和授权命令以 [接入说明](AGENT_INTEGRATION.md) 为准；后续边界不属于已实现范围。
 
 ## 1. 已确认需求与范围
 

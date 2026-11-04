@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 from server import Repository, WorkbenchHandler, WorkbenchHTTPServer
@@ -27,7 +28,7 @@ ROOT = Path(__file__).resolve().parent
 class RpcProcess:
     def __init__(self, command, cwd, env=None):
         self.process = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.PIPE,
-                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0,
                                         creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         self.messages = queue.Queue()
         self.errors = []
@@ -47,9 +48,12 @@ class RpcProcess:
             self.messages.put(EOFError("协议进程已关闭"))
 
     def _stderr(self):
-        for line in self.process.stderr:
-            if len(self.errors) < 100:
-                self.errors.append(line.decode("utf-8", "replace").rstrip())
+        try:
+            for line in self.process.stderr:
+                if len(self.errors) < 100:
+                    self.errors.append(line.decode("utf-8", "replace").rstrip())
+        except OSError:
+            pass
 
     def send(self, message):
         self.process.stdin.write((json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8"))
@@ -62,15 +66,23 @@ class RpcProcess:
         self.sequence += 1
         request_id = self.sequence
         self.send({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params or {}})
+        deadline = time.monotonic() + timeout
         while True:
-            message = self.messages.get(timeout=timeout)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(f"协议请求超时：{method}")
+            try:
+                message = self.messages.get(timeout=remaining)
+            except queue.Empty:
+                raise TimeoutError(f"协议请求超时：{method}") from None
             if isinstance(message, Exception):
                 raise message
             if message.get("id") != request_id or "method" in message:
                 # This test never grants an unexpected request, approval or elicitation.
                 if "method" in message and "id" in message:
                     self.send({"jsonrpc": "2.0", "id": message["id"], "error": {"code": -32601, "message": "Unsupported test-client request"}})
-                self.events.append(message)
+                if len(self.events) < 1000:
+                    self.events.append(message)
                 continue
             if "error" in message:
                 raise RuntimeError(str(message["error"]))
@@ -86,6 +98,7 @@ class RpcProcess:
             self.process.wait(timeout=5)
         for reader in self.readers:
             reader.join(timeout=2)
+        # Raw pipes avoid BufferedReader locks held by a Windows reader thread.
         self.process.stdout.close()
         self.process.stderr.close()
 
@@ -143,6 +156,10 @@ def run_acceptance(codex=None):
             from workbench.persistence import atomic_write_text
             atomic_write_text(codex_home / "config.toml", config)
             env = {**os.environ, "CODEX_HOME": str(codex_home), "PYTHONIOENCODING": "utf-8"}
+            for key in list(env):
+                if key == "CODEX_THREAD_ID" or (key.startswith(("OPENAI_", "CHATGPT_", "CODEX_")) and any(marker in key for marker in ("TOKEN", "KEY", "AUTH"))):
+                    env.pop(key)
+
             rpc = RpcProcess([executable, "app-server", "--stdio"], cwd, env)
             rpc.call("initialize", {"clientInfo": {"name": "workbench_acceptance", "version": "1.0"}, "capabilities": {"experimentalApi": True}})
             rpc.notify("initialized")

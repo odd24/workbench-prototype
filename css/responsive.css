@@ -104,6 +104,8 @@ html{font-size:14px}.page{padding:25px 16px 55px}.page-heading h1,.project-title
 .editor-table-wrap table{min-width:440px}.editor-table-wrap th,.editor-table-wrap td{padding:8px 10px}
 .slash-command-menu{max-height:min(330px,calc(100vh - 16px))}.slash-command-menu>header span{display:none}
 .status-watch-column{flex-basis:min(330px,88vw)}.status-watch-options{grid-template-columns:1fr;padding-inline:14px}.status-watch-dialog>header,.status-watch-dialog>footer{padding-inline:15px}.status-watch-summary{padding-inline:15px}
+.document-dialog.unified-editor-host .document-read-pane{padding:22px 18px!important}
+
 }
 
 /* max-width 720px */

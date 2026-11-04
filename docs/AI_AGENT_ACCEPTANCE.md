@@ -1,0 +1,41 @@
+# 通用 AI Agent 验收记录
+
+日期：2026-11-04。范围为 AG-101～105；阶段与提交事实见 [实施台账](AI_AGENT_PROGRESS.md)，启用步骤见 [接入说明](AGENT_INTEGRATION.md)。应用运行时仍只依赖 Python 标准库与原生浏览器 API，没有模型调用或新增包管理器。
+
+## 功能与证据
+
+| 范围 | 实现与验证 |
+| --- | --- |
+| 通用入口 | `agent_bridge.py` / `workbench/mcp_stdio.py` 提供 12 个 MCP tools，只调用本机服务；`test_mcp_stdio.py` 验证协议、Windows 含空格路径、UTF-8、EOF、消息限制、轮换和撤销 |
+| 授权与访问边界 | `agent_security.py` / `agent_http.py` 校验凭据、工作空间、read/propose/commit 和项目/分类范围；`test_agent_api.py` 验证越权、限流、跨源、Host、静态文件与 Windows junction 逃逸 |
+| 先预览再入库 | `agent_service.py` / `agent_proposals.py` 支持问题和知识文档新建、追加、更新；服务端保存完整候选、差异、版本和摘要。`test_agent_proposals.py` 验证旧确认、取消、过期、未知字段、并发和幂等 |
+| 确认边界 | 由 Agent 展示完整预览并等待用户新消息，再提交声明；服务端校验提案版本/摘要，不声称独立验证人类批准。通用约束同时进入工具说明与 [AGENT_USAGE.md](AGENT_USAGE.md) |
+| 持久化恢复 | `test_agent_recovery.py` 覆盖快照、manifest、历史、目标、回执和提案状态阶段失败，包括真实子进程在正文写入后退出；重启恢复不会重复入库或覆盖第三方内容，删除后的旧回执不会重建文件 |
+| 共享保存链路 | 正式写入复用领域仓储、Markdown 和历史；`test_write_coordinator.py` 验证条件写入、文档 ID 并发、磁盘读一致性及 Windows 真实进程排他锁 |
+| 网页工作流 | `test_agent_workflows.js` 用临时服务和真实 Edge 验证两类型入库、深链接/刷新、Markdown 往返、未保存取消、Agent/网页冲突、历史、无效链接和保存期间继续输入的草稿保留 |
+| 原有行为 | `test_editor_workflows.js` 等完整 Node 契约验证记录/知识库、概念图、管理、筛选及编辑器生命周期；保留旧 Markdown、旧历史、导航和可选版本 API 的兼容 |
+| 可移植性 | HTTP/启动测试覆盖 CLI 授权、目录切换/迁移、ZIP 排除 `.agent` 和机器配置；提案/回执迁移保留相对路径与工作空间身份，业务备份恢复重新授权 |
+
+## 实际执行结果
+
+- Windows 11、Python 3.14.3；`python -m unittest -q`：143 项通过，无跳过。
+- 全部 17 个 `test*.js` Node 契约通过，包含真实浏览器流程；保存细节修正后再次运行两编辑器/Agent 浏览器专项。
+- 所有 Git 跟踪的 Python/JavaScript 及新增 JavaScript 语法检查、文档本地链接/围栏、`git diff --check` 通过。
+- `python codex_agent_acceptance.py`：真实 codex-cli **0.163.0-alpha.10.2**，MCP **2025-11-25**，12 个工具发现与调用通过。问题/文档新建、预览修改与确认、问题追加、文档更新、重复提交、取消、服务重启和撤销通过。
+- Codex 验收使用独立 CODEX_HOME、临时项目/数据/凭据，通过 App Server MCP 工具调用接口进行；`model_turns_started=0`、`user_config_changed=false`。确认消息由测试夹具提供，不将自动化断言宣传为人类确认验证。
+- 视觉：两主题 × 桌面/390 窄屏的 Agent 两类条目截图；修正窄屏页脚压缩、文档长引用换行及历史阅读显示。固定样本 32 张与空库 4 张视觉矩阵通过布局/数据断言，已目视检查代表页面；截图只保留在临时目录，不提交 Git。
+
+## 大数据样本
+
+`python performance_acceptance.py` 使用临时目录：12 项目、1200 记录、160 文档、120 附件、约 1 MiB Markdown、500 节点/499 边。文件摘要和 ZIP CRC（1620 个成员）通过。
+
+本机本次结果：记录摘要 577.32 ms、签名 133.10 ms、文档 76.84 ms、搜索 154.16 ms、ZIP 2288.36 ms；浏览器首页 65.2 ms、项目 256.8 ms、知识库 352.1 ms、长文档 1250.2 ms、500 节点图 176.6 ms。数值是该机器单次样本，不是通用响应承诺。长 Markdown 最大事件循环延迟 1194.3 ms，仍是已知优化方向，未在本期引入渲染框架或虚拟化。
+
+## 明确边界
+
+- 本期只开放 issue/document，单提案单目标；不提供待办、结构化信息、删除、附件、任意文件路径、shell 或通用 HTTP 代理工具。
+- 接入默认关闭，未自动登记真实用户客户端或修改 Codex 配置。正式使用需按指引授权并登记 MCP。
+- 同用户恶意本机程序不属于 Agent API 的权限沙箱。旧无版本客户端保留兼容，外部编辑器不服从服务锁，校验与文件替换之间仍存在跨程序竞态。
+- 幂等日志和恢复应对已测试的进程中断/写入失败，不能替代磁盘与文件系统保证或日常备份；不确定结果查询/恢复，不能换键重建。
+- Windows 进程锁已实测；POSIX flock 分支有契约测试，本机无可用 Linux 内核环境，未宣称 Linux 实机验收。其他 MCP 客户端/协议版本仍需独立验证。
+- 一次测试进程退出时的 Windows 管道清理阻塞已修正为原始管道和总超时，后续真实 Codex 复验通过。该次遗留临时目录的删除被自动审批以 `blocked by policy` 拒绝，保留目录；对应服务已停止、客户端已撤销，不含正式业务数据。

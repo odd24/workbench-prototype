@@ -80,3 +80,5 @@ workbench-data/
 .agent/operations/<proposal-id>-<version>/ 保存 manifest.json 和前后 Markdown 快照。日志只使用库内相对目标路径，状态为 prepared/applying/committed/abandoned；.agent/receipts/<proposal-id>.json 保留正式 ID、版本、提交摘要和位置。历史快照版本写入日志，使更新恢复不会重复消耗历史保留数。精简回执/已记录操作参与新 ID 分配，防止旧操作重试引用已复用的 ID。
 
 所有新增 JSON 使用原子替换；进程中断后依次比较回执和磁盘摘要恢复，不能简单把多文件原子写称为单一事务。第三方内容和不确定删除不自动覆盖。提案清理只删除已终结内容及对应安全快照，幂等映射仍保留；在途数据不清理。完整 ZIP 不包含这些流程状态，文件级灾难恢复需停止服务后完整复制，降级前须处理在途日志。
+
+正式条目链接使用 `/?item=issue|document&itemId=<稳定ID>`，不包含正文、令牌或磁盘路径。回执保存相对 web_path；web_url 在 HTTP 返回时根据当前可信本机地址生成。旧回执缺少该字段时兼容展示链接，不重写其提交内容。

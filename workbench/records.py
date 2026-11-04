@@ -18,6 +18,11 @@ TYPE_DIRS = {"issue": "issues", "todo": "todos", "idea": "ideas", "info": "infos
 TYPE_PREFIXES = {"issue": "ISSUE", "todo": "TODO", "idea": "IDEA", "info": "INFO"}
 
 
+def matches_query(item: dict, query: str) -> bool:
+    needle = str(query or "").casefold().strip()
+    return not needle or needle in " ".join(str(item.get(key, "")) for key in ("title", "body", "tags", "status", "priority", "info_fields")).casefold()
+
+
 class RecordRepository:
     """Own record source files and their filesystem-signature cache."""
 
@@ -313,8 +318,7 @@ class RecordRepository:
         results = []
         projects = {item["id"]: item["name"] for item in self.list_projects()}
         for record in self.list_records():
-            haystack = " ".join([str(record.get(key, "")) for key in ("title", "body", "tags", "status", "priority", "info_fields")]).casefold()
-            if needle in haystack:
+            if matches_query(record, needle):
                 record["project_name"] = projects.get(record.get("project_id"), "未归属")
                 results.append(record)
         return results[:50]

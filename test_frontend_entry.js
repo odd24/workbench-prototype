@@ -20,6 +20,20 @@ assert.equal(navigation.resolvePage('invalid', [], ''), 'home');
 assert.equal(navigation.clearHash(), true);
 assert.equal(replaced, '/index.html?test=1');
 
+assert.equal(navigation.readItemLink(), null);
+location.search = '?session=1&item=issue&itemId=ISSUE-0001';
+assert.deepEqual(navigation.readItemLink(), {kind:'issue', itemId:'ISSUE-0001'});
+location.search = '?item=document&itemId=DOC%2D0001';
+assert.deepEqual(navigation.readItemLink(), {kind:'document', itemId:'DOC-0001'});
+for (const search of ['?item=document', '?item=unknown&itemId=DOC-1', '?item=document&itemId=ISSUE-1', '?item=issue&item=issue&itemId=ISSUE-1', '?item=document&itemId=..%2F..%2Fsecret']) {
+  location.search = search;
+  assert.deepEqual(navigation.readItemLink(), {invalid:true});
+}
+location.search = '?session=1&item=document&itemId=DOC-1';
+location.hash = '';
+assert.equal(navigation.clearItemLink(), true);
+assert.equal(replaced, '/index.html?session=1');
+
 const listeners = [];
 let initializeCount = 0;
 const application = applicationCore.create({

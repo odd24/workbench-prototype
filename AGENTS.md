@@ -10,10 +10,12 @@
 - 数据格式：[docs/DATA_FORMAT.md](docs/DATA_FORMAT.md)
 - 维护发布：[docs/MAINTENANCE.md](docs/MAINTENANCE.md)
 
-AI Agent 功能文档（方案不代表已实现）：
+AI Agent 功能文档（实现事实以台账与验收记录为准）：
 
 - 实施方案：[docs/AI_AGENT_PLAN.md](docs/AI_AGENT_PLAN.md)
 - 实施台账：[docs/AI_AGENT_PROGRESS.md](docs/AI_AGENT_PROGRESS.md)
+- 接入与使用：[docs/AGENT_INTEGRATION.md](docs/AGENT_INTEGRATION.md)、[docs/AGENT_USAGE.md](docs/AGENT_USAGE.md)
+- 验收记录：[docs/AI_AGENT_ACCEPTANCE.md](docs/AI_AGENT_ACCEPTANCE.md)
 
 规则优先级：数据安全与兼容性 → 用户明确需求 → 本文件 → 重构计划 → 邻近代码惯例。若文档和代码事实冲突，先记录冲突，再以不损坏已有数据的方式处理并同步文档。
 
@@ -73,7 +75,8 @@ python server.py --data-dir <一次性目录> --port 4174
   - 按令牌、基础、组件、布局、业务功能和响应式拆分；所有媒体查询只进入 `responsive.css`。
   - 加载和断点顺序由 `index.html` 与 `test_styles.js` 锁定。
 - `test_*.py`、`test*.js`
-  - 当前 91 个 Python 测试覆盖仓储、HTTP、持久化、安全和启动；13 个 Node 契约包含真实浏览器保存/冲突工作流。
+  - Python 测试覆盖仓储、HTTP、持久化、安全、Agent 提案恢复和 MCP；Node 契约包含真实浏览器保存/冲突/Agent 工作流。数量以实际测试发现为准。
+  - `codex_agent_acceptance.py` 显式运行真实 Codex MCP 联调，使用隔离配置和临时数据，不启动模型 turn 或修改用户配置。
   - `visual_baseline.js` 和 `performance_acceptance.py` 是显式运行的视觉/大数据验收，不进入快速测试发现。
 - `docs/`
   - 架构、数据格式、维护、验收基线、重构计划和进度记录；更新必须反映真实状态，不写预计结果。

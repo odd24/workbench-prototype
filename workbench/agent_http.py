@@ -1,7 +1,7 @@
 """Versioned Agent HTTP routing; all business behavior lives in the service."""
 
 import uuid
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, urlencode
 
 from .agent_security import AgentError
 from .agent_service import LIMITS
@@ -54,7 +54,14 @@ def dispatch(handler):
         with handler.repository.write_lock:
             service.accept_request(client)
             result = action()
-        handler._json(result)
+        def display_links(value):
+            if isinstance(value.get("receipt"), dict):
+                value = {**value, "receipt": display_links(value["receipt"])}
+            if value.get("proposal_id") and value.get("item_id") and value.get("kind") in {"issue", "document"}:
+                path = "/?" + urlencode({"item": value["kind"], "itemId": value["item_id"]})
+                return {**value, "web_path": path, "web_url": "http://" + handler.headers["Host"] + path}
+            return value
+        handler._json(display_links(result))
     except AgentError as error:
         handler._json(error.payload(request_id), error.status)
     except (ValueError, TypeError):

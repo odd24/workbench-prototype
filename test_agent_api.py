@@ -76,6 +76,7 @@ class AgentAPITests(unittest.TestCase):
         status, result = self.request("/api/agent/v1/search?query=" + quote("知识"))
         self.assertEqual({item["id"] for item in result["items"]}, {self.issue["id"], self.document["id"]})
         self.assertTrue(all("file_path" not in item for item in result["items"]))
+        self.assertEqual({item["id"] for item in self.request("/api/agent/v1/search?query=" + quote("普通"))[1]["items"]}, {self.issue["id"]})
         status, result = self.request("/api/agent/v1/catalog?project_id=" + quote(self.project["id"]))
         self.assertEqual(result["document_categories"], ["允许"])
         self.assertEqual(result["priorities"], ["低", "普通", "高", "紧急"])
@@ -188,6 +189,8 @@ class AgentAPITests(unittest.TestCase):
             status, receipt = self.request(route + "/commit", "POST", payload)
             self.assertEqual(status, 200)
             self.assertEqual(self.request(route + "/commit", "POST", payload)[1], receipt)
+            self.assertEqual(receipt["web_url"], f"http://127.0.0.1:{self.port}/?item={kind}&itemId={receipt['item_id']}")
+            self.assertEqual(self.request(receipt["web_path"], auth=False)[0], 200)
             status, result = self.request(route)
             self.assertEqual(result["state"], "committed")
             getter = self.repo.get_record if kind == "issue" else self.repo.get_document

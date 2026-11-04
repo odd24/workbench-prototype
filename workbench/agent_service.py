@@ -8,6 +8,7 @@ from collections import deque
 from functools import wraps
 
 from .agent_security import AgentError, allows, require_scope
+from .records import matches_query
 
 
 LIMITS = {"body_bytes": 256 * 1024, "title_characters": 200, "request_bytes": 1024 * 1024,
@@ -139,7 +140,7 @@ class AgentService:
                     and (not kind or item["type"] == kind)
                     and (not params.get("project_id") or item.get("project_id") == params["project_id"])
                     and (not params.get("category") or item.get("category") == params["category"])
-                    and (not query or query in " ".join(str(item.get(key, "")) for key in ("title", "body", "tags", "status")).casefold())]
+                    and matches_query(item, query)]
         return page(sorted(selected, key=lambda item: (item.get("updated", ""), item["id"]), reverse=True), params)
 
     @service_operation

@@ -666,6 +666,7 @@ async function main() {
     assert.ok(await client.evaluate(`$$('[data-restore-version]', $('#historyList')).length > 0`));
     await client.evaluate(`(() => { $('[data-preview-version]', $('#historyList')).click(); return true; })()`);
     await waitForPage(client, `Boolean($('#historySnapshot'))`);
+    assert.equal(await client.evaluate(`$$('[contenteditable=true], [data-editor-block]', $('#historySnapshot')).length`), 0);
     await client.evaluate(`(() => { $('[data-restore-version]', $('#historyList')).click(); return true; })()`);
     await waitForPage(client, `$('#appDialog').open`);
     await client.evaluate(`(() => { $('#appDialogConfirm').click(); return true; })()`);
@@ -696,7 +697,9 @@ async function main() {
   }
 }
 
-main().catch(error => {
+if (require.main === module) main().catch(error => {
   console.error(error.stack || error);
   process.exitCode = 1;
 });
+
+module.exports = {DevToolsClient, freePort, browserExecutable, waitForHttp, waitForPage, delay};

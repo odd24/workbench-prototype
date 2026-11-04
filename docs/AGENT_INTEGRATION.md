@@ -1,6 +1,6 @@
 # 通用 Agent 接入
 
-当前进度：提供本机认证、范围内查询、提案预览和确认提交 HTTP 接口，以及已通过真实 Codex 客户端验证的 stdio MCP 桥接。网页打开链接和最终发布验收在 AG-105 完成。阶段状态见 [AI_AGENT_PROGRESS.md](AI_AGENT_PROGRESS.md)，完整契约见 [AI_AGENT_PLAN.md](AI_AGENT_PLAN.md)。
+提供本机认证、范围内查询、提案预览和确认提交 HTTP 接口，以及已通过真实 Codex 客户端验证的 stdio MCP 桥接。正式提交返回可直接打开和刷新的网页链接。阶段状态见 [AI_AGENT_PROGRESS.md](AI_AGENT_PROGRESS.md)，完整契约见 [AI_AGENT_PLAN.md](AI_AGENT_PLAN.md)，验证证据见 [AI_AGENT_ACCEPTANCE.md](AI_AGENT_ACCEPTANCE.md)。
 
 ## 运行和客户端授权
 
@@ -19,7 +19,7 @@ python server.py --data-dir $agentTestData --agent-config-dir $agentTestConfig -
 python server.py --data-dir $agentTestData --agent-config-dir $agentTestConfig --seed-demo --enable-agent --port 4174
 ```
 
-第一个命令返回 client_id、workspace_id 和 config_file；令牌只写入 config_file，不打印到终端。默认权限仅 read，默认项目/分类范围均为空；`--agent-project <项目ID>`、`--agent-category <分类>` 可重复，`*` 表示该类全部内容。propose、commit 为后续写入流程的权限，授权这些范围本身不跳过预览确认。
+第一个命令返回 client_id、workspace_id 和 config_file；令牌只写入 config_file，不打印到终端。默认权限仅 read，默认项目/分类范围均为空；`--agent-project <项目ID>`、`--agent-category <分类>` 可重复，`*` 表示该类全部内容。propose、commit 为写入流程的权限，授权这些范围本身不跳过预览确认。
 
 凭据默认存放在操作系统用户配置目录下的 `Workbench/agent/<workspace_id>/`，Windows 使用 LOCALAPPDATA；POSIX 使用 XDG_CONFIG_HOME 或 ~/.config。可用 `--agent-config-dir` 显式指定外部目录，同一库的服务和管理命令必须一致。目录不能位于仓库或业务数据内。Windows 移除目录继承并授权当前用户，POSIX 使用目录 0700/文件 0600。clients.json 只保存摘要和权限；客户端配置保存明文令牌，按本机秘密保管。
 
@@ -57,7 +57,13 @@ Agent 功能只允许本机 loopback。HTTP 会验证 Host 和 Origin，拒绝�
 
 ## Codex 和通用 MCP 客户端
 
-先创建拥有 read/propose/commit 的客户端，并选择明确的项目和知识库分类范围。使用前述创建命令分别重复 --agent-scope read、--agent-scope propose、--agent-scope commit；保留返回的 config_file 路径。启动带 --enable-agent 的工作台后，在 Codex CLI 登记：
+先在网页建立所需项目和知识库分类（空库可能没有分类），再创建拥有 read/propose/commit 的客户端，并选择明确的项目和知识库分类范围：
+
+```powershell
+python server.py --data-dir <数据目录> --agent-client-add "Codex" --agent-scope read --agent-scope propose --agent-scope commit --agent-project <项目ID> --agent-category <分类>
+```
+
+保留返回的 config_file 路径；若服务指定了 --agent-config-dir，创建客户端时也指定同一目录。启动带 --enable-agent 的工作台后，在 Codex CLI 登记：
 
 ```powershell
 codex mcp add workbench -- python "<仓库绝对路径>/agent_bridge.py" --config "<config_file 绝对路径>"

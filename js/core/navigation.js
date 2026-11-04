@@ -38,7 +38,28 @@
       return true;
     }
 
-    return Object.freeze({clearHash, managePages:MANAGE_PAGES, normalizeProjectTab, read, resolvePage, write});
+    function readItemLink() {
+      const params = new URLSearchParams(location.search);
+      if (!params.has('item') && !params.has('itemId')) return null;
+      const kind = params.get('item');
+      const itemId = params.get('itemId');
+      if (params.getAll('item').length !== 1 || params.getAll('itemId').length !== 1 ||
+          !['issue', 'document'].includes(kind) || !/^(?:ISSUE|TODO|INFO|IDEA|DOC)-\d+$/.test(itemId || '') ||
+          (kind === 'document' && !itemId.startsWith('DOC-'))) return {invalid:true};
+      return {kind, itemId};
+    }
+
+    function clearItemLink() {
+      const params = new URLSearchParams(location.search);
+      if (!params.has('item') && !params.has('itemId')) return false;
+      params.delete('item');
+      params.delete('itemId');
+      const query = params.toString();
+      history.replaceState(null, '', `${location.pathname}${query ? `?${query}` : ''}${location.hash || ''}`);
+      return true;
+    }
+
+    return Object.freeze({clearHash, clearItemLink, readItemLink, managePages:MANAGE_PAGES, normalizeProjectTab, read, resolvePage, write});
   }
 
   const navigation = Object.freeze({create});

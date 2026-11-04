@@ -272,6 +272,17 @@
 
 AG-107～111 未由本文自动授权开始；当前用户请求仅为方案文档化。不得把 AG-106 完成解释为运行功能已交付。
 
+实施授权更新（2026-11-04）：用户随后已要求开始实施直到完成；按上述顺序推进，各项状态与证据以台账为准。
+
+### 12.1 AG-107 开工契约
+
+- 锁序固定为 repository_switch_lock → 当前 repository.write_lock → 私人配置目录的跨进程锁；CLI 仅持最后一层，不反向获取服务锁。诊断子进程不得在持业务锁时等待 HTTP。
+- 管理 GET 需 X-Workbench-Management: 1，且拒绝跨源/跨站/Agent Authorization；status 返回本次服务/空间的短期 management_token（1 小时），仅保留内存。所有管理写入另需同源 Origin 与 X-Workbench-Management-Token；过期或空间切换后重新获取 status，不自动重放写入。
+- PATCH runtime 必填 workspace_id（未初始化时 null）、expected_version、request_id，可选 enabled/startup_preference（至少一个布尔值）。未知字段/错误类型返回 400；空间或版本不一致返回 409；失效会话/非同源返回 403。
+- 本机偏好为私人工作空间目录 runtime.json：schema_version=1、workspace_id、startup_enabled 布尔值。缺失为 false；损坏/未知版本保留原文并阻止自动启用，status 提示错误。配置损坏须停服备份后核对修复，不自动覆写。
+- 运行切换先完成，再尝试独立偏好保存；响应含状态及 preference_error。运行状态和结果由查询确认。runtime request_id 在服务生命周期内用于去重；重启后查询最新状态再按新版本设置目标状态，不把内存去重用于凭据或正式提交。
+- GET operations/<request_id> 查询本服务已接受的运行设置结果；不返回任何秘密。AG-108 将扩展持久的凭据管理操作。
+
 ## 13. 测试与验收矩阵
 
 | 领域 | 必测情形 |

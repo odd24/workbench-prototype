@@ -69,6 +69,8 @@ CSS 按以下固定次序加载：令牌、基础、组件、布局、记录、�
 
 ## Agent 接入（AG-102～105）
 
+AG-107 增加 `agent_runtime.py` 和 `agent_management_http.py`：只读发现、私人目录 runtime.json 启动偏好、显式 CLI 覆盖、当前 Repository 上的运行时启停。管理接口位于 `/api/local/agent-management/`，仅 loopback，独立同源管理会话，不接受 Agent 凭据；当前已提供 status/runtime/operations，客户端管理与 UI 在后续工作项实施。锁序为空间切换锁 → 仓储锁 → 私人配置目录锁。空间切换重新建立管理会话；状态查询不创建身份或凭据。
+
 显式 --enable-agent 后装配 AgentSecurity 和 AgentService，/api/agent/v1/* 由 agent_http.py 分派；不在桥接进程装配 Repository。业务逻辑位于 agent_service.py，提案和恢复位于 agent_proposals.py；正式写入复用领域仓储的 PreparedMarkdownWrite，不在协议层复制 CRUD。Agent 凭据在仓库/数据目录外保存，工作空间身份在 .agent/workspace.json；迁移后重新装配服务。提案独立于业务文件；提交持久操作日志后应用正式 Markdown，最后写入回执。未决日志会阻止普通写入，重启即使关闭 Agent 接入仍要执行恢复。
 
 静态服务只允许 index.html 和其显式版本化资源，拒绝目录与源码访问。Host/Origin 校验和旧接口拒绝 Agent Authorization 在协议层处理；HTTP 写入与目录切换串行化，领域写入仍使用 Repository 的可重入锁。

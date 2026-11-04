@@ -19,6 +19,8 @@ python server.py --seed-demo --open
 --seed-demo         空目录时创建演示数据
 --open              启动后打开浏览器
 --replace           安全替换使用相同数据目录的旧服务
+--enable-agent      本次启动开启 Agent 接口
+--disable-agent     本次启动关闭 Agent，覆盖已保存的启动偏好
 ```
 
 ## 数据与备份
@@ -48,7 +50,7 @@ python server.py
 
 ## 开发与维护
 
-工作台内 AI Agent 接入管理 UI 的后续设计见 [实施与维护方案](docs/AGENT_SETTINGS_PLAN.md)，包含启停、授权、Codex 配置向导、诊断和分阶段验收；当前仅完成方案文档，功能尚待实施。
+工作台内 AI Agent 接入管理 UI 的设计见 [实施与维护方案](docs/AGENT_SETTINGS_PLAN.md)，包含启停、授权、Codex 配置向导、诊断和分阶段验收。AG-107 已提供启停管理后端和本机启动偏好，UI 与客户端管理尚待后续工作项实施；首次仍默认关闭。
 
 通用 AI Agent 接入支持通过 MCP 在 Codex 中整理问题和知识文档，新建、追加和修改均先生成完整预览，用户确认当前版本后再正式入库，并返回网页打开链接。接入默认关闭；需要显式启用服务、授权客户端并登记 MCP，步骤见 [接入说明](docs/AGENT_INTEGRATION.md)，Agent 操作规则见 [使用指引](docs/AGENT_USAGE.md)，验证证据和边界见 [验收记录](docs/AI_AGENT_ACCEPTANCE.md)。不自动修改现有 Codex 配置。
 

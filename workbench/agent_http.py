@@ -52,6 +52,9 @@ def dispatch(handler):
         if set(query) - allowed or any(len(values) != 1 for values in raw_query.values()):
             raise AgentError("unknown_parameter", "查询参数无效或重复")
         with handler.repository.write_lock:
+            # A CLI or local management request may have changed authorization
+            # since routing started. Never apply a previously read permission.
+            client = service.security.authenticate(handler.headers.get("Authorization"), handler.headers.get("X-Workbench-Workspace"))
             service.accept_request(client)
             result = action()
         def display_links(value):

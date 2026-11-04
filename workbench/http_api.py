@@ -27,7 +27,7 @@ from .paths import (
 
 
 APP_DIR = Path(__file__).resolve().parent.parent
-APP_VERSION = "2026.11.04.3"
+APP_VERSION = "2026.11.04.4"
 MAX_JSON_BODY_BYTES = 15_000_000
 
 
@@ -112,6 +112,9 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
         return super().send_head()
 
     def _dispatch_agent(self):
+        from .agent_management_http import dispatch as dispatch_management
+        if dispatch_management(self):
+            return True
         if not unquote(urlparse(self.path).path).startswith("/api/agent/"):
             return False
         from .agent_http import dispatch

@@ -1,5 +1,9 @@
 # 数据格式
 
+## Agent 本机启动偏好（AG-107）
+
+私人凭据根目录下的 `<workspace_id>/runtime.json` 保存 `schema_version: 1`、`workspace_id` 与布尔 `startup_enabled`。它不是业务数据，不进入可移植 ZIP 或 Git。缺失默认关闭；损坏或未知版本保留原文件，禁止自动启用并在管理状态返回提示。读取未初始化空间不创建身份。`--enable-agent`/`--disable-agent` 只覆盖本次运行，不写偏好；自定义 `--agent-config-dir` 对偏好和凭据使用同一根目录。
+
 ## 目录
 
 ```text

@@ -136,7 +136,9 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed-demo", action="store_true", help="数据为空时创建演示项目和记录")
     parser.add_argument("--open", action="store_true", help="启动后自动打开浏览器")
     parser.add_argument("--replace", action="store_true", help="启动时替换同一数据目录的旧工作台服务")
-    parser.add_argument("--enable-agent", action="store_true", help="启用本机 Agent 接口")
+    agent_mode = parser.add_mutually_exclusive_group()
+    agent_mode.add_argument("--enable-agent", action="store_true", help="本次启动启用本机 Agent 接口")
+    agent_mode.add_argument("--disable-agent", action="store_true", help="本次启动禁用 Agent（覆盖保存的偏好）")
     parser.add_argument("--agent-config-dir", type=Path, help="本机凭据根目录（必须在仓库和数据目录外）")
     admin = parser.add_mutually_exclusive_group()
     admin.add_argument("--agent-client-add", metavar="NAME", help="创建 Agent 客户端后退出")
@@ -178,7 +180,12 @@ def main(argv=None):
             if lock:
                 lock.close()
         return
-    if args.replace and replace_existing_workbench(args.host, args.port, data_root, agent_enabled=args.enable_agent):
+    from workbench.agent_runtime import AgentRuntime, startup_enabled
+    override = True if args.enable_agent else False if args.disable_agent else None
+    enabled = startup_enabled(data_root, args.agent_config_dir, override)
+    if enabled and args.host not in {"127.0.0.1", "localhost", "::1"}:
+        raise ValueError("Agent 接入只允许监听本机 loopback；可用 --disable-agent 覆盖启动偏好")
+    if args.replace and replace_existing_workbench(args.host, args.port, data_root, agent_enabled=enabled):
         print(f"本地工作台已在运行：http://{args.host}:{args.port}")
         if args.open:
             webbrowser.open(f"http://{args.host}:{args.port}/?session={int(time.time())}")
@@ -187,12 +194,12 @@ def main(argv=None):
     try:
         repository = Repository(data_root)
         repository.service_lock = ownership
-        if args.enable_agent:
-            from workbench.agent_security import AgentSecurity
-            from workbench.agent_service import AgentService
-            repository.agent_service = AgentService(repository, AgentSecurity(data_root, args.agent_config_dir))
+        repository.agent_runtime = AgentRuntime(repository, args.host, args.port, args.agent_config_dir, "cli" if override is not None else "preference")
+        if enabled:
+            repository.agent_runtime.set_enabled(True)
         WorkbenchHandler.repository = repository
         server = WorkbenchHTTPServer((args.host, args.port), WorkbenchHandler)
+        repository.agent_runtime.port = server.server_address[1]
     except BaseException:
         ownership.close()
         raise

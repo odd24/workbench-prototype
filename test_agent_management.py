@@ -319,6 +319,53 @@ security.add_client('crash', ['read'], ['*'], [], 'http://127.0.0.1:4173', reque
         self.assertTrue(result["rotated"])
         self.assertEqual(self.security.clients()[client_id]["management_revision"], 1)
 
+    def test_cmd_command_real_registration_isolated_and_safe_characters(self):
+        import os
+        import shutil
+        import tomllib
+        from workbench.agent_setup import setup_instructions, registration_command, cmd_quote
+        self.assertEqual(cmd_quote("C:\\O'Brien & (test)^\\code.exe"), '"C:\\O\'Brien & (test)^\\code.exe"')
+        for value in ('bad"path', '%USERNAME%', '!PATH!', 'bad\npath'):
+            with self.assertRaises(ValueError):
+                cmd_quote(value)
+        setup = setup_instructions(self.security, self.create()["client_id"], self.runtime.origin)
+        with self.assertRaises(ValueError):
+            registration_command(setup, "workbench", "bash")
+        if os.name != "nt" or not setup["codex_executable"]:
+            return
+        private = self.base / "CMD O'Brien & (group)^"
+        security = AgentSecurity(self.base / "cmd-data", private)
+        info = security.add_client("cmd", ["read"], ["*"], [], "http://127.0.0.1:4173")
+        setup = setup_instructions(security, info["client_id"], "http://127.0.0.1:4173")
+        home = self.base / "cmd-isolated-codex"
+        home.mkdir()
+        command = registration_command(setup, "workbench_cmd", "cmd")
+        self.assertFalse(command.startswith('&'))
+        # /s /c needs an outer pair around a command beginning with a quoted exe.
+        process = subprocess.run(cmd_quote(os.environ.get('COMSPEC', 'cmd.exe')) + ' /d /v:off /s /c "' + command + '"', cwd=self.base,
+            env={**os.environ, "CODEX_HOME": str(home), "PATH": ""}, capture_output=True, timeout=15)
+        self.assertEqual(process.returncode, 0, process.stderr)
+        registered = tomllib.loads((home / "config.toml").read_text(encoding="utf-8"))["mcp_servers"]["workbench_cmd"]
+        self.assertEqual(registered["command"], setup["command"])
+        self.assertEqual(registered["args"], setup["args"])
+
+    def test_codex_desktop_detection_without_path_and_unsupported_cmd_paths(self):
+        import os
+        from workbench.agent_setup import detect_codex, setup_instructions
+        if os.name == "nt":
+            root = self.base / "local" / "OpenAI" / "Codex" / "bin"
+            executable = root / "version-a" / "codex.exe"
+            executable.parent.mkdir(parents=True)
+            executable.write_bytes(b"fixture-only-not-executed")
+            with patch("workbench.agent_setup.shutil.which", return_value=None), patch.dict(os.environ, {"LOCALAPPDATA": str(self.base / "local")}):
+                self.assertEqual(detect_codex(), str(executable.resolve()))
+        result = self.create()
+        with patch("workbench.agent_setup.detect_codex", return_value="C:/100%/codex.exe"):
+            setup = setup_instructions(self.security, result["client_id"], self.runtime.origin)
+        self.assertIsNone(setup["cmd_command"])
+        self.assertIn("PowerShell", setup["cmd_error"])
+        self.assertIn("100%", setup["powershell_command"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -172,6 +172,8 @@
 
 状态响应至少区分 workspace_id（未初始化可空）、runtime_state、startup_preference、effective_source、配置版本与错误提示。普通 Agent capabilities 不返回管理会话或本机配置。
 
+AG-112 兼容扩展：POST setup 可选 terminal=cmd|powershell，省略仍保持原 PowerShell API 行为；响应保留 powershell_command，增加 cmd_command/cmd_error/default_terminal，POST 增加 terminal/registration_command。Windows UI 默认 CMD（特殊路径回退 PowerShell），切换同步标签/命令/步骤；新请求覆盖旧生成请求，拒绝过期响应。Codex 检测复用 PATH 与当前用户桌面安装目录，仅输出必要绝对路径，不新增用户配置写入权限。
+
 错误统一包含 code/message/retryable/details/request_id；适用时区分 400 参数无效、403 管理拒绝、404 客户端/操作不存在、409 空间/配置版本冲突、503 环境不可用、500 未处理失败。日志与 details 不含令牌、配置正文或原始敏感异常。
 
 ## 7. 管理访问边界

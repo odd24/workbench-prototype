@@ -66,6 +66,13 @@ async function main() {
     const config = JSON.parse(fs.readFileSync(path.join(credentials, workspace, `${clientId}.json`), 'utf8'));
     assert.equal(await client.evaluate(`document.body.innerText.includes(${JSON.stringify(config.token)})`), false);
     assert.match(await client.evaluate("$('#agentSetupCommand').value"), /mcp add/);
+    await fill('#agentTerminal', 'cmd', 'change');
+    await waitForPage(client, "$('#agentTerminal').value === 'cmd' && $('#agentSetupCommand').value.startsWith('\"')");
+    assert.equal(await client.evaluate("$('#agentSetupCommand').value.startsWith('&')"), false);
+    assert.equal(await client.evaluate("document.querySelector('.agent-setup').textContent.includes('无需修改 PATH')"), true);
+    assert.equal(await client.evaluate("document.querySelector('.agent-setup').textContent.includes('C:' + String.fromCharCode(92) + 'Users')"), true);
+    await fill('#agentTerminal', 'powershell', 'change');
+    await waitForPage(client, "$('#agentTerminal').value === 'powershell' && $('#agentSetupCommand').value.startsWith('& ')");
     await fill('#agentRegistrationName', 'workbench_personal');
     await click('[data-agent-action="generate"]');
     await waitForPage(client, "$('#agentSetupCommand').value.includes('workbench_personal')");
@@ -78,6 +85,8 @@ async function main() {
     await waitForPage(client, "$('#agentFeedback').textContent.includes('Ctrl+C')");
     await client.evaluate('navigator.clipboard.writeText = window.__savedClipboard');
     for (const theme of ['light', 'dark']) {
+      await fill('#agentTerminal', theme === 'light' ? 'cmd' : 'powershell', 'change');
+      await waitForPage(client, theme === 'light' ? "$('#agentSetupCommand').value.startsWith('\"')" : "$('#agentSetupCommand').value.startsWith('& ')");
       for (const width of [1440, 390]) {
         await client.call('Emulation.setDeviceMetricsOverride', {width, height:1000, deviceScaleFactor:1, mobile:false});
         await client.evaluate(`document.body.classList.toggle('dark', ${theme === 'dark'})`);
@@ -89,6 +98,10 @@ async function main() {
         await client.evaluate('window.scrollTo(0, 0)');
         const screenshot = await client.call('Page.captureScreenshot', {format:'png'});
         fs.writeFileSync(path.join(screenshots, `settings-${theme}-${width}.png`), Buffer.from(screenshot.data, 'base64'));
+        await client.evaluate("$('#agentSetupPanel').scrollIntoView({block:'start'})");
+        await delay(100);
+        const terminalShot = await client.call('Page.captureScreenshot', {format:'png'});
+        fs.writeFileSync(path.join(screenshots, `terminal-${theme}-${width}.png`), Buffer.from(terminalShot.data, 'base64'));
       }
     }
     await client.call('Emulation.setDeviceMetricsOverride', {width:1440, height:1000, deviceScaleFactor:1, mobile:false});
@@ -179,8 +192,9 @@ async function main() {
     await click('[data-agent-action="toggle"]');
     await confirm();
     await waitForPage(client, "$('#agentRuntimeState')?.textContent === '已关闭'");
+    await client.evaluate('window.__agentSettingsBeforeReload = true');
     await client.call('Page.reload');
-    await waitForPage(client, "$('#agentRuntimeState')?.textContent === '已关闭'");
+    await waitForPage(client, "!window.__agentSettingsBeforeReload && $('#agentRuntimeState')?.textContent === '已关闭'");
     assert.equal(await client.evaluate("$('#agentStartupPreference').checked"), true);
     // Empty and many-scope layouts use this disposable service's real UI APIs.
     const uiRequest = async (resource, method = 'GET', payload) => {

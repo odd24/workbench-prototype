@@ -10,6 +10,7 @@
     let busy = false;
     let pending = null;
     let setup = null;
+    let setupRequest = 0;
     let diagnostic = null;
     let pollTimer = null;
     const find = selector => root.querySelector(selector);
@@ -150,14 +151,18 @@
     function paintSetup() {
       const node = find('#agentSetupPanel');
       if (!node) return;
-      node.innerHTML = `<section class="settings-card agent-setup"><h2>接入向导</h2><p>Python ${esc(setup.python_version)} · 桥接脚本${setup.bridge_exists ? '已找到' : '未找到'} · Codex CLI ${setup.codex_executable ? '已找到' : '未在服务环境中找到'}</p>${!setup.origin_matches ? '<p class="agent-error">配置中的服务地址已过期，请先在该客户端点击“更新服务地址”。</p>' : ''}<label>接入方式<select id="agentSetupType"><option value="codex" ${setup.guide !== 'generic' ? 'selected' : ''}>Codex</option><option value="generic" ${setup.guide === 'generic' ? 'selected' : ''}>通用 MCP</option></select></label><label>MCP 登记名称<input id="agentRegistrationName" maxlength="64" value="${esc(setup.registrationName || setup.default_name)}"></label><p class="settings-hint">先检查同名登记，避免覆盖另一工作空间；名称可改为 workbench_personal 等。</p>${button('generate', '生成命令')}<label>PowerShell 登记命令<textarea id="agentSetupCommand" rows="5" readonly spellcheck="false">${esc(setup.powershell_command)}</textarea></label>${button('copy', '复制命令')}<details ${setup.guide === 'generic' ? 'open' : ''}><summary>通用 MCP 程序与参数</summary><pre>${esc(JSON.stringify({command:setup.command, args:setup.args}, null, 2))}</pre></details><ol><li>在 PowerShell 执行登记命令。</li><li>重启 Codex 或开启新聊天。</li><li>要求调用工作台 capabilities、项目和分类，先做只读验证。</li></ol><p class="settings-hint">配置命令已生成不代表当前聊天已接入；本页不会修改 Codex 配置。</p></section>`;
+      const terminal = setup.terminal || setup.default_terminal || 'powershell';
+      const terminalName = terminal === 'cmd' ? 'CMD（命令提示符）' : 'PowerShell';
+      const command = terminal === 'cmd' ? setup.cmd_command : setup.powershell_command;
+      node.innerHTML = `<section class="settings-card agent-setup"><h2>接入向导</h2><p>Python ${esc(setup.python_version)} · 桥接脚本${setup.bridge_exists ? '已找到' : '未找到'} · Codex CLI ${setup.codex_executable ? '已找到' : '未在服务环境中找到'}</p>${!setup.origin_matches ? '<p class="agent-error">配置中的服务地址已过期，请先在该客户端点击“更新服务地址”。</p>' : ''}<label>接入方式<select id="agentSetupType"><option value="codex" ${setup.guide !== 'generic' ? 'selected' : ''}>Codex</option><option value="generic" ${setup.guide === 'generic' ? 'selected' : ''}>通用 MCP</option></select></label><label>执行终端<select id="agentTerminal"><option value="cmd" ${terminal === 'cmd' ? 'selected' : ''}>CMD（命令提示符）</option><option value="powershell" ${terminal === 'powershell' ? 'selected' : ''}>PowerShell</option></select></label><p class="settings-hint">C:\\Users\\…&gt; 通常是 CMD；PS C:\\Users\\…&gt; 是 PowerShell。请与实际终端一致。</p>${!setup.codex_executable ? '<p class="agent-error">未找到 Codex：请安装或从能找到 Codex 的环境重新启动工作台，再打开向导。当前命令仍依赖终端 PATH。</p>' : `<p class="settings-hint">Codex 程序：${esc(setup.codex_executable)}（使用绝对路径，无需修改 PATH）</p>`}<label>MCP 登记名称<input id="agentRegistrationName" maxlength="64" value="${esc(setup.registrationName || setup.default_name)}"></label><p class="settings-hint">先检查同名登记，避免覆盖另一工作空间；名称可改为 workbench_personal 等。</p>${button('generate', '生成命令')}<label>${terminalName} 登记命令<textarea id="agentSetupCommand" rows="5" readonly spellcheck="false">${esc(command || '')}</textarea></label>${terminal === 'cmd' && setup.cmd_error ? `<p class="agent-error">${esc(setup.cmd_error)}</p>` : ''}${button('copy', '复制命令', !command ? 'disabled' : '')}<details ${setup.guide === 'generic' ? 'open' : ''}><summary>通用 MCP 程序与参数</summary><pre>${esc(JSON.stringify({command:setup.command, args:setup.args}, null, 2))}</pre></details><ol><li>在 ${terminalName} 中执行上方命令，不要复制终端提示符。</li><li>重启 Codex 或开启新聊天。</li><li>要求调用工作台 capabilities、项目和分类，先做只读验证。</li></ol><p class="settings-hint">配置命令已生成不代表当前聊天已接入；本页不会修改 Codex 配置。</p></section>`;
     }
 
     async function showSetup(clientId, guide = 'codex') {
       const version = epoch;
+      const requestVersion = ++setupRequest;
       try {
         const value = await request(`clients/${clientId}/setup`);
-        if (!valid(version)) return;
+        if (!valid(version) || requestVersion !== setupRequest) return;
         setup = {...value, guide};
         paintSetup();
         find('#agentSetupPanel')?.scrollIntoView({block:'nearest'});
@@ -217,12 +222,14 @@
       }
       if (name === 'generate') {
         const version = epoch;
+        const requestVersion = ++setupRequest;
         const registrationName = find('#agentRegistrationName').value;
         const guide = find('#agentSetupType').value;
+        const terminal = find('#agentTerminal').value;
         try {
-          const value = await request(`clients/${setup.client_id}/setup`, {method:'POST', body:JSON.stringify({workspace_id:status.workspace_id, name:registrationName})});
-          if (valid(version)) { setup = {...value, registrationName, guide}; paintSetup(); message('命令已生成，请核对登记名称。'); }
-        } catch (error) { if (valid(version)) message(errorText(error), true); }
+          const value = await request(`clients/${setup.client_id}/setup`, {method:'POST', body:JSON.stringify({workspace_id:status.workspace_id, name:registrationName, terminal})});
+          if (valid(version) && requestVersion === setupRequest) { setup = {...value, registrationName, guide, terminal}; paintSetup(); message('命令已生成，请核对登记名称。'); }
+        } catch (error) { if (valid(version) && requestVersion === setupRequest) message(errorText(error), true); }
         return;
       }
       if (name === 'resolve') {
@@ -272,8 +279,17 @@
       if (event.target.id === 'agentClientName') draft.name = event.target.value;
     });
     root.addEventListener('change', event => {
-      if (!isActive() || !draft || busy) return;
+      if (!isActive() || busy) return;
       const node = event.target;
+      if (node.id === 'agentTerminal' && setup) {
+        setup.registrationName = find('#agentRegistrationName').value;
+        setup.guide = find('#agentSetupType').value;
+        setup.terminal = node.value;
+        paintSetup();
+        action('generate').catch(error => message(errorText(error), true));
+        return;
+      }
+      if (!draft) return;
       if (node.id === 'agentClientPermission') draft.permission = node.value;
       if (node.id === 'agentGuideType') draft.guide = node.value;
       if (node.dataset.agentAll) { draft[node.dataset.agentAll] = node.checked ? ['*'] : []; paint(); }

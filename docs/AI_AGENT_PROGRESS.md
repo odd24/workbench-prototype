@@ -22,10 +22,27 @@
 | AG-109 | 设置 UI 与 Codex 配置向导 | 已完成 | 2026-11-04 | 2026-11-04 | AG-108 |
 | AG-110 | 分层诊断与真实客户端验收 | 已完成 | 2026-11-04 | 2026-11-04 | AG-109 |
 | AG-111 | 兼容回归、维护文档与交付验收 | 已完成 | 2026-11-04 | 2026-11-04 | AG-110 |
+| AG-112 | CMD/PowerShell 向导与 Codex 非 PATH 检测修复 | 已完成 | 2026-11-04 | 2026-11-04 | AG-111；用户实机反馈 |
 
 状态只使用：待开始、进行中、受阻、已完成、已取消。每项开工记录精确范围、文件、检查和风险；完成记录实际结果、兼容影响和剩余问题。代码写完但未验证仍为进行中。
 
 ## 执行记录
+
+### 2026-11-04 / AG-112 / 开始
+
+- 范围：按用户反馈补充 CMD/PowerShell 终端选择、对应安全命令与执行提示；服务 PATH 无 Codex 时检测当前用户桌面安装目录，返回可执行文件绝对路径。无需改变系统 PATH，不自动登记真实 MCP。
+- 文件：agent_setup/management_http、agent-settings/index、相关 Python/浏览器测试、接入/维护/验收文档。属功能修复，不改变领域边界或既有 RF 顺序。
+- 检查：先 git status --short（干净）；搜索 setup 字段/API/UI/测试；官方 MCP 文档和本机路径核对；真实 CMD/PowerShell 隔离登记与特殊字符校验、空 PATH 安装发现、两主题/宽度浏览器、全量 Python/语法/diff。
+- 数据/API：新增可选 terminal 参数与响应字段，旧 powershell_command/默认 Python 调用保持兼容；不读取令牌到网页，不改业务/草稿/历史/用户配置。风险：CMD 的百分号/延迟展开无法靠双引号消除，遇到这类路径明确引导 PowerShell，不生成可能被解释的命令。
+
+### 2026-11-04 / AG-112 / 完成
+
+- 文件：agent_setup/management_http/http_api、agent-settings/index/management.css、management/diagnostics/settings 测试；README、接入/维护/方案/架构/管理验收/台账。
+- 实现：Windows 默认 CMD，可切 PowerShell，标签/命令/执行步骤同步；旧 API 不传 terminal 仍按 PowerShell。CMD 参数双引号，PowerShell 字面量单引号；CMD 的百分号/感叹号/双引号/控制字符不生成有歧义命令。命令生成请求有顺序校验，过期响应不覆盖新选择。
+- 检测：先服务 PATH、后当前用户桌面版本目录，返回 Codex 绝对路径；实际清空本进程 PATH 后检测本机安装并运行 --version 成功，不修改系统环境。未找到时明确提示，诊断复用检测。
+- 验证：全 Python 181 项通过；新增真实 CMD 临时 CODEX_HOME 登记且 PATH 为空，含空格/单引号/&/括号/^ 的参数重读一致；原真实 PowerShell 隔离登记和缺失客户端诊断通过。全 Python/JS 语法、Node 入口/API/管理/样式契约、文档链接/围栏及 diff 检查通过。
+- 浏览器：真实 Edge 设置工作流通过，包含 CMD/PowerShell 切换、生成/复制、主题/桌面与390窄屏；新增长 Codex 路径换行/最小列宽保护，无溢出，已目视检查浅色窄屏 CMD 和深色桌面 PowerShell。刷新用例增加旧页面标识，避免把 reload 前 DOM 当成新页面；截图只留临时目录。
+- 兼容：业务格式/权限/草稿/历史不变，不执行真实登记或修改用户配置；新增 API 字段为兼容扩展，资源缓存与 APP_VERSION 同步。剩余边界：其他安装分发若不在 PATH 或当前桌面目录，继续提示手工检查，不任意扫描磁盘。
 
 ### 2026-11-04 / AG-111 / 开始
 

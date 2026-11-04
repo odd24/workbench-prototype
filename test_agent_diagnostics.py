@@ -163,7 +163,7 @@ class AgentDiagnosticTests(unittest.TestCase):
             self.assertNotIn("secret-error", json.dumps(result))
 
     def test_missing_codex_does_not_prevent_bridge_and_space_sessions_are_distinct(self):
-        with patch("workbench.agent_setup.shutil.which", return_value=None):
+        with patch("workbench.agent_setup.detect_codex", return_value=None):
             result = self.wait(self.start("no-codex")[1])
         steps = {item["name"]: item for item in result["steps"]}
         self.assertEqual(steps["codex"]["state"], "warning")

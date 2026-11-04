@@ -56,3 +56,11 @@
 - Windows 已实测；其他 OS、其他 MCP 客户端或协议版本仍需实际验证。没有新增性能承诺，本期不改变既有性能样本基线。
 
 运维入口、停用、端口/路径修复、同空间迁移与独立 ZIP 副本、凭据 report/abandon、损坏配置和降级见 [MAINTENANCE.md](MAINTENANCE.md)；用户接入步骤见 [AGENT_INTEGRATION.md](AGENT_INTEGRATION.md)。
+
+## 6. AG-112 实机接入修正
+
+用户在 CMD 粘贴 PowerShell 的 `& 'codex'` 先遇到语法错误，换 CMD 语法后又因用户终端 PATH 不含 Codex 而失败。修正为 UI 可选 CMD/PowerShell，Windows 默认 CMD；命令与步骤同步，后端保留旧 powershell_command/API 默认行为，增加 CMD 命令和可选 terminal 字段。Codex 检测先 PATH，再检查当前用户桌面版本目录，生成绝对路径而不修改 PATH。
+
+新增真实 CMD 隔离登记测试清空 PATH，含空格、单引号、&、括号、^ 的配置路径重读保持一致；PowerShell 原真实登记仍通过。CMD 无法安全复制的 `%`/`!`/双引号/控制字符拒绝生成并引导 PowerShell；模拟无 PATH 的桌面安装发现通过。缺失 Codex 诊断测试改为显式模拟检测函数，而非假定 PATH 缺失等于未安装。
+
+全 Python 181 项通过；真实设置浏览器包含终端切换、生成/复制及浅深主题/桌面窄屏；长绝对路径新增换行与 grid 最小列宽保护。入口、API/管理、样式契约和全文件语法/diff 检查通过；未修改真实用户 Codex 配置或业务数据。

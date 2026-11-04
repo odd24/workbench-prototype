@@ -64,12 +64,15 @@ def dispatch(handler):
                 elif len(parts) == 2 and parts[0] == "clients" and handler.command == "PATCH":
                     result = management.mutate("edit", payload, parts[1])
                 elif len(parts) == 3 and parts[0] == "clients" and parts[2] == "setup" and handler.command in {"GET", "POST"}:
-                    from .agent_setup import setup_instructions, registration_command
-                    if handler.command == "POST" and (set(payload) != {"workspace_id", "name"} or payload["workspace_id"] != runtime.status()["workspace_id"]):
+                    from .agent_setup import setup_instructions, registration_command, command_variants
+                    if handler.command == "POST" and (not {"workspace_id", "name"} <= payload.keys() or set(payload) - {"workspace_id", "name", "terminal"} or payload["workspace_id"] != runtime.status()["workspace_id"]):
                         raise AgentError("invalid_request", "接入向导参数或工作空间无效")
                     result = setup_instructions(management._security(), parts[1], runtime.origin)
                     if handler.command == "POST":
-                        result["powershell_command"] = registration_command(result, payload["name"])
+                        terminal = payload.get("terminal", "powershell")
+                        result["registration_command"] = registration_command(result, payload["name"], terminal)
+                        result["terminal"] = terminal
+                        command_variants(result, payload["name"])
                 elif len(parts) == 3 and parts[0] == "clients" and parts[2] in {"rotate", "revoke", "repair"} and handler.command == "POST":
                     result = management.mutate(parts[2], payload, parts[1])
                 elif handler.command == "GET" and route.startswith("operations/"):

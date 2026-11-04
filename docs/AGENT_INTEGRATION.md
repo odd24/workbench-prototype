@@ -1,5 +1,7 @@
 # 通用 Agent 接入
 
+本文说明当前可用的命令行接入方式。工作台内管理 UI 尚未实施，后续需求与执行步骤见 [接入管理 UI 方案](AGENT_SETTINGS_PLAN.md)，实际状态见 [实施台账](AI_AGENT_PROGRESS.md)。
+
 提供本机认证、范围内查询、提案预览和确认提交 HTTP 接口，以及已通过真实 Codex 客户端验证的 stdio MCP 桥接。正式提交返回可直接打开和刷新的网页链接。阶段状态见 [AI_AGENT_PROGRESS.md](AI_AGENT_PROGRESS.md)，完整契约见 [AI_AGENT_PLAN.md](AI_AGENT_PLAN.md)，验证证据见 [AI_AGENT_ACCEPTANCE.md](AI_AGENT_ACCEPTANCE.md)。
 
 ## 运行和客户端授权

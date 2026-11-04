@@ -48,6 +48,8 @@ class MCPProtocolTests(unittest.TestCase):
         self.assertEqual(result["protocolVersion"], PROTOCOL_VERSION)
         self.assertEqual(result["capabilities"], {"tools": {}})
         self.assertIn("完整预览", result["instructions"])
+        for rule in ("关键原文摘录到正文代码块", "外部日志路径仅作来源补充", "确认已保存在工作台", "未取得日志原文须明确标注待补充"):
+            self.assertIn(rule, result["instructions"])
         self.assertIsNone(self.server.handle({"jsonrpc": "2.0", "method": "notifications/initialized"}))
         self.assertIsNone(self.server.handle({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 2}}))
         self.assertIn("error", self.call("initialize", INITIALIZE))
@@ -57,6 +59,10 @@ class MCPProtocolTests(unittest.TestCase):
         tools = self.call("tools/list", {"_meta": {}})["result"]["tools"]
         self.assertEqual(len(tools), 12)
         self.assertEqual(len({item["name"] for item in tools}), 12)
+        for name in ("workbench_capabilities", "workbench_prepare_proposal"):
+            description = next(item["description"] for item in tools if item["name"] == name)
+            self.assertIn("关键原文摘录到正文代码块", description)
+            self.assertIn("外部日志路径仅作来源补充", description)
         self.assertTrue(all(item["inputSchema"]["additionalProperties"] is False for item in tools))
         self.assertFalse(next(item for item in tools if item["name"] == "workbench_preview_proposal")["annotations"]["readOnlyHint"])
         self.assertNotIn("path", tools[0])

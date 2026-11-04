@@ -57,6 +57,13 @@ def dispatch(handler):
                     result = runtime.diagnostics.start(payload["client_id"], payload["request_id"])
                 elif handler.command == "GET" and len(parts) == 2 and parts[0] == "diagnostics":
                     result = runtime.diagnostics.get(parts[1])
+                elif len(parts) == 3 and parts[0] == "clients" and parts[2] in {"registration-preview", "registration"} and handler.command == "POST":
+                    from .agent_registration import CodexRegistration
+                    registration = CodexRegistration(runtime, management._security())
+                    result = registration.preview(parts[1], payload) if parts[2] == "registration-preview" else registration.register(parts[1], payload)
+                elif len(parts) == 2 and parts[0] == "registrations" and handler.command == "GET":
+                    from .agent_registration import CodexRegistration
+                    result = CodexRegistration(runtime, management._security()).get(parts[1])
                 elif handler.command == "GET" and route == "clients":
                     result = management.list_clients()
                 elif handler.command == "POST" and route == "clients":

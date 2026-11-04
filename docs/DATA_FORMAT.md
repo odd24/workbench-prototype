@@ -12,6 +12,12 @@
 
 管理会话（1 小时）、运行设置请求结果（本次服务最多 1000 条）、诊断任务（最近 50 条）、普通请求/自检观察时间仅在服务内存中，不写入业务数据或 localStorage。诊断 operation_id 是本次服务 UUID；它与管理凭据日志的 SHA-256 operation_id、业务提案 ID 分属不同查询入口。重启后诊断需重新运行；不得把暂无内存观察解释成没有历史提交。
 
+## Codex 登记与恢复（AG-113）
+
+私人工作空间目录 `codex-registrations/<sha256(request_id)>/` 与凭据管理日志分开：`receipt.json` 为 schema_version=1，包含 workspace/client/request、目标、输入摘要、前后文件摘要、before_exists、登记名和 state；`before.toml` 为原配置原始字节（原文件不存在则无此文件），`after.toml` 为候选配置。快照可能包含其他 Codex 设置和秘密，长期保留用于回滚核查，不进入 Git、静态资源或业务 ZIP。prepared 查询转为 completed / not_applied / recovery_required，查询不写目标 Codex 配置；未知 schema/目标不符拒绝查询，保留证据。
+
+目标 CODEX_HOME 只来自服务环境，缺省当前用户 `.codex`；登记只替换其中 `config.toml`，其他配置语义保留，不迁移业务格式。目标目录额外 `.workbench-service.lock` 仅协调本功能跨进程写入，存在不代表仍被占用。新目录按当前用户私有权限创建；现有目录不更改 ACL。sessionStorage 的 `workbench.agentRegistration.pending.<workspace_id>` 仅保存未决 request_id/client_id，结果查询后移除。
+
 ## 目录
 
 ```text

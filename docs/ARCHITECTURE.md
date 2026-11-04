@@ -77,7 +77,11 @@ AG-109 提供 `js/features/agent-settings.js` 独立 feature，通过统一 API/
 
 AG-110 的 `agent_diagnostics.py` 在服务内存登记后台任务，线程在业务锁外启动固定探测/桥接子进程并等待 HTTP；有总时限、输出限制和进程清理。诊断执行 initialize/tools/list/capabilities；一次性环境 nonce 传至桥接的专用 HTTP 头，只有服务内存匹配 nonce/client/有效期才归为自检。普通请求与自检时间分开记录，均不证明聊天身份。管理 API 增加 POST diagnostics、GET diagnostics/<operation_id>；任务及观察值只在本次服务/空间内有效，不扩展 Agent MCP 工具权限。
 
-AG-112 的 agent_setup 为 CMD/PowerShell 分别引用参数；UI Windows 默认 CMD，旧 API 未传 terminal 仍生成 PowerShell。检测函数共享给向导与诊断：优先 PATH，Windows 后备当前用户 LOCALAPPDATA/OpenAI/Codex/bin 下存在的版本化 exe，返回绝对路径，不修改系统环境。CMD 不安全字符拒绝生成；PowerShell 保持单引号字面量规则。所有命令仅供用户复制，后端不执行登记。
+AG-112 的 agent_setup 为 CMD/PowerShell 分别引用参数；UI Windows 默认 CMD，旧 API 未传 terminal 仍生成 PowerShell。检测函数共享给向导与诊断：优先 PATH，Windows 后备当前用户 LOCALAPPDATA/OpenAI/Codex/bin 下存在的版本化 exe，返回绝对路径，不修改系统环境。CMD 不安全字符拒绝生成；PowerShell 保持单引号字面量规则。手工命令入口继续保留。
+
+AG-113 的 agent_registration 独立处理明确确认后的本机 Codex 登记，管理 HTTP 只负责同源会话/路由，不向 MCP 增加权限。POST clients/<id>/registration-preview 返回目标、脱敏原项、完整新项和版本摘要；POST clients/<id>/registration 接受名称/版本/替换选择/request_id，不接受路径或命令。目标由服务 CODEX_HOME/当前用户目录确定，预览绑定整份文件和客户端版本。固定参数的 Codex mcp add/get 在私人临时 CODEX_HOME 中执行，校验仅目标 MCP 项变化，之后备份、准备回执、版本复查并原子安装。持仓储/凭据/目标目录锁时不运行 HTTP 自检，写入结果返回后由页面调用既有后台诊断，避免锁内等待自己。
+
+GET registrations/<request_id> 比较准备日志的前后摘要与当前文件，不自动重放或回滚；回执和私密快照长期保留。sessionStorage 只保存当前标签页未决请求/客户端 ID，不保存管理令牌。目标目录跨进程锁可协调不同空间的工作台登记，不能阻止外部 Codex/编辑器在版本检查与替换间竞争。这里只保证单文件原子替换与可核查恢复，不宣称跨程序事务。
 
 显式 --enable-agent 后装配 AgentSecurity 和 AgentService，/api/agent/v1/* 由 agent_http.py 分派；不在桥接进程装配 Repository。业务逻辑位于 agent_service.py，提案和恢复位于 agent_proposals.py；正式写入复用领域仓储的 PreparedMarkdownWrite，不在协议层复制 CRUD。Agent 凭据在仓库/数据目录外保存，工作空间身份在 .agent/workspace.json；迁移后重新装配服务。提案独立于业务文件；提交持久操作日志后应用正式 Markdown，最后写入回执。未决日志会阻止普通写入，重启即使关闭 Agent 接入仍要执行恢复。
 

@@ -1,4 +1,5 @@
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -172,6 +173,29 @@ class AgentRuntimeTests(unittest.TestCase):
 
 
 class AgentManagementHTTPTests(unittest.TestCase):
+    def test_registration_http_requires_local_session_and_returns_persisted_result(self):
+        with patch.dict(os.environ, {"CODEX_HOME": str(self.base / "isolated-codex")}):
+            status = self.request("status")[1]
+            headers = {"Origin": self.origin, "X-Workbench-Management-Token": status["management_token"]}
+            self.request("runtime", "PATCH", {"workspace_id": None, "expected_version": status["version"], "request_id": "enable", "enabled": True}, headers)
+            workspace = self.repo.agent_runtime.status()["workspace_id"]
+            created = self.request("clients", "POST", {"workspace_id": workspace, "request_id": "create", "name": "Codex", "scopes": ["read"], "project_ids": ["*"], "categories": []}, headers)[1]
+            route = f"clients/{created['client_id']}/registration-preview"
+            payload = {"workspace_id": workspace, "name": "workbench"}
+            for invalid in ({}, {**headers, "Origin": "http://evil.test"}, {**headers, "Authorization": "Bearer invalid"}, {**headers, "Sec-Fetch-Site": "cross-site"}):
+                self.assertEqual(self.request(route, "POST", payload, invalid)[0], 403)
+            for invalid in ({**payload, "path": "arbitrary"}, {**payload, "workspace_id": "other"}):
+                self.assertIn(self.request(route, "POST", invalid, headers)[0], {400, 409})
+            code, preview = self.request(route, "POST", payload, headers)
+            self.assertEqual(code, 200, preview)
+            self.assertFalse((self.base / "isolated-codex").exists())
+            register = {**payload, "expected_version": preview["expected_version"], "replace_existing": False, "request_id": "http-register"}
+            code, result = self.request(f"clients/{created['client_id']}/registration", "POST", register, headers)
+            self.assertEqual(code, 200, result)
+            self.assertTrue(result["registered"])
+            self.assertEqual(self.request("registrations/http-register", headers=headers)[1], result)
+            self.assertEqual(self.request("registrations/http-register")[0], 403)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.base = Path(self.temp.name)

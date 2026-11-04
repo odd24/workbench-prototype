@@ -10,10 +10,15 @@ async function main() {
   const screenshots = fs.mkdtempSync(path.join(os.tmpdir(), 'workbench-settings-shots-'));
   const data = path.join(base, 'data');
   const credentials = path.join(base, 'credentials');
+  const codexHome = path.join(base, 'isolated Codex 中文 & home');
+  fs.mkdirSync(codexHome);
+  const codexConfig = path.join(codexHome, 'config.toml');
+  const originalCodex = '[mcp_servers.workbench]\ncommand = "SECRET-EXISTING"\nargs = ["SECRET-ARGUMENT"]\n';
+  fs.writeFileSync(codexConfig, originalCodex);
   const port = await freePort();
   const debugPort = await freePort();
   const origin = `http://127.0.0.1:${port}`;
-  const server = childProcess.spawn(process.env.PYTHON || 'python', ['server.py', '--data-dir', data, '--agent-config-dir', credentials, '--seed-demo', '--port', String(port)], {cwd:__dirname, stdio:'ignore', windowsHide:true});
+  const server = childProcess.spawn(process.env.PYTHON || 'python', ['server.py', '--data-dir', data, '--agent-config-dir', credentials, '--seed-demo', '--port', String(port)], {cwd:__dirname, stdio:'ignore', windowsHide:true, env:{...process.env, CODEX_HOME:codexHome}});
   let browser;
   let client;
   try {
@@ -65,6 +70,55 @@ async function main() {
     assert.equal(registry[clientId].name, longName);
     const config = JSON.parse(fs.readFileSync(path.join(credentials, workspace, `${clientId}.json`), 'utf8'));
     assert.equal(await client.evaluate(`document.body.innerText.includes(${JSON.stringify(config.token)})`), false);
+    await click('[data-agent-action="registration-preview"]');
+    await waitForPage(client, "!!$('#agentRegistrationPreview') && !agentSettingsFeature.isBusy()");
+    assert.equal(await client.evaluate("$('#agentRegistrationPreview').textContent.includes('同名登记不同')"), true);
+    assert.equal(await client.evaluate("document.body.textContent.includes('SECRET-EXISTING')"), false);
+    assert.equal(fs.readFileSync(codexConfig, 'utf8'), originalCodex);
+    for (const theme of ['light', 'dark']) {
+      for (const width of [1440, 390]) {
+        await client.call('Emulation.setDeviceMetricsOverride', {width, height:1000, deviceScaleFactor:1, mobile:false});
+        await client.evaluate(`document.body.classList.toggle('dark', ${theme === 'dark'}); $('#agentRegistrationPreview').scrollIntoView({block:'start'});`);
+        await delay(100);
+        assert.equal(await client.evaluate('document.documentElement.scrollWidth > innerWidth + 1'), false);
+        const screenshot = await client.call('Page.captureScreenshot', {format:'png'});
+        fs.writeFileSync(path.join(screenshots, `registration-${theme}-${width}.png`), Buffer.from(screenshot.data, 'base64'));
+      }
+    }
+    await client.call('Emulation.setDeviceMetricsOverride', {width:1440, height:1000, deviceScaleFactor:1, mobile:false});
+    await click('[data-agent-action="registration-confirm"]');
+    await waitForPage(client, "$('#agentFeedback')?.textContent.includes('勾选替换')");
+    assert.equal(await client.evaluate("$('#appDialog').open"), false);
+    await click('#agentReplaceRegistration');
+    await click('[data-agent-action="registration-confirm"]');
+    await waitForPage(client, "$('#appDialog').open");
+    await click('#appDialog button[value=cancel]');
+    await waitForPage(client, "!$('#appDialog').open && !agentSettingsFeature.isBusy()");
+    assert.equal(fs.readFileSync(codexConfig, 'utf8'), originalCodex);
+    await client.evaluate(`window.__beforeRegistrationFetch = window.fetch.bind(window); window.fetch = async (...args) => { const response = await window.__beforeRegistrationFetch(...args); if (String(args[0]).endsWith('/registration') && args[1]?.method === 'POST') { window.fetch = window.__beforeRegistrationFetch; throw new Error('injected registration response loss'); } return response; };`);
+    await click('[data-agent-action="registration-confirm"]');
+    await click('[data-agent-action="registration-confirm"]'); // Ignore a double click while confirmation is open.
+    await confirm();
+    await waitForPage(client, "$('#agentFeedback')?.textContent.includes('查询上次接入结果') && agentSettingsFeature.isBusy()");
+    assert.notEqual(fs.readFileSync(codexConfig, 'utf8'), originalCodex);
+    await client.evaluate('window.__registrationBeforeReload = true');
+    await client.call('Page.reload');
+    await waitForPage(client, "!window.__registrationBeforeReload && !!document.querySelector('[data-agent-action=registration-resolve]')");
+    await click('[data-agent-action="registration-resolve"]');
+    await delay(300);
+    await waitForPage(client, "$('#agentRegistrationResult')?.textContent.includes('配置已登记') && !agentSettingsFeature.isBusy()");
+    await waitForPage(client, "document.querySelector('.agent-diagnostic')?.textContent.includes('自检 capabilities 只读请求成功')");
+    const registrationLogs = path.join(credentials, workspace, 'codex-registrations');
+    const receiptDirs = fs.readdirSync(registrationLogs).filter(name => fs.existsSync(path.join(registrationLogs, name, 'receipt.json')));
+    assert.equal(receiptDirs.length, 1);
+    assert.equal(fs.readFileSync(path.join(registrationLogs, receiptDirs[0], 'before.toml'), 'utf8'), originalCodex);
+    assert.equal(await client.evaluate(`sessionStorage.getItem('workbench.agentRegistration.pending.${workspace}')`), null);
+    await click('[data-agent-action="registration-preview"]');
+    await waitForPage(client, "$('#agentRegistrationPreview')?.textContent.includes('无需重复写入')");
+    await fill('#agentRegistrationName', 'workbench_personal');
+    assert.equal(await client.evaluate("!!$('#agentRegistrationPreview')"), false, '名称变更必须使预览失效');
+    // Terminal commands remain available in the advanced fallback.
+    await client.evaluate("document.querySelector('.agent-setup > details').open = true");
     assert.match(await client.evaluate("$('#agentSetupCommand').value"), /mcp add/);
     await fill('#agentTerminal', 'cmd', 'change');
     await waitForPage(client, "$('#agentTerminal').value === 'cmd' && $('#agentSetupCommand').value.startsWith('\"')");
@@ -232,7 +286,7 @@ async function main() {
       }
     }
     await click('[data-agent-action="cancel-form"]');
-    console.log('Agent settings browser tests passed: first-use,enable,preference,create,lost-response-recovery,setup,copy,theme,width,unsaved,session-failure,conflict,edit,rotate,revoke,disable,reload');
+    console.log('Agent settings browser tests passed: first-use,enable,preference,create,lost-response-recovery,setup,registration-preview,explicit-replace,cancel,double-click,registration-response-loss,reload-query,automatic-read-check,copy,theme,width,unsaved,session-failure,conflict,edit,rotate,revoke,disable,reload');
     console.log(`Screenshots: ${screenshots}`);
   } catch (error) {
     if (client) console.error('Settings UI failure:', await client.evaluate("({page:currentPage, feedback:$('#agentFeedback')?.textContent, state:$('#agentRuntimeState')?.textContent, dialog:$('#appDialog').open, message:$('#appDialogMessage').textContent})").catch(() => 'page unavailable'));

@@ -144,6 +144,8 @@ def build_argument_parser() -> argparse.ArgumentParser:
     admin.add_argument("--agent-client-add", metavar="NAME", help="创建 Agent 客户端后退出")
     admin.add_argument("--agent-client-revoke", metavar="ID", help="撤销 Agent 客户端后退出")
     admin.add_argument("--agent-client-rotate", metavar="ID", help="轮换 Agent 客户端令牌后退出")
+    admin.add_argument("--agent-management-report", action="store_true", help="检查/恢复凭据管理操作后退出")
+    admin.add_argument("--agent-management-abandon", metavar="OPERATION_ID", help="放弃未决凭据操作并撤销相关客户端")
     admin.add_argument("--agent-recovery-report", action="store_true", help="停止服务后检查 Agent 恢复状态")
     admin.add_argument("--agent-recovery-abandon", metavar="OPERATION_ID", help="停止服务后接受当前磁盘状态并取消未决提案")
     parser.add_argument("--agent-scope", action="append", choices=["read", "propose", "commit"], help="允许操作，可重复；默认只读")
@@ -164,14 +166,18 @@ def main(argv=None):
         return
     if args.enable_agent and args.host not in {"127.0.0.1", "localhost", "::1"}:
         raise ValueError("Agent 接入只允许监听本机 loopback")
-    if args.agent_client_add or args.agent_client_revoke or args.agent_client_rotate:
+    if args.agent_client_add or args.agent_client_revoke or args.agent_client_rotate or args.agent_management_report or args.agent_management_abandon:
         from workbench.agent_security import AgentSecurity
         # Administration never opens a second business repository.
         existing = (data_root / ".agent" / "workspace.json").exists()
         lock = None if existing else DataDirectoryLock(data_root)
         try:
             security = AgentSecurity(data_root, args.agent_config_dir)
-            if args.agent_client_add:
+            if args.agent_management_report:
+                result = {"operations": security.manager().report()}
+            elif args.agent_management_abandon:
+                result = security.manager().abandon(args.agent_management_abandon)
+            elif args.agent_client_add:
                 result = security.add_client(args.agent_client_add, args.agent_scope or ["read"], args.agent_project, args.agent_category, f"http://{'[::1]' if args.host == '::1' else args.host}:{args.port}")
             else:
                 result = security.change_client(args.agent_client_revoke or args.agent_client_rotate, bool(args.agent_client_rotate))

@@ -69,7 +69,9 @@ CSS 按以下固定次序加载：令牌、基础、组件、布局、记录、�
 
 ## Agent 接入（AG-102～105）
 
-AG-107 增加 `agent_runtime.py` 和 `agent_management_http.py`：只读发现、私人目录 runtime.json 启动偏好、显式 CLI 覆盖、当前 Repository 上的运行时启停。管理接口位于 `/api/local/agent-management/`，仅 loopback，独立同源管理会话，不接受 Agent 凭据；当前已提供 status/runtime/operations，客户端管理与 UI 在后续工作项实施。锁序为空间切换锁 → 仓储锁 → 私人配置目录锁。空间切换重新建立管理会话；状态查询不创建身份或凭据。
+AG-107 增加 `agent_runtime.py` 和 `agent_management_http.py`：只读发现、私人目录 runtime.json 启动偏好、显式 CLI 覆盖、当前 Repository 上的运行时启停。管理接口位于 `/api/local/agent-management/`，仅 loopback，独立同源管理会话，不接受 Agent 凭据；提供 status/runtime/operations 基础路由。锁序为空间切换锁 → 仓储锁 → 私人配置目录锁。空间切换重新建立管理会话；状态查询不创建身份或凭据。
+
+AG-108 增加 `agent_management.py`，CLI 和管理 HTTP 共同调用 CredentialManager；客户端创建/编辑/轮换/撤销/服务地址修复采用持久日志、配置目录跨进程锁与重读恢复。HTTP 的 Agent 请求也在相同凭据锁内鉴权并执行，管理操作不能在已接受的业务请求中途更换授权；待锁最多 3 秒后返回可重试冲突。分类变更前收窄旧名称授权，成功重命名后恢复为新名称；跨业务/私人配置失败时保留收窄，不自动扩大权限。客户端列表与操作查询脱敏，管理 UI/诊断继续后续实施。
 
 显式 --enable-agent 后装配 AgentSecurity 和 AgentService，/api/agent/v1/* 由 agent_http.py 分派；不在桥接进程装配 Repository。业务逻辑位于 agent_service.py，提案和恢复位于 agent_proposals.py；正式写入复用领域仓储的 PreparedMarkdownWrite，不在协议层复制 CRUD。Agent 凭据在仓库/数据目录外保存，工作空间身份在 .agent/workspace.json；迁移后重新装配服务。提案独立于业务文件；提交持久操作日志后应用正式 Markdown，最后写入回执。未决日志会阻止普通写入，重启即使关闭 Agent 接入仍要执行恢复。
 

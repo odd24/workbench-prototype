@@ -4,6 +4,12 @@
 
 私人凭据根目录下的 `<workspace_id>/runtime.json` 保存 `schema_version: 1`、`workspace_id` 与布尔 `startup_enabled`。它不是业务数据，不进入可移植 ZIP 或 Git。缺失默认关闭；损坏或未知版本保留原文件，禁止自动启用并在管理状态返回提示。读取未初始化空间不创建身份。`--enable-agent`/`--disable-agent` 只覆盖本次运行，不写偏好；自定义 `--agent-config-dir` 对偏好和凭据使用同一根目录。
 
+## Agent 凭据管理操作（AG-108）
+
+同一私人目录下 `management-operations/<sha256(request_id)>.json` 保存 schema_version=1、workspace_id、operation_id、request_id、input_digest、client_id、state 和脱敏 result。prepared/recovery_required 阶段另有 before/after 的客户端与配置快照，包含敏感凭据，仅保存在私人目录。完成或放弃后原子替换为不含快照的精简回执，长期保留幂等映射；未决快照不自动删除。这与业务 `.agent/operations` 是两套不同职责的日志。
+
+配置先写、注册表后写；未决客户端暂停鉴权，日志 completed 后使用新凭据。恢复只接受 before/after 状态，不覆盖第三方内容。注册表保持 schema_version=1，客户端新增可选 management_revision，旧客户端缺省为 0；API 版本摘要包含客户端全部持久字段，不返回 token_hash。私人日志和配置不进入业务 ZIP。
+
 ## 目录
 
 ```text

@@ -102,7 +102,9 @@ class AgentRuntime:
                 store.guard_writes()
             if not getattr(self.repository, "agent_service", None):
                 from .agent_service import AgentService
-                self.repository.agent_service = AgentService(self.repository, self.security())
+                security = self.security()
+                security.manager().recover()
+                self.repository.agent_service = AgentService(self.repository, security)
         else:
             self.repository.agent_service = None
 

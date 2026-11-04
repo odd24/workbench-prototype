@@ -69,6 +69,10 @@ python server.py --data-dir $testData --seed-demo --port 4174
 
 ## Agent 客户端维护
 
+AG-108 的凭据管理恢复使用同一数据目录和凭据根：`python server.py --data-dir <目录> --agent-config-dir <私人根> --agent-management-report`。它尝试可证明安全的恢复并报告未决操作，不输出令牌。第三方内容冲突时先停止服务并备份完整私人目录，核对后可用 `--agent-management-abandon <operation_id>` 放弃该操作；此操作保留当前配置文件、撤销相关客户端并清除日志凭据快照，不恢复旧令牌。未知/损坏日志拒绝放弃，不删除日志绕过。
+
+正常启用、管理写入或操作查询会尝试恢复 prepared；recovery_required 只暂停相关客户端，其余客户端正常工作。已完成/已放弃日志保留精简幂等回执，不含令牌快照；未决快照不得自动清理。降级前先解决管理与业务未决操作并备份。分类同步失败可能已经完成业务重命名，应重新读取分类并核对授权；不要假定错误意味着业务完全未改动。
+
 本机 Agent 接入与授权命令见 [AGENT_INTEGRATION.md](AGENT_INTEGRATION.md)。接入默认关闭；--enable-agent 显式打开，--agent-config-dir 指定外部凭据根。--replace 同时比较 Agent 是否启用，避免复用功能状态不同的旧服务。更换凭据目录需要重新启动服务。
 
 静态文件必须在 index.html 显式加载清单内才能访问。新增 UI 资源时同时验证正常加载与目录/源码/数据拒绝访问；不要恢复对仓库根的无限制静态服务。

@@ -7,13 +7,11 @@ import hashlib
 import hmac
 import json
 import os
-import secrets
 import subprocess
 import uuid
 from pathlib import Path
 
 from .persistence import atomic_write_json
-from .write_coordinator import DataDirectoryLock
 
 
 class AgentError(Exception):
@@ -72,54 +70,39 @@ class AgentSecurity:
         if not self.registry.exists():
             return {}
         value = read_json(self.registry)
-        if value.get("schema_version") != 1 or value.get("workspace_id") != self.workspace_id:
+        if not isinstance(value, dict) or value.get("schema_version") != 1 or value.get("workspace_id") != self.workspace_id or not isinstance(value.get("clients"), dict):
             raise AgentError("unsupported_schema", "客户端配置格式或工作空间不匹配", 503)
         return value["clients"]
 
     def save_clients(self, clients):
         private_write(self.registry, {"schema_version": 1, "workspace_id": self.workspace_id, "clients": clients})
 
-    def add_client(self, name, scopes, project_ids, categories, base_url):
+    @staticmethod
+    def validate_client(name, scopes, project_ids, categories):
         if not isinstance(name, str) or not name.strip() or len(name) > 100:
             raise ValueError("客户端名称无效")
-        if not scopes or set(scopes) - {"read", "propose", "commit"}:
+        if not isinstance(scopes, list) or not scopes or any(not isinstance(scope, str) for scope in scopes) or set(scopes) - {"read", "propose", "commit"}:
             raise ValueError("客户端权限无效")
         for values in (project_ids, categories):
             if not isinstance(values, list) or any(not isinstance(value, str) or not value for value in values):
                 raise ValueError("范围必须是非空字符串列表；空列表表示不授权")
+
+    @staticmethod
+    def validate_origin(base_url):
         from urllib.parse import urlsplit
         parsed = urlsplit(base_url)
         if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"} or parsed.username or parsed.password or parsed.path not in {"", "/"} or parsed.query or parsed.fragment or not 1 <= (parsed.port if parsed.port is not None else 80) <= 65535:
             raise ValueError("Agent 地址必须是本机 HTTP origin")
-        client_id, token = str(uuid.uuid4()), secrets.token_urlsafe(32)
-        with DataDirectoryLock(self.config_dir):
-            clients = self.clients()
-            clients[client_id] = {"client_id": client_id, "name": name.strip(), "enabled": True,
-                                  "token_hash": hashlib.sha256(token.encode()).hexdigest(),
-                                  "scopes": sorted(set(scopes)), "project_ids": project_ids, "categories": categories}
-            config = {"schema_version": 1, "base_url": base_url.rstrip("/"), "workspace_id": self.workspace_id, "client_id": client_id, "token": token}
-            private_write(self.config_dir / f"{client_id}.json", config)
-            self.save_clients(clients)
-        return {"client_id": client_id, "config_file": str(self.config_dir / f"{client_id}.json"), "workspace_id": self.workspace_id}
 
-    def change_client(self, client_id, rotate=False):
-        with DataDirectoryLock(self.config_dir):
-            clients = self.clients()
-            client = clients.get(client_id)
-            if not client:
-                raise ValueError("客户端不存在")
-            if rotate:
-                if not client.get("enabled"):
-                    raise ValueError("已撤销客户端不能通过轮换重新启用，请新建客户端")
-                token = secrets.token_urlsafe(32)
-                config_path = self.config_dir / f"{client_id}.json"
-                config = read_json(config_path)
-                private_write(config_path, {**config, "token": token})
-                client["token_hash"] = hashlib.sha256(token.encode()).hexdigest()
-            else:
-                client["enabled"] = False
-            self.save_clients(clients)
-        return {"client_id": client_id, "enabled": client["enabled"], "rotated": rotate}
+    def manager(self):
+        from .agent_management import CredentialManager
+        return CredentialManager(self)
+
+    def add_client(self, name, scopes, project_ids, categories, base_url, request_id=None):
+        return self.manager().run("create", {"name": name, "scopes": scopes, "project_ids": project_ids, "categories": categories, "base_url": base_url}, request_id=request_id)
+
+    def change_client(self, client_id, rotate=False, expected_version=None, request_id=None):
+        return self.manager().run("rotate" if rotate else "revoke", {}, client_id, expected_version, request_id)
 
     def authenticate(self, authorization, workspace_id):
         if not authorization or not authorization.startswith("Bearer "):
@@ -127,8 +110,9 @@ class AgentSecurity:
         if workspace_id != self.workspace_id:
             raise AgentError("workspace_mismatch", "工作空间标识不匹配，请检查客户端配置", 409)
         token_hash = hashlib.sha256(authorization[7:].encode()).hexdigest()
+        blocked = self.manager().blocked_clients()
         for client in self.clients().values():
-            if client.get("enabled") and hmac.compare_digest(client.get("token_hash", ""), token_hash):
+            if client.get("enabled") and client.get("client_id") not in blocked and hmac.compare_digest(client.get("token_hash", ""), token_hash):
                 return client
         raise AgentError("unauthenticated", "Agent 凭据已失效或被撤销", 401)
 

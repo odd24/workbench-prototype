@@ -36,6 +36,8 @@ class ConfigurationRepository:
         self.update_project = update_project
         self.update_record = update_record
         self.concept_map_categories = concept_map_categories
+        self.before_category_change = lambda names: []
+        self.after_category_rename = lambda changes, old, new: None
 
     def config(self) -> dict:
         return {
@@ -168,6 +170,7 @@ class ConfigurationRepository:
             category = str(document.get("category") or "未分类").strip() or "未分类"
             if category not in cleaned:
                 cleaned.append(category)
+        self.before_category_change(set(self.document_categories()) - set(cleaned))
         atomic_write_json(self.config_dir / "document-categories.json", cleaned)
         return cleaned
 
@@ -191,6 +194,7 @@ class ConfigurationRepository:
             raise ValueError("分类名称已存在")
         if new_name == old_name:
             return {"categories": categories, "document_sort": self.document_sort(), "updated_documents": 0}
+        authorization_changes = self.before_category_change([old_name])
         changed = 0
         for document in self.list_documents():
             if str(document.get("category") or "未分类") != old_name:
@@ -208,6 +212,7 @@ class ConfigurationRepository:
         if old_name in file_orders:
             file_orders[new_name] = file_orders.pop(old_name)
         saved_sort = self.save_document_sort({**sorting, "category_order": category_order, "file_modes": file_modes, "file_orders": file_orders})
+        self.after_category_rename(authorization_changes, old_name, new_name)
         return {"categories": saved_categories, "document_sort": saved_sort, "updated_documents": changed}
 
     def delete_document_category(self, name: str) -> dict:
@@ -217,6 +222,7 @@ class ConfigurationRepository:
             raise FileNotFoundError(name)
         if name == "未分类":
             raise ValueError("“未分类”是系统默认分类，不能删除")
+        self.before_category_change([name])
         changed = 0
         for document in self.list_documents():
             if str(document.get("category") or "未分类") != name:

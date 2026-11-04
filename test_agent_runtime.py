@@ -230,6 +230,37 @@ class AgentManagementHTTPTests(unittest.TestCase):
         self.assertFalse(self.repo.agent_service)
         self.assertEqual(self.request("runtime", "PATCH", {**payload, "request_id": "another"}, headers)[0], 409)
 
+    def test_client_management_http_scopes_conflicts_and_redaction(self):
+        project = self.repo.create_project({"name": "HTTP 项目"})
+        status = self.request("status")[1]
+        headers = {"Origin": self.origin, "X-Workbench-Management-Token": status["management_token"]}
+        enable = {"workspace_id": None, "expected_version": status["version"], "request_id": "enable", "enabled": True}
+        workspace = self.request("runtime", "PATCH", enable, headers)[1]["status"]["workspace_id"]
+        create = {"workspace_id": workspace, "request_id": "new-client", "name": "Codex", "scopes": ["read"], "project_ids": [project["id"]], "categories": []}
+        code, result = self.request("clients", "POST", create, headers)
+        self.assertEqual(code, 200, result)
+        self.assertEqual(self.request("clients", "POST", create, headers)[1], result)
+        code, listing = self.request("clients", headers=headers)
+        self.assertEqual(code, 200)
+        self.assertNotIn("token_hash", json.dumps(listing))
+        self.assertNotIn("config_file", result)
+        client_id = result["client_id"]
+        config = read_json(self.repo.agent_runtime.security().config_dir / f"{client_id}.json")
+        self.assertNotIn(config["token"], json.dumps(listing))
+        mutation = {"workspace_id": workspace, "request_id": "rotate", "expected_version": result["version"]}
+        code, rotated = self.request(f"clients/{client_id}/rotate", "POST", mutation, headers)
+        self.assertEqual(code, 200, rotated)
+        self.assertEqual(self.request(f"clients/{client_id}/rotate", "POST", {**mutation, "request_id": "stale"}, headers)[0], 409)
+        op = self.request("operations/rotate", headers=headers)[1]
+        self.assertEqual(op["state"], "completed")
+        self.assertEqual(op["result"], rotated)
+        edit = {**create, "expected_version": rotated["version"], "request_id": "edit", "name": "新名称"}
+        code, edited = self.request(f"clients/{client_id}", "PATCH", edit, headers)
+        self.assertEqual(code, 200, edited)
+        self.assertEqual(self.request(f"clients/{client_id}/revoke", "POST", {**mutation, "request_id": "revoke", "expected_version": edited["version"]}, headers)[0], 200)
+        self.assertFalse(self.request("clients", headers=headers)[1]["items"][0]["enabled"])
+        self.assertEqual(self.request("clients", headers={**headers, "Authorization": "Bearer " + config["token"]})[0], 403)
+
 
 if __name__ == "__main__":
     unittest.main()

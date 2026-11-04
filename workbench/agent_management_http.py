@@ -1,6 +1,7 @@
 """Same-origin local administration, never exposed through Agent tools."""
 
 import uuid
+import hashlib
 from urllib.parse import urlparse
 
 from .agent_security import AgentError
@@ -38,17 +39,37 @@ def dispatch(handler):
                 runtime.authorize(handler.headers.get("X-Workbench-Management-Token"))
                 if handler.command != "GET" and handler.headers.get("Origin") != origin:
                     raise AgentError("forbidden", "管理写入需要同源 Origin", 403)
-                if handler.command == "PATCH" and route == "runtime":
+                payload = None
+                if handler.command != "GET":
                     if handler._content_length() > 65536:
                         raise AgentError("request_too_large", "管理请求过大", 413)
                     if handler.headers.get("Content-Type", "").split(";")[0] != "application/json":
                         raise AgentError("invalid_request", "管理请求需要 JSON")
-                    result = runtime.update(handler._body())
+                    payload = handler._body()
+                from .agent_management import AgentManagement
+                management = AgentManagement(runtime)
+                parts = route.split("/")
+                if handler.command == "PATCH" and route == "runtime":
+                    result = runtime.update(payload)
+                elif handler.command == "GET" and route == "clients":
+                    result = management.list_clients()
+                elif handler.command == "POST" and route == "clients":
+                    result = management.mutate("create", payload)
+                elif len(parts) == 2 and parts[0] == "clients" and handler.command == "PATCH":
+                    result = management.mutate("edit", payload, parts[1])
+                elif len(parts) == 3 and parts[0] == "clients" and parts[2] in {"rotate", "revoke", "repair"} and handler.command == "POST":
+                    result = management.mutate(parts[2], payload, parts[1])
                 elif handler.command == "GET" and route.startswith("operations/"):
-                    operation = runtime.operations.get(route[len("operations/"):])
-                    if not operation:
-                        raise AgentError("not_found", "管理操作不存在，请重新查询当前状态", 404)
-                    result = operation[1]
+                    key = route[len("operations/"):]
+                    operation = runtime.operations.get(key)
+                    if operation:
+                        result = operation[1]
+                    else:
+                        if not runtime.status()["workspace_id"]:
+                            raise AgentError("not_found", "管理操作不存在", 404)
+                        manager = management._security().manager()
+                        operation_id = key if len(key) == 64 else hashlib.sha256(key.encode()).hexdigest()
+                        result = manager.operation(operation_id)
                 else:
                     raise AgentError("not_found", "管理接口不存在", 404)
             handler._json(result)

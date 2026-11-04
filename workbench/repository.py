@@ -80,6 +80,9 @@ class Repository:
             self.update_record,
             self.concept_map_categories,
         )
+        from .agent_management import restrict_categories, restore_renamed_category
+        self._configuration_repository.before_category_change = lambda names: restrict_categories(self, names)
+        self._configuration_repository.after_category_rename = restore_renamed_category
         self._document_repository = DocumentRepository(
             self.documents_dir,
             self.ensure_document_category,

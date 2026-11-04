@@ -254,6 +254,7 @@ class AgentManagement:
         items = []
         for client in security.clients().values():
             items.append({**clean_client(client), "recovery_required": client["client_id"] in blocked,
+                          **self.runtime.diagnostics.observed(client["client_id"]),
                           "invalid_project_ids": [key for key in client["project_ids"] if key != "*" and key not in project_ids],
                           "invalid_categories": [key for key in client["categories"] if key != "*" and key not in categories]})
         return {"items": items, "projects": [{"id": p["id"], "name": p["name"]} for p in self.repository.list_projects()], "categories": list(self.repository.document_categories())}

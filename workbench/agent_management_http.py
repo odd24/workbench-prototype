@@ -51,6 +51,12 @@ def dispatch(handler):
                 parts = route.split("/")
                 if handler.command == "PATCH" and route == "runtime":
                     result = runtime.update(payload)
+                elif handler.command == "POST" and route == "diagnostics":
+                    if set(payload) != {"workspace_id", "client_id", "request_id"} or payload["workspace_id"] != runtime.status()["workspace_id"]:
+                        raise AgentError("invalid_request", "诊断参数或工作空间无效")
+                    result = runtime.diagnostics.start(payload["client_id"], payload["request_id"])
+                elif handler.command == "GET" and len(parts) == 2 and parts[0] == "diagnostics":
+                    result = runtime.diagnostics.get(parts[1])
                 elif handler.command == "GET" and route == "clients":
                     result = management.list_clients()
                 elif handler.command == "POST" and route == "clients":

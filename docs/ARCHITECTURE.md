@@ -75,6 +75,8 @@ AG-108 增加 `agent_management.py`，CLI 和管理 HTTP 共同调用 Credential
 
 AG-109 提供 `js/features/agent-settings.js` 独立 feature，通过统一 API/对话框接入现有管理页与未保存提示，导航新增 agent_settings 并保持设置侧栏选中。状态和授权属于服务端；表单、管理会话、待查询操作仅在交互内存，不存 localStorage。`agent_setup.py` 从可信安装/凭据路径派生指引，生成正确转义的 PowerShell 命令，GET/POST clients/<id>/setup 不执行命令、不修改 Codex；仅同源管理页面可获必要本机路径。诊断握手和请求证据继续 AG-110。
 
+AG-110 的 `agent_diagnostics.py` 在服务内存登记后台任务，线程在业务锁外启动固定探测/桥接子进程并等待 HTTP；有总时限、输出限制和进程清理。诊断执行 initialize/tools/list/capabilities；一次性环境 nonce 传至桥接的专用 HTTP 头，只有服务内存匹配 nonce/client/有效期才归为自检。普通请求与自检时间分开记录，均不证明聊天身份。管理 API 增加 POST diagnostics、GET diagnostics/<operation_id>；任务及观察值只在本次服务/空间内有效，不扩展 Agent MCP 工具权限。
+
 显式 --enable-agent 后装配 AgentSecurity 和 AgentService，/api/agent/v1/* 由 agent_http.py 分派；不在桥接进程装配 Repository。业务逻辑位于 agent_service.py，提案和恢复位于 agent_proposals.py；正式写入复用领域仓储的 PreparedMarkdownWrite，不在协议层复制 CRUD。Agent 凭据在仓库/数据目录外保存，工作空间身份在 .agent/workspace.json；迁移后重新装配服务。提案独立于业务文件；提交持久操作日志后应用正式 Markdown，最后写入回执。未决日志会阻止普通写入，重启即使关闭 Agent 接入仍要执行恢复。
 
 静态服务只允许 index.html 和其显式版本化资源，拒绝目录与源码访问。Host/Origin 校验和旧接口拒绝 Agent Authorization 在协议层处理；HTTP 写入与目录切换串行化，领域写入仍使用 Repository 的可重入锁。

@@ -65,6 +65,8 @@ class AgentRuntime:
         self._expires = time.monotonic() + 3600
         self._generation = secrets.token_hex(16)
         self.operations = {}
+        from .agent_diagnostics import AgentDiagnostics
+        self.diagnostics = AgentDiagnostics(self)
 
     @property
     def origin(self):

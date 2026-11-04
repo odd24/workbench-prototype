@@ -146,6 +146,31 @@ async function main() {
     await confirm();
     await waitForPage(client, "$('#agentFeedback')?.textContent.includes('客户端设置已更新') && !agentSettingsFeature.isBusy()");
     assert.notEqual(JSON.parse(fs.readFileSync(path.join(credentials, workspace, `${clientId}.json`), 'utf8')).token, previousToken);
+    await click('[data-agent-action="diagnose"]');
+    await waitForPage(client, "document.querySelector('.agent-diagnostic')?.textContent.includes('自检 capabilities 只读请求成功')");
+    assert.equal(await client.evaluate("document.querySelector('.agent-diagnostic').textContent.includes('12 个工具')"), true);
+    await click('[data-agent-action="refresh"]');
+    await waitForPage(client, "!agentSettingsFeature.isBusy() && document.querySelector('.agent-client')?.textContent.includes('最近自检请求：')");
+    assert.equal(await client.evaluate("document.querySelector('.agent-client').textContent.includes('最近客户端请求：暂无记录')"), true);
+    for (const theme of ['light', 'dark']) {
+      for (const width of [1440, 390]) {
+        await client.call('Emulation.setDeviceMetricsOverride', {width, height:1000, deviceScaleFactor:1, mobile:false});
+        await client.evaluate(`document.body.classList.toggle('dark', ${theme === 'dark'}); document.querySelector('.agent-diagnostic').scrollIntoView({block:'start'});`);
+        await delay(200);
+        assert.equal(await client.evaluate('document.documentElement.scrollWidth > innerWidth + 1'), false);
+        const screenshot = await client.call('Page.captureScreenshot', {format:'png'});
+        fs.writeFileSync(path.join(screenshots, `diagnostic-${theme}-${width}.png`), Buffer.from(screenshot.data, 'base64'));
+      }
+    }
+    await client.call('Emulation.setDeviceMetricsOverride', {width:1440, height:1000, deviceScaleFactor:1, mobile:false});
+    await click('[data-agent-action="toggle"]');
+    await confirm();
+    await waitForPage(client, "$('#agentRuntimeState')?.textContent === '已关闭'");
+    await click('[data-agent-action="diagnose"]');
+    await waitForPage(client, "document.querySelector('.agent-diagnostic')?.textContent.includes('Agent 接入已关闭')");
+    await click('[data-agent-action="toggle"]');
+    await confirm();
+    await waitForPage(client, "$('#agentRuntimeState')?.textContent === '已开启'");
     await click('[data-agent-action="revoke"]');
     await confirm();
     await waitForPage(client, "document.querySelector('.agent-client-state')?.textContent === '已撤销'");

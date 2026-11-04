@@ -56,6 +56,9 @@ def dispatch(handler):
             # A CLI or local management request may have changed authorization
             # since routing started. Never apply a previously read permission.
             client = service.security.authenticate(handler.headers.get("Authorization"), handler.headers.get("X-Workbench-Workspace"))
+            runtime = getattr(handler.repository, "agent_runtime", None)
+            if runtime:
+                runtime.diagnostics.observe(client["client_id"], handler.headers.get("X-Workbench-Diagnostic"))
             service.accept_request(client)
             result = action()
         def display_links(value):

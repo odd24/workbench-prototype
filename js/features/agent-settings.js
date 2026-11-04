@@ -10,6 +10,8 @@
     let busy = false;
     let pending = null;
     let setup = null;
+    let diagnostic = null;
+    let pollTimer = null;
     const find = selector => root.querySelector(selector);
     const id = () => global.crypto.randomUUID();
     const errorText = error => error.payload?.message || error.message;
@@ -52,8 +54,9 @@
       const names = new Map(catalog.projects.map(item => [item.id, item.name]));
       const rangeText = (values, projects = false) => values.includes('*') ? '全部（含未来新增）' : values.map(value => projects ? names.get(value) || `${value}（已失效）` : value).join('、') || '未授权';
       const stateText = {enabled:'已开启', disabled:'已关闭', uninitialized:'尚未初始化'}[status.runtime_state] || '异常';
-      root.innerHTML = `<div class="settings-stack agent-settings"><section class="settings-card"><div class="agent-section-head"><div><h2>AI Agent 接入</h2><p>当前状态：<strong id="agentRuntimeState">${stateText}</strong></p></div>${button('refresh', '刷新')}</div><dl class="agent-status"><dt>工作空间</dt><dd>${esc(status.workspace_id || '开启接入后初始化')}</dd><dt>服务地址</dt><dd>${esc(status.origin)}</dd><dt>运行设置来源</dt><dd>${esc({cli:'启动参数（本次覆盖）', preference:'本机启动偏好', ui:'本次界面设置'}[status.effective_source] || status.effective_source)}</dd></dl><div class="settings-actions">${button('toggle', status.enabled ? '关闭接入' : '开启接入')}<label><input id="agentStartupPreference" type="checkbox" ${status.startup_preference ? 'checked' : ''}>下次普通启动时开启</label>${button('preference', '保存启动偏好')}</div><p class="settings-hint">关闭接入保留授权与提案。显式启动参数只影响本次，保存的偏好用于下次普通启动。</p>${status.preference_error ? `<p class="agent-error">${esc(status.preference_error)}</p>` : ''}</section><p id="agentFeedback" class="agent-feedback" role="status" aria-live="polite"></p>${pending ? `<section class="settings-card"><p>上次操作结果尚未确定，请先查询，避免重复创建授权。</p>${button('resolve', '查询上次操作')}</section>` : ''}<section class="settings-card"><div class="agent-section-head"><h2>客户端授权</h2>${button('new', '添加客户端', !status.workspace_id ? 'disabled' : '')}</div><p class="settings-hint">授权只作用于当前工作空间；令牌保存在本机私人目录，页面不显示。</p><div class="agent-client-list">${catalog.items.map(client => `<article class="agent-client"><div><strong>${esc(client.name)}</strong><span class="agent-client-state">${client.recovery_required ? '需要恢复' : client.enabled ? '授权有效' : '已撤销'}</span><small>${esc(client.client_id)}</small><p>权限：${esc(permissionName(client.scopes))}</p><p>项目：${esc(rangeText(client.project_ids, true))}</p><p>知识库：${esc(rangeText(client.categories))}</p>${client.invalid_categories.length || client.invalid_project_ids.length ? '<p class="agent-error">部分授权范围已失效，请编辑后重新核对。</p>' : ''}</div><div class="settings-actions">${client.enabled && !client.recovery_required ? `${button('edit', '编辑', `data-client-id="${esc(client.client_id)}"`)}${button('setup', '接入向导', `data-client-id="${esc(client.client_id)}"`)}${button('rotate', '轮换凭据', `data-client-id="${esc(client.client_id)}"`)}${button('repair', '更新服务地址', `data-client-id="${esc(client.client_id)}"`)}${button('revoke', '撤销', `data-client-id="${esc(client.client_id)}"`)}` : ''}</div></article>`).join('') || '<p class="empty-state">暂无客户端。先开启接入，再添加并选择授权范围。</p>'}</div></section>${formHtml()}<div id="agentSetupPanel"></div><div id="agentDiagnosticsPanel"></div></div>`;
+      root.innerHTML = `<div class="settings-stack agent-settings"><section class="settings-card"><div class="agent-section-head"><div><h2>AI Agent 接入</h2><p>当前状态：<strong id="agentRuntimeState">${stateText}</strong></p></div>${button('refresh', '刷新')}</div><dl class="agent-status"><dt>工作空间</dt><dd>${esc(status.workspace_id || '开启接入后初始化')}</dd><dt>服务地址</dt><dd>${esc(status.origin)}</dd><dt>运行设置来源</dt><dd>${esc({cli:'启动参数（本次覆盖）', preference:'本机启动偏好', ui:'本次界面设置'}[status.effective_source] || status.effective_source)}</dd></dl><div class="settings-actions">${button('toggle', status.enabled ? '关闭接入' : '开启接入')}<label><input id="agentStartupPreference" type="checkbox" ${status.startup_preference ? 'checked' : ''}>下次普通启动时开启</label>${button('preference', '保存启动偏好')}</div><p class="settings-hint">关闭接入保留授权与提案。显式启动参数只影响本次，保存的偏好用于下次普通启动。</p>${status.preference_error ? `<p class="agent-error">${esc(status.preference_error)}</p>` : ''}</section><p id="agentFeedback" class="agent-feedback" role="status" aria-live="polite"></p>${pending ? `<section class="settings-card"><p>上次操作结果尚未确定，请先查询，避免重复创建授权。</p>${button('resolve', '查询上次操作')}</section>` : ''}<section class="settings-card"><div class="agent-section-head"><h2>客户端授权</h2>${button('new', '添加客户端', !status.workspace_id ? 'disabled' : '')}</div><p class="settings-hint">授权只作用于当前工作空间；令牌保存在本机私人目录，页面不显示。</p><div class="agent-client-list">${catalog.items.map(client => `<article class="agent-client"><div><strong>${esc(client.name)}</strong><span class="agent-client-state">${client.recovery_required ? '需要恢复' : client.enabled ? '授权有效' : '已撤销'}</span><small>${esc(client.client_id)}</small><p>权限：${esc(permissionName(client.scopes))}</p><p>项目：${esc(rangeText(client.project_ids, true))}</p><p>知识库：${esc(rangeText(client.categories))}</p><p>最近客户端请求：${esc(client.last_client_request_at ? new Date(client.last_client_request_at).toLocaleString() : "暂无记录")}（来源未独立验证）</p><p>最近自检请求：${esc(client.last_diagnostic_request_at ? new Date(client.last_diagnostic_request_at).toLocaleString() : "暂无记录")}</p>${client.invalid_categories.length || client.invalid_project_ids.length ? '<p class="agent-error">部分授权范围已失效，请编辑后重新核对。</p>' : ''}</div><div class="settings-actions">${client.enabled && !client.recovery_required ? `${button('edit', '编辑', `data-client-id="${esc(client.client_id)}"`)}${button('setup', '接入向导', `data-client-id="${esc(client.client_id)}"`)}${button('diagnose', '检查连接', `data-client-id="${esc(client.client_id)}"`)}${button('rotate', '轮换凭据', `data-client-id="${esc(client.client_id)}"`)}${button('repair', '更新服务地址', `data-client-id="${esc(client.client_id)}"`)}${button('revoke', '撤销', `data-client-id="${esc(client.client_id)}"`)}` : ''}</div></article>`).join('') || '<p class="empty-state">暂无客户端。先开启接入，再添加并选择授权范围。</p>'}</div></section>${formHtml()}<div id="agentSetupPanel"></div><div id="agentDiagnosticsPanel"></div></div>`;
       if (setup) paintSetup();
+      if (diagnostic) paintDiagnostic();
       if (busy) root.querySelectorAll('input, select, textarea, button').forEach(node => { node.disabled = true; });
     }
 
@@ -65,7 +68,7 @@
         const loaded = await request('status');
         if (!valid(version)) return false;
         if (status && status.workspace_id !== loaded.workspace_id) {
-          draft = null; original = ''; setup = null; pending = null;
+          draft = null; original = ''; setup = null; pending = null; diagnostic = null;
           root.innerHTML = '<div class="empty-state">工作空间已变化，正在重新加载授权…</div>';
         }
         status = loaded;
@@ -161,6 +164,31 @@
       } catch (error) { if (valid(version)) message(errorText(error), true); }
     }
 
+    function paintDiagnostic() {
+      const panel = find('#agentDiagnosticsPanel');
+      if (!panel || !diagnostic) return;
+      const labels = {service:'服务', authorization:'授权', configuration:'配置', python:'Python 与桥接', codex:'Codex 环境', mcp:'MCP 握手与工具', read:'只读请求'};
+      const states = {passed:'通过', failed:'失败', skipped:'未执行', warning:'需核对'};
+      panel.innerHTML = `<section class="settings-card agent-diagnostic"><h2>连接检查 · ${diagnostic.state === 'running' ? '检查中…' : '检查完成'}</h2><p class="settings-hint">本机自检不会写入业务内容；握手成功不表示当前 Codex 聊天已加载工具。</p><p>开始时间：${esc(new Date(diagnostic.started_at).toLocaleString())}</p><ol>${diagnostic.steps.map(step => `<li><strong>${esc(labels[step.name] || step.name)}：${esc(states[step.state] || step.state)}</strong><p>${esc(step.message)}</p><small>${esc(new Date(step.checked_at).toLocaleString())}</small></li>`).join('') || '<li>正在运行有超时限制的环境与桥接检查…</li>'}</ol><p id="agentDiagnosticPolling" role="status"></p></section>`;
+    }
+
+    async function pollDiagnostic(operationId, version, attempt = 0) {
+      if (!valid(version)) return;
+      try {
+        const result = await request(`diagnostics/${operationId}`);
+        if (!valid(version)) return;
+        diagnostic = result;
+        paintDiagnostic();
+        if (result.state === 'running' && attempt < 60) pollTimer = global.setTimeout(() => pollDiagnostic(operationId, version, attempt + 1), 300);
+        else if (result.state === 'running') find('#agentDiagnosticPolling').textContent = '检查仍在运行，请稍后再次点击检查连接查询。';
+      } catch (error) {
+        if (valid(version)) {
+          const node = find('#agentDiagnosticPolling');
+          if (node) node.textContent = `${errorText(error)}；可重新发起检查。`;
+        }
+      }
+    }
+
     async function action(name, clientId) {
       if (busy) return;
       const client = catalog.items.find(item => item.client_id === clientId);
@@ -169,6 +197,19 @@
       if (name === 'cancel-form') { if (await canReplaceForm()) { draft = null; original = ''; paint(); } return; }
       if (name === 'refresh') { if (await canReplaceForm()) await load(); return; }
       if (name === 'setup') return showSetup(clientId);
+      if (name === 'diagnose') {
+        const version = epoch;
+        global.clearTimeout(pollTimer);
+        try {
+          const result = await request('diagnostics', {method:'POST', body:JSON.stringify({workspace_id:status.workspace_id, client_id:clientId, request_id:id()})});
+          if (!valid(version)) return;
+          diagnostic = result;
+          paintDiagnostic();
+          find('#agentDiagnosticsPanel')?.scrollIntoView({block:'nearest'});
+          await pollDiagnostic(result.operation_id, version);
+        } catch (error) { if (valid(version)) message(errorText(error), true); }
+        return;
+      }
       if (name === 'copy') {
         try { await global.navigator.clipboard.writeText(find('#agentSetupCommand').value); message('命令已复制。'); }
         catch { find('#agentSetupCommand')?.select(); message('无法自动复制，已选中命令，请按 Ctrl+C。', true); }
@@ -238,7 +279,7 @@
       if (node.dataset.agentAll) { draft[node.dataset.agentAll] = node.checked ? ['*'] : []; paint(); }
       if (node.dataset.agentScope) draft[node.dataset.agentScope] = [...root.querySelectorAll(`[data-agent-scope="${node.dataset.agentScope}"]:checked`)].map(input => input.value);
     });
-    return {load, isDirty, isBusy, saveClient, deactivate:() => { epoch += 1; busy = false; }, discard:() => { draft = null; original = ''; }};
+    return {load, isDirty, isBusy, saveClient, deactivate:() => { epoch += 1; busy = false; global.clearTimeout(pollTimer); }, discard:() => { draft = null; original = ''; }};
   }
 
   global.Workbench = global.Workbench || {};

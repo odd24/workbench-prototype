@@ -74,6 +74,9 @@ class LocalAgentClient:
                 data = json.dumps(params, ensure_ascii=False).encode("utf-8")
             request = Request(url, data=data, method=spec["method"], headers={"Authorization": "Bearer " + config["token"],
                               "X-Workbench-Workspace": config["workspace_id"], "Content-Type": "application/json"})
+            diagnostic_nonce = os.environ.get("WORKBENCH_DIAGNOSTIC_NONCE", "")
+            if re.fullmatch(r"wbdiag-[A-Za-z0-9_-]{32,100}", diagnostic_nonce):
+                request.add_header("X-Workbench-Diagnostic", diagnostic_nonce)
             try:
                 response = self.opener.open(request, timeout=10)
             except HTTPError as error:

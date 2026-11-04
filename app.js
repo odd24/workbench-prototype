@@ -870,13 +870,14 @@ function persistNavigationState() {
 function setPage(page, options = {}) {
   const managePages = navigationFeature.managePages;
   page = navigationFeature.resolvePage(page, projects, selectedProjectId);
+  if (page !== 'agent_settings') agentSettingsFeature.deactivate();
   currentPage = page;
   persistNavigationState();
   if (!options.preserveHash) navigationFeature.clearHash();
   if (!options.preserveItemLink) { requestRegistry.invalidate('item-link'); navigationFeature.clearItemLink(); }
   if (!['tags', 'status_templates', 'settings'].includes(page) || page !== activeManagePage) savedManageSnapshot = null;
   $$('.page').forEach(node => node.classList.remove('active'));
-  $$('.nav-item').forEach(node => node.classList.toggle('active', page === 'project' ? node.dataset.projectId === selectedProjectId : node.dataset.page === page));
+  $$('.nav-item').forEach(node => node.classList.toggle('active', page === 'project' ? node.dataset.projectId === selectedProjectId : node.dataset.page === (page === 'agent_settings' ? 'settings' : page)));
   if (page === 'home') $('#homePage').classList.add('active');
   else if (page === 'project') {
     $('#projectPage').classList.add('active');
@@ -922,10 +923,11 @@ function captureManageSnapshot(page = activeManagePage) {
 }
 
 function hasUnsavedManageChanges() {
+  if (activeManagePage === 'agent_settings') return agentSettingsFeature.isDirty() || agentSettingsFeature.isBusy();
   return ['tags', 'status_templates', 'settings'].includes(activeManagePage) && savedManageSnapshot !== null && managePageSnapshot() !== savedManageSnapshot;
 }
 
-function askUnsavedChanges(pageName = ({tags:'标签管理', status_templates:'状态模板管理', settings:'设置与数据'}[activeManagePage] || '当前页面')) {
+function askUnsavedChanges(pageName = ({tags:'标签管理', status_templates:'状态模板管理', settings:'设置与数据', agent_settings:'AI Agent 接入'}[activeManagePage] || '当前页面')) {
   const dialog = $('#unsavedChangesDialog');
   if (unsavedPromptPromise) return unsavedPromptPromise;
   $('#unsavedChangesMessage').textContent = `“${pageName}”还有尚未保存的修改。保存后再离开，可以避免刚才的编辑丢失。`;
@@ -944,10 +946,12 @@ function hasUnsavedProjectEdit() {
 }
 
 async function confirmLeaveManagePage() {
+  if (activeManagePage === 'agent_settings' && agentSettingsFeature.isBusy()) { notify('请先等待或查询上次接入操作结果'); return false; }
   if (!hasUnsavedManageChanges()) return true;
   const choice = await askUnsavedChanges();
   if (choice === 'cancel') return false;
-  if (choice === 'discard') { savedManageSnapshot = null; return true; }
+  if (choice === 'discard') { if (activeManagePage === 'agent_settings') agentSettingsFeature.discard(); savedManageSnapshot = null; return true; }
+  if (activeManagePage === 'agent_settings') return agentSettingsFeature.saveClient();
   const saved = activeManagePage === 'tags' ? await saveTags() : activeManagePage === 'status_templates' ? await saveTemplates() : await applyDataDirectory();
   return Boolean(saved);
 }
@@ -2150,6 +2154,11 @@ async function openReferenceToken(token) {
 }
 
 async function renderManagePage(page) {
+  if (page === 'agent_settings') {
+    $('#manageEyebrow').textContent = '本机接入'; $('#manageTitle').textContent = 'AI Agent 接入'; $('#manageDescription').textContent = '管理当前工作空间的授权，生成 Codex 接入配置。'; $('#manageActions').innerHTML = '<button type="button" class="secondary-button" data-page="settings">返回设置</button>';
+    await agentSettingsFeature.load();
+    return;
+  }
   if (page === 'status_templates') {
     $('#manageEyebrow').textContent = '全局配置';
     $('#manageTitle').textContent = '状态模板';
@@ -2223,7 +2232,7 @@ async function renderManagePage(page) {
   }
   if (page === 'settings') {
     $('#manageEyebrow').textContent = '本地数据'; $('#manageTitle').textContent = '设置与数据'; $('#manageDescription').textContent = '查看数据位置，导入 Markdown 或导出完整备份。'; $('#manageActions').innerHTML = '';
-    $('#manageContent').innerHTML = `<div class="settings-stack"><section class="settings-card"><h2>Markdown 数据目录</h2><p>可修改为当前电脑上的其他目录。切换成功后，新记录会自动保存到新位置。</p><label class="data-directory-field"><span>完整目录路径</span><input id="dataDirectoryInput" value="${escapeHtml(configData.data_dir)}" spellcheck="false" placeholder="例如 E:\\WorkBenchData"></label><div class="data-directory-actions"><select id="dataDirectoryMode"><option value="migrate">复制当前全部数据并切换（推荐）</option><option value="existing">直接使用已有工作台目录</option></select><button class="primary-button" id="saveDataDirectory">应用新目录</button></div><small class="settings-hint">复制模式要求目标目录为空，原目录会保留作为备份；直接使用模式不会删除或覆盖已有文件。</small></section><section class="settings-card"><h2>导入与导出</h2><p>导入单个 Markdown 文件、完整项目目录，或将整个工作台打包成 ZIP。</p><div class="settings-actions"><button class="primary-button" id="importMarkdown">导入 Markdown</button><input type="file" id="importMarkdownInput" accept=".md,text/markdown" hidden><button class="secondary-button" id="importDirectory">导入项目目录</button><input type="file" id="importDirectoryInput" accept=".md,text/markdown" webkitdirectory multiple hidden><button class="secondary-button" id="exportAll">导出全部数据</button></div></section><section class="settings-card"><h2>附件清理</h2><p>扫描没有被任何记录引用的附件，确认后再从磁盘删除。</p><div class="settings-actions"><button class="secondary-button" id="scanOrphanAssets">扫描无引用附件</button><span id="orphanAssetResult"></span></div></section><section class="settings-card"><h2>当前数据</h2><div class="stat-grid"><div class="stat-card"><strong>${projects.length}</strong><span>项目</span></div><div class="stat-card"><strong>${records.filter(item=>item.type==='issue').length}</strong><span>问题</span></div><div class="stat-card"><strong>${records.filter(item=>item.type==='todo').length}</strong><span>待办</span></div><div class="stat-card"><strong>${records.filter(item=>item.type==='info').length}</strong><span>信息</span></div></div></section></div>`;
+    $('#manageContent').innerHTML = `<div class="settings-stack"><section class="settings-card"><h2>AI Agent 接入</h2><p>管理客户端授权，生成 Codex 接入命令并查看连接检查。</p><button type="button" class="secondary-button" data-page="agent_settings">管理 AI Agent 接入</button></section><section class="settings-card"><h2>Markdown 数据目录</h2><p>可修改为当前电脑上的其他目录。切换成功后，新记录会自动保存到新位置。</p><label class="data-directory-field"><span>完整目录路径</span><input id="dataDirectoryInput" value="${escapeHtml(configData.data_dir)}" spellcheck="false" placeholder="例如 E:\\WorkBenchData"></label><div class="data-directory-actions"><select id="dataDirectoryMode"><option value="migrate">复制当前全部数据并切换（推荐）</option><option value="existing">直接使用已有工作台目录</option></select><button class="primary-button" id="saveDataDirectory">应用新目录</button></div><small class="settings-hint">复制模式要求目标目录为空，原目录会保留作为备份；直接使用模式不会删除或覆盖已有文件。</small></section><section class="settings-card"><h2>导入与导出</h2><p>导入单个 Markdown 文件、完整项目目录，或将整个工作台打包成 ZIP。</p><div class="settings-actions"><button class="primary-button" id="importMarkdown">导入 Markdown</button><input type="file" id="importMarkdownInput" accept=".md,text/markdown" hidden><button class="secondary-button" id="importDirectory">导入项目目录</button><input type="file" id="importDirectoryInput" accept=".md,text/markdown" webkitdirectory multiple hidden><button class="secondary-button" id="exportAll">导出全部数据</button></div></section><section class="settings-card"><h2>附件清理</h2><p>扫描没有被任何记录引用的附件，确认后再从磁盘删除。</p><div class="settings-actions"><button class="secondary-button" id="scanOrphanAssets">扫描无引用附件</button><span id="orphanAssetResult"></span></div></section><section class="settings-card"><h2>当前数据</h2><div class="stat-grid"><div class="stat-card"><strong>${projects.length}</strong><span>项目</span></div><div class="stat-card"><strong>${records.filter(item=>item.type==='issue').length}</strong><span>问题</span></div><div class="stat-card"><strong>${records.filter(item=>item.type==='todo').length}</strong><span>待办</span></div><div class="stat-card"><strong>${records.filter(item=>item.type==='info').length}</strong><span>信息</span></div></div></section></div>`;
     captureManageSnapshot(page);
   }
 }
@@ -3020,6 +3029,11 @@ const trashFeature = trashCore.create({
   escapeHtml,
   refreshData,
   isActive:() => activeManagePage === 'trash',
+});
+
+const agentSettingsFeature = window.Workbench.agentSettings.create({
+  root:$('#manageContent'), api, escapeHtml, confirm:appConfirm, notify,
+  isActive:() => currentPage === 'agent_settings',
 });
 
 function tagUsageRecords(tagName) {

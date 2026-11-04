@@ -164,6 +164,8 @@
 | POST `clients/<id>/rotate` | 轮换 | expected_version、request_id |
 | POST `clients/<id>/revoke` | 撤销 | expected_version、request_id；重复请求返回原结果 |
 | GET `clients/<id>/setup` | 当前平台接入说明/命令 | 仅服务端派生配置路径，不接受任意文件路径 |
+| POST `clients/<id>/setup` | 按用户登记名称生成命令 | workspace_id、name；名称仅字母开头的字母/数字/下划线/连字符，最多 64 字符；不执行命令 |
+| POST `clients/<id>/repair` | 将配置 origin 修复为当前服务 | expected_version、workspace_id、request_id；不接受任意地址 |
 | POST `diagnostics` | 发起当前有效客户端诊断 | 有限时、有限输出，不接受 shell/任意 args |
 | GET `operations/<id>` | 查询管理操作/诊断结果 | 当前管理会话和空间，脱敏输出 |
 

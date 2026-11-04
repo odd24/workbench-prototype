@@ -2,7 +2,7 @@
   'use strict';
 
   const STORAGE_KEY = 'workbench-navigation-state';
-  const MANAGE_PAGES = Object.freeze(['status_templates', 'archive', 'documents', 'timeline', 'tags', 'trash', 'settings']);
+  const MANAGE_PAGES = Object.freeze(['status_templates', 'archive', 'documents', 'timeline', 'tags', 'trash', 'settings', 'agent_settings']);
   const PAGE_NAMES = new Set(['home', 'project', 'concept_maps', ...MANAGE_PAGES]);
   const PROJECT_TABS = new Set(['overview', 'issues', 'todos', 'infos', 'assets']);
 

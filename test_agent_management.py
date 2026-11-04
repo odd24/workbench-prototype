@@ -250,6 +250,55 @@ security.add_client('crash', ['read'], ['*'], [], 'http://127.0.0.1:4173', reque
             finally:
                 path.write_bytes(original)
 
+    def test_setup_instructions_and_powershell_quoting_no_secret(self):
+        from workbench.agent_setup import setup_instructions, registration_command, powershell_quote
+        result = self.create()
+        setup = setup_instructions(self.security, result["client_id"], self.runtime.origin)
+        token = read_json(self.security.config_dir / (result["client_id"] + ".json"))["token"]
+        self.assertNotIn(token, json.dumps(setup))
+        self.assertTrue(setup["origin_matches"])
+        self.assertTrue(setup["bridge_exists"])
+        self.assertIn("mcp add 'workbench_personal' --", registration_command(setup, "workbench_personal"))
+        value = "C:/中文 O'Brien/$literal`command/with space"
+        self.assertEqual(powershell_quote(value), "'C:/中文 O''Brien/$literal`command/with space'")
+        for name in ("bad name", "workbench;whoami", "$(whoami)", "-option", "x" * 65):
+            with self.assertRaises(ValueError):
+                registration_command(setup, name)
+        with self.assertRaises(ValueError):
+            powershell_quote("bad\npath")
+        # Verify literals with a real PowerShell parser where available.
+        import shutil
+        executable = shutil.which("powershell") or shutil.which("pwsh")
+        if executable:
+            command = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); ConvertTo-Json -InputObject @(" + ",".join(powershell_quote(item) for item in [value, "$env:USERNAME", '`whoami`']) + ") -Compress"
+            completed = subprocess.run([executable, "-NoProfile", "-Command", command], capture_output=True, timeout=10)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(json.loads(completed.stdout.decode("utf-8-sig")), [value, "$env:USERNAME", '`whoami`'])
+
+    def test_generated_registration_command_real_codex_isolated(self):
+        import os
+        import shutil
+        import tomllib
+        from workbench.agent_setup import setup_instructions, registration_command
+        powershell = shutil.which("powershell") or shutil.which("pwsh")
+        codex = shutil.which("codex")
+        if not powershell or not codex:
+            self.assertTrue(callable(registration_command))
+            return
+        private = self.base / "private O'Brien $literal `name"
+        security = AgentSecurity(self.base / "quote-data", private)
+        client = security.add_client("quote", ["read"], ["*"], [], "http://127.0.0.1:4173")
+        setup = setup_instructions(security, client["client_id"], "http://127.0.0.1:4173")
+        home = self.base / "isolated-codex"
+        home.mkdir()
+        command = registration_command(setup, "workbench_quote")
+        process = subprocess.run([powershell, "-NoProfile", "-Command", command], cwd=self.base,
+            env={**os.environ, "CODEX_HOME": str(home)}, capture_output=True, timeout=15)
+        self.assertEqual(process.returncode, 0, process.stderr)
+        registered = tomllib.loads((home / "config.toml").read_text(encoding="utf-8"))["mcp_servers"]["workbench_quote"]
+        self.assertEqual(registered["command"], setup["command"])
+        self.assertEqual(registered["args"], setup["args"])
+
 
 if __name__ == "__main__":
     unittest.main()

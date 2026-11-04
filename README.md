@@ -50,7 +50,7 @@ python server.py
 
 ## 开发与维护
 
-工作台内 AI Agent 接入管理 UI 的设计见 [实施与维护方案](docs/AGENT_SETTINGS_PLAN.md)，包含启停、授权、Codex 配置向导、诊断和分阶段验收。AG-107 已提供启停管理后端和本机启动偏好，UI 与客户端管理尚待后续工作项实施；首次仍默认关闭。
+在“设置 → AI Agent 接入”可开启/关闭接入、保存启动偏好、创建与编辑授权、轮换/撤销凭据、更新服务地址并生成 Codex 或通用 MCP 配置。首次默认关闭；配置命令需手工执行，不自动修改 Codex。设计与阶段状态见 [实施与维护方案](docs/AGENT_SETTINGS_PLAN.md) 和 [台账](docs/AI_AGENT_PROGRESS.md)，分层诊断尚待 AG-110。
 
 通用 AI Agent 接入支持通过 MCP 在 Codex 中整理问题和知识文档，新建、追加和修改均先生成完整预览，用户确认当前版本后再正式入库，并返回网页打开链接。接入默认关闭；需要显式启用服务、授权客户端并登记 MCP，步骤见 [接入说明](docs/AGENT_INTEGRATION.md)，Agent 操作规则见 [使用指引](docs/AGENT_USAGE.md)，验证证据和边界见 [验收记录](docs/AI_AGENT_ACCEPTANCE.md)。不自动修改现有 Codex 配置。
 

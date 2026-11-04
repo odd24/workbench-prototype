@@ -26,7 +26,8 @@ ROOT = Path(__file__).resolve().parent
 
 
 class RpcProcess:
-    def __init__(self, command, cwd, env=None):
+    def __init__(self, command, cwd, env=None, terminate_tree=False):
+        self.terminate_tree = terminate_tree
         self.process = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.PIPE,
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0,
                                         creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
@@ -90,6 +91,13 @@ class RpcProcess:
 
     def close(self):
         try:
+            # Codex can retain helper descendants with the isolated config as
+            # their cwd. Reap the test-owned tree while its root is still alive;
+            # letting the root exit first can orphan inherited Windows pipes.
+            if self.terminate_tree and os.name == "nt" and self.process.poll() is None:
+                subprocess.run(["taskkill", "/PID", str(self.process.pid), "/T", "/F"],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               timeout=5, creationflags=subprocess.CREATE_NO_WINDOW)
             if self.process.stdin and not self.process.stdin.closed:
                 self.process.stdin.close()
             self.process.wait(timeout=5)
@@ -98,9 +106,13 @@ class RpcProcess:
             self.process.wait(timeout=5)
         for reader in self.readers:
             reader.join(timeout=2)
-        # Raw pipes avoid BufferedReader locks held by a Windows reader thread.
-        self.process.stdout.close()
-        self.process.stderr.close()
+        # A descendant can inherit a pipe after the direct child exits. Closing
+        # a raw Windows pipe while another thread is blocked in read can itself
+        # block indefinitely. Daemon readers own those handles until EOF; never
+        # wait on their close after the bounded joins above.
+        for reader, stream in zip(self.readers, (self.process.stdout, self.process.stderr)):
+            if not reader.is_alive():
+                stream.close()
 
 
 class LocalWorkbench:
@@ -148,6 +160,9 @@ def run_acceptance(codex=None):
                 '[model_providers.workbench_test]', 'name = "Local protocol acceptance (no inference)"',
                 'base_url = "http://127.0.0.1:1/v1"', 'wire_api = "responses"', 'requires_openai_auth = false',
                 '[analytics]', 'enabled = false',
+                # This fixture tests direct MCP only. Background marketplace
+                # cloning is unrelated and can retain Windows file handles.
+                '[features]', 'plugins = false', 'apps = false', 'remote_plugin = false',
                 '[mcp_servers.workbench]', 'command = ' + quote(sys.executable),
                 'args = [' + quote(ROOT / 'agent_bridge.py') + ', "--config", ' + quote(client_config) + ']',
                 'env = { WORKBENCH_MCP_TRACE = "1" }',
@@ -160,7 +175,7 @@ def run_acceptance(codex=None):
                 if key == "CODEX_THREAD_ID" or (key.startswith(("OPENAI_", "CHATGPT_", "CODEX_")) and any(marker in key for marker in ("TOKEN", "KEY", "AUTH"))):
                     env.pop(key)
 
-            rpc = RpcProcess([executable, "app-server", "--stdio"], cwd, env)
+            rpc = RpcProcess([executable, "app-server", "--stdio"], cwd, env, terminate_tree=True)
             rpc.call("initialize", {"clientInfo": {"name": "workbench_acceptance", "version": "1.0"}, "capabilities": {"experimentalApi": True}})
             rpc.notify("initialized")
             thread = rpc.call("thread/start", {"cwd": str(cwd), "ephemeral": True, "approvalPolicy": "never", "sandbox": "read-only"})

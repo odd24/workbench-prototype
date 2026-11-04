@@ -4,7 +4,7 @@
 
 本方案定义新增功能，不改变已完成 RF-000～RF-505 的历史状态。实施状态见 [AI_AGENT_PROGRESS.md](AI_AGENT_PROGRESS.md)，执行约束见 [AGENTS.md](../AGENTS.md)。下文保留设计时的范围与契约，当前运行和授权命令以 [接入说明](AGENT_INTEGRATION.md) 为准；后续边界不属于已实现范围。
 
-后续工作台内接入管理的需求、契约、实施阶段及维护要求见 [AI Agent 接入管理 UI 实施与维护方案](AGENT_SETTINGS_PLAN.md)（AG-106 文档；AG-107～111 待实施）。它扩展接入管理，不改变本文既有提案确认边界，也不表示当前已有管理 UI。
+工作台内接入管理的需求、契约、实施阶段及维护要求见 [AI Agent 接入管理 UI 实施与维护方案](AGENT_SETTINGS_PLAN.md)（AG-106～111）。启停/授权管理/配置向导/分层诊断已落地，实际状态见台账与 [管理验收](AGENT_SETTINGS_ACCEPTANCE.md)。此扩展不改变本文既有提案确认边界，也不自动修改 Codex 配置。
 
 ## 1. 已确认需求与范围
 

@@ -1,6 +1,6 @@
 # AI Agent 接入管理 UI 实施与维护方案
 
-日期：2026-11-04。文档工作项：AG-106；功能实施范围：AG-107～111。本文定义待实施设计，不表示界面、管理 API、启动偏好或诊断功能已经存在。实际状态见 [AI_AGENT_PROGRESS.md](AI_AGENT_PROGRESS.md)。
+日期：2026-11-04。文档工作项：AG-106；功能实施范围：AG-107～111，均已完成。本文保留设计边界并补充实施契约；实际状态与证据见 [AI_AGENT_PROGRESS.md](AI_AGENT_PROGRESS.md)、[接入管理验收](AGENT_SETTINGS_ACCEPTANCE.md)。后续“一键登记”不属于本期实现范围。
 
 本方案扩展 [AI_AGENT_PLAN.md](AI_AGENT_PLAN.md)，保留 AG-000～105 的已完成历史。当前可用接入步骤仍见 [AGENT_INTEGRATION.md](AGENT_INTEGRATION.md)，现有业务与安全边界见 [ARCHITECTURE.md](ARCHITECTURE.md)、[DATA_FORMAT.md](DATA_FORMAT.md) 和 [AGENTS.md](../AGENTS.md)。
 
@@ -152,7 +152,7 @@
 
 ## 6. 管理 API 草案
 
-拟用 `/api/local/agent-management/`，独立于 `/api/agent/v1/`。以下是待实施契约，精确 JSON Schema 在 AG-107/108 编写测试前固定。
+管理前缀为 `/api/local/agent-management/`，独立于 `/api/agent/v1/`。下表与开工契约定义请求边界；实际字段校验位于 agent_management_http/runtime/management，测试固定成功、未知字段、错误类型与冲突响应。
 
 | 方法与相对路径 | 功能 | 写入约束 |
 | --- | --- | --- |
@@ -167,7 +167,8 @@
 | POST `clients/<id>/setup` | 按用户登记名称生成命令 | workspace_id、name；名称仅字母开头的字母/数字/下划线/连字符，最多 64 字符；不执行命令 |
 | POST `clients/<id>/repair` | 将配置 origin 修复为当前服务 | expected_version、workspace_id、request_id；不接受任意地址 |
 | POST `diagnostics` | 发起当前有效客户端诊断 | 有限时、有限输出，不接受 shell/任意 args |
-| GET `operations/<id>` | 查询管理操作/诊断结果 | 当前管理会话和空间，脱敏输出 |
+| GET `operations/<id>` | 查询运行设置或持久凭据管理结果 | 当前管理会话和空间，脱敏输出 |
+| GET `diagnostics/<id>` | 查询本服务的诊断结果 | 当前管理会话和空间；重启失效 |
 
 状态响应至少区分 workspace_id（未初始化可空）、runtime_state、startup_preference、effective_source、配置版本与错误提示。普通 Agent capabilities 不返回管理会话或本机配置。
 
@@ -284,7 +285,7 @@ AG-110 开工契约：POST diagnostics 接受 workspace_id/client_id/request_id�
 
 各项先记录开始日期、精确范围、文件、检查与风险，再编辑；代码已写但未完成验收仍为进行中。每笔提交须可独立验证、保留旧数据可读；完成台账和实现同提交，不以 WIP 作为终点。
 
-AG-107～111 未由本文自动授权开始；当前用户请求仅为方案文档化。不得把 AG-106 完成解释为运行功能已交付。
+AG-106 文档完成时不代表运行功能已交付；后续实施由用户的新指令授权。
 
 实施授权更新（2026-11-04）：用户随后已要求开始实施直到完成；按上述顺序推进，各项状态与证据以台账为准。
 

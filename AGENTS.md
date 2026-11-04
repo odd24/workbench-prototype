@@ -13,10 +13,11 @@
 AI Agent 功能文档（实现事实以台账与验收记录为准）：
 
 - 实施方案：[docs/AI_AGENT_PLAN.md](docs/AI_AGENT_PLAN.md)
-- 接入管理 UI 后续方案：[docs/AGENT_SETTINGS_PLAN.md](docs/AGENT_SETTINGS_PLAN.md)（实现状态以台账为准）
+- 接入管理 UI 方案：[docs/AGENT_SETTINGS_PLAN.md](docs/AGENT_SETTINGS_PLAN.md)（实现状态以台账为准）
 - 实施台账：[docs/AI_AGENT_PROGRESS.md](docs/AI_AGENT_PROGRESS.md)
 - 接入与使用：[docs/AGENT_INTEGRATION.md](docs/AGENT_INTEGRATION.md)、[docs/AGENT_USAGE.md](docs/AGENT_USAGE.md)
 - 验收记录：[docs/AI_AGENT_ACCEPTANCE.md](docs/AI_AGENT_ACCEPTANCE.md)
+- 接入管理 UI 验收：[docs/AGENT_SETTINGS_ACCEPTANCE.md](docs/AGENT_SETTINGS_ACCEPTANCE.md)
 
 规则优先级：数据安全与兼容性 → 用户明确需求 → 本文件 → 重构计划 → 邻近代码惯例。若文档和代码事实冲突，先记录冲突，再以不损坏已有数据的方式处理并同步文档。
 
@@ -248,6 +249,10 @@ Markdown
 - 服务端是最终校验边界，前端限制不能替代服务端校验。
 
 ### 9.1 通用 AI Agent 接入约束
+
+- 接入设置按 `docs/AGENT_SETTINGS_PLAN.md` 的 AG-107～111 及台账维护。管理路由仅 loopback 同源管理会话，不加入 MCP 工具；Agent 凭据不能扩权、启停或读取私人配置。状态读取不得初始化空间。
+- CLI/UI 凭据管理复用同一持久日志与跨进程锁；完成后清除凭据快照，未决操作按 report/abandon 恢复，不删除日志绕过。分类重命名/删除需同步授权，失败保持收窄，禁止扩大到未分类。
+- 固定诊断在业务锁外等待子进程/HTTP，必须限制时间/输出并回收进程；自检 nonce 不能出现在页面/日志。握手、自检与普通客户端请求分层表达，不能宣称证明当前聊天在线。管理 UI 回归运行 `node test_agent_settings.js`。
 
 - Agent 功能按 `docs/AI_AGENT_PLAN.md` 的 `AG-*` 工作项实施；开工和完成必须更新独立台账，不改写已完成 RF 工作项的历史状态。超出已登记边界的重构另行登记。
 - 业务接口不得绑定 Codex、特定模型或聊天 ID。MCP 是协议适配层，必须调用工作台服务，不直接写业务文件或另建 Repository 进程。

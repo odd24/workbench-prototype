@@ -182,6 +182,42 @@ async function main() {
     await client.call('Page.reload');
     await waitForPage(client, "$('#agentRuntimeState')?.textContent === '已关闭'");
     assert.equal(await client.evaluate("$('#agentStartupPreference').checked"), true);
+    // Empty and many-scope layouts use this disposable service's real UI APIs.
+    const uiRequest = async (resource, method = 'GET', payload) => {
+      const response = await fetch(`${origin}/api${resource}`, {method, headers:{'Content-Type':'application/json'}, body:payload === undefined ? undefined : JSON.stringify(payload)});
+      assert.ok(response.ok, resource);
+      return response.json();
+    };
+    for (const project of await uiRequest('/projects')) await uiRequest(`/projects/${encodeURIComponent(project.id)}`, 'DELETE');
+    await uiRequest('/document-categories', 'PUT', {categories:[]});
+    await click('[data-agent-action="new"]');
+    await waitForPage(client, "!!$('#agentClientName')");
+    await click('[data-agent-action="cancel-form"]');
+    await click('[data-agent-action="refresh"]');
+    await waitForPage(client, "!agentSettingsFeature.isBusy()");
+    await click('[data-agent-action="new"]');
+    await waitForPage(client, "!!$('#agentClientForm')");
+    assert.equal(await client.evaluate("document.querySelectorAll('[data-agent-scope]').length"), 0);
+    assert.equal(await client.evaluate("document.querySelector('.agent-client-form').textContent.includes('暂无可选内容')"), true);
+    await click('[data-agent-action="cancel-form"]');
+    for (let index = 0; index < 60; index += 1) await uiRequest('/projects', 'POST', {name:`大量范围项目 ${index} ${'长中文'.repeat(8)}`});
+    await uiRequest('/document-categories', 'PUT', {categories:Array.from({length:100}, (_, index) => `知识分类 ${index} ${'长中文'.repeat(6)}`)});
+    await click('[data-agent-action="refresh"]');
+    await waitForPage(client, "!agentSettingsFeature.isBusy()");
+    await click('[data-agent-action="new"]');
+    await waitForPage(client, "document.querySelectorAll('[data-agent-scope]').length === 160");
+    for (const theme of ['light', 'dark']) {
+      for (const width of [1440, 390]) {
+        await client.call('Emulation.setDeviceMetricsOverride', {width, height:1000, deviceScaleFactor:1, mobile:false});
+        await client.evaluate(`document.body.classList.toggle('dark', ${theme === 'dark'}); document.querySelector('.agent-client-form').scrollIntoView({block:'start'});`);
+        await delay(200);
+        assert.equal(await client.evaluate('document.documentElement.scrollWidth > innerWidth + 1'), false);
+        assert.equal(await client.evaluate("[...document.querySelectorAll('.agent-scope-options')].every(node => node.clientHeight <= 250 && node.scrollHeight > node.clientHeight)"), true);
+        const screenshot = await client.call('Page.captureScreenshot', {format:'png'});
+        fs.writeFileSync(path.join(screenshots, `many-scopes-${theme}-${width}.png`), Buffer.from(screenshot.data, 'base64'));
+      }
+    }
+    await click('[data-agent-action="cancel-form"]');
     console.log('Agent settings browser tests passed: first-use,enable,preference,create,lost-response-recovery,setup,copy,theme,width,unsaved,session-failure,conflict,edit,rotate,revoke,disable,reload');
     console.log(`Screenshots: ${screenshots}`);
   } catch (error) {

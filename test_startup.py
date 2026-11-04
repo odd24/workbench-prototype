@@ -1,4 +1,7 @@
 import tempfile
+import os
+import sys
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -8,6 +11,23 @@ from workbench.repository import Repository as ExtractedRepository
 
 
 class StartupBoundaryTests(unittest.TestCase):
+    def test_codex_fixture_reaps_windows_descendants_and_inherited_pipes(self):
+        if os.name != "nt":
+            return  # Windows-specific failure; no Linux process-tree claim.
+        from codex_agent_acceptance import RpcProcess
+        script = "import subprocess,sys,time,json; p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']); print(json.dumps({'child':p.pid}),flush=True); time.sleep(30)"
+        with tempfile.TemporaryDirectory() as directory:
+            rpc = RpcProcess([sys.executable, "-c", script], directory, terminate_tree=True)
+            started = time.monotonic()
+            try:
+                self.assertIn("child", rpc.messages.get(timeout=5))
+            finally:
+                rpc.close()
+            self.assertLess(time.monotonic() - started, 10)
+            self.assertIsNotNone(rpc.process.poll())
+            self.assertTrue(all(not reader.is_alive() for reader in rpc.readers))
+            self.assertTrue(rpc.process.stdout.closed and rpc.process.stderr.closed)
+
     def test_server_repository_is_a_compatible_extracted_facade(self):
         self.assertTrue(issubclass(server.Repository, ExtractedRepository))
 

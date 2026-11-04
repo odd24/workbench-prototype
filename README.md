@@ -52,7 +52,7 @@ python server.py
 
 在“设置 → AI Agent 接入”可开启/关闭接入、保存启动偏好、创建与编辑授权、轮换/撤销凭据、更新服务地址、生成 Codex 或通用 MCP 配置，并检查环境/MCP 握手/只读连接。首次默认关闭；配置命令需手工执行，不自动修改 Codex。检查通过不代表当前聊天已接入。设计与阶段状态见 [实施与维护方案](docs/AGENT_SETTINGS_PLAN.md) 和 [台账](docs/AI_AGENT_PROGRESS.md)。
 
-通用 AI Agent 接入支持通过 MCP 在 Codex 中整理问题和知识文档，新建、追加和修改均先生成完整预览，用户确认当前版本后再正式入库，并返回网页打开链接。接入默认关闭；需要显式启用服务、授权客户端并登记 MCP，步骤见 [接入说明](docs/AGENT_INTEGRATION.md)，Agent 操作规则见 [使用指引](docs/AGENT_USAGE.md)，验证证据和边界见 [验收记录](docs/AI_AGENT_ACCEPTANCE.md)。不自动修改现有 Codex 配置。
+通用 AI Agent 接入支持通过 MCP 在 Codex 中整理问题和知识文档，新建、追加和修改均先生成完整预览，用户确认当前版本后再正式入库，并返回网页打开链接。首次默认关闭；启用、授权与登记步骤见 [接入说明](docs/AGENT_INTEGRATION.md)，Agent 操作规则见 [使用指引](docs/AGENT_USAGE.md)，验证证据见 [业务验收](docs/AI_AGENT_ACCEPTANCE.md) 和 [管理 UI 验收](docs/AGENT_SETTINGS_ACCEPTANCE.md)。不自动修改现有 Codex 配置。
 
 项目没有包管理器或构建步骤。架构和模块职责见 [架构说明](docs/ARCHITECTURE.md)，日常修改、测试和发布步骤见 [维护说明](docs/MAINTENANCE.md)。重构执行事实记录在 [进度台账](docs/REFACTORING_PROGRESS.md)。
 
@@ -60,6 +60,7 @@ python server.py
 python -m unittest -v
 node test_editor_workflows.js
 node test_agent_workflows.js
+node test_agent_settings.js
 python codex_agent_acceptance.py
 python performance_acceptance.py
 ```

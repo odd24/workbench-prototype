@@ -141,6 +141,35 @@ class AgentRuntimeTests(unittest.TestCase):
         self.assertEqual(switched.agent_runtime.base, self.runtime.base)
         self.assertFalse((switched.root / ".agent" / "workspace.json").exists())
 
+    def test_portable_backup_restores_new_identity_and_existing_space_preferences(self):
+        import io
+        import zipfile
+        self.update(enabled=True, startup_preference=True)
+        self.repo.create_project({"name": "备份项目"})
+        source_id = self.runtime.status()["workspace_id"]
+        archive = self.repo.export_zip()
+        restored = self.base / "restored"
+        restored.mkdir()
+        with zipfile.ZipFile(io.BytesIO(archive)) as package:
+            self.assertTrue(package.namelist())
+            self.assertFalse(any(".agent" in name or "management-operations" in name or name.endswith("runtime.json") for name in package.namelist()))
+            package.extractall(restored)
+        # export_zip members may have a workbench wrapper; locate its project root.
+        candidates = [restored, *restored.iterdir()]
+        root = next(path for path in candidates if path.is_dir() and (path / "projects").is_dir())
+        other = Repository(root)
+        new_runtime = AgentRuntime(other, base=self.runtime.base)
+        self.assertFalse(startup_enabled(root, self.runtime.base))
+        new_runtime.set_enabled(True)
+        self.assertNotEqual(new_runtime.status()["workspace_id"], source_id)
+        self.assertEqual(new_runtime.security().clients(), {})
+        other.agent_runtime = new_runtime
+        state = new_runtime.status()
+        new_runtime.update({"workspace_id": state["workspace_id"], "expected_version": state["version"], "request_id": "save-target", "startup_preference": True})
+        switched = relocate_repository(self.repo, str(root), False, self.base / "location.json")
+        self.assertTrue(switched.agent_runtime.status()["enabled"])
+        self.assertEqual(switched.agent_runtime.status()["workspace_id"], new_runtime.status()["workspace_id"])
+
 
 class AgentManagementHTTPTests(unittest.TestCase):
     def setUp(self):

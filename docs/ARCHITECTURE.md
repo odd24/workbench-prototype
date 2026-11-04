@@ -67,13 +67,13 @@ Markdown
 
 CSS 按以下固定次序加载：令牌、基础、组件、布局、记录、管理、编辑器、知识库、概念图、响应式。所有媒体查询集中在 `css/responsive.css`，按宽到窄排列。修改 CSS 或 JavaScript 后必须同步 `index.html` 的 `?v=` 缓存版本。
 
-## Agent 接入（AG-102～105）
+## Agent 接入与本机管理（AG-102～111）
 
 AG-107 增加 `agent_runtime.py` 和 `agent_management_http.py`：只读发现、私人目录 runtime.json 启动偏好、显式 CLI 覆盖、当前 Repository 上的运行时启停。管理接口位于 `/api/local/agent-management/`，仅 loopback，独立同源管理会话，不接受 Agent 凭据；提供 status/runtime/operations 基础路由。锁序为空间切换锁 → 仓储锁 → 私人配置目录锁。空间切换重新建立管理会话；状态查询不创建身份或凭据。
 
-AG-108 增加 `agent_management.py`，CLI 和管理 HTTP 共同调用 CredentialManager；客户端创建/编辑/轮换/撤销/服务地址修复采用持久日志、配置目录跨进程锁与重读恢复。HTTP 的 Agent 请求也在相同凭据锁内鉴权并执行，管理操作不能在已接受的业务请求中途更换授权；待锁最多 3 秒后返回可重试冲突。分类变更前收窄旧名称授权，成功重命名后恢复为新名称；跨业务/私人配置失败时保留收窄，不自动扩大权限。客户端列表与操作查询脱敏，管理 UI/诊断继续后续实施。
+AG-108 增加 `agent_management.py`，CLI 和管理 HTTP 共同调用 CredentialManager；客户端创建/编辑/轮换/撤销/服务地址修复采用持久日志、配置目录跨进程锁与重读恢复。HTTP 的 Agent 请求也在相同凭据锁内鉴权并执行，管理操作不能在已接受的业务请求中途更换授权；待锁最多 3 秒后返回可重试冲突。分类变更前收窄旧名称授权，成功重命名后恢复为新名称；跨业务/私人配置失败时保留收窄，不自动扩大权限。客户端列表与操作查询脱敏，管理 UI 和诊断分别由 AG-109/110 实现。
 
-AG-109 提供 `js/features/agent-settings.js` 独立 feature，通过统一 API/对话框接入现有管理页与未保存提示，导航新增 agent_settings 并保持设置侧栏选中。状态和授权属于服务端；表单、管理会话、待查询操作仅在交互内存，不存 localStorage。`agent_setup.py` 从可信安装/凭据路径派生指引，生成正确转义的 PowerShell 命令，GET/POST clients/<id>/setup 不执行命令、不修改 Codex；仅同源管理页面可获必要本机路径。诊断握手和请求证据继续 AG-110。
+AG-109 提供 `js/features/agent-settings.js` 独立 feature，通过统一 API/对话框接入现有管理页与未保存提示，导航新增 agent_settings 并保持设置侧栏选中。状态和授权属于服务端；表单、管理会话、待查询操作仅在交互内存，不存 localStorage。`agent_setup.py` 从可信安装/凭据路径派生指引，生成正确转义的 PowerShell 命令，GET/POST clients/<id>/setup 不执行命令、不修改 Codex；仅同源管理页面可获必要本机路径。诊断握手和请求证据见 AG-110 模块。
 
 AG-110 的 `agent_diagnostics.py` 在服务内存登记后台任务，线程在业务锁外启动固定探测/桥接子进程并等待 HTTP；有总时限、输出限制和进程清理。诊断执行 initialize/tools/list/capabilities；一次性环境 nonce 传至桥接的专用 HTTP 头，只有服务内存匹配 nonce/client/有效期才归为自检。普通请求与自检时间分开记录，均不证明聊天身份。管理 API 增加 POST diagnostics、GET diagnostics/<operation_id>；任务及观察值只在本次服务/空间内有效，不扩展 Agent MCP 工具权限。
 

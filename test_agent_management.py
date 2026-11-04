@@ -1,4 +1,5 @@
 import json
+import hashlib
 import subprocess
 import sys
 import tempfile
@@ -298,6 +299,25 @@ security.add_client('crash', ['read'], ['*'], [], 'http://127.0.0.1:4173', reque
         registered = tomllib.loads((home / "config.toml").read_text(encoding="utf-8"))["mcp_servers"]["workbench_quote"]
         self.assertEqual(registered["command"], setup["command"])
         self.assertEqual(registered["args"], setup["args"])
+
+    def test_legacy_registry_without_management_metadata_remains_readable(self):
+        from workbench.agent_security import private_write
+        # Build the pre-AG-108 schema directly; listing must not migrate it.
+        client_id = "11111111-1111-4111-8111-111111111111"
+        token = "legacy-token-" + "x" * 32
+        legacy = {"client_id": client_id, "name": "旧客户端", "enabled": True,
+                  "token_hash": hashlib.sha256(token.encode()).hexdigest(),
+                  "scopes": ["read"], "project_ids": ["*"], "categories": []}
+        self.security.save_clients({client_id:legacy})
+        private_write(self.security.config_dir / f"{client_id}.json", {"schema_version": 1, "workspace_id": self.security.workspace_id, "client_id": client_id, "base_url": self.runtime.origin, "token": token})
+        before = self.security.registry.read_bytes()
+        listing = self.management.list_clients()
+        self.assertEqual(listing["items"][0]["name"], "旧客户端")
+        self.assertEqual(self.security.registry.read_bytes(), before)
+        self.security.authenticate("Bearer " + token, self.security.workspace_id)
+        result = self.management.mutate("rotate", {"workspace_id": self.security.workspace_id, "request_id": "rotate-legacy", "expected_version": listing["items"][0]["version"]}, client_id)
+        self.assertTrue(result["rotated"])
+        self.assertEqual(self.security.clients()[client_id]["management_revision"], 1)
 
 
 if __name__ == "__main__":

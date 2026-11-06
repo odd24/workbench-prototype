@@ -183,8 +183,12 @@ AI Agent 接入页的“提案管理”可查看当前空间所有客户端提�
 
 管理客户端最低确认方式可选本机网页；旧配置不变。CLI新建可用 --agent-confirmation-mode local_web。Agent prepare_proposal 可请求confirmation_mode=local_web，不能降低客户端最低策略。此类提案的MCP commit返回confirmation_required，需要本机提案管理完整预览后批准。网页操作者仅代表持有本机会话，不宣称现实身份认证。
 
-非Codex当前未验证；隔离配置契约、逐项验收与解除条件见[客户端兼容矩阵](AGENT_CLIENT_COMPATIBILITY.md)，不能将Codex结果外推。
+WorkBuddy附带CLI2.103.3已实测连接/12工具发现，完整读写及桌面任务仍未验收；隔离配置契约、逐项验收与解除条件见[客户端兼容矩阵](AGENT_CLIENT_COMPATIBILITY.md)，不能将Codex结果外推。
 
 远程接入仍未实现，不能代理原4173端口作为远程MCP。[远程设计与外部门槛](AGENT_REMOTE_DESIGN.md)记录候选方案和待提供的真实环境。
 
 当前用途更新（2026-11-06）：用户只需单机本地接入，远程AG-122～125已取消当前实施；无需为本机使用准备IdP、TLS或代理。本机Codex和独立网页批准已实测，其他本机客户端仍须另行真实验证。
+
+### WorkBuddy本机兼容验收（AG-121进行中）
+
+已核实桌面5.1.5及随附原装CLI2.103.3。python workbuddy_agent_acceptance.py使用临时环境执行真实mcp list，只证明MCP2025-11-25连接与12工具发现；四类型读写、两确认路径和桌面任务尚不能声明支持。python workbuddy_agent_acceptance.py --desktop-session只准备临时项目与工作台，不启动桌面或模型；使用已有桌面需先明确允许任务/最近项目记录例外，本次用户已允许手动最多8轮。桌面与随附CLI配置路径不同，完整步骤与剩余矩阵见[客户端兼容验收](AGENT_CLIENT_COMPATIBILITY.md)。

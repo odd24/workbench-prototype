@@ -1,20 +1,45 @@
 # Agent 客户端兼容矩阵与隔离验收
 
-核查日期：2026-11-06。工作项：AG-121。当前结论：**非 Codex 互操作未验收，AG-121 受阻**。用户说明暂时没有目标客户端；本机 PATH 中未发现 claude/gemini/cursor/goose/cline 命令。这不证明系统不存在其他安装，也不以自制协议测试代替真实客户端。
+核查日期：2026-11-06。工作项：AG-121。当前结论：**AG-121进行中；WorkBuddy附带CLI真实连接/12工具发现通过，完整读写互操作未验收**。用户已提供WorkBuddy安装并表示有测试账号/额度，可准备隔离会话。不能把连接通过写成完整兼容通过。
 
 ## 1. 已有证据和缺口
 
 | 客户端 | 精确版本/传输 | 状态 | 证据与限制 |
 | --- | --- | --- | --- |
 | Codex CLI | 0.163.0-alpha.10.2 / stdio MCP 2025-11-25 | 已实测 | python codex_agent_acceptance.py；12工具、四类型、两确认路径、重启/撤销；无模型turn，不计为非Codex验收 |
-| 非 Codex 本地客户端 | 未选择、无可调用实例 | 未验证 | 缺少客户端版本、隔离配置入口及真实工具调用设施；不能标记“不支持” |
-| 远程 OAuth/Streamable HTTP 客户端 | 未选择 | 未验证 | 还需AG-122门槛、TLS/IdP环境；本机stdio结果不能外推 |
+| WorkBuddy桌面 | 5.1.5 / 本机stdio | 未运行桌面任务 | 已只读核实安装版本；桌面登录、任务与写入矩阵未验收 |
+| WorkBuddy附带的原装CodeBuddy CLI | 2.103.3 / stdio MCP2025-11-25 | 连接与工具发现通过 | python workbuddy_agent_acceptance.py；真实initialize/initialized/tools/list、12工具、Connected；无模型turn，写入/故障矩阵未运行 |
+| 远程 OAuth/Streamable HTTP 客户端 | 当前范围取消 | 未验证 | 用户仅单机使用；本机stdio结果不能外推 |
 
-## 2. 解除条件
+## 2. 真实连接证据与剩余条件
 
-提供或选定至少一个真实非Codex客户端的名称、精确版本和可用程序，确认它支持临时配置/独立用户数据目录及直接工具调用。若只能通过模型调用工具，先明确账号、费用和授权，再单列模型行为验收；不擅自登录、安装新依赖或调用付费模型。客户端文档与真实 --help 必须重新核对后再生成该客户端专用登记命令。
+```powershell
+python workbuddy_agent_acceptance.py
+```
 
-解除后从AG-121继续，保留AG-116～120的已有提交，不重做已完成工作。若客户端无需账号且提供隔离直接调用设施，可在用户确认具体安装依赖后实施；不预选未经验证的命令或假造版本。
+脚本默认从当前用户安装目录定位WorkBuddy附带CLI；自定义安装用--install-dir传目录。使用已有Node运行原装bin/codebuddy，不提取/改写客户端实现、不安装SDK。CLI先执行--version，再执行mcp list。临时透明中继逐字节转发工作台桥接协议，仅记录方法、协议/客户端版本、工具名称与错误码，不构造客户端请求。输出固定ag121_complete=false，避免被当作完整矩阵验收脚本。
+
+2026-11-06实际结果：CLI2.103.3、退出0、Connected、MCP2025-11-25、initialize→notifications/initialized→tools/list、12工具、无协议错误、model_turns_started=0、real_user_config_changed=false。CLI initialize中的clientInfo.name=workbench_probe来自登记名称，不作为客户端厂商或身份认证依据。临时凭据在清理前撤销；Windows Job关闭回收本次客户端后代，临时目录清理失败会报错。
+
+尚未核实公开无模型直接工具调用入口。原装CLI公开mcp子命令仅登记/移除/列表/详情；不能因其内部打包了MCP SDK就抽出SDK冒充真实客户端。用户已表示有可用于隔离测试的账号/额度；下一步准备独立会话并由用户完成认证，账号/令牌不能贴入聊天或复制正式配置。若需要模型行为测试，单独记录实际模型/消费边界和用户新确认，不能把程序夹具声明当成人类确认。
+
+[官方WorkBuddy MCP指南](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/MCP-Guide)描述桌面用户级~/.workbuddy/mcp.json、项目级.workbuddy/mcp.json；本次附带CLI的安装文档则描述CODEBUDDY_CONFIG_DIR下.mcp.json。两者须区分，不能把CLI临时目录写入桌面正式配置。桌面入口会登记系统协议，登录回调的隔离仍需核实，尚未启动第二个桌面实例。
+
+### 桌面一次性项目测试（需明确例外授权）
+
+```powershell
+python workbuddy_agent_acceptance.py --desktop-session
+```
+
+脚本只启动临时工作台、生成临时凭据和一次性项目，不启动桌面、不读取认证、不修改全局MCP配置、不调用模型。项目包含官方桌面路径.workbuddy/mcp.json和附带CLI项目路径.mcp.json的相同候选配置；是否实际发现需真实任务核实，不能将候选文件视为登记成功。输出temporary_workspace、workbench_url和stop_file，不输出令牌。
+
+用户2026-11-06明确允许此次例外：在已有WorkBuddy桌面打开该临时项目，由用户手动最多8轮；桌面可能保留任务/最近项目记录，其他正式配置和登录资料不得读取或修改。不将该例外扩大到自动模型调用、正式数据或全局MCP登记。账号额度不等于独立CLI API Key。
+
+第一轮只读capabilities/list_projects/四类型catalog，报告空间与授权，工具未加载直接报告，不修改全局配置。随后依下表逐项执行四类型三操作、两确认路径和故障；agent_attested需展示完整预览后等用户在客户端新消息确认，local_web需临时网页独立批准。每轮保留真实工具/持久化证据；8轮不足则如实记录，不超出用户允许的手动范围。
+
+曾尝试原装CLI --serve本机Web UI：HTTP健康检查通过，但用户确认没有登录/模型配置入口，安装内iam.md要求API Key或OAuth token。不能用桌面账号额度直接登录该空白UI；已停止并清理该临时会话，删除误导性的--session入口，不要求用户另办API Key。浏览器自动化被本次Work设置禁用，没有把HTTP检查记作UI通过。
+
+停止：在输出stop_file位置创建空文件，或启动终端Ctrl+C；最多保留2小时。退出撤销测试凭据、关闭临时工作台并清理本次目录；若桌面仍持有项目目录，先由用户关闭该任务。认证/日志/配置不进Git，未完成会话不生成通过回执。
 
 ## 3. 隔离配置契约
 
@@ -31,11 +56,11 @@
 
 配置是客户端配置数据，不是shell命令。不把令牌内联到args、页面、日志或提交。工具目录仍为12项，确认新客户端能刷新Schema；如需额外协议版本，先登记规范差异和测试再扩展。
 
-## 4. 必跑矩阵（全部为非Codex待运行）
+## 4. 必跑矩阵（只完成连接与工具发现）
 
 | 组 | 真实操作 | 必须保留的脱敏证据 | 当前结果 |
 | --- | --- | --- | --- |
-| 协议 | initialize/initialized、tools/list、UTF-8、ping、未知消息/字段、断连/重连 | 客户端/OS/协议版本、12工具目录、错误码、stdout仅协议 | 未运行 |
+| 协议 | initialize/initialized、tools/list、UTF-8、ping、未知消息/字段、断连/重连 | 客户端/OS/协议版本、12工具目录、错误码、stdout仅协议 | 原装CLI握手/12工具通过；取消/重连/未知消息未运行 |
 | 查询 | kinds范围交集、catalog四类型、分页、分段正文、引用越权 | 允许/拒绝对照、完整分段拼接等于磁盘正文 | 未运行 |
 | create | issue/document/todo/info各新建 | 完整预览/警告/版本、规范字段、保存后重读与新仓储重载 | 未运行 |
 | append | 四类型各追加 | 合成全文、todo/info只接受body，字段不隐式合并 | 未运行 |

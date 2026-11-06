@@ -129,10 +129,12 @@ Agent 提案/提交故障的恢复步骤、运行中清理和本机接受磁盘�
 
 停服备份同时保留.agent/proposal-actions批准证据和operations事务；不能删批准日志绕过。只有批准记录而无manifest不会自动补写。prepared未尝试应用时需要匹配私人授权才能恢复，恢复CLI通过--agent-config-dir装配该授权；缺失/不匹配时保留并报告，启动同空间/私人凭据环境核查；撤销后停止未应用写入，已进入应用按磁盘事实完成必要回执。仍可使用原report/abandon接受磁盘，不删除日志。
 
-AG-121尚缺真实非Codex客户端，恢复入口与未运行矩阵见[客户端兼容矩阵](AGENT_CLIENT_COMPATIBILITY.md)。文档准备不等于互操作通过。
+AG-121已定位WorkBuddy5.1.5及其原装CLI2.103.3；python workbuddy_agent_acceptance.py只验证隔离连接与12工具发现，完整读写矩阵待真实会话；--desktop-session仅准备一次性项目（使用已有桌面的历史记录例外须明确授权）。恢复入口与未运行矩阵见[客户端兼容矩阵](AGENT_CLIENT_COMPATIBILITY.md)。文档准备不等于互操作通过。
 
 远程默认未提供实现；候选部署边界、威胁模型和恢复/停用验收见[AG-122设计准备](AGENT_REMOTE_DESIGN.md)。未经真实IdP/TLS/客户端验证不得标远程可用，不应直接公网化本机工作台。
 
 显式隔离生命周期演练：python extension_lifecycle_acceptance.py，验证四类型两确认路径、关闭Agent普通读取、停服完整备份/批准回执恢复、便携ZIP CRC/接入排除/新身份。仅使用TemporaryDirectory，不启动模型或修改用户配置。[扩展验收](AI_AGENT_EXTENSION_ACCEPTANCE.md)区分本机通过与非Codex/远程未验证。
 
 当前范围更新（2026-11-06）：AG-122～125按用户单机用途取消，原远程外部门槛不再阻塞本机交付；既有设计仅作历史参考。本机使用不需要TLS/IdP/代理，原loopback边界保持。
+
+显式客户端验收的Windows后代进程由acceptance_process.ClientJob回收；该模块只被验收脚本引用，不进入应用运行时。修改它需运行test_startup和真实Codex/WorkBuddy连接检查，涵盖根进程先退出仍持有管道/cwd的场景。临时会话存在时不要把其健康检查当作模型或完整兼容通过。

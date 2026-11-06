@@ -17,6 +17,7 @@ import threading
 import time
 from pathlib import Path
 
+from acceptance_process import ClientJob
 from server import Repository, WorkbenchHandler, WorkbenchHTTPServer
 from workbench.agent_security import AgentSecurity, private_write, read_json
 from workbench.agent_service import AgentService
@@ -28,9 +29,16 @@ ROOT = Path(__file__).resolve().parent
 class RpcProcess:
     def __init__(self, command, cwd, env=None, terminate_tree=False):
         self.terminate_tree = terminate_tree
+        self.job = ClientJob() if terminate_tree and os.name == "nt" else None
         self.process = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.PIPE,
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0,
                                         creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        if self.job:
+            try:
+                self.job.assign(self.process)
+            except BaseException:
+                self.job.close()
+                raise
         self.messages = queue.Queue()
         self.errors = []
         self.events = []
@@ -91,13 +99,10 @@ class RpcProcess:
 
     def close(self):
         try:
-            # Codex can retain helper descendants with the isolated config as
-            # their cwd. Reap the test-owned tree while its root is still alive;
-            # letting the root exit first can orphan inherited Windows pipes.
-            if self.terminate_tree and os.name == "nt" and self.process.poll() is None:
-                subprocess.run(["taskkill", "/PID", str(self.process.pid), "/T", "/F"],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                               timeout=5, creationflags=subprocess.CREATE_NO_WINDOW)
+            # Job ownership survives root exit. It also closes descendants that
+            # inherited stdout/cwd, without relying on a live PID tree lookup.
+            if self.job:
+                self.job.close()
             if self.process.stdin and not self.process.stdin.closed:
                 self.process.stdin.close()
             self.process.wait(timeout=5)

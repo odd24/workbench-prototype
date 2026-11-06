@@ -81,8 +81,8 @@ AG-119：设置 → AI Agent 接入 → 提案管理，可按客户端/类型/�
 
 AG-120：客户端可设置最低确认方式为“本机网页独立批准”（CLI --agent-confirmation-mode local_web）。Agent 可请求同等或更严格策略，网页完整预览后点击批准入库；Agent自报确认不能绕过。批准响应丢失先查询原操作，不重复创建。
 
-非Codex客户端尚未实测，环境解除条件和完整矩阵见[客户端兼容验收](docs/AGENT_CLIENT_COMPATIBILITY.md)。
+WorkBuddy附带原装CLI2.103.3已通过真实连接/12工具发现，完整非Codex读写矩阵未验收，可运行python workbuddy_agent_acceptance.py（只连接发现，不调用模型）；隔离真实会话与完整矩阵见[客户端兼容验收](docs/AGENT_CLIENT_COMPATIBILITY.md)。
 
 按单机本地用途，远程接入已移出当前实施范围；不需要准备TLS/IdP/代理。[远程设计](docs/AGENT_REMOTE_DESIGN.md)仅保留历史参考，远程未实现。
 
-当前扩展状态：AG-116～120本机功能已实现并验收；AG-122～125按用户用途取消；AG-121是否需要其他本机客户端待澄清，AG-126按本机范围收口。详见[扩展验收与本地提交](docs/AI_AGENT_EXTENSION_ACCEPTANCE.md)。
+当前扩展状态：AG-116～120本机功能已实现并验收；AG-122～125按用户用途取消；AG-121已选WorkBuddy，正在准备隔离完整验收，AG-126按本机范围收口。详见[扩展验收与本地提交](docs/AI_AGENT_EXTENSION_ACCEPTANCE.md)。

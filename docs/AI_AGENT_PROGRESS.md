@@ -6,7 +6,7 @@
 
 接入管理 UI 的需求、契约及验收分解见 [AGENT_SETTINGS_PLAN.md](AGENT_SETTINGS_PLAN.md)。AG-106 为文档工作；AG-107～111 的实施事实和当前状态见下表及记录。
 
-后续扩展详见 [AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。AG-115 仅文档；AG-116～120 已完成；用户已明确仅本机使用，AG-122～125已取消当前实施；AG-121本机非Codex需求待澄清，AG-126本机验收已验证、待该兼容范围收口，不影响已完成首期的历史状态。
+后续扩展详见 [AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。AG-115 仅文档；AG-116～120 已完成；用户已明确仅本机使用，AG-122～125已取消当前实施；AG-121已选WorkBuddy并恢复本机兼容验收，AG-126本机验收已验证、待该兼容范围收口，不影响已完成首期的历史状态。
 
 ## 工作项
 
@@ -33,7 +33,7 @@
 | AG-118 | 结构化信息 info 与字段无损往返 | 已完成 | 2026-11-06 | 2026-11-06 | AG-117 |
 | AG-119 | 本机提案管理、预览、取消与结果查询 | 已完成 | 2026-11-06 | 2026-11-06 | AG-118 |
 | AG-120 | 网页独立批准与持久恢复 | 已完成 | 2026-11-06 | 2026-11-06 | AG-119 |
-| AG-121 | 非 Codex 真实客户端兼容验证 | 受阻 | 2026-11-06 | — | AG-120 |
+| AG-121 | 非 Codex 真实客户端兼容验证 | 进行中 | 2026-11-06 | — | AG-120 |
 | AG-122 | 远程 MCP 协议、认证及部署设计门槛 | 已取消 | 2026-11-06 | — | AG-120；需目标身份服务/客户端 |
 | AG-123 | 远程身份授权、主体映射与网络入口 | 已取消 | — | — | AG-122门槛；用户已授权实施 |
 | AG-124 | 远程 MCP 传输与会话适配 | 已取消 | — | — | AG-123 |
@@ -525,3 +525,37 @@
 - 实际文件：AGENTS/README、扩展方案/验收/台账、远程设计、架构/接入/维护共9份Markdown，更新当前范围并保留旧执行历史。
 - 检查：全部文档UTF-8/代码围栏/相对链接、AG-122～125取消状态一致性、git diff --check通过；目标diff审阅未夹带运行数据或用户修改。纯文档不重跑功能/UI测试，不改APP_VERSION和缓存。
 - 提交标题Limit Agent extension delivery to local use；AG-121客户端选择仍待用户答复，未自动取消；AG-126已移除远程前置，仅按本机范围收口。
+
+### 2026-11-06 / AG-121 / WorkBuddy 本机验收恢复
+
+- 用户提供已安装的WorkBuddy；只读核查桌面版本5.1.5（文件版本），安装内附CodeBuddy CLI包发布版本2.103.3，实际CLI版本待执行核实。非Codex需求明确保留，远程AG-122～125仍取消。
+- 范围：核实原装客户端隔离配置和直接MCP设施，使用临时工作目录、用户目录、配置、数据和凭据完成可运行的真实客户端检查；不登录真实账号、不调用付费模型、不修改正式配置。
+- 预计文件：客户端隔离验收脚本、兼容矩阵、接入/使用/验收及本台账；若发现协议差异先记录再决定最小修复，不预设运行时变更。
+- 验证：原装CLI版本/help与官方文档、真实stdio握手/工具目录/四类型两确认路径及故障矩阵；自动回归、文档与diff检查。已知风险：原装CLI是否支持无模型直接调用尚未核实；桌面安装本身不能证明互操作通过。
+
+### 2026-11-06 / AG-121 / 原装CLI连接验证
+
+- WorkBuddy桌面安装包版本5.1.5；附带原装CodeBuddy CLI实际执行--version为2.103.3。新增workbuddy_agent_acceptance.py，使用环境白名单及独立HOME/USERPROFILE/APPDATA/LOCALAPPDATA/配置/缓存/工作目录、临时服务/凭据；无需安装依赖。
+- 原装CLI执行mcp list，字节透明中继只记录方法/版本/工具名称元数据，不生成请求或替代客户端。实际观察initialize(2025-11-25)→notifications/initialized→tools/list，12工具，CLI Connected、退出0、无协议错误、无模型turn，临时令牌未进入stdout/stderr；客户端自报name来自登记名，不能作为厂商身份凭据。
+- 初次脚本清理误用了不存在的撤销方法，随后Windows后代进程持有cwd/编译缓存导致清理失败；修正为change_client并用Windows kill-on-close Job绑定本次客户端后代、有限重试临时目录清理，修正后两次连接执行通过。失败轮次未算通过；未操作正式WorkBuddy配置。
+- 已核对官方WorkBuddy MCP文档：桌面配置路径与随附CLI不同，不能把临时CLI连接外推为桌面任务或写入矩阵通过。未找到公开无模型直接调用入口，四类型三操作/两确认路径等仍未运行。
+- 用户回复有测试账号/额度、可准备隔离会话；继续准备具体独立测试会话，不复制正式认证资料，不自动登录或发起付费模型调用。AG-121保持进行中，AG-126待完整本机兼容验收。
+
+### 2026-11-06 / AG-121 / 隔离客户端进程回收修正范围
+
+- 本轮全量226项中test_codex_fixture_reaps_windows_descendants_and_inherited_pipes再次出现Windows后代持有管道/cwd错误，其余225项通过。这与前轮记录的瞬态失败相同，不能以重跑掩盖。
+- 扩展当前验收基础设施范围：提取仅供显式验收脚本使用的acceptance_process.py Job辅助，Codex/WorkBuddy共享kill-on-close后代回收；新增父进程先退出场景，避免taskkill只能依赖仍存活父进程的竞态。不修改应用模块边界、API或数据。预计文件：两客户端脚本、验收进程辅助、test_startup与本台账。
+- 验证计划：启动专项、真实Codex/WorkBuddy连接和全量Python门禁；保持模型turn为0，脚本错误如实记录。
+
+### 2026-11-06 / AG-121 / 桌面账号与隔离边界核实
+
+- 原装CLI --serve临时Web UI健康检查通过；用户确认无登录/模型配置入口，只有WorkBuddy桌面账号额度。安装内iam.md要求独立API Key/OAuth token；此前将Web UI当作登录入口的判断不准确，未进行模型调用。该临时会话已停止、进程回收且目录清理，移除--session误导入口。
+- 浏览器自动化返回Work设置禁用，未冒充UI验收；没有绕过到其他自动化技术。
+- 新增--desktop-session仅准备临时工作台/候选项目MCP文件，不启动桌面或模型。用户已明确允许已有桌面的一次性项目测试（手动最多8轮），可能留下任务/最近项目历史；不读取认证、不改全局MCP、不自动付费。当前第一轮只读发现待用户操作，完整矩阵仍未通过。
+- 全量门禁初次226项出现旧Windows后代清理错误，修复后最终227项通过；启动专项5项、真实Codex四类型/两方式、原装WorkBuddy CLI连接/12工具、生命周期脚本重跑通过；60Python/45JS语法和28Markdown编码/围栏/相对链接通过。应用运行时/数据/API/缓存版本未变化。
+- 自动审批拒绝递归清理早期失败探测的三个临时目录（工具仅返回blocked by policy，无更具体原因）；正常会话清理已通过。遗留仅本任务临时目录basename：workbench-workbuddy-probe-2c2xum8z、workbench-workbuddy-probe-8yt3_klz、workbench-workbuddy-probe-___et8c4，位于系统TEMP；不能记录为已清理，不提交目录/凭据。
+
+### 2026-11-06 / AG-121 / 可独立验证的连接子项提交
+
+- 实际文件：workbuddy_agent_acceptance.py、acceptance_process.py、codex_agent_acceptance.py、test_startup.py；README、兼容矩阵、接入/维护、扩展方案/验收及首期验收的当前状态说明。完成新增桌面项目夹具HTTP/两份候选配置一致性/STOP撤销清理验证；最新原装CLI连接再次通过。透明中继无法解析的消息仍原样转发，只记unparsed，不替代服务协议处理。
+- 目标diff和git diff --check通过，未夹带用户修改、运行库、配置、凭据、截图、日志或机器绝对路径；本地提交标题Probe WorkBuddy MCP in isolated test projects。该子项可独立验证，不标AG-121完成；当前下一入口为用户已授权的桌面临时项目只读工具发现，再完成完整矩阵，AG-126依赖保留。

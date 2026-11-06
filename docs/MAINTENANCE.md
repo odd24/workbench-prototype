@@ -114,3 +114,7 @@ Agent 提案/提交故障的恢复步骤、运行中清理和本机接受磁盘�
 ### AG-117 验证入口
 
 待办专项包含 test_agent_extensions.TodoAgentTests、node test_frontend_entry.js、node test_agent_workflows.js 与 python codex_agent_acceptance.py（增加 todo，仍仅隔离配置）。新建/更新事务恢复继续走原 before/after/第三方判定；删除项目后不恢复创建项目。旧转换编号兼容见数据格式。
+
+### AG-118 字段兼容验收
+
+共享信息字段归一化修正首尾空格并扩大200项/名称200字符，需同时运行 test_markdown、test_records、test_agent_extensions 与 node test_agent_workflows.js、node test_editor_workflows.js。真实 Codex 隔离验收已扩为四类型；字段原文、顺序和 note 必须重新读取比较。限额由 capabilities 返回，不用界面截断代替服务端拒绝。

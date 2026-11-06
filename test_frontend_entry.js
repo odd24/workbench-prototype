@@ -23,11 +23,13 @@ assert.equal(replaced, '/index.html?test=1');
 assert.equal(navigation.readItemLink(), null);
 location.search = '?session=1&item=issue&itemId=ISSUE-0001';
 assert.deepEqual(navigation.readItemLink(), {kind:'issue', itemId:'ISSUE-0001'});
+location.search = '?item=info&itemId=INFO-0001';
+assert.deepEqual(navigation.readItemLink(), {kind:'info', itemId:'INFO-0001'});
 location.search = '?item=todo&itemId=TODO-0001';
 assert.deepEqual(navigation.readItemLink(), {kind:'todo', itemId:'TODO-0001'});
 location.search = '?item=document&itemId=DOC%2D0001';
 assert.deepEqual(navigation.readItemLink(), {kind:'document', itemId:'DOC-0001'});
-for (const search of ['?item=todo&itemId=ISSUE-1', '?item=todo&itemId=DOC-1', '?item=document', '?item=unknown&itemId=DOC-1', '?item=document&itemId=ISSUE-1', '?item=issue&item=issue&itemId=ISSUE-1', '?item=document&itemId=..%2F..%2Fsecret']) {
+for (const search of ['?item=info&itemId=TODO-1', '?item=todo&itemId=ISSUE-1', '?item=todo&itemId=DOC-1', '?item=document', '?item=unknown&itemId=DOC-1', '?item=document&itemId=ISSUE-1', '?item=issue&item=issue&itemId=ISSUE-1', '?item=document&itemId=..%2F..%2Fsecret']) {
   location.search = search;
   assert.deepEqual(navigation.readItemLink(), {invalid:true});
 }

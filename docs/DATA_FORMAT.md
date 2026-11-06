@@ -112,3 +112,9 @@ clients.json 外层 schema_version=1 保持；新授权条目增加 authorizatio
 Agent todo create 接受 title/project_id/body/tags/status/priority/due；update 不迁移项目；append 仅 body。due 新值必须是有效 YYYY-MM-DD 或 null，不做时区转换；省略保留原值，更新时不改变的旧日期字符串继续保留。completed/时间/ID 由服务端产生。业务 Markdown 格式不变，未开放元数据、附件和 links 由原仓储保留。
 
 历史 issue↔todo 转换保留原 ID；新建 todo 必须 TODO 编号，已有 ISSUE 编号的 todo 更新日志可恢复。新 todo 链接强制 TODO 前缀；旧转换记录回执 web_path/web_url 为 null，应从项目页打开，不伪造不匹配链接。旧 issue 链接兼容范围不收窄。
+
+### AG-118 info 字段限额与无损边界
+
+Agent info create 接受 title/project_id/body/tags/info_fields；update 不迁移项目；append 仅 body。拒绝 status/priority/due/completed/info_color。字段只接受必需 name/value 和可选 note 文本，不含空字符，名称非空且不含控制字符。最多200项，名称200字符，value/note各64KiB UTF-8，正文与全部字段值合计256KiB UTF-8，请求1MiB。新请求严格校验，不依赖宽容解析丢弃未知键。
+
+共享字段归一化上限从100项/名称120字符扩至200/200，value/note不再 strip，前端收集器同步保留首尾空格；不改轻量 front matter 格式，不批量改写旧文件。完整 Agent 读取旧字段不截断；超限旧文件的更新须缩小到可完整预览范围，不能悄悄丢尾部字段。未修改的颜色、links、附件及原仓储元数据保持。字段顺序变化通过完整列表 before/after 表达。

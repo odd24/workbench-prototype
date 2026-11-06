@@ -177,7 +177,9 @@ class ProposalStore:
         if kind == "document":
             valid = len(parts) == 2 and parts[0] == "documents"
         else:
-            valid = kind in {"issue", "todo"} and len(parts) == 4 and parts[0] == "projects" and parts[2] == {"issue": "issues", "todo": "todos"}[kind]
+            valid = kind in {"issue", "todo", "info"} and len(parts) == 4 and parts[0] == "projects" and parts[2] == {"issue": "issues", "todo": "todos", "info": "infos"}[kind]
+            if kind == "info" and not re.fullmatch(r"INFO-\d+", manifest["item_id"]):
+                valid = False
             if kind == "todo" and not re.fullmatch(r"(?:TODO|ISSUE)-\d+" if manifest.get("before_digest") else r"TODO-\d+", manifest["item_id"]):
                 valid = False
         if not valid or not target.name.startswith(manifest["item_id"] + "-") or target.suffix != ".md":

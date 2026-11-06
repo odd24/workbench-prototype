@@ -58,7 +58,7 @@
       return `<fieldset class="agent-scope"><legend>${title}</legend><label><input type="checkbox" data-agent-all="${key}" ${all ? 'checked' : ''}>全部（包括未来新增）</label><div class="agent-scope-options">${items.map(item => `<label><input type="checkbox" data-agent-scope="${key}" value="${esc(item.value)}" ${values.includes(item.value) ? 'checked' : ''} ${all ? 'disabled' : ''}>${esc(item.label)}</label>`).join('') || '<p class="settings-hint">暂无可选内容，请先建立项目或知识库分类。</p>'}</div></fieldset>`;
     }
 
-    const kindNames = {issue:'问题', document:'知识文档', todo:'待办', info:'结构化信息（业务操作尚未开放）'};
+    const kindNames = {issue:'问题', document:'知识文档', todo:'待办', info:'结构化信息'};
     function kindsField() {
       return `<fieldset class="agent-scope"><legend>条目类型（仅显式选择的类型）</legend><div class="agent-scope-options">${Object.entries(kindNames).map(([kind, label]) => `<label><input type="checkbox" data-agent-kind="${kind}" ${draft.kinds.includes(kind) ? 'checked' : ''}>${label}</label>`).join('')}</div></fieldset>`;
     }

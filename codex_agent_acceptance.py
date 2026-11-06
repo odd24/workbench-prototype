@@ -147,7 +147,7 @@ def run_acceptance(codex=None):
         try:
             project = workbench.repository.create_project({"name": "Codex 接入验收"})
             workbench.repository.ensure_document_category("验收知识")
-            info = workbench.security.add_client("Codex 临时验收", ["read", "propose", "commit"], [project["id"]], ["验收知识"], workbench.base_url, kinds=["issue", "document", "todo"])
+            info = workbench.security.add_client("Codex 临时验收", ["read", "propose", "commit"], [project["id"]], ["验收知识"], workbench.base_url, kinds=["issue", "document", "todo", "info"])
             client_config = Path(info["config_file"])
             codex_home = base / "isolated-codex"
             codex_home.mkdir()
@@ -193,9 +193,11 @@ def run_acceptance(codex=None):
             assert call("list_projects")["items"][0]["id"] == project["id"]
             call("get_catalog", {"project_id": project["id"]})
             receipts = []
-            for kind in ("issue", "document", "todo"):
+            for kind in ("issue", "document", "todo", "info"):
                 content = {"title": "Codex 客户端验收 " + kind, "body": "## 已验证事实\n\n临时测试，不含真实工作资料。\n\n```sh\necho 'test only'\n```"}
                 content.update({"project_id": project["id"]} if kind != "document" else {"category": "验收知识"})
+                if kind == "info":
+                    content["info_fields"] = [{"name": "命令", "value": "  echo \"quoted\"\n  echo two  ", "note": "  首尾空格  "}]
                 proposal = call("prepare_proposal", {"request_id": "codex-create-" + kind, "kind": kind, "operation": "create", "content": content})
                 preview = call("preview_proposal", {"proposal_id": proposal["proposal_id"]})
                 assert preview["content"]["body"] == content["body"]
@@ -208,6 +210,8 @@ def run_acceptance(codex=None):
                 assert call("commit_proposal", confirmation) == receipt
                 assert call("get_proposal", {"proposal_id": proposal["proposal_id"]})["state"] == "committed"
                 assert call("get_item", {"kind": kind, "item_id": receipt["item_id"]})["body"] == revised["body"]
+                if kind == "info":
+                    assert call("get_item", {"kind": kind, "item_id": receipt["item_id"]})["info_fields"] == content["info_fields"]
                 receipts.append(receipt)
             for index, (kind, operation, body) in enumerate([("issue", "append", "新增排查进展"), ("document", "update", "## 知识总结\n\n已更新的完整内容。")]):
                 current = call("get_item", {"kind": kind, "item_id": receipts[index]["item_id"]})
@@ -221,7 +225,7 @@ def run_acceptance(codex=None):
             call("preview_proposal", {"proposal_id": cancelled["proposal_id"]})
             assert call("cancel_proposal", {"proposal_id": cancelled["proposal_id"], "expected_version": 1})["state"] == "cancelled"
             call("list_proposals")
-            assert len(call("search")["items"]) == 3
+            assert len(call("search")["items"]) == 4
             workbench.close()
             workbench = LocalWorkbench(data, credentials)
             private_write(client_config, {**read_json(client_config), "base_url": workbench.base_url})

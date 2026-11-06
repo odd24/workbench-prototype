@@ -93,8 +93,12 @@ stdio MCP 入口为 agent_bridge.py，workbench/mcp_stdio.py 只负责协议和�
 
 ### AG-116 类型授权与流程兼容
 
-AgentSecurity 统一计算 kinds 与 scopes、项目/分类的交集，引用和提案归属复用同一规则。CredentialManager 的跨进程日志同时写入私人配置和服务端授权，轮换、旧编辑请求、分类迁移均保留有效类型。新提案和事务使用 schema=2，ProposalStore 分版本生成摘要；schema=1 保留旧算法，不静默重算已预览摘要。AG-117 起 issue/document/todo 可用，info 授权预留给后续项。
+AgentSecurity 统一计算 kinds 与 scopes、项目/分类的交集，引用和提案归属复用同一规则。CredentialManager 的跨进程日志同时写入私人配置和服务端授权，轮换、旧编辑请求、分类迁移均保留有效类型。新提案和事务使用 schema=2，ProposalStore 分版本生成摘要；schema=1 保留旧算法，不静默重算已预览摘要。AG-117 起 issue/document/todo 可用，info 已于 AG-118 开放。
 
 ### AG-117 待办接入
 
 AgentService 对 todo 复用记录领域的预备写入/历史/缓存失效，catalog(kind=todo) 使用所属项目工作流。completed 从状态推导，append 只接受正文；事务仅放开 projects/<id>/todos 下合法稳定编号。navigation 识别 todo/TODO 深链接，装配进入既有待办抽屉与共享编辑器。
+
+### AG-118 结构化信息
+
+info 复用 RecordRepository 和共享 Markdown 序列化，AgentService 严格校验新请求后调用 normalize_info_fields；兼容旧字典解析保持。字段是有序 name/value/note 列表，不增加 ID 或平行存储。只读摘要不携带全部字段，完整读取和预览含全部字段，字段差异显示 before/after 有序列表。Agent 不能修改 info_color，也不执行字段命令。

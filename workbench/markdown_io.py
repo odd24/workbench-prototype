@@ -68,16 +68,18 @@ def parse_scalar(value: str):
         return value
 
 
-def normalize_info_fields(value) -> list[dict]:
+def normalize_info_fields(value, *, limit=200) -> list[dict]:
     if not isinstance(value, list):
         return []
     fields = []
-    for item in value[:100]:
+    for item in (value if limit is None else value[:limit]):
         if not isinstance(item, dict):
             continue
-        name = str(item.get("name", "")).strip()[:120]
-        content = str(item.get("value", "")).strip()
-        note = str(item.get("note", "")).strip()
+        name = str(item.get("name", "")).strip()
+        if limit is not None:
+            name = name[:200]
+        content = str(item.get("value", ""))
+        note = str(item.get("note", ""))
         if name or content:
             field = {"name": name or "未命名字段", "value": content}
             if note:

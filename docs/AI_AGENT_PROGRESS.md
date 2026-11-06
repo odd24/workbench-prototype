@@ -6,7 +6,7 @@
 
 接入管理 UI 的需求、契约及验收分解见 [AGENT_SETTINGS_PLAN.md](AGENT_SETTINGS_PLAN.md)。AG-106 为文档工作；AG-107～111 的实施事实和当前状态见下表及记录。
 
-后续扩展详见 [AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。AG-115 仅文档；AG-116 已完成，AG-117～126 待开始，不影响已完成首期的历史状态。
+后续扩展详见 [AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。AG-115 仅文档；AG-116～118 已完成，AG-119～126 待开始，不影响已完成首期的历史状态。
 
 ## 工作项
 
@@ -30,7 +30,7 @@
 | AG-115 | 后续扩展详细方案与工作项登记（仅文档） | 已完成 | 2026-11-06 | 2026-11-06 | 用户要求先完善方案，不修改代码 |
 | AG-116 | 类型授权、能力协商与流程格式兼容 | 已完成 | 2026-11-06 | 2026-11-06 | AG-115；用户已授权实施 |
 | AG-117 | 待办 todo 查询、提案与持久写入 | 已完成 | 2026-11-06 | 2026-11-06 | AG-116 |
-| AG-118 | 结构化信息 info 与字段无损往返 | 待开始 | — | — | AG-117 |
+| AG-118 | 结构化信息 info 与字段无损往返 | 已完成 | 2026-11-06 | 2026-11-06 | AG-117 |
 | AG-119 | 本机提案管理、预览、取消与结果查询 | 待开始 | — | — | AG-118 |
 | AG-120 | 网页独立批准与持久恢复 | 待开始 | — | — | AG-119 |
 | AG-121 | 非 Codex 真实客户端兼容验证 | 待开始 | — | — | AG-120 |
@@ -393,3 +393,23 @@
 - 真实浏览器：三类型深链接/刷新、浅深主题×1440/390、可视化→Markdown→保存→重开、未保存取消、Agent/UI 冲突、保存期间继续输入和缺失/非法链接通过；临时数据与凭据。未修改编辑器保存内核，既有草稿流程保持。
 - 真实 Codex：隔离脚本通过，codex-cli 0.163.0-alpha.10.2 / MCP 2025-11-25，12 工具与 issue/document/todo 新建、预览修改/确认/读取/幂等/重启/撤销；model_turns_started=0、user_config_changed=false。
 - APP_VERSION=2026.11.06.2，受影响缓存同步。风险：外部编辑器写入竞态保留；info/local_web 未开放。提交标题 Enable scoped Agent todo workflows；下一入口 AG-118。
+
+### 2026-11-06 / AG-118 / 开始
+
+- 前置：AG-117 提交 f9f9568；工作区干净。
+- 范围：info 无状态的查询与三操作、有序字段严格请求校验/完整预览/差异/恢复、INFO 深链接；不开放颜色和命令执行，更新保留原元数据。
+- 代码事实冲突：共享 normalize_info_fields 目前截 100 项/名称120字符并 strip value/note，app 的 infoFieldsFrom 同样 strip；与方案 200项/200字符及首尾空格无损冲突。依据数据安全优先，本项同步修正共享读取/写入/前端收集器，保留旧字典宽容读取；不另建 Agent 序列化器。
+- 预计文件：markdown_io、agent_service/tools/proposals/http、repository、navigation/app/agent-settings/index，扩展 Python/浏览器/Codex 测试与相关文档。
+- 校准与限制：使用现有基线多行样本和临时200字段边界样本验证；严格 name≤200字符、value/note≤64KiB、正文+字段≤256KiB、请求≤1MiB，不提高正文上限。
+- 验证：字段顺序/空格/换行/引号、重排/清空、旧字典和附件/颜色保留、仅正文追加、未知字段/超限/空字符拒绝；全 Python，真实四类型 Codex，记录/知识库编辑器保存重开/草稿/冲突、主题宽度矩阵，语法/diff。
+
+### 2026-11-06 / AG-118 / 完成
+
+- 实际文件：共享 markdown_io、agent_service/tools/proposals/http、repository/http_api；app/navigation/agent-settings/index；test_agent_extensions/workflows/front-end-entry/editor-workflows、codex_agent_acceptance；README/架构/数据/接入/使用/维护/验收及本台账。
+- 实现：info 无状态三操作和查询、完整字段/有序差异、INFO 深链接；仅正文追加，字段未知键/类型/空字符严格拒绝，不开放颜色/执行；保持现有附件/links/颜色。共享归一化和前端收集器保留 value/note 首尾空格，扩至200项/200字符；value/note各64KiB、合计256KiB实测边界通过。旧字典继续读取，读取超限旧文件不截断，不能通过更新静默丢字段。
+- 自动：python -m unittest -q 全量207项通过；扩展专项15项覆盖四类型授权/兼容、todo/info操作、字段边界/顺序/旧格式和故障恢复；全部 Python/JS 语法、Markdown链接/围栏和git diff --check通过；node test_frontend_entry.js通过。
+- 真实 Codex：隔离脚本四类型通过，codex-cli 0.163.0-alpha.10.2 / MCP 2025-11-25，12工具，info字段原文比较通过；无模型 turn、未改用户配置。
+- 真实 Edge：node test_agent_workflows.js四类型深链接/刷新、浅深×1440/390、可视化→Markdown→保存重开、保存期间新增输入保留草稿、info字段重排/首尾空格/草稿刷新恢复通过；node test_agent_settings.js通过；info桌面浅色/窄屏深色截图目视检查，未提交截图。
+- 编辑器回归：首次 node test_editor_workflows.js 行为完成但临时Edge目录清理EPERM，命令失败，未记作通过；脚本增加Browser.close正常关闭与临时绝对目录断言后重跑成功（保存/失败重试/关闭/切页/刷新/两编辑器草稿恢复/历史/外部冲突）。不改应用保存内核。
+- 兼容：无业务格式迁移，旧授权不扩权；APP_VERSION=2026.11.06.3和缓存同步。决策AG-DEC-007/009。提交标题 Enable lossless Agent info workflows；下一入口AG-119。
+- 外部依赖：用户回复暂无非Codex客户端/身份服务/TLS远程测试环境；AG-121/122对应实测门槛待处理，继续本机项，不用模拟代替。

@@ -206,5 +206,99 @@ class TodoAgentTests(AgentFixture, unittest.TestCase):
                 self.assertEqual(self.repo.get_record(item["id"])[0]["due"], "2027-01-01")
 
 
+class InfoAgentTests(AgentFixture, unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        self.client = {**self.client, "kinds": ["issue", "document", "todo", "info"]}
+
+    def spec(self, kind="info", operation="create", **overrides):
+        spec = super().spec("issue" if kind == "info" else kind, operation, **overrides)
+        spec["kind"] = kind
+        return spec
+
+    def fields(self):
+        return [{"name": "命令", "value": "  echo 'one'\n  echo \"two\"  ", "note": "  第一行\n第二行  "}, {"name": "空白", "value": "  "}]
+
+    def test_ordered_fields_roundtrip_append_reorder_clear_and_metadata(self):
+        spec = self.spec()
+        spec["content"]["info_fields"] = self.fields()
+        preview = self.prepare_preview(spec)
+        self.assertEqual(preview["content"]["info_fields"], self.fields())
+        self.assertTrue({"status", "priority", "due", "completed"}.isdisjoint(preview["content"]))
+        self.assertNotIn("statuses", self.service.catalog(self.client, {"kind": "info", "project_id": self.project["id"]}))
+        receipt = self.commit(preview)
+        self.repo.update_record(receipt["item_id"], {"info_color": "#123456", "attachments": [{"name": "附件"}], "links": ["source"]})
+        for operation, content in (("append", {"body": "追加正文"}), ("update", {"info_fields": list(reversed(self.fields()))}), ("update", {"info_fields": []})):
+            self.reload()
+            item = self.service.get_item(self.client, "info", receipt["item_id"])
+            if operation == "append": self.assertEqual(item["info_fields"], self.fields())
+            preview = self.prepare_preview(self.spec(operation=operation, target_id=item["id"], base_revision=item["revision"], content=content))
+            receipt = self.commit(preview)
+            saved = self.repo.get_record(item["id"])[0]
+            self.assertEqual(saved["info_fields"], preview["content"]["info_fields"])
+            self.assertEqual(saved["info_color"], "#123456")
+            self.assertEqual(saved["attachments"], [{"name": "附件"}])
+            self.assertEqual(saved["links"], ["source"])
+        self.reload()
+        self.assertEqual(self.repo.get_record(receipt["item_id"])[0]["info_fields"], [])
+        self.assertEqual(self.service.search(self.client, {"kind": "info"})["items"][0]["id"], receipt["item_id"])
+
+    def test_invalid_fields_limits_and_no_silent_truncation(self):
+        invalid = [None, {}, [{"name": "x"}], [{"name": "x", "value": 1}], [{"name": "x", "value": "v", "unknown": "x"}], [{"name": "x", "value": "nul\x00"}], [{"name": "x" * 201, "value": "v"}], [{"name": "x", "value": "中" * 21846}], [{"name": "x", "value": "v", "note": "a" * 65537}], [{"name": "x", "value": "v"}] * 201]
+        for fields in invalid:
+            spec = self.spec(); spec["content"]["info_fields"] = fields
+            with self.subTest(fields=str(fields)[:80]), self.assertRaises(AgentError): self.prepare_preview(spec)
+        spec = self.spec(); spec["content"].update(body="a" * 200000, info_fields=[{"name": "x", "value": "a" * 65536}])
+        with self.assertRaises(AgentError): self.prepare_preview(spec)
+        spec = self.spec(); spec["content"]["info_fields"] = [{"name": "名" * 200, "value": "v"}] * 200
+        receipt = self.commit(self.prepare_preview(spec)); self.reload()
+        self.assertEqual(len(self.repo.get_record(receipt["item_id"])[0]["info_fields"]), 200)
+        for field in ("status", "priority", "due", "completed", "info_color"):
+            spec = self.spec(); spec["content"][field] = "x"
+            with self.subTest(field=field), self.assertRaises(AgentError): self.prepare_preview(spec)
+
+    def test_old_dictionary_fields_and_oversized_read_do_not_hide_content(self):
+        from workbench.markdown_io import dump_markdown
+        item = self.repo.create_record({"type": "info", "title": "旧字段", "project_id": self.project["id"], "info_fields": self.fields()})
+        self.assertEqual(item["info_fields"], self.fields())
+        _, path = self.repo.get_record(item["id"])
+        raw = path.read_text(encoding="utf-8")
+        # Legacy Python dictionaries wrapped in JSON strings are still parsed.
+        import json
+        path.write_text(raw.replace(json.dumps(self.fields()[1], ensure_ascii=False, separators=(",", ":")), json.dumps(str(self.fields()[1]), ensure_ascii=False)), encoding="utf-8")
+        self.reload()
+        self.assertEqual(self.service.get_item(self.client, "info", item["id"])["info_fields"], self.fields())
+        meta = {"id": item["id"], "type": "info", "title": "large", "project_id": self.project["id"], "info_fields": [{"name": str(i), "value": "x"} for i in range(201)]}
+        path.write_text(dump_markdown(meta, "body"), encoding="utf-8")
+        self.reload()
+        current = self.service.get_item(self.client, "info", item["id"])
+        self.assertEqual(len(current["info_fields"]), 201)
+        with self.assertRaises(AgentError): self.prepare_preview(self.spec(operation="update", target_id=item["id"], base_revision=current["revision"], content={"body": "new"}))
+        self.assertEqual(len(self.repo.get_record(item["id"])[0]["info_fields"]), 201)
+
+    def test_recovery_update_and_original_fields_survive_external_conflict(self):
+        for stage in ("snapshots", "manifest", "committing", "applying", "history", "target", "receipt", "proposal"):
+            with self.subTest(stage=stage):
+                spec = self.spec(); spec["content"]["info_fields"] = self.fields()
+                receipt = self.commit(self.prepare_preview(spec))
+                item = self.service.get_item(self.client, "info", receipt["item_id"])
+                preview = self.prepare_preview(self.spec(operation="update", target_id=item["id"], base_revision=item["revision"], content={"info_fields": list(reversed(self.fields()))}))
+                def interrupt(checkpoint):
+                    if checkpoint == stage: raise OSError("fault")
+                with patch.object(self.store, "checkpoint", side_effect=interrupt), self.assertRaises(AgentError): self.commit(preview)
+                self.reload()
+                if stage == "snapshots": self.commit(preview)
+                self.assertEqual(self.repo.get_record(item["id"])[0]["info_fields"], list(reversed(self.fields())))
+                self.assertEqual(len(self.repo.list_history(item["id"])), 1)
+                self.assertEqual(self.commit(preview)["item_id"], item["id"])
+        item = self.service.get_item(self.client, "info", item["id"])
+        preview = self.prepare_preview(self.spec(operation="append", target_id=item["id"], base_revision=item["revision"], content={"body": "append"}))
+        self.repo.update_record(item["id"], {"body": "external"})
+        with self.assertRaises(AgentError): self.commit(preview)
+        self.assertEqual(self.repo.get_record(item["id"])[0]["body"], "external")
+        with self.assertRaises(AgentError):
+            self.prepare_preview(self.spec(operation="append", target_id=item["id"], base_revision=item["revision"], content={"body": "x", "info_fields": self.fields()}))
+
+
 if __name__ == "__main__":
     unittest.main()

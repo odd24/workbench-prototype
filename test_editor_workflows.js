@@ -688,10 +688,13 @@ async function main() {
     }
     console.log('Editor workflow browser tests passed: save,retry,close,switch,reopen,draft,history,incremental-external-refresh,record-conflicts,document-external-guard');
   } finally {
+    if (client) await client.call('Browser.close').catch(() => {});
     client?.close();
     browser?.kill();
     server.kill();
-    await delay(100);
+    await delay(500);
+    assert.ok(path.resolve(profileDirectory).startsWith(path.resolve(os.tmpdir()) + path.sep));
+    assert.ok(path.resolve(dataDirectory).startsWith(path.resolve(os.tmpdir()) + path.sep));
     fs.rmSync(profileDirectory, {recursive:true, force:true, maxRetries:5, retryDelay:200});
     fs.rmSync(dataDirectory, {recursive:true, force:true, maxRetries:5, retryDelay:200});
   }

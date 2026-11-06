@@ -129,7 +129,7 @@ class Repository:
         name = "document" if kind == "document" else "record"
         if target_id:
             return getattr(domain, f"prepare_{name}_update")(target_id, {**content, "expected_revision": base_revision})
-        return getattr(domain, f"prepare_{name}_create")({**content, **({"type": kind} if kind in {"issue", "todo"} else {})})
+        return getattr(domain, f"prepare_{name}_create")({**content, **({"type": kind} if kind in {"issue", "todo", "info"} else {})})
 
     def apply_markdown_write(self, kind, prepared, checkpoint=None):
         domain = self._document_repository if kind == "document" else self._record_repository

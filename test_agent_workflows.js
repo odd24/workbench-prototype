@@ -19,7 +19,7 @@ async function main() {
   let client;
   try {
     await waitForHttp(`${baseUrl}/api/health`);
-    const provisioned = childProcess.spawnSync(python, ['server.py', '--data-dir', data, '--agent-config-dir', credentials, '--agent-client-add', '浏览器临时验收', '--agent-scope', 'read', '--agent-scope', 'propose', '--agent-scope', 'commit', '--agent-kind', 'issue', '--agent-kind', 'document', '--agent-kind', 'todo', '--agent-project', '*', '--agent-category', '*', '--port', String(port)], {cwd:__dirname, encoding:'utf8', env:{...process.env, PYTHONIOENCODING:'utf-8'}, windowsHide:true});
+    const provisioned = childProcess.spawnSync(python, ['server.py', '--data-dir', data, '--agent-config-dir', credentials, '--agent-client-add', '浏览器临时验收', '--agent-scope', 'read', '--agent-scope', 'propose', '--agent-scope', 'commit', '--agent-kind', 'issue', '--agent-kind', 'document', '--agent-kind', 'todo', '--agent-kind', 'info', '--agent-project', '*', '--agent-category', '*', '--port', String(port)], {cwd:__dirname, encoding:'utf8', env:{...process.env, PYTHONIOENCODING:'utf-8'}, windowsHide:true});
     assert.equal(provisioned.status, 0, provisioned.stderr);
     const info = JSON.parse(provisioned.stdout);
     const config = JSON.parse(fs.readFileSync(info.config_file, 'utf8'));
@@ -47,7 +47,9 @@ async function main() {
     const issue = await saveByAgent('issue', 'create', {title:'AI 整理的问题：' + '长中文标题验收'.repeat(8), project_id:project.id, body});
     const document = await saveByAgent('document', 'create', {title:'AI 整理的知识：' + '长中文标题验收'.repeat(8), category:'未分类', body:body + `\n\n关联问题：[[${issue.item_id}]]`});
     const todo = await saveByAgent('todo', 'create', {title:'AI 待办验收', project_id:project.id, body, due:'2028-02-29'});
-    for (const receipt of [issue, document, todo]) {
+    const infoFields = [{name:'命令', value:'  echo "one"\n  echo two  ', note:'  首尾说明\n换行  '}, {name:'地址', value:' https://example.com '}];
+    const infoRecord = await saveByAgent('info', 'create', {title:'AI 结构化信息验收', project_id:project.id, body, info_fields:infoFields});
+    for (const receipt of [issue, document, todo, infoRecord]) {
       assert.equal(new URL(receipt.web_url).origin, baseUrl);
       assert.equal(new URL(receipt.web_url).searchParams.get('itemId'), receipt.item_id);
     }
@@ -65,7 +67,7 @@ async function main() {
       : `!window.__agentOldDocument && apiAvailable && currentDocument?.id === ${JSON.stringify(receipt.item_id)} && $('#documentDialog').open`);
     const navigate = async receipt => { await client.evaluate('window.__agentOldDocument = true'); await client.call('Page.navigate', {url:receipt.web_url}); await waitOpened(receipt); };
     await waitOpened(issue);
-    for (const receipt of [issue, document, todo]) {
+    for (const receipt of [issue, document, todo, infoRecord]) {
       await navigate(receipt);
       await client.evaluate('window.__agentOldDocument = true');
       await client.call('Page.reload');
@@ -105,9 +107,25 @@ async function main() {
       })()`);
       const saved = await request(`/${isIssue ? 'records' : 'documents'}/${receipt.item_id}`);
       assert.equal(saved.body, serialized);
+      if (receipt.kind === 'info') assert.deepEqual(saved.info_fields, infoFields);
       assert.ok(saved.body.includes("printf 'one two'"));
       assert.ok(saved.body.includes('printf "three"'));
     }
+    await navigate(infoRecord);
+    const changedFields = [infoFields[1], {...infoFields[0], value:'  草稿 "引用"\n末尾空格  ', note:'  草稿说明  '}];
+    await client.evaluate(`(() => {
+      localStorage.setItem('workbench-save-on-leave', 'false'); $('#saveOnLeave').checked = false;
+      renderDrawerInfoFields(${JSON.stringify(changedFields)}); markEditorChanged(); recordSession.cancel();
+      return true;
+    })()`);
+    assert.deepEqual(await client.evaluate('readEditorDraft(currentRecord.id).info_fields'), changedFields);
+    const draftEpoch = await client.evaluate('performance.timeOrigin');
+    await client.call('Page.reload', {ignoreCache:true});
+    await waitForPage(client, `performance.timeOrigin !== ${draftEpoch} && apiAvailable && currentRecord?.id === ${JSON.stringify(infoRecord.item_id)} && recordSession.dirty`);
+    assert.deepEqual(await client.evaluate("infoFieldsFrom($('#drawerInfoFieldList'))"), changedFields);
+    await client.evaluate('(async () => { await saveEditorNow(); return true; })()');
+    await navigate(infoRecord);
+    assert.deepEqual((await request(`/records/${infoRecord.item_id}`)).info_fields, changedFields);
     await navigate(issue);
     await client.evaluate(`(() => { $('#saveOnLeave').checked = false; recordEditorHost.render('工作台未保存输入', true); markEditorChanged(); recordSession.cancel(); window.agentLinkPending = openItemLink({kind:'document', itemId:${JSON.stringify(document.item_id)}}); return true; })()`);
     await waitForPage(client, `$('#unsavedChangesDialog').open`);
@@ -132,7 +150,7 @@ async function main() {
     await client.evaluate(`(() => { $('#mergedConflictContent').value = '合并后的知识总结'; $('#conflictMerged').click(); return true; })()`);
     await waitForPage(client, `!$('#conflictDialog').open && !documentSession.dirty`);
     assert.equal((await request(`/documents/${document.item_id}`)).body, '合并后的知识总结');
-    for (const receipt of [issue, document, todo]) {
+    for (const receipt of [issue, document, todo, infoRecord]) {
       await navigate(receipt);
       const isIssue = receipt.kind !== 'document';
       const endpoint = `/api/${isIssue ? 'records' : 'documents'}/${receipt.item_id}`;

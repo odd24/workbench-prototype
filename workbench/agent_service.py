@@ -10,10 +10,11 @@ from functools import wraps
 
 from .agent_security import AgentError, allows, require_scope, client_kinds
 from .records import matches_query
+from .markdown_io import normalize_info_fields
 
 
 LIMITS = {"body_bytes": 256 * 1024, "title_characters": 200, "request_bytes": 1024 * 1024,
-          "page_default": 20, "page_max": 100, "active_proposals": 100}
+          "page_default": 20, "page_max": 100, "active_proposals": 100, "info_fields": 200, "field_name_characters": 200, "field_value_bytes": 65536, "field_note_bytes": 65536, "content_bytes": 262144}
 
 
 def page(items, params):
@@ -29,6 +30,11 @@ def page(items, params):
 def clean_item(item, body=False):
     keys = {"id", "type", "title", "project_id", "category", "status", "priority", "tags", "created", "updated", "revision", "due", "completed"}
     result = {key: value for key, value in item.items() if key in keys}
+    if item.get("type") == "info":
+        for key in ("status", "priority", "due", "completed"):
+            result.pop(key, None)
+        if body:
+            result["info_fields"] = normalize_info_fields(item.get("info_fields", []), limit=None)
     if body:
         result["body"] = item.get("body", "")
     else:
@@ -72,11 +78,13 @@ class AgentService:
     @service_operation
     def capabilities(self, client):
         require_scope(client, "read")
-        kinds = [kind for kind in ("issue", "document", "todo") if kind in client_kinds(client)]
+        kinds = [kind for kind in ("issue", "document", "todo", "info") if kind in client_kinds(client)]
         fields = {"issue": {"create": ["title", "body", "tags", "project_id", "status", "priority"], "update": ["title", "body", "tags", "status", "priority"], "append": ["title", "body", "tags", "project_id", "status", "priority"]},
                   "document": {"create": ["title", "body", "tags", "category"], "update": ["title", "body", "tags", "category"], "append": ["title", "body", "tags", "category"]}}
         fields["todo"] = {"create": ["title", "project_id", "body", "tags", "status", "priority", "due"],
                           "update": ["title", "body", "tags", "status", "priority", "due"], "append": ["body"]}
+        fields["info"] = {"create": ["title", "project_id", "body", "tags", "info_fields"],
+                          "update": ["title", "body", "tags", "info_fields"], "append": ["body"]}
         return {"kind_operations": {kind: ["create", "append", "update"] for kind in kinds},
                 "kind_fields": {kind: fields[kind] for kind in kinds}, "authorized_kinds": client_kinds(client),
                 "confirmation_modes": ["agent_attested"], "default_confirmation_mode": "agent_attested",
@@ -96,7 +104,7 @@ class AgentService:
         require_scope(client, "read")
         project_id = params.get("project_id")
         kind = params.get("kind", "issue")
-        if kind not in {"issue", "document", "todo"}:
+        if kind not in {"issue", "document", "todo", "info"}:
             raise AgentError("invalid_kind", "不支持的条目类型")
         if kind == "document" and project_id:
             raise AgentError("invalid_request", "文档分类查询不接受项目工作流")
@@ -108,6 +116,9 @@ class AgentService:
             project = self.repository.project(project_id)
             if not project or not allows(client, {"project_id": project_id}):
                 raise AgentError("not_found", "项目不存在或不可访问", 404)
+            if kind == "info":
+                result["project_id"] = project_id
+                return result
             config = self.repository.config()
             workflow = next((item for item in config["workflow_templates"] if item["id"] == project.get("workflow_template", "standard")), None)
             result.update({"project_id": project_id, "statuses": workflow["statuses"][kind] if workflow else config["status_templates"][kind],
@@ -117,7 +128,7 @@ class AgentService:
     @service_operation
     def get_item(self, client, kind, item_id):
         require_scope(client, "read")
-        if kind not in {"issue", "document", "todo"}:
+        if kind not in {"issue", "document", "todo", "info"}:
             raise AgentError("invalid_kind", "不支持的条目类型")
         item, path = (self.repository.get_document(item_id) if kind == "document" else self.repository.get_record(item_id))
         if not item or item.get("type") != kind or not allows(client, item):
@@ -149,9 +160,9 @@ class AgentService:
         if len(query) > 500:
             raise AgentError("invalid_query", "搜索词过长")
         kind = params.get("kind")
-        if kind and kind not in {"issue", "document", "todo"}:
+        if kind and kind not in {"issue", "document", "todo", "info"}:
             raise AgentError("invalid_kind", "不支持的条目类型")
-        items = [item for item in self.repository.list_records() if item.get("type") in {"issue", "todo"}] + self.repository.list_documents()
+        items = [item for item in self.repository.list_records() if item.get("type") in {"issue", "todo", "info"}] + self.repository.list_documents()
         selected = [clean_item(item) for item in items if allows(client, item)
                     and (not kind or item["type"] == kind)
                     and (not params.get("project_id") or item.get("project_id") == params["project_id"])
@@ -162,13 +173,18 @@ class AgentService:
     @service_operation
     def normalize_content(self, client, kind, operation, content, target_id=None, base_revision=None):
         require_scope(client, "read")
-        if kind not in {"issue", "document", "todo"} or operation not in {"create", "append", "update"}:
+        if kind not in {"issue", "document", "todo", "info"} or operation not in {"create", "append", "update"}:
             raise AgentError("invalid_operation", "不支持的类型或操作")
         if kind not in client_kinds(client):
             raise AgentError("forbidden", "此客户端未获授权访问该类型", 403)
         if not isinstance(content, dict):
             raise AgentError("invalid_content", "内容必须是对象")
         fields = {"title", "body", "tags"} | ({"category"} if kind == "document" else {"project_id", "status", "priority"})
+        if kind == "info":
+            fields -= {"status", "priority"}
+            fields.add("info_fields")
+            if operation == "append" and set(content) != {"body"}:
+                raise AgentError("unknown_field", "信息追加仅接受正文")
         if kind == "todo":
             fields.add("due")
             if operation == "append" and set(content) != {"body"}:
@@ -213,32 +229,64 @@ class AgentService:
             project_id = result.get("project_id")
             if not isinstance(project_id, str) or not self.repository.project(project_id) or not allows(client, {"project_id": project_id}):
                 raise AgentError("not_found", "项目不存在或不可访问", 404)
-            catalog = self.catalog(client, {"project_id": project_id, "kind": kind})
-            statuses = catalog["statuses"]
-            status = result.get("status", statuses[0]["name"])
-            selected = next((item for item in statuses if item["name"] == status), None)
-            if not selected or result.get("priority", "普通") not in catalog["priorities"]:
-                raise AgentError("invalid_status", "状态或优先级不在当前配置中")
-            result.update(status=status, priority=result.get("priority", "普通"), completed=bool(selected.get("completed")))
-            if kind == "todo":
-                due = result.get("due")
-                if operation == "create" or due != base.get("due"):
-                    try:
-                        if due is not None and (not isinstance(due, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", due) or date.fromisoformat(due).isoformat() != due):
-                            raise ValueError()
-                    except ValueError:
-                        raise AgentError("invalid_due", "截止日期须为有效 YYYY-MM-DD 或 null") from None
-                result["due"] = due
+            if kind == "info":
+                result["info_fields"] = self.validate_info_fields(result.get("info_fields", []))
+            else:
+                self._normalize_workflow(client, kind, result, base, operation)
         else:
             category = result.get("category", "未分类")
             if not isinstance(category, str) or category not in self.repository.document_categories() or not allows(client, {"type": "document", "category": category}):
                 raise AgentError("not_found", "文档分类不存在或不可访问", 404)
             result["category"] = category
-        for referenced_id in re.findall(r"\[\[([A-Za-z]+-\d+)(?:#[^\]]*)?\]\]", result["body"]):
+        self._validate_content_size(result, base)
+        reference_text = result["body"] + "\n" + "\n".join(value for field in result.get("info_fields", []) for value in field.values())
+        for referenced_id in re.findall(r"\[\[([A-Za-z]+-\d+)(?:#[^\]]*)?\]\]", reference_text):
             item = (self.repository.get_document(referenced_id) if referenced_id.startswith("DOC-") else self.repository.get_record(referenced_id))[0]
             if not item or not allows(client, item):
                 raise AgentError("invalid_reference", "正文引用的条目不存在或不在授权范围内")
         return result, {key: value for key, value in base.items() if key in fields}
+
+    def _normalize_workflow(self, client, kind, result, base, operation):
+        project_id = result["project_id"]
+        catalog = self.catalog(client, {"project_id": project_id, "kind": kind})
+        statuses = catalog["statuses"]
+        status = result.get("status", statuses[0]["name"])
+        selected = next((item for item in statuses if item["name"] == status), None)
+        if not selected or result.get("priority", "普通") not in catalog["priorities"]:
+            raise AgentError("invalid_status", "状态或优先级不在当前配置中")
+        result.update(status=status, priority=result.get("priority", "普通"), completed=bool(selected.get("completed")))
+        if kind == "todo":
+            due = result.get("due")
+            if operation == "create" or due != base.get("due"):
+                try:
+                    if due is not None and (not isinstance(due, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", due) or date.fromisoformat(due).isoformat() != due):
+                        raise ValueError()
+                except ValueError:
+                    raise AgentError("invalid_due", "截止日期须为有效 YYYY-MM-DD 或 null") from None
+            result["due"] = due
+
+    @staticmethod
+    def validate_info_fields(fields):
+        if not isinstance(fields, list) or len(fields) > LIMITS["info_fields"]:
+            raise AgentError("invalid_info_fields", "信息字段须为最多200项的有序列表")
+        for field in fields:
+            if not isinstance(field, dict) or not {"name", "value"} <= field.keys() or set(field) - {"name", "value", "note"}:
+                raise AgentError("invalid_info_fields", "信息字段仅接受 name/value/可选 note")
+            if any(not isinstance(value, str) or "\x00" in value for value in field.values()):
+                raise AgentError("invalid_info_fields", "信息字段必须是不含空字符的文本")
+            if not field["name"].strip() or len(field["name"]) > LIMITS["field_name_characters"] or any(ord(c) < 32 for c in field["name"]):
+                raise AgentError("invalid_info_fields", "字段名称不能为空、含控制字符或超过200字符")
+            if any(len(field.get(key, "").encode("utf-8")) > LIMITS["field_" + key + "_bytes"] for key in ("value", "note")):
+                raise AgentError("content_too_large", "单项字段内容或说明不能超过64KiB", 413)
+        return normalize_info_fields(fields)
+
+    @staticmethod
+    def _validate_content_size(content, base):
+        for candidate in (content, base):
+            size = len(candidate.get("body", "").encode("utf-8"))
+            size += sum(len(value.encode("utf-8")) for field in candidate.get("info_fields", []) for value in field.values())
+            if size > LIMITS["content_bytes"]:
+                raise AgentError("content_too_large", "正文和结构字段合计过长，无法完整预览", 413)
 
     @service_operation
     def prepare_proposal(self, client, payload):

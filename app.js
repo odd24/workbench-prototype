@@ -491,8 +491,8 @@ function infoFieldRowHtml(field = {}, scope = 'drawer') {
 
 function infoFieldsFrom(root) {
   return $$('[data-info-field-row]', root).map(row => {
-    const field = {name:$('[data-info-field-name]', row).value.trim(), value:$('[data-info-field-value]', row).value.trim()};
-    const note = $('[data-info-field-note]', row)?.value.trim();
+    const field = {name:$('[data-info-field-name]', row).value.trim(), value:$('[data-info-field-value]', row).value};
+    const note = $('[data-info-field-note]', row)?.value;
     if (note) field.note = note;
     return field;
   }).filter(field => field.name || field.value);
@@ -5311,7 +5311,7 @@ document.addEventListener('change', async event => {
 
 async function openItemLink(link = navigationFeature.readItemLink()) {
   if (!link) return false;
-  if (link.invalid || !['issue', 'document', 'todo'].includes(link.kind)) {
+  if (link.invalid || !['issue', 'document', 'todo', 'info'].includes(link.kind)) {
     navigationFeature.clearItemLink();
     notify('打开链接无效', '请检查条目类型和编号', true);
     return false;
@@ -5336,7 +5336,7 @@ async function openItemLink(link = navigationFeature.readItemLink()) {
       openDocument(item.id, '', {fromItemLink:true});
     } else {
       selectedProjectId = item.project_id;
-      projectTab = link.kind === 'todo' ? 'todos' : 'issues';
+      projectTab = {issue:'issues', todo:'todos', info:'infos'}[link.kind];
       projectFilters = {status:'', tag:'', priority:''};
       setPage('project', {preserveItemLink:true});
       await openDrawer(item.id, {fromItemLink:true});

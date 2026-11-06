@@ -83,6 +83,6 @@ AG-120：客户端可设置最低确认方式为“本机网页独立批准”�
 
 非Codex客户端尚未实测，环境解除条件和完整矩阵见[客户端兼容验收](docs/AGENT_CLIENT_COMPATIBILITY.md)。
 
-远程MCP未实现：已准备[远程设计门槛与威胁模型](docs/AGENT_REMOTE_DESIGN.md)，缺少真实TLS/IdP/客户端，不能开启网络入口。
+按单机本地用途，远程接入已移出当前实施范围；不需要准备TLS/IdP/代理。[远程设计](docs/AGENT_REMOTE_DESIGN.md)仅保留历史参考，远程未实现。
 
-当前扩展状态：AG-116～120本机功能已实现并验收；AG-121/122缺少真实外部环境，AG-123～125未开工，AG-126全扩展交付受阻。详见[扩展验收与本地提交](docs/AI_AGENT_EXTENSION_ACCEPTANCE.md)。
+当前扩展状态：AG-116～120本机功能已实现并验收；AG-122～125按用户用途取消；AG-121是否需要其他本机客户端待澄清，AG-126按本机范围收口。详见[扩展验收与本地提交](docs/AI_AGENT_EXTENSION_ACCEPTANCE.md)。

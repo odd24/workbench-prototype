@@ -134,3 +134,5 @@ AG-121尚缺真实非Codex客户端，恢复入口与未运行矩阵见[客户�
 远程默认未提供实现；候选部署边界、威胁模型和恢复/停用验收见[AG-122设计准备](AGENT_REMOTE_DESIGN.md)。未经真实IdP/TLS/客户端验证不得标远程可用，不应直接公网化本机工作台。
 
 显式隔离生命周期演练：python extension_lifecycle_acceptance.py，验证四类型两确认路径、关闭Agent普通读取、停服完整备份/批准回执恢复、便携ZIP CRC/接入排除/新身份。仅使用TemporaryDirectory，不启动模型或修改用户配置。[扩展验收](AI_AGENT_EXTENSION_ACCEPTANCE.md)区分本机通过与非Codex/远程未验证。
+
+当前范围更新（2026-11-06）：AG-122～125按用户单机用途取消，原远程外部门槛不再阻塞本机交付；既有设计仅作历史参考。本机使用不需要TLS/IdP/代理，原loopback边界保持。

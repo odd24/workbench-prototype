@@ -17,7 +17,7 @@
 python workbuddy_agent_acceptance.py
 ```
 
-脚本默认从当前用户安装目录定位WorkBuddy附带CLI；自定义安装用--install-dir传目录。使用已有Node运行原装bin/codebuddy，不提取/改写客户端实现、不安装SDK。CLI先执行--version，再执行mcp list。临时透明中继逐字节转发工作台桥接协议，仅记录方法、协议/客户端版本、工具名称与错误码，不构造客户端请求。输出固定ag121_complete=false，避免被当作完整矩阵验收脚本。
+脚本默认从当前用户安装目录定位WorkBuddy附带CLI；自定义安装用--install-dir传目录。使用已有Node运行原装bin/codebuddy，不提取/改写客户端实现、不安装SDK。CLI先执行--version，再执行mcp list。临时透明中继逐字节转发工作台桥接协议，仅记录方法、协议/客户端版本、工具名称、JSON-RPC错误码与工具结果的tool_is_error布尔，不构造客户端请求。请求ID仅在内存关联响应（最多256项），不落盘ID、参数、正文或结构化业务结果；异常isError类型单独记tool_result_malformed，不当作成功。旧记录没有tool_is_error时不补推结果；当前已启动的旧中继需正常重连才会加载补强代码。输出固定ag121_complete=false，避免被当作完整矩阵验收脚本。
 
 2026-11-06实际结果：CLI2.103.3、退出0、Connected、MCP2025-11-25、initialize→notifications/initialized→tools/list、12工具、无协议错误、model_turns_started=0、real_user_config_changed=false。CLI initialize中的clientInfo.name=workbench_probe来自登记名称，不作为客户端厂商或身份认证依据。临时凭据在清理前撤销；Windows Job关闭回收本次客户端后代，临时目录清理失败会报错。
 

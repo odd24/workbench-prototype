@@ -27,6 +27,43 @@ from workbench.agent_runtime import AgentRuntime
 ROOT = Path(__file__).resolve().parent
 
 
+def protocol_metadata(message, pending):
+    """Describe wire outcomes without retaining arguments or business content."""
+    event = {}
+    if "method" in message:
+        event["method"] = message["method"]
+    if message.get("method") == "initialize":
+        event.update({key: message["params"].get(key) for key in ("protocolVersion", "clientInfo")})
+    if message.get("method") == "tools/call":
+        event["tool"] = message.get("params", {}).get("name")
+        request_id = message.get("id")
+        if request_id is not None:
+            if len(pending) >= 256 and request_id not in pending:
+                pending.pop(next(iter(pending)))
+            pending[request_id] = event["tool"]
+    result = message.get("result", {})
+    if isinstance(result, dict):
+        if "protocolVersion" in result:
+            event["protocolVersion"] = result["protocolVersion"]
+        if "tools" in result:
+            event["tools"] = [tool["name"] for tool in result["tools"]]
+    if "method" not in message and message.get("id") in pending:
+        event["tool"] = pending.pop(message["id"])
+        if "result" in message and isinstance(result, dict):
+            is_error = result.get("isError", False)
+            if isinstance(is_error, bool):
+                event["tool_is_error"] = is_error
+            else:
+                event["tool_result_malformed"] = True
+    if "error" in message:
+        code = message["error"]["code"]
+        if isinstance(code, int):
+            event["error_code"] = code
+        else:
+            event["rpc_error_malformed"] = True
+    return event
+
+
 @contextmanager
 def disposable_directory():
     temporary = tempfile.TemporaryDirectory(prefix="workbench-workbuddy-probe-")
@@ -54,32 +91,19 @@ def relay():
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
     lock = threading.Lock()
+    pending = {}
 
     def forward(source, target, direction):
         try:
             for line in source:
-                event = {"direction": direction}
-                try:
-                    message = json.loads(line)
-                    if "method" in message:
-                        event["method"] = message["method"]
-                    if message.get("method") == "initialize":
-                        event.update({key: message["params"].get(key) for key in ("protocolVersion", "clientInfo")})
-                    if message.get("method") == "tools/call":
-                        event["tool"] = message.get("params", {}).get("name")
-                    result = message.get("result", {})
-                    if isinstance(result, dict):
-                        if "protocolVersion" in result:
-                            event["protocolVersion"] = result["protocolVersion"]
-                        if "tools" in result:
-                            event["tools"] = [tool["name"] for tool in result["tools"]]
-                    if "error" in message:
-                        event["error_code"] = message["error"]["code"]
-                except (ValueError, TypeError, AttributeError, KeyError):
-                    # Metadata parsing must not filter malformed wire input or
-                    # change the real server's response to that input.
-                    event = {"direction": direction, "unparsed": True}
                 with lock, trace.open("a", encoding="utf-8") as stream:
+                    event = {"direction": direction}
+                    try:
+                        event.update(protocol_metadata(json.loads(line), pending))
+                    except (ValueError, TypeError, AttributeError, KeyError):
+                        # Metadata parsing must not filter malformed wire input
+                        # or change the real server's response to that input.
+                        event = {"direction": direction, "unparsed": True}
                     stream.write(json.dumps(event, ensure_ascii=False) + "\n")
                 target.write(line)
                 target.flush()

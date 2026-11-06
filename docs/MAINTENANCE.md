@@ -118,3 +118,7 @@ Agent 提案/提交故障的恢复步骤、运行中清理和本机接受磁盘�
 ### AG-118 字段兼容验收
 
 共享信息字段归一化修正首尾空格并扩大200项/名称200字符，需同时运行 test_markdown、test_records、test_agent_extensions 与 node test_agent_workflows.js、node test_editor_workflows.js。真实 Codex 隔离验收已扩为四类型；字段原文、顺序和 note 必须重新读取比较。限额由 capabilities 返回，不用界面截断代替服务端拒绝。
+
+### AG-119 管理验收
+
+新增 python -m unittest -v test_agent_proposal_management 与 node test_agent_proposal_workflows.js，修改管理页仍运行 node test_agent_settings.js。取消日志位于.agent/proposal-actions，停服备份须保留；业务日志与取消日志职责分离。管理读取不初始化空空间，不自动发起业务提交；恢复中的提案提示本机核查。

@@ -6,7 +6,7 @@
 
 接入管理 UI 的需求、契约及验收分解见 [AGENT_SETTINGS_PLAN.md](AGENT_SETTINGS_PLAN.md)。AG-106 为文档工作；AG-107～111 的实施事实和当前状态见下表及记录。
 
-后续扩展详见 [AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。AG-115 仅文档；AG-116～118 已完成，AG-119～126 待开始，不影响已完成首期的历史状态。
+后续扩展详见 [AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。AG-115 仅文档；AG-116～119 已完成，AG-120～126 待开始，不影响已完成首期的历史状态。
 
 ## 工作项
 
@@ -31,7 +31,7 @@
 | AG-116 | 类型授权、能力协商与流程格式兼容 | 已完成 | 2026-11-06 | 2026-11-06 | AG-115；用户已授权实施 |
 | AG-117 | 待办 todo 查询、提案与持久写入 | 已完成 | 2026-11-06 | 2026-11-06 | AG-116 |
 | AG-118 | 结构化信息 info 与字段无损往返 | 已完成 | 2026-11-06 | 2026-11-06 | AG-117 |
-| AG-119 | 本机提案管理、预览、取消与结果查询 | 待开始 | — | — | AG-118 |
+| AG-119 | 本机提案管理、预览、取消与结果查询 | 已完成 | 2026-11-06 | 2026-11-06 | AG-118 |
 | AG-120 | 网页独立批准与持久恢复 | 待开始 | — | — | AG-119 |
 | AG-121 | 非 Codex 真实客户端兼容验证 | 待开始 | — | — | AG-120 |
 | AG-122 | 远程 MCP 协议、认证及部署设计门槛 | 待开始 | — | — | AG-120；需目标身份服务/客户端 |
@@ -413,3 +413,22 @@
 - 编辑器回归：首次 node test_editor_workflows.js 行为完成但临时Edge目录清理EPERM，命令失败，未记作通过；脚本增加Browser.close正常关闭与临时绝对目录断言后重跑成功（保存/失败重试/关闭/切页/刷新/两编辑器草稿恢复/历史/外部冲突）。不改应用保存内核。
 - 兼容：无业务格式迁移，旧授权不扩权；APP_VERSION=2026.11.06.3和缓存同步。决策AG-DEC-007/009。提交标题 Enable lossless Agent info workflows；下一入口AG-119。
 - 外部依赖：用户回复暂无非Codex客户端/身份服务/TLS远程测试环境；AG-121/122对应实测门槛待处理，继续本机项，不用模拟代替。
+
+### 2026-11-06 / AG-119 / 开始
+
+- 前置：AG-118 提交 db77326；工作区干净。
+- 范围：本机管理会话下跨客户端分页/过滤摘要、详情/完整只读预览、持久幂等取消和结果打开；独立feature装配，批准按钮禁用直至AG-120。
+- 文件：新增 agent_proposal_management.py、js/features/agent-proposals.js及测试；management_http/runtime/app/navigation/index/management.css；相关文档。
+- 验证：管理会话/Origin/Agent凭据拒绝、未初始化只读无副作用；20默认/100上限/客户端类型状态操作筛选、不泄密；取消重试/并发/故障/旧版本/清理正文；真实浏览器两主题两宽度、长中文/空库/大量分页/error/focus/disabled/切页不丢草稿、既有管理回归。
+- 影响：业务Markdown/编辑器/历史不变；新增.agent/proposal-actions取消日志，独立于凭据日志；读取详情不重放业务提交，committing状态显示恢复中，已有事务仍按原恢复流程处理。
+- 风险：管理预览含完整私人候选正文，必须仅管理会话可读且静态不可访问；分页不能一次返回全部正文；未知日志不自动删除。
+
+### 2026-11-06 / AG-119 / 完成
+
+- 文件：新增agent_proposal_management、agent-proposals feature、test_agent_proposal_management/test_agent_proposal_workflows；修改management_http、proposals、http_api、app/navigation/index/management.css及README/架构/数据/接入/使用/维护和台账。
+- 实现：设置内提案管理入口；跨客户端20项分页/最大100，客户端/类型/状态/操作筛选；按需完整内容/字段/多行原文/差异/警告/来源预览；清理后仅回执明确提示；未提交当前版本可取消，稳定request_id持久日志可重试/刷新查询；结果深链接打开。批准保持禁用。
+- 边界：管理session/Origin/loopback复用，Agent Bearer拒绝；空空间只读不初始化。列表无正文、令牌/路径不返回；详情不自动重放业务提交。预览构造复用ProposalStore同一函数，取消复用状态机；业务Markdown/保存/历史/旧工具不变。
+- 自动：python -m unittest -q全量213项通过；取消日志校验补强后管理/既有提案专项17项复验通过；全部Python/JS语法、Markdown链接/围栏、styles/frontend-entry契约与git diff --check通过。
+- 真实Edge：新增提案浏览器空库/25项分页/筛选/完整多行预览/禁用批准/旧版本取消拒绝/取消丢响应/刷新同请求查询/会话失效/浅深×1440/390通过，多次复验；代表截图目视检查无页面溢出。node test_agent_settings.js与test_agent_workflows.js通过，临时数据/凭据/CODEX_HOME，未提交截图。
+- 验收脚本修正：等待applicationFeature.start完成后导航，避免初始化回首页干扰早期点击；未将早期失败记作通过。
+- APP_VERSION=2026.11.06.4及缓存同步。提交标题 Add local Agent proposal management；下一入口AG-120。外部依赖仍为用户暂无非Codex/远程测试环境，当前不阻塞本机实施。

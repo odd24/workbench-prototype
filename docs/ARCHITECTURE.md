@@ -102,3 +102,7 @@ AgentService 对 todo 复用记录领域的预备写入/历史/缓存失效，ca
 ### AG-118 结构化信息
 
 info 复用 RecordRepository 和共享 Markdown 序列化，AgentService 严格校验新请求后调用 normalize_info_fields；兼容旧字典解析保持。字段是有序 name/value/note 列表，不增加 ID 或平行存储。只读摘要不携带全部字段，完整读取和预览含全部字段，字段差异显示 before/after 有序列表。Agent 不能修改 info_color，也不执行字段命令。
+
+### AG-119 本机提案管理
+
+ProposalManagement 复用 ProposalStore 的只读完整预览构造与取消状态机，管理路由沿用 loopback/同源/短期会话，Agent Authorization 一律拒绝。独立 agent-proposals feature 使用统一 API 和只读 Markdown 渲染；列表不返回正文，详情按需加载。读取不发起新提交或业务恢复。取消使用独立 proposal-actions 持久日志，不混用凭据操作日志。

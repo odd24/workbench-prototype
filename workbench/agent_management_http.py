@@ -2,7 +2,7 @@
 
 import uuid
 import hashlib
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 from .agent_security import AgentError
 from .agent_runtime import AgentRuntime, LOOPBACK
@@ -24,8 +24,15 @@ def dispatch(handler):
         origin = "http://" + handler.headers["Host"]
         if handler.headers.get("Origin", origin) != origin or handler.headers.get("Sec-Fetch-Site", "same-origin") not in {"same-origin", "none"}:
             raise AgentError("forbidden", "管理接口只允许同源访问", 403)
+        route = path[len(PREFIX):]
+        params = {}
         if query or urlparse(handler.path).query:
-            raise AgentError("invalid_request", "管理接口不接受查询参数")
+            if handler.command != "GET" or route != "proposals":
+                raise AgentError("invalid_request", "此管理接口不接受查询参数")
+            raw = parse_qs(urlparse(handler.path).query, keep_blank_values=True)
+            if any(len(values) != 1 for values in raw.values()):
+                raise AgentError("invalid_request", "筛选参数不能重复")
+            params = {key: values[0] for key, values in raw.items()}
         with handler.repository_switch_lock, handler.repository.write_lock:
             runtime = getattr(handler.repository, "agent_runtime", None)
             if runtime is None:
@@ -49,7 +56,20 @@ def dispatch(handler):
                 from .agent_management import AgentManagement
                 management = AgentManagement(runtime)
                 parts = route.split("/")
-                if handler.command == "PATCH" and route == "runtime":
+                if parts[0] == "proposals":
+                    from .agent_proposal_management import ProposalManagement
+                    proposals = ProposalManagement(runtime)
+                    if handler.command == "GET" and len(parts) == 1:
+                        result = proposals.list(params)
+                    elif handler.command == "GET" and len(parts) == 2:
+                        result = proposals.detail(parts[1])
+                    elif handler.command == "GET" and len(parts) == 3 and parts[2] == "preview":
+                        result = proposals.preview(parts[1])
+                    elif handler.command == "POST" and len(parts) == 3 and parts[2] == "cancel":
+                        result = proposals.cancel(parts[1], payload)
+                    else:
+                        raise AgentError("not_found", "提案管理接口不存在", 404)
+                elif handler.command == "PATCH" and route == "runtime":
                     result = runtime.update(payload)
                 elif handler.command == "POST" and route == "diagnostics":
                     if set(payload) != {"workspace_id", "client_id", "request_id"} or payload["workspace_id"] != runtime.status()["workspace_id"]:

@@ -147,17 +147,21 @@ class ProposalStore:
             preview.update(confirmation_mode=proposal["confirmation_mode"], digest_algorithm=proposal["digest_algorithm"])
         return {**preview, "content": proposal["normalized_content"], "warnings": warnings}
 
-    def preview(self, proposal):
-        self.editable(proposal, proposal["version"])
+    def preview_result(self, proposal):
         content = proposal["normalized_content"]
         preview = self.preview_payload(proposal)
         preview_digest = digest(preview)
         changes = {key: {"before": proposal["base_content"].get(key), "after": value}
                    for key, value in content.items() if proposal["base_content"].get(key) != value}
         diff = "\n".join(difflib.unified_diff(proposal["base_content"].get("body", "").splitlines(), content.get("body", "").splitlines(), fromfile="当前正文", tofile="拟保存正文", lineterm=""))
-        proposal.update(state="previewed", previewed_version=proposal["version"], preview_digest=preview_digest)
-        self._save(proposal)
         return {**preview, "preview_digest": preview_digest, "expires_at": proposal["expires_at"], "changes": changes, "body_diff": diff}
+
+    def preview(self, proposal):
+        self.editable(proposal, proposal["version"])
+        result = self.preview_result(proposal)
+        proposal.update(state="previewed", previewed_version=proposal["version"], preview_digest=result["preview_digest"])
+        self._save(proposal)
+        return result
 
     def cancel(self, proposal, version):
         if proposal["state"] == "cancelled" and proposal["version"] == version:

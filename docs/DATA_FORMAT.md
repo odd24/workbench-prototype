@@ -118,3 +118,7 @@ Agent todo create 接受 title/project_id/body/tags/status/priority/due；update
 Agent info create 接受 title/project_id/body/tags/info_fields；update 不迁移项目；append 仅 body。拒绝 status/priority/due/completed/info_color。字段只接受必需 name/value 和可选 note 文本，不含空字符，名称非空且不含控制字符。最多200项，名称200字符，value/note各64KiB UTF-8，正文与全部字段值合计256KiB UTF-8，请求1MiB。新请求严格校验，不依赖宽容解析丢弃未知键。
 
 共享字段归一化上限从100项/名称120字符扩至200/200，value/note不再 strip，前端收集器同步保留首尾空格；不改轻量 front matter 格式，不批量改写旧文件。完整 Agent 读取旧字段不截断；超限旧文件的更新须缩小到可完整预览范围，不能悄悄丢尾部字段。未修改的颜色、links、附件及原仓储元数据保持。字段顺序变化通过完整列表 before/after 表达。
+
+### AG-119 本机提案取消日志
+
+.agent/proposal-actions/<sha256(request_id)>.json schema=1，记录 workspace/request/proposal/version、operation=cancel、input_digest、created_at、prepared/completed 与精简 result。先日志再取消，响应丢失或中断重试相同输入得到同一结果；同 request_id 不同输入409，未知版本保留证据并拒绝覆盖。日志不进入业务 ZIP、搜索或静态资源，不能删除绕过。

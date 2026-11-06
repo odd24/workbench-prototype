@@ -871,13 +871,14 @@ function setPage(page, options = {}) {
   const managePages = navigationFeature.managePages;
   page = navigationFeature.resolvePage(page, projects, selectedProjectId);
   if (page !== 'agent_settings') agentSettingsFeature.deactivate();
+  if (page !== 'agent_proposals') agentProposalsFeature.deactivate();
   currentPage = page;
   persistNavigationState();
   if (!options.preserveHash) navigationFeature.clearHash();
   if (!options.preserveItemLink) { requestRegistry.invalidate('item-link'); navigationFeature.clearItemLink(); }
   if (!['tags', 'status_templates', 'settings'].includes(page) || page !== activeManagePage) savedManageSnapshot = null;
   $$('.page').forEach(node => node.classList.remove('active'));
-  $$('.nav-item').forEach(node => node.classList.toggle('active', page === 'project' ? node.dataset.projectId === selectedProjectId : node.dataset.page === (page === 'agent_settings' ? 'settings' : page)));
+  $$('.nav-item').forEach(node => node.classList.toggle('active', page === 'project' ? node.dataset.projectId === selectedProjectId : node.dataset.page === (['agent_settings', 'agent_proposals'].includes(page) ? 'settings' : page)));
   if (page === 'home') $('#homePage').classList.add('active');
   else if (page === 'project') {
     $('#projectPage').classList.add('active');
@@ -946,6 +947,7 @@ function hasUnsavedProjectEdit() {
 }
 
 async function confirmLeaveManagePage() {
+  if (activeManagePage === 'agent_proposals' && agentProposalsFeature.isBusy()) { notify('请先等待或查询提案操作结果'); return false; }
   if (activeManagePage === 'agent_settings' && agentSettingsFeature.isBusy()) { notify('请先等待或查询上次接入操作结果'); return false; }
   if (!hasUnsavedManageChanges()) return true;
   const choice = await askUnsavedChanges();
@@ -2154,8 +2156,12 @@ async function openReferenceToken(token) {
 }
 
 async function renderManagePage(page) {
+  if (page === 'agent_proposals') {
+    $('#manageEyebrow').textContent = '本机接入'; $('#manageTitle').textContent = '提案管理'; $('#manageDescription').textContent = '查看完整提案并管理当前空间的候选内容。'; $('#manageActions').innerHTML = '<button type="button" class="secondary-button" data-page="agent_settings">返回 AI Agent 接入</button>';
+    await agentProposalsFeature.load(); return;
+  }
   if (page === 'agent_settings') {
-    $('#manageEyebrow').textContent = '本机接入'; $('#manageTitle').textContent = 'AI Agent 接入'; $('#manageDescription').textContent = '管理当前工作空间的授权，生成 Codex 接入配置。'; $('#manageActions').innerHTML = '<button type="button" class="secondary-button" data-page="settings">返回设置</button>';
+    $('#manageEyebrow').textContent = '本机接入'; $('#manageTitle').textContent = 'AI Agent 接入'; $('#manageDescription').textContent = '管理当前工作空间的授权，生成 Codex 接入配置。'; $('#manageActions').innerHTML = '<button type="button" class="secondary-button" data-page="agent_proposals">提案管理</button><button type="button" class="secondary-button" data-page="settings">返回设置</button>';
     await agentSettingsFeature.load();
     return;
   }
@@ -3034,6 +3040,12 @@ const trashFeature = trashCore.create({
 const agentSettingsFeature = window.Workbench.agentSettings.create({
   root:$('#manageContent'), api, escapeHtml, confirm:appConfirm, notify,
   isActive:() => currentPage === 'agent_settings',
+});
+
+const agentProposalsFeature = window.Workbench.agentProposals.create({
+  root:$('#manageContent'), api, escapeHtml, confirm:appConfirm, notify,
+  renderMarkdown:(body, resource) => markdownToHtml(body, false, resource),
+  isActive:() => currentPage === 'agent_proposals',
 });
 
 function tagUsageRecords(tagName) {

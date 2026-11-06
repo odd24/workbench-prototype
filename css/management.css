@@ -27,3 +27,5 @@
 .global-stats-dialog{height:min(88vh,850px);max-height:none;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden;padding:0}.global-stats-dialog[open]{display:grid}.global-stats-content{min-height:0;max-height:none;overflow-x:hidden;overflow-y:auto;scrollbar-gutter:stable}.global-project-list{max-height:none;overflow:visible}
 
 .agent-diagnostic ol{padding-left:22px;line-height:1.7}.agent-diagnostic li{padding:10px 0;border-bottom:1px solid var(--line)}.agent-diagnostic li p{margin:5px 0}.agent-diagnostic small{color:var(--muted)}
+
+.agent-proposal-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:12px;margin-top:14px}.agent-proposal-filters label{display:grid;gap:6px}.agent-proposal-detail{overflow-wrap:anywhere}.agent-proposal-detail pre{max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere}.agent-proposal-markdown{display:block;min-width:0;max-width:100%;overflow-x:auto}.agent-proposal-markdown [contenteditable]{pointer-events:none}

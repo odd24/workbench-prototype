@@ -174,3 +174,7 @@ python server.py --data-dir <同一目录> --agent-recovery-abandon <operation_i
 ### AG-118 结构化信息
 
 显式 kinds 包含 info 才可访问；旧凭据不扩权。info 无工作流状态，catalog(kind=info,project_id=...) 不返回 statuses/priorities。通过 capabilities 查看字段和字节限额。完整读取含 info_fields，按服务器返回的有序列表预览；新增/重排/删除字段必须重新确认。INFO 深链接进入原信息抽屉。
+
+### AG-119 本机审查入口
+
+AI Agent 接入页的“提案管理”可查看当前空间所有客户端提案，Agent 工具仍只能访问自己的授权提案。每页20项、最多100项服务端限制；支持客户端/类型/状态/操作筛选。详情含字段、正文、差异、警告、版本、来源；正文清理后明确提示，不能用回执代替完整预览。网页批准尚未开放。

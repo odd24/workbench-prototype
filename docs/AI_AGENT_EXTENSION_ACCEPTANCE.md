@@ -101,3 +101,5 @@ WorkBuddy桌面第一轮详细回报已收到：工具未加载、连接器未�
 第三轮用户明确表示已发送指定确认任务，随后四类型update v1真实提交，回执增至12；正文/开放字段及SHA256重读匹配，info_fields六项逆序且内容保持。本轮完整展示/用户所述新消息/工具往返证据齐备，较早确认缺口保留。四类型local_web append v1均已预览，4次客户端自报提交均工具isError，未生成批准或回执；具体confirmation_required错误码待用户报告，网页批准尚未执行，document append尚未落盘。AG-121与AG-126仍不标完成。
 
 用户随后核实4份local_web完整展示且4次confirmation_required，客户端错误表显示retryable=false、要求本机提案管理独立批准、无成功回执且未重试/重建；与工具isError及未批准/未提交状态相符。四类型自报绕过拒绝通过。临时网页独立批准步骤已提供，页面HTTP200、4份仍previewed、批准日志0；当前尚不标网页正向或知识库append落盘通过。
+
+用户随后明确报告4份已在网页批准并入库。实际4份local_web/append v1均committed，4份completed批准日志与提案approval相同，版本/preview_digest及回执一致；回执共16份。正式文件正文、字段和SHA256逐份匹配，知识库append保存通过。四类型三操作均已有真实落盘证据，网页批准后客户端查询与其余幂等/查询/故障矩阵仍待补齐。已在同一临时库用普通HTTP准备未授权对照项目/ISSUE-0002，未改变Agent范围；开发侧夹具不冒充真实客户端越权测试通过。

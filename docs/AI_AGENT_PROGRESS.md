@@ -661,3 +661,16 @@
 
 - 用户确认4份local_web完整预览均已展示、4次均confirmation_required，并提供客户端错误表：message为“此提案需要在本机提案管理中独立批准”，retryable=false，无成功item_id/revision；客户端报告未重试、未重建。该报告与4次工具isError、4份空批准/回执和仍12份正式回执一致，四类型自报绕过拒绝通过。
 - 已给出临时网页独立操作步骤并请求实际结果；原夹具句柄仍运行，页面HTTP200，当前proposal-actions为0，4份local_web仍previewed。未通过管理API代替用户批准。本次三文件文档编码/围栏/链接与目标diff检查后提交，标题Verify WorkBuddy updates and independent approval rejection；网页正向仍待真实操作，不标本项完成。
+
+### 2026-11-06 / AG-121 / 查询权限对照准备
+
+- 开始前工作区干净。精确范围：通过当前一次性工作台的普通HTTP领域API创建一个未授权对照项目/issue，验证其不在临时客户端project_ids中；只读回检并在任务TEMP保存对照ID。用于后续真实客户端分页/分段、越权读取与引用负向验收，不替代客户端请求、不改变客户端授权、不写真实workbench-data。
+- 不改应用代码或真实配置，不修改已有四份待网页批准提案的目标；计划普通API创建/磁盘重读/授权不含对照项目检查，实际结果再记录。后续具体查询矩阵可在网页批准后的手动轮次执行；网页批准仍等待用户真实操作。
+
+- 对照准备实际通过：普通临时HTTP API返回201，建立WorkBuddy-未授权对照/ISSUE-0002，正文为固定验收canary；磁盘重读存在，临时客户端project_ids不含该项目，授权未修改。ID仅保存在本任务TEMP的query_fixture.json；这不是MCP越权验收通过，仍待真实客户端读取/引用拒绝。
+
+### 2026-11-06 / AG-121 / 四类型独立网页批准落盘
+
+- 用户明确报告4份均已在网页批准并入库；临时磁盘证据对应4份local_web/append v1均committed、approval.mode=local_web，proposal-actions恰好4份completed，回执由12增至16。开发夹具未请求批准路由，没有替代操作者。
+- 逐份核对批准日志、提案与回执版本相同，批准preview_digest等于当前提案摘要，action.approval与proposal.approval一致；四份正式文件SHA256匹配回执，正文/开放字段匹配候选且末尾为网页批准验收文本。知识库append也已落盘；四类型三操作均有真实客户端/网页落盘证据。网页操作仅此人工批准流程，未外推为新的主题/宽度/编辑器冲突验收。
+- 当前剩余：由WorkBuddy查询网页回执/幂等、分页分段/范围与引用拒绝、未知字段、修改后旧版本拒绝/取消、重启与撤销/轮换/错空间等矩阵。三份文档同步实际结果，计划编码/围栏/链接/目标diff及diff检查后提交；AG-121仍进行中、AG-126未收口，不缩减剩余要求。

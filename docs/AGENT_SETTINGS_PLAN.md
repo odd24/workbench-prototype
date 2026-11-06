@@ -4,6 +4,8 @@
 
 本方案扩展 [AI_AGENT_PLAN.md](AI_AGENT_PLAN.md)，保留 AG-000～105 的已完成历史。当前可用接入步骤仍见 [AGENT_INTEGRATION.md](AGENT_INTEGRATION.md)，现有业务与安全边界见 [ARCHITECTURE.md](ARCHITECTURE.md)、[DATA_FORMAT.md](DATA_FORMAT.md) 和 [AGENTS.md](../AGENTS.md)。
 
+2026-11-06 后续规划：类型授权、提案管理与网页独立批准纳入 [扩展执行方案](AI_AGENT_EXTENSION_PLAN.md)（AG-116、AG-119～120）；远程 MCP 另设专用入口，不能扩展本机管理会话的网络范围。均尚未实施，本文件保留已完成首期和 AG-112/113 的历史边界。
+
 ## 1. 目标、决策与范围
 
 ### 1.1 产品目标

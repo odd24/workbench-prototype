@@ -56,6 +56,8 @@ python server.py
 
 通用 AI Agent 接入支持通过 MCP 在 Codex 中整理问题和知识文档，新建、追加和修改均先生成完整预览，用户确认当前版本后再正式入库，并返回网页打开链接。启用、授权与登记步骤见 [接入说明](docs/AGENT_INTEGRATION.md)，Agent 操作规则见 [使用指引](docs/AGENT_USAGE.md)，验证证据见 [业务验收](docs/AI_AGENT_ACCEPTANCE.md) 和 [管理 UI 验收](docs/AGENT_SETTINGS_ACCEPTANCE.md)。Codex 配置仅在页面明确确认接入后写入。
 
+后续 AI 接入扩展已形成 [详细执行方案](docs/AI_AGENT_EXTENSION_PLAN.md)：待办/结构化信息、提案管理、网页独立批准、其他客户端兼容验证和远程 MCP。当前仅完成方案，AG-116～126 尚未开始，不属于现有功能。
+
 项目没有包管理器或构建步骤。架构和模块职责见 [架构说明](docs/ARCHITECTURE.md)，日常修改、测试和发布步骤见 [维护说明](docs/MAINTENANCE.md)。重构执行事实记录在 [进度台账](docs/REFACTORING_PROGRESS.md)。
 
 ```powershell

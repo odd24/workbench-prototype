@@ -7,15 +7,34 @@ import json
 import re
 import secrets
 import time
+import threading
 import uuid
 from contextlib import contextmanager
 
-from .agent_security import AgentError, private_write, read_json, client_kinds
+from .agent_security import AgentError, private_write, read_json, client_kinds, client_confirmation_mode
 from .write_coordinator import DataDirectoryLock
+
+
+_credential_owners = threading.local()
 
 
 @contextmanager
 def credential_lock(directory):
+    key = str(directory.resolve())
+    held = getattr(_credential_owners, "held", set())
+    if key in held:
+        yield
+        return
+    with _credential_lock_once(directory):
+        _credential_owners.held = held | {key}
+        try:
+            yield
+        finally:
+            _credential_owners.held = held
+
+
+@contextmanager
+def _credential_lock_once(directory):
     deadline = time.monotonic() + 3
     while True:
         try:
@@ -41,7 +60,7 @@ def client_version(client):
 
 def clean_client(client):
     keys = ("client_id", "name", "enabled", "scopes", "project_ids", "categories")
-    return {**{key: client[key] for key in keys}, "kinds": client_kinds(client), "version": client_version(client)}
+    return {**{key: client[key] for key in keys}, "kinds": client_kinds(client), "minimum_confirmation_mode": client_confirmation_mode(client), "version": client_version(client)}
 
 
 class CredentialManager:
@@ -201,8 +220,8 @@ class CredentialManager:
             after = dict(before) if before else {"client_id": client_id, "enabled": True}
             after["management_revision"] = int(after.get("management_revision", 0)) + 1
             if action in {"create", "edit"}:
-                self.security.validate_client(params["name"], params["scopes"], params["project_ids"], params["categories"], params.get("kinds", client_kinds(after) if before else None))
-                after.update(authorization_schema_version=2, kinds=params.get("kinds", client_kinds(after)), name=params["name"].strip(), scopes=sorted(set(params["scopes"])), project_ids=list(dict.fromkeys(params["project_ids"])), categories=list(dict.fromkeys(params["categories"])))
+                self.security.validate_client(params["name"], params["scopes"], params["project_ids"], params["categories"], params.get("kinds", client_kinds(after) if before else None), params.get("minimum_confirmation_mode", client_confirmation_mode(after)))
+                after.update(minimum_confirmation_mode=params.get("minimum_confirmation_mode", client_confirmation_mode(after)), authorization_schema_version=2, kinds=params.get("kinds", client_kinds(after)), name=params["name"].strip(), scopes=sorted(set(params["scopes"])), project_ids=list(dict.fromkeys(params["project_ids"])), categories=list(dict.fromkeys(params["categories"])))
             if action in {"create", "rotate", "origin"}:
                 if action != "create" and (not isinstance(before_config, dict) or before_config.get("client_id") != client_id or before_config.get("workspace_id") != self.security.workspace_id or hashlib.sha256(str(before_config.get("token", "")).encode()).hexdigest() != before["token_hash"]):
                     raise AgentError("invalid_configuration", "客户端凭据配置不一致，请核查备份或新建客户端", 503)
@@ -223,7 +242,7 @@ class CredentialManager:
             elif action != "edit":
                 raise ValueError("管理操作无效")
             if after_config is not None:
-                after_config = {**after_config, "schema_version": 2, "kinds": client_kinds(after)}
+                after_config = {**after_config, "schema_version": 2, "kinds": client_kinds(after), "minimum_confirmation_mode": client_confirmation_mode(after)}
             result = {"operation_id": operation_id, "client_id": client_id, "enabled": after["enabled"], "rotated": action == "rotate", "version": client_version(after)}
             if action == "create":
                 result.update(config_file=str(config_path), workspace_id=self.security.workspace_id)
@@ -267,7 +286,7 @@ class AgentManagement:
         fields = {"workspace_id", "request_id"} | ({"name", "scopes", "project_ids", "categories"} if action in {"create", "edit"} else set())
         if action != "create":
             fields.add("expected_version")
-        optional = {"kinds"} if action in {"create", "edit"} else set()
+        optional = {"kinds", "minimum_confirmation_mode"} if action in {"create", "edit"} else set()
         if not isinstance(payload, dict) or fields - set(payload) or set(payload) - fields - optional:
             raise AgentError("invalid_request", "客户端管理字段无效")
         if payload["workspace_id"] != self.runtime.status()["workspace_id"]:
@@ -280,8 +299,9 @@ class AgentManagement:
         params = {}
         if action in {"create", "edit"}:
             params = {key: payload[key] for key in ("name", "scopes", "project_ids", "categories")}
-            if "kinds" in payload:
-                params["kinds"] = payload["kinds"]
+            for key in ("kinds", "minimum_confirmation_mode"):
+                if key in payload:
+                    params[key] = payload[key]
             security.validate_client(**params)
             if sorted(params["scopes"]) not in (["read"], ["commit", "propose", "read"]) or not (params["project_ids"] or params["categories"]):
                 raise ValueError("请选择只读或整理入库，并至少授权一个范围")

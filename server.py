@@ -149,6 +149,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     admin.add_argument("--agent-recovery-report", action="store_true", help="停止服务后检查 Agent 恢复状态")
     admin.add_argument("--agent-recovery-abandon", metavar="OPERATION_ID", help="停止服务后接受当前磁盘状态并取消未决提案")
     parser.add_argument("--agent-scope", action="append", choices=["read", "propose", "commit"], help="允许操作，可重复；默认只读")
+    parser.add_argument("--agent-confirmation-mode", choices=["agent_attested", "local_web"], default="agent_attested", help="客户端最低入库确认方式")
     parser.add_argument("--agent-kind", action="append", choices=["issue", "document", "todo", "info"], help="允许类型，可重复；缺省仅 issue/document")
     parser.add_argument("--agent-project", action="append", default=[], help="允许项目 ID，可重复；* 表示全部")
     parser.add_argument("--agent-category", action="append", default=[], help="允许文档分类，可重复；* 表示全部")
@@ -162,6 +163,9 @@ def main(argv=None):
         with DataDirectoryLock(data_root):
             repository = Repository(data_root)
             store = getattr(repository, "agent_proposals", None)
+            if store is not None:
+                from workbench.agent_security import AgentSecurity
+                store.security = AgentSecurity(data_root, args.agent_config_dir)
             result = ({"blocked": False, "operations": []} if store is None else store.abandon(args.agent_recovery_abandon) if args.agent_recovery_abandon else store.recovery_report())
             print(json.dumps(result, ensure_ascii=False))
         return
@@ -179,7 +183,7 @@ def main(argv=None):
             elif args.agent_management_abandon:
                 result = security.manager().abandon(args.agent_management_abandon)
             elif args.agent_client_add:
-                result = security.add_client(args.agent_client_add, args.agent_scope or ["read"], args.agent_project, args.agent_category, f"http://{'[::1]' if args.host == '::1' else args.host}:{args.port}", kinds=args.agent_kind)
+                result = security.add_client(args.agent_client_add, args.agent_scope or ["read"], args.agent_project, args.agent_category, f"http://{'[::1]' if args.host == '::1' else args.host}:{args.port}", kinds=args.agent_kind, minimum_confirmation_mode=args.agent_confirmation_mode)
             else:
                 result = security.change_client(args.agent_client_revoke or args.agent_client_rotate, bool(args.agent_client_rotate))
             print(json.dumps(result, ensure_ascii=False))
@@ -202,6 +206,8 @@ def main(argv=None):
         repository = Repository(data_root)
         repository.service_lock = ownership
         repository.agent_runtime = AgentRuntime(repository, args.host, args.port, args.agent_config_dir, "cli" if override is not None else "preference")
+        if getattr(repository, "agent_proposals", None):
+            repository.agent_proposals.recover()
         if enabled:
             repository.agent_runtime.set_enabled(True)
         WorkbenchHandler.repository = repository

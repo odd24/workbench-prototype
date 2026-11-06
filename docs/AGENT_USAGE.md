@@ -47,7 +47,7 @@ Agent 使用已得到的真实问题 ID 构造 [[ID]] 引用，准备知识文�
 
 ### 类型与能力协商（AG-116）
 
-每次先读 capabilities：kinds 表示当前可用且已授权的类型，authorized_kinds 表示授权白名单，kind_operations/kind_fields 表示各类型操作与字段。confirmation_modes/default_confirmation_mode 增加可协商表达，旧 confirmation_mode 保留 agent_attested。本阶段不支持 local_web；AG-117 起 todo 可写，info 已于 AG-118 开放。catalog 可带 kind，省略保持 issue 工作流语义。引用也受类型授权，不能引用未授权类型。
+每次先读 capabilities：kinds 表示当前可用且已授权的类型，authorized_kinds 表示授权白名单，kind_operations/kind_fields 表示各类型操作与字段。confirmation_modes/default_confirmation_mode 增加可协商表达，旧 confirmation_mode 保留 agent_attested。AG-120起支持local_web；AG-117 起 todo 可写，info 已于 AG-118 开放。catalog 可带 kind，省略保持 issue 工作流语义。引用也受类型授权，不能引用未授权类型。
 
 ### AG-117 待办流程
 
@@ -60,3 +60,9 @@ info_fields 为有序数组，每项 name/value/可选 note；value/note 可多�
 ### AG-119 提案查阅与取消
 
 本机提案管理仅查阅，不编辑候选正文；需要修改请回原客户端生成新版本。取消确认的是当前版本，原提案已改版会拒绝；取消请求失败/丢响应后查询同一操作，刷新保留请求编号，不重建提案。已提交/恢复中的事务不可取消，按原回执或维护恢复流程核查。
+
+### AG-120 批准流程
+
+local_web提案不能通过user_confirmed=true提交。到设置→AI Agent接入→提案管理查看完整当前版本、字段、正文、差异和警告，再批准并入库。预览10分钟后、会话失效、提案/权限/目标变化须重新预览；不向Agent提供票据。不支持网页改正文，回原客户端改版后重新批准。
+
+批准失败或超时先“查询提案操作结果”，刷新仍可查原request_id。completed返回原回执；not_applied表示未准备写入，应重新完整预览；recovery_required保留日志并按维护说明核查，不重建内容。

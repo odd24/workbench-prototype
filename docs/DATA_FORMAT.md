@@ -122,3 +122,11 @@ Agent info create 接受 title/project_id/body/tags/info_fields；update 不迁�
 ### AG-119 本机提案取消日志
 
 .agent/proposal-actions/<sha256(request_id)>.json schema=1，记录 workspace/request/proposal/version、operation=cancel、input_digest、created_at、prepared/completed 与精简 result。先日志再取消，响应丢失或中断重试相同输入得到同一结果；同 request_id 不同输入409，未知版本保留证据并拒绝覆盖。日志不进入业务 ZIP、搜索或静态资源，不能删除绕过。
+
+### AG-120 确认策略和批准日志
+
+私人授权/配置增加 minimum_confirmation_mode=agent_attested|local_web，旧记录缺省前者；编辑省略保留原策略，轮换/分类同步不改变。提案schema2记录有效策略；旧schema1升级策略时递增版本并使用新摘要，不静默改旧已预览摘要。
+
+proposal-actions批准日志schema2含operation=approve、workspace/proposal/version/request、输入摘要、approved/completed/not_applied、business_operation_id和approval记录。approval含mode/version/preview_digest/approved_at/operation_id/input_digest，不包含票据或会话秘密；正式回执关联相同approval。票据只在进程与页面内存，10分钟、重启/会话/授权变更失效。
+
+批准日志存在但无事务manifest时查询标not_applied，不自动提交；manifest完整且有匹配批准才恢复。prepared阶段原授权撤销或收窄则停止，applying/已落盘按before/after/第三方判定核查，删除后不重建。恢复保留未知/损坏证据。sessionStorage仅保存原request/proposal编号供结果查询，不存票据。

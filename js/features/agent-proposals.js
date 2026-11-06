@@ -36,10 +36,10 @@
       const preview = detail.preview;
       const receipt = detail.receipt;
       const content = preview?.content;
-      return `<section class="settings-card agent-proposal-detail" aria-label="提案详情"><h2>${esc(detail.title)}</h2><p>客户端：${esc(detail.client_name)}（${esc(detail.client_id)}）</p><p>提案：${esc(detail.proposal_id)} · 版本 ${detail.version} · ${esc(states[detail.state] || detail.state)}</p><p>创建：${esc(detail.created_at)}；过期：${esc(detail.expires_at)}</p><p>确认方式：${esc(detail.confirmation_mode)}；当前写入授权：${detail.authorization_available ? '可用' : '不可用'}</p>${detail.recovery_in_progress ? '<p class="agent-error">原提交正在恢复或需要本机核查；查看详情不会发起新提交，请按维护说明处理。</p>' : ''}${detail.content_cleaned ? '<p>正文已按保留规则清理；不能批准残缺预览。</p>' : preview ? `<p>摘要：${esc(preview.preview_digest)}</p><h3>全部字段</h3><pre data-proposal-fields>${esc(JSON.stringify(content, null, 2))}</pre>${content.info_fields ? `<h3>有序信息字段</h3><ol>${content.info_fields.map(field => `<li><strong>${esc(field.name)}</strong><pre>${esc(field.value)}</pre>${field.note !== undefined ? `<p>说明</p><pre>${esc(field.note)}</pre>` : ''}</li>`).join('')}</ol>` : ''}<h3>正文预览</h3><div class="markdown-preview agent-proposal-markdown">${renderMarkdown(content.body || '', {type:detail.kind, project_id:detail.access_target.project_id})}</div><h3>字段差异</h3><pre>${esc(JSON.stringify(preview.changes, null, 2))}</pre><h3>正文差异</h3><pre>${esc(preview.body_diff || '无正文变化')}</pre><h3>警告</h3><ul>${preview.warnings.map(text => `<li>${esc(text)}</li>`).join('')}</ul><h3>来源说明</h3><pre>${esc(preview.source_note || '未提供来源说明')}</pre>` : ''}<div class="settings-actions">${button('review', '重新读取完整预览', `data-proposal-id="${esc(detail.proposal_id)}"`)}${button('cancel', '取消当前版本', `data-proposal-id="${esc(detail.proposal_id)}" ${['draft', 'previewed', 'conflicted'].includes(detail.state) && !detail.content_cleaned ? '' : 'disabled'}`)}<button type="button" class="primary-button" disabled title="网页批准尚未开放">批准并入库（尚未开放）</button>${receipt?.web_path && /^\/\?item=(issue|todo|info|document)&itemId=[A-Z]+-\d+$/.test(receipt.web_path) ? `<a class="secondary-button" href="${esc(receipt.web_path)}">打开入库结果</a>` : ''}</div><p class="settings-hint">提案管理不编辑正文；需要修改时请回原客户端生成新版本。</p></section>`;
+      return `<section class="settings-card agent-proposal-detail" aria-label="提案详情"><h2>${esc(detail.title)}</h2><p>客户端：${esc(detail.client_name)}（${esc(detail.client_id)}）</p><p>提案：${esc(detail.proposal_id)} · 版本 ${detail.version} · ${esc(states[detail.state] || detail.state)}</p><p>创建：${esc(detail.created_at)}；过期：${esc(detail.expires_at)}</p><p>确认方式：${esc(detail.confirmation_mode)}；当前写入授权：${detail.authorization_available ? '可用' : '不可用'}</p>${detail.recovery_in_progress ? '<p class="agent-error">原提交正在恢复或需要本机核查；查看详情不会发起新提交，请按维护说明处理。</p>' : ''}${detail.content_cleaned ? '<p>正文已按保留规则清理；不能批准残缺预览。</p>' : preview ? `<p>摘要：${esc(preview.preview_digest)}</p><h3>全部字段</h3><pre data-proposal-fields>${esc(JSON.stringify(content, null, 2))}</pre>${content.info_fields ? `<h3>有序信息字段</h3><ol>${content.info_fields.map(field => `<li><strong>${esc(field.name)}</strong><pre>${esc(field.value)}</pre>${field.note !== undefined ? `<p>说明</p><pre>${esc(field.note)}</pre>` : ''}</li>`).join('')}</ol>` : ''}<h3>正文预览</h3><div class="markdown-preview agent-proposal-markdown">${renderMarkdown(content.body || '', {type:detail.kind, project_id:detail.access_target.project_id})}</div><h3>字段差异</h3><pre>${esc(JSON.stringify(preview.changes, null, 2))}</pre><h3>正文差异</h3><pre>${esc(preview.body_diff || '无正文变化')}</pre><h3>警告</h3><ul>${preview.warnings.map(text => `<li>${esc(text)}</li>`).join('')}</ul><h3>来源说明</h3><pre>${esc(preview.source_note || '未提供来源说明')}</pre>` : ''}<div class="settings-actions">${button('review', '重新读取完整预览', `data-proposal-id="${esc(detail.proposal_id)}"`)}${button('cancel', '取消当前版本', `data-proposal-id="${esc(detail.proposal_id)}" ${['draft', 'previewed', 'conflicted'].includes(detail.state) && !detail.content_cleaned ? '' : 'disabled'}`)}<button type="button" class="primary-button" data-proposal-action="approve" ${busy || !detail.preview_ticket || !detail.authorization_available || detail.content_cleaned || detail.confirmation_mode !== 'local_web' ? 'disabled' : ''}>批准并入库</button>${receipt?.web_path && /^\/\?item=(issue|todo|info|document)&itemId=[A-Z]+-\d+$/.test(receipt.web_path) ? `<a class="secondary-button" href="${esc(receipt.web_path)}">打开入库结果</a>` : ''}</div><p class="settings-hint">提案管理不编辑正文；需要修改时请回原客户端生成新版本。</p></section>`;
     }
     function paint() {
-      root.innerHTML = `<div class="settings-stack agent-settings"><section class="settings-card"><div class="agent-section-head"><h2>提案管理</h2>${button('refresh', '刷新列表')}</div><p>仅本机管理会话可查看当前空间各客户端的候选内容。</p><div class="agent-proposal-filters">${filter('client_id', '客户端', Object.fromEntries(listing.clients.map(client => [client.client_id, client.name])))}${filter('kind', '类型', kinds)}${filter('state', '状态', states)}${filter('operation', '操作', operations)}</div></section><p id="proposalFeedback" class="agent-feedback" role="status" aria-live="polite"></p>${pending ? `<section class="settings-card"><p>上次取消结果尚未确定，请先查询同一操作。</p>${button('resolve', '查询取消结果')}</section>` : ''}<section class="settings-card"><div class="agent-client-list">${listing.items.map(item => `<article class="agent-client"><strong>${esc(item.title)}</strong><small>${esc(item.client_name)} · ${esc(kinds[item.kind])} · ${esc(operations[item.operation])} · ${esc(states[item.state])}</small><small>归属：${esc(item.access_target.project_id || item.access_target.category || '—')} · 版本 ${item.version}</small><small>${esc(item.proposal_id)}</small>${button('review', '查看完整预览', `data-proposal-id="${esc(item.proposal_id)}"`)}</article>`).join('') || '<p class="empty-state">当前筛选下暂无提案。</p>'}</div><div class="settings-actions">${button('previous', '上一页', cursors.length < 2 ? 'disabled' : '')}<span>第 ${cursors.length} 页 · 每页 20 项</span>${button('next', '下一页', !listing.next_cursor ? 'disabled' : '')}</div></section>${detailHtml()}</div>`;
+      root.innerHTML = `<div class="settings-stack agent-settings"><section class="settings-card"><div class="agent-section-head"><h2>提案管理</h2>${button('refresh', '刷新列表')}</div><p>仅本机管理会话可查看当前空间各客户端的候选内容。</p><div class="agent-proposal-filters">${filter('client_id', '客户端', Object.fromEntries(listing.clients.map(client => [client.client_id, client.name])))}${filter('kind', '类型', kinds)}${filter('state', '状态', states)}${filter('operation', '操作', operations)}</div></section><p id="proposalFeedback" class="agent-feedback" role="status" aria-live="polite"></p>${pending ? `<section class="settings-card"><p>上次提案操作结果尚未确定，请先查询同一操作。</p>${button('resolve', '查询提案操作结果')}</section>` : ''}<section class="settings-card"><div class="agent-client-list">${listing.items.map(item => `<article class="agent-client"><strong>${esc(item.title)}</strong><small>${esc(item.client_name)} · ${esc(kinds[item.kind])} · ${esc(operations[item.operation])} · ${esc(states[item.state])}</small><small>归属：${esc(item.access_target.project_id || item.access_target.category || '—')} · 版本 ${item.version}</small><small>${esc(item.proposal_id)}</small>${button('review', '查看完整预览', `data-proposal-id="${esc(item.proposal_id)}"`)}</article>`).join('') || '<p class="empty-state">当前筛选下暂无提案。</p>'}</div><div class="settings-actions">${button('previous', '上一页', cursors.length < 2 ? 'disabled' : '')}<span>第 ${cursors.length} 页 · 每页 20 项</span>${button('next', '下一页', !listing.next_cursor ? 'disabled' : '')}</div></section>${detailHtml()}</div>`;
     }
     async function load() {
       const version = ++epoch;
@@ -100,18 +100,60 @@
         }
       }
     }
+    async function approve() {
+      const shown = detail;
+      if (!shown?.preview_ticket || confirming || pending) return;
+      confirming = true;
+      let approved;
+      try { approved = await confirm({title:'批准当前完整预览并入库？', message:`${shown.title} · 版本 ${shown.version}`, detail:'将以原客户端当前权限写入此版本；修改后必须重新预览批准。', confirmText:'批准并入库'}); }
+      finally { confirming = false; }
+      if (!approved || shown !== detail || !isActive()) return;
+      const payload = {workspace_id:status.workspace_id, version:shown.version, preview_digest:shown.preview.preview_digest, preview_ticket:shown.preview_ticket, request_id:global.crypto.randomUUID()};
+      remember({operation:'approve', proposal_id:shown.proposal_id, request_id:payload.request_id});
+      const version = ++epoch;
+      busy = true; paint();
+      try {
+        const result = await request(`proposals/${shown.proposal_id}/approve`, {method:'POST', body:JSON.stringify(payload)});
+        if (!current(version)) return;
+        remember(null); busy = false;
+        await load(); await review(result.proposal_id);
+        message(result.state === 'completed' ? '已批准并入库。' : '原操作尚未完成，请重新核查。', result.state !== 'completed');
+      } catch (error) {
+        if (current(version)) {
+          if (error.status && error.status < 500) { remember(null); detail = null; }
+          busy = false; paint(); message(`${error.payload?.message || error.message}${pending ? '；请先查询原操作结果。' : '；请重新完整预览。'}`, true);
+        }
+      }
+    }
+    async function resolve() {
+      if (pending?.operation !== 'approve') return cancel();
+      const version = ++epoch;
+      busy = true; paint();
+      try {
+        const result = await request(`proposal-actions/${encodeURIComponent(pending.request_id)}`);
+        if (!current(version)) return;
+        if (['completed', 'not_applied'].includes(result.state)) {
+          remember(null); busy = false; await load(); await review(result.proposal_id);
+          message(result.state === 'completed' ? '已查到原入库回执。' : '原批准未应用；请重新完整预览后批准。');
+        } else { busy = false; paint(); message('原事务需要恢复核查，请按维护说明处理。', true); }
+      } catch (error) {
+        if (current(version)) { busy = false; paint(); message(error.payload?.message || error.message, true); }
+      }
+    }
     root.addEventListener('click', event => {
       if (!isActive() || busy) return;
       const node = event.target.closest('[data-proposal-action]');
       if (!node) return;
       event.preventDefault();
       const action = node.dataset.proposalAction;
-      if (pending && action !== 'resolve') { message('请先查询取消结果。', true); return; }
+      if (pending && action !== 'resolve') { message('请先查询提案操作结果。', true); return; }
       if (action === 'review') review(node.dataset.proposalId).catch(error => notify('提案加载失败', error.message, true));
       if (action === 'refresh') load();
       if (action === 'next' && listing.next_cursor) { cursors.push(listing.next_cursor); load(); }
       if (action === 'previous' && cursors.length > 1) { cursors.pop(); load(); }
-      if (action === 'cancel' || action === 'resolve') cancel().catch(error => message(error.message, true));
+      if (action === 'cancel') cancel().catch(error => message(error.message, true));
+      if (action === 'resolve') resolve().catch(error => message(error.message, true));
+      if (action === 'approve') approve().catch(error => message(error.message, true));
     });
     root.addEventListener('change', event => {
       if (!isActive() || busy || pending || !event.target.dataset.proposalFilter) return;

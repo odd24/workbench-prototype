@@ -6,7 +6,7 @@
 
 接入管理 UI 的需求、契约及验收分解见 [AGENT_SETTINGS_PLAN.md](AGENT_SETTINGS_PLAN.md)。AG-106 为文档工作；AG-107～111 的实施事实和当前状态见下表及记录。
 
-后续扩展详见 [AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。AG-115 仅文档；AG-116～119 已完成，AG-120～126 待开始，不影响已完成首期的历史状态。
+后续扩展详见 [AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。AG-115 仅文档；AG-116～120 已完成，AG-121～126 待开始，不影响已完成首期的历史状态。
 
 ## 工作项
 
@@ -32,7 +32,7 @@
 | AG-117 | 待办 todo 查询、提案与持久写入 | 已完成 | 2026-11-06 | 2026-11-06 | AG-116 |
 | AG-118 | 结构化信息 info 与字段无损往返 | 已完成 | 2026-11-06 | 2026-11-06 | AG-117 |
 | AG-119 | 本机提案管理、预览、取消与结果查询 | 已完成 | 2026-11-06 | 2026-11-06 | AG-118 |
-| AG-120 | 网页独立批准与持久恢复 | 待开始 | — | — | AG-119 |
+| AG-120 | 网页独立批准与持久恢复 | 已完成 | 2026-11-06 | 2026-11-06 | AG-119 |
 | AG-121 | 非 Codex 真实客户端兼容验证 | 待开始 | — | — | AG-120 |
 | AG-122 | 远程 MCP 协议、认证及部署设计门槛 | 待开始 | — | — | AG-120；需目标身份服务/客户端 |
 | AG-123 | 远程身份授权、主体映射与网络入口 | 待开始 | — | — | AG-122；远程实现另行授权 |
@@ -432,3 +432,24 @@
 - 真实Edge：新增提案浏览器空库/25项分页/筛选/完整多行预览/禁用批准/旧版本取消拒绝/取消丢响应/刷新同请求查询/会话失效/浅深×1440/390通过，多次复验；代表截图目视检查无页面溢出。node test_agent_settings.js与test_agent_workflows.js通过，临时数据/凭据/CODEX_HOME，未提交截图。
 - 验收脚本修正：等待applicationFeature.start完成后导航，避免初始化回首页干扰早期点击；未将早期失败记作通过。
 - APP_VERSION=2026.11.06.4及缓存同步。提交标题 Add local Agent proposal management；下一入口AG-120。外部依赖仍为用户暂无非Codex/远程测试环境，当前不阻塞本机实施。
+
+### 2026-11-06 / AG-120 / 开始
+
+- 前置：AG-119提交42d5f48，工作区干净。
+- 范围：客户端最低确认策略/Agent只可收紧，schema2 local_web，管理会话内10分钟预览凭据绑定workspace/version/digest/策略/授权版本；网页确认后同引擎提交，持久批准操作日志和原事务关联，结果查询/幂等/故障恢复。
+- 文件：security/management/service/proposals/proposal_management/runtime/management_http/tools、CLI/设置/提案UI/缓存/版本；专项与真实浏览器/Codex脚本及架构/格式/使用/维护/验收文档。
+- 验证：Agent自报绕过拒绝、旧提案策略收紧改版、票据会话/版本/权限/目标/超时失效；撤销/收窄、并发/重复/丢响应、批准前/快照/manifest/applying/正文/回执各阶段中断及真实进程退出；四类型两路径与旧流程回归，全部门禁。
+- 风险：批准不是现实身份认证；会话秘密不持久化，批准记录在写前落盘；只有完整批准+事务准备可恢复，未尝试写入时撤销阻断，已应用按磁盘完成回执，绝不重建被删目标。
+
+### 2026-11-06 / AG-120 / 完成
+
+- 文件：security/management/service/proposals/proposal_management/runtime/management_http/tools、server；设置/提案feature/index/http_api；新增test_agent_web_approval，扩展管理/浏览器/Codex测试；AGENTS/README/设置方案/架构/格式/接入/使用/维护/验收与台账。
+- 实现：客户端最低确认策略与提案有效策略，旧客户端默认agent_attested；策略收紧升级未终结旧提案版本/摘要重新预览，降低不降低原local_web。Agent请求可收紧不可放宽，MCP自报确认不能绕过网页。
+- 网页：完整预览后生成仅内存10分钟票据，绑定空间/会话/提案版本摘要/策略/授权版本；批准确认只传版本/摘要/票据/request_id，不传正文；按钮防重，失效后重新预览，响应丢失/刷新查原操作，sessionStorage仅原请求编号，不存票据和管理秘密。
+- 持久化：先批准记录再同一领域预备写/ProposalStore事务，回执关联批准。批准日志无manifest标not_applied，不自动补写；完整manifest和批准才恢复。prepared撤销/收窄停止，applying按原磁盘事实判定，删除不重建；报告/abandon保留证据。恢复全程业务锁+可重入私人跨进程锁；启动即使关闭Agent也装配已存在空间的恢复上下文，恢复CLI尊重显式私人目录。
+- 自动最终门禁：python -m unittest -v全量226项通过；补强旧schema1策略升级后单项通过；路由收窄后提案管理6项通过；57Python/45JS语法、Markdown链接/围栏、git diff --check通过。此前一轮223项中Windows子进程清理1项失败，专项4项重跑与最终226项通过，未把失败轮次写作通过。
+- 恢复专项：13项独立批准测试涵盖四类型三操作、失效/伪造/不同会话票据、旧schema1改版、撤销/收窄/目标变化/过期、并发幂等、批准记录/提案/快照/manifest/applying/正文/回执各阶段、缺失证据拒绝、真实os._exit正文后恢复和真实CLI prepared恢复。相关web/recovery/runtime/startup30项复验通过。
+- 真实浏览器：提案管理批准、丢响应刷新查询原回执、无秘密存储；浅深×1440/390、禁用/旧版/会话失效及取消回归；设置表单local_web保存落盘通过。全部19个Node契约通过，含四类型保存重开、两编辑器草稿/冲突/关闭/切页；截图仅临时目录。
+- 真实Codex：codex-cli0.163.0-alpha.10.2/MCP2025-11-25，12工具、四类型旧对话确认回归；实际创建local_web→自报被拒→本机管理HTTP独立批准→MCP查询同一回执通过。model_turns_started=0、user_config_changed=false；不声称模型遵循规则或现实身份认证。
+- 兼容：业务Markdown不迁移，旧凭据/旧摘要兼容；新批准日志schema2和回执字段为增量。APP_VERSION=2026.11.06.5与缓存同步。AG-DEC-008/009；外部编辑器剩余竞态保留。
+- 提交标题 Enforce independent local web proposal approval；下一入口AG-121及可独立设计的AG-122。用户暂无非Codex/IdP/TLS环境，后续真实验收门槛如实记录，不跳过。

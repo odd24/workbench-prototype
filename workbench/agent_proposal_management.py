@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import hashlib
 import re
+import secrets
+import time
 
 from .agent_proposals import ProposalStore, digest, stamp
+from .agent_management import client_version, credential_lock
 from .agent_security import AgentError, allows, read_json
-from .agent_service import page, service_operation
+from .agent_service import page, service_operation, AgentService
 from .persistence import atomic_write_json
 
 STATES = {"draft", "previewed", "committing", "committed", "conflicted", "cancelled", "expired", "recovery_required"}
@@ -79,7 +82,26 @@ class ProposalManagement:
         if proposal.get("content_cleaned") or "normalized_content" not in proposal:
             return {**detail, "content_cleaned": True, "preview": None}
         # Review is read-only: no automatic submission, cancellation or recovery.
-        return {**detail, "preview": self.store.preview_result(proposal)}
+        security = self.runtime.security()
+        client = security.clients().get(proposal["client_id"])
+        if client:
+            service = AgentService(self.repository, security)
+            service._enforce_confirmation_policy(client, proposal)
+            detail = self.detail(proposal_id)
+        preview = self.store.preview_result(proposal)
+        result = {**detail, "preview": preview}
+        if client and detail["authorization_available"] and proposal.get("confirmation_mode") == "local_web" and proposal["state"] in {"draft", "previewed", "conflicted"}:
+            self.store.preview(proposal)
+            ticket = secrets.token_urlsafe(32)
+            now = time.monotonic()
+            self.runtime.preview_tickets = {key: value for key, value in self.runtime.preview_tickets.items() if value["expires"] > now}
+            if len(self.runtime.preview_tickets) >= 1000:
+                raise AgentError("preview_limit", "管理预览过多，请稍后重试", 429)
+            self.runtime.preview_tickets[ticket] = {"workspace_id": self.workspace_id, "proposal_id": proposal_id, "version": proposal["version"],
+                "digest": preview["preview_digest"], "confirmation_mode": proposal["confirmation_mode"], "client_version": client_version(client),
+                "session": self.runtime._token, "expires": now + 600}
+            result.update(preview_ticket=ticket, preview_ticket_seconds=600, state="previewed")
+        return result
 
     @staticmethod
     def request_key(request_id):
@@ -107,6 +129,8 @@ class ProposalManagement:
         action = None
         if path.exists():
             action = read_json(path)
+            if action.get("schema_version") in (1, 2) and action.get("input_digest") != signature:
+                raise AgentError("request_conflict", "请求编号已用于其他提案操作", 409)
             if action.get("schema_version") != 1 or action.get("workspace_id") != self.workspace_id or action.get("operation") != "cancel" or action.get("proposal_id") != proposal_id or action.get("version") != payload["expected_version"] or action.get("state") not in {"prepared", "completed"}:
                 raise AgentError("unsupported_schema", "提案操作格式不受支持", 503)
             if action.get("input_digest") != signature:
@@ -127,3 +151,86 @@ class ProposalManagement:
         atomic_write_json(path, action)
         self.checkpoint("cancel_completed")
         return result
+
+    @service_operation
+    def approve(self, proposal_id, payload):
+        fields = {"workspace_id", "version", "preview_digest", "preview_ticket", "request_id"}
+        if not isinstance(payload, dict) or set(payload) != fields or payload["workspace_id"] != self.workspace_id or type(payload["version"]) is not int or not isinstance(payload["preview_ticket"], str):
+            raise AgentError("invalid_request", "网页批准参数无效")
+        self.runtime.authorize(self.runtime._token)
+        path = self._action_path(payload["request_id"])
+        signature = digest(["approve", proposal_id, payload])
+        if path.exists():
+            previous = read_json(path)
+            if previous.get("schema_version") in (1, 2) and previous.get("input_digest") != signature:
+                raise AgentError("request_conflict", "请求编号已用于其他提案操作", 409)
+            action = self._load_approval(path)
+            if action["input_digest"] != signature:
+                raise AgentError("request_conflict", "请求编号已用于其他批准内容", 409)
+            return self.action(payload["request_id"])
+        store = self._require_store()
+        proposal = store._load(proposal_id)
+        ticket = self.runtime.preview_tickets.get(payload["preview_ticket"])
+        security = self.runtime.security()
+        with credential_lock(security.config_dir):
+            client = security.clients().get(proposal["client_id"])
+            expected = {"workspace_id": self.workspace_id, "proposal_id": proposal_id, "version": payload["version"], "digest": payload["preview_digest"],
+                        "confirmation_mode": "local_web", "client_version": client_version(client), "session": self.runtime._token}
+            if not ticket or ticket["expires"] <= time.monotonic() or any(ticket.get(key) != value for key, value in expected.items()):
+                raise AgentError("preview_expired", "管理预览已失效，请重新完整预览", 409)
+            store.editable(proposal, payload["version"])
+            if proposal.get("confirmation_mode") != "local_web" or digest(store.preview_payload(proposal)) != payload["preview_digest"] or not self.detail(proposal_id)["authorization_available"]:
+                raise AgentError("approval_conflict", "提案或授权已变化，请重新预览", 409)
+            service = AgentService(self.repository, security)
+            store.guard_writes()
+            prepared = service.prepare_submission(client, proposal)
+            approval = {"mode": "local_web", "version": proposal["version"], "preview_digest": payload["preview_digest"],
+                        "operation_id": path.stem, "input_digest": signature, "approved_at": stamp()}
+            action = {"schema_version": 2, "workspace_id": self.workspace_id, "request_id": payload["request_id"], "operation": "approve",
+                      "proposal_id": proposal_id, "version": proposal["version"], "input_digest": signature, "approval": approval,
+                      "business_operation_id": f"{proposal_id}-{proposal['version']}", "state": "approved"}
+            atomic_write_json(path, action)
+            self.checkpoint("approval_record")
+            proposal["approval"] = approval
+            store._save(proposal)
+            self.checkpoint("approval_proposal")
+            receipt = store.commit(proposal, payload["version"], payload["preview_digest"], {"mode": "local_web"}, prepared, local_approval=approval)
+            self.checkpoint("approval_committed")
+            action.update(state="completed", result=receipt)
+            atomic_write_json(path, action)
+            self.runtime.preview_tickets.pop(payload["preview_ticket"], None)
+            return {"request_id": action["request_id"], "state": "completed", "receipt": receipt, "proposal_id": proposal_id}
+
+    def _load_approval(self, path):
+        action = read_json(path)
+        if action.get("schema_version") != 2 or action.get("workspace_id") != self.workspace_id or action.get("operation") != "approve" or action.get("state") not in {"approved", "completed", "not_applied"} or self.request_key(action.get("request_id")) != path.stem:
+            raise AgentError("unsupported_schema", "网页批准日志格式无效，保留证据核查", 503)
+        if action.get("business_operation_id") != f"{action.get('proposal_id')}-{action.get('version')}" or action.get("approval", {}).get("operation_id") != path.stem:
+            raise AgentError("unsupported_schema", "网页批准事务关联无效", 503)
+        return action
+
+    @service_operation
+    def action(self, request_id):
+        path = self._action_path(request_id)
+        if not path.exists():
+            raise AgentError("not_found", "提案操作不存在", 404)
+        raw = read_json(path)
+        if raw.get("operation") == "cancel":
+            if raw.get("schema_version") != 1 or raw.get("workspace_id") != self.workspace_id:
+                raise AgentError("unsupported_schema", "取消日志格式无效", 503)
+            return {"request_id": request_id, "state": raw["state"], "result": raw.get("result"), "proposal_id": raw["proposal_id"]}
+        action = self._load_approval(path)
+        if action["state"] == "approved":
+            manifest_path = self.store.operations / action["business_operation_id"] / "manifest.json"
+            if not manifest_path.exists():
+                action.update(state="not_applied", result=None)
+            else:
+                self.store.security = self.runtime.security()
+                self.store.recover()
+                proposal = self.store._load(action["proposal_id"])
+                if proposal["state"] == "committed" and proposal.get("approval") == action["approval"]:
+                    action.update(state="completed", result=proposal["receipt"])
+                else:
+                    return {"request_id": request_id, "state": "recovery_required", "proposal_id": action["proposal_id"]}
+            atomic_write_json(path, action)
+        return {"request_id": request_id, "state": action["state"], "receipt": action.get("result"), "proposal_id": action["proposal_id"]}

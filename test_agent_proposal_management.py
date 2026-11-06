@@ -109,7 +109,7 @@ class ProposalManagementHTTPTests(unittest.TestCase):
             self.assertEqual(self.request(endpoint)[0], 403)
         self.assertEqual(self.request(route + "/preview", headers=headers)[1]["preview"]["content"]["body"], "Secret preview")
         payload = {"workspace_id": status["workspace_id"], "request_id": "cancel-once", "expected_version": 1}
-        self.assertEqual(self.request(route + "/approve", "POST", payload, headers)[0], 404)
+        self.assertEqual(self.request(route + "/approve", "POST", payload, headers)[0], 400)
         self.assertEqual(self.request(route + "/cancel", "POST", payload, {**headers, "Authorization": "Bearer secret"})[0], 403)
         result = self.request(route + "/cancel", "POST", payload, headers)
         self.assertEqual(result[0], 200, result)

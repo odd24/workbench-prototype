@@ -71,7 +71,7 @@ class ProposalStore:
             raise AgentError("not_found", "提案不存在或不可访问", 404)
         if type(value.get("schema_version")) is not int or value.get("schema_version") not in (1, 2) or value.get("workspace_id") != self.workspace_id:
             raise AgentError("unsupported_schema", "提案格式或工作空间不受支持", 503)
-        if value["schema_version"] == 2 and (value.get("digest_algorithm") != "sha256-json-v2" or value.get("confirmation_mode") != "agent_attested"):
+        if value["schema_version"] == 2 and (value.get("digest_algorithm") != "sha256-json-v2" or value.get("confirmation_mode") not in {"agent_attested", "local_web"}):
             raise AgentError("unsupported_schema", "提案摘要或确认策略不受支持", 503)
         if value["schema_version"] == 1 and value.get("kind") not in {"issue", "document"}:
             raise AgentError("unsupported_schema", "旧格式提案类型不受支持", 503)
@@ -98,7 +98,7 @@ class ProposalStore:
                 return self.public(self.owned(client, old["proposal_id"]))
         return None
 
-    def create(self, client, request, content, base_content):
+    def create(self, client, request, content, base_content, confirmation_mode="agent_attested"):
         request_hash = digest(request)
         active = 0
         for path in self.proposals.glob("*.json"):
@@ -112,7 +112,7 @@ class ProposalStore:
             active += old["state"] in {"draft", "previewed", "conflicted", "committing", "recovery_required"}
         if active >= 100:
             raise AgentError("proposal_limit", "活动提案数量已达到上限", 429)
-        proposal = {"schema_version": 2, "digest_algorithm": "sha256-json-v2", "confirmation_mode": "agent_attested", "approval": None, "workspace_id": self.workspace_id, "proposal_id": str(uuid.uuid4()),
+        proposal = {"schema_version": 2, "digest_algorithm": "sha256-json-v2", "confirmation_mode": confirmation_mode, "approval": None, "workspace_id": self.workspace_id, "proposal_id": str(uuid.uuid4()),
                     "client_id": client["client_id"], "request_id": request["request_id"], "request_hash": request_hash,
                     "version": 1, "state": "draft", "operation": request["operation"], "kind": request["kind"],
                     "target_id": request.get("target_id"), "base_revision": request.get("base_revision"),
@@ -125,7 +125,7 @@ class ProposalStore:
 
     def revise(self, proposal, expected_version, content, base_revision, base_content):
         self.editable(proposal, expected_version)
-        proposal.update(version=proposal["version"] + 1, state="draft", normalized_content=content,
+        proposal.update(approval=None, version=proposal["version"] + 1, state="draft", normalized_content=content,
                         base_revision=base_revision, base_content=base_content, previewed_version=None, preview_digest=None,
                         expires_at=(datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
                         access_target={"type": proposal["kind"], "project_id": content.get("project_id"), "category": content.get("category")})
@@ -200,7 +200,7 @@ class ProposalStore:
         manifest["state"] = "committed"
         atomic_write_json(self.operations / manifest["operation_id"] / "manifest.json", manifest)
 
-    def commit(self, proposal, version, preview_digest, confirmation, prepared):
+    def commit(self, proposal, version, preview_digest, confirmation, prepared, *, local_approval=None):
         if proposal["state"] == "committed":
             if type(version) is not int or version != proposal["version"] or preview_digest != proposal["preview_digest"]:
                 raise AgentError("version_conflict", "提交版本与原回执不一致", 409)
@@ -208,10 +208,16 @@ class ProposalStore:
         self.editable(proposal, version)
         if proposal["state"] != "previewed" or proposal["previewed_version"] != version or not preview_digest or proposal["preview_digest"] != preview_digest or digest(self.preview_payload(proposal)) != preview_digest:
             raise AgentError("preview_required", "请完整预览当前版本后再提交", 409)
-        if not isinstance(confirmation, dict) or set(confirmation) - {"mode", "user_confirmed", "note"} or confirmation.get("mode") != "agent_attested" or confirmation.get("user_confirmed") is not True:
-            raise AgentError("confirmation_required", "需要用户在预览后明确确认当前版本")
-        if not isinstance(confirmation.get("note", ""), str) or len(confirmation.get("note", "")) > 1000:
-            raise AgentError("invalid_confirmation", "确认说明无效")
+        if proposal.get("confirmation_mode", "agent_attested") == "local_web":
+            if not local_approval or proposal.get("approval") != local_approval or confirmation != {"mode": "local_web"}:
+                raise AgentError("confirmation_required", "需要本机管理页面独立批准", 409)
+            self._verify_approval({"proposal_id": proposal["proposal_id"], "version": version, "preview_digest": preview_digest,
+                                   "approval": local_approval, "state": "prepared"}, proposal, check_authorization=True)
+        else:
+            if not isinstance(confirmation, dict) or set(confirmation) - {"mode", "user_confirmed", "note"} or confirmation.get("mode") != "agent_attested" or confirmation.get("user_confirmed") is not True:
+                raise AgentError("confirmation_required", "需要用户在预览后明确确认当前版本")
+            if not isinstance(confirmation.get("note", ""), str) or len(confirmation.get("note", "")) > 1000:
+                raise AgentError("invalid_confirmation", "确认说明无效")
         self.guard_writes()
         operation_id = f"{proposal['proposal_id']}-{version}"
         directory = self.operations / operation_id
@@ -229,6 +235,8 @@ class ProposalStore:
                     "item_id": prepared.item_id, "relative_path": prepared.path.relative_to(self.repository.root).as_posix(),
                     "before_digest": byte_digest(prepared.before), "after_digest": byte_digest(prepared.after), "history_version": prepared.history_version,
                     "state": "prepared", "receipt": receipt, "confirmation": confirmation}
+        if local_approval:
+            receipt.update(approval=local_approval)
         if proposal["schema_version"] == 2:
             manifest.update(digest_algorithm=proposal["digest_algorithm"], preview_digest=preview_digest,
                             confirmation_mode=proposal["confirmation_mode"], approval=proposal["approval"])
@@ -258,7 +266,39 @@ class ProposalStore:
         finally:
             self.executing = False
 
+    def _verify_approval(self, manifest, proposal, *, check_authorization):
+        approval = manifest.get("approval")
+        if not isinstance(approval, dict) or approval != proposal.get("approval") or approval.get("mode") != "local_web" or approval.get("version") != manifest["version"] or approval.get("preview_digest") != manifest["preview_digest"]:
+            raise AgentError("invalid_approval", "网页批准与事务版本不一致", 503)
+        operation_id = approval.get("operation_id", "")
+        if not re.fullmatch(r"[a-f0-9]{64}", operation_id):
+            raise AgentError("invalid_approval", "网页批准标识无效", 503)
+        path = self.root / "proposal-actions" / (operation_id + ".json")
+        if path.resolve() != path.absolute():
+            raise AgentError("invalid_approval", "网页批准日志路径无效", 503)
+        action = read_json(path)
+        if action.get("schema_version") != 2 or action.get("workspace_id") != self.workspace_id or action.get("proposal_id") != proposal["proposal_id"] or action.get("operation") != "approve" or action.get("approval") != approval or action.get("input_digest") != approval.get("input_digest") or action.get("state") not in {"approved", "completed"}:
+            raise AgentError("invalid_approval", "缺少持久网页批准证据", 503)
+        if check_authorization:
+            runtime = getattr(self.repository, "agent_runtime", None)
+            security = runtime.security() if runtime else getattr(self, "security", None)
+            if not security:
+                raise AgentError("authorization_unavailable", "需要匹配私人授权后核查未应用的网页批准事务", 503)
+            client = security.clients().get(proposal["client_id"])
+            if not client or not client.get("enabled") or not {"read", "propose", "commit"} <= set(client.get("scopes", [])) or not allows(client, proposal["access_target"]) or client["client_id"] in security.manager().blocked_clients():
+                raise AgentError("authorization_revoked", "未应用事务的原客户端授权已失效，停止写入", 409)
+
     def recover(self):
+        with self.repository.write_lock:
+            runtime = getattr(self.repository, "agent_runtime", None)
+            security = runtime.security() if runtime and runtime.status()["workspace_id"] else getattr(self, "security", None)
+            if security:
+                from .agent_management import credential_lock
+                with credential_lock(security.config_dir):
+                    return self._recover()
+            return self._recover()
+
+    def _recover(self):
         self.blocked = False
         self.recovery_errors = []
         for manifest_path in sorted(self.operations.glob("*/manifest.json")):
@@ -269,10 +309,12 @@ class ProposalStore:
                 if manifest.get("schema_version") not in (1, 2) or manifest.get("workspace_id") != self.workspace_id or manifest.get("operation_id") != manifest_path.parent.name or manifest.get("state") not in {"prepared", "applying", "committed", "abandoned", "recovery_required"}:
                     raise ValueError("不受支持的事务格式")
                 proposal = self._load(manifest["proposal_id"])
-                if manifest["schema_version"] == 2 and (manifest.get("digest_algorithm") != "sha256-json-v2" or manifest.get("confirmation_mode") != "agent_attested" or manifest.get("preview_digest") != proposal.get("preview_digest")):
+                if manifest["schema_version"] == 2 and (manifest.get("digest_algorithm") != "sha256-json-v2" or manifest.get("confirmation_mode") not in {"agent_attested", "local_web"} or manifest.get("preview_digest") != proposal.get("preview_digest")):
                     raise ValueError("事务确认策略或摘要不一致")
                 if proposal["version"] != manifest["version"] or proposal["schema_version"] != manifest["schema_version"]:
                     raise ValueError("事务提案版本不一致")
+                if manifest.get("confirmation_mode") == "local_web":
+                    self._verify_approval(manifest, proposal, check_authorization=manifest["state"] == "prepared")
                 if manifest["state"] == "abandoned":
                     if proposal["state"] != "cancelled":
                         proposal.update(state="cancelled", finished_at=manifest["abandoned_at"], outcome="accepted_disk")

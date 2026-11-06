@@ -56,16 +56,20 @@ def dispatch(handler):
                 from .agent_management import AgentManagement
                 management = AgentManagement(runtime)
                 parts = route.split("/")
-                if parts[0] == "proposals":
+                if parts[0] in {"proposals", "proposal-actions"}:
                     from .agent_proposal_management import ProposalManagement
                     proposals = ProposalManagement(runtime)
-                    if handler.command == "GET" and len(parts) == 1:
+                    if handler.command == "GET" and len(parts) == 2 and parts[0] == "proposal-actions":
+                        result = proposals.action(parts[1])
+                    elif parts[0] == "proposals" and handler.command == "GET" and len(parts) == 1:
                         result = proposals.list(params)
-                    elif handler.command == "GET" and len(parts) == 2:
+                    elif parts[0] == "proposals" and handler.command == "GET" and len(parts) == 2:
                         result = proposals.detail(parts[1])
-                    elif handler.command == "GET" and len(parts) == 3 and parts[2] == "preview":
+                    elif parts[0] == "proposals" and handler.command == "GET" and len(parts) == 3 and parts[2] == "preview":
                         result = proposals.preview(parts[1])
-                    elif handler.command == "POST" and len(parts) == 3 and parts[2] == "cancel":
+                    elif parts[0] == "proposals" and handler.command == "POST" and len(parts) == 3 and parts[2] == "approve":
+                        result = proposals.approve(parts[1], payload)
+                    elif parts[0] == "proposals" and handler.command == "POST" and len(parts) == 3 and parts[2] == "cancel":
                         result = proposals.cancel(parts[1], payload)
                     else:
                         raise AgentError("not_found", "提案管理接口不存在", 404)

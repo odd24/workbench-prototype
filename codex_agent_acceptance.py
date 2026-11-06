@@ -226,6 +226,23 @@ def run_acceptance(codex=None):
             assert call("cancel_proposal", {"proposal_id": cancelled["proposal_id"], "expected_version": 1})["state"] == "cancelled"
             call("list_proposals")
             assert len(call("search")["items"]) == 4
+            # Real Codex prepares a web-only proposal and cannot self-attest it.
+            web_proposal = call("prepare_proposal", {"request_id": "codex-local-web", "kind": "issue", "operation": "create", "confirmation_mode": "local_web", "content": {"title": "网页独立批准验收", "body": "临时完整正文", "project_id": project["id"]}})
+            web_preview = call("preview_proposal", {"proposal_id": web_proposal["proposal_id"]})
+            denied = call("commit_proposal", {"proposal_id": web_proposal["proposal_id"], "version": web_preview["version"], "preview_digest": web_preview["preview_digest"], "confirmation": {"mode": "agent_attested", "user_confirmed": True}}, error=True)
+            assert denied["code"] == "confirmation_required"
+            from urllib.request import Request, urlopen
+            def local_request(route, method="GET", payload=None, token=None):
+                headers = {"X-Workbench-Management": "1", "Origin": workbench.base_url, "Content-Type": "application/json"}
+                if token: headers["X-Workbench-Management-Token"] = token
+                req = Request(workbench.base_url + "/api/local/agent-management/" + route, data=json.dumps(payload).encode() if payload is not None else None, headers=headers, method=method)
+                with urlopen(req, timeout=10) as response: return json.load(response)
+            session = local_request("status")["management_token"]
+            review = local_request("proposals/" + web_proposal["proposal_id"] + "/preview", token=session)
+            approved = local_request("proposals/" + web_proposal["proposal_id"] + "/approve", "POST", {"workspace_id": workbench.security.workspace_id, "version": review["version"], "preview_digest": review["preview"]["preview_digest"], "preview_ticket": review["preview_ticket"], "request_id": "codex-web-approve"}, session)
+            assert approved["state"] == "completed"
+            observed_receipt = call("get_proposal", {"proposal_id": web_proposal["proposal_id"]})["receipt"]
+            assert all(observed_receipt[key] == value for key, value in approved["receipt"].items())
             workbench.close()
             workbench = LocalWorkbench(data, credentials)
             private_write(client_config, {**read_json(client_config), "base_url": workbench.base_url})
@@ -236,7 +253,7 @@ def run_acceptance(codex=None):
             version = subprocess.run([executable, "--version"], capture_output=True, text=True, check=True).stdout.strip()
             return {"passed": True, "codex_version": version, "protocol": "2025-11-25", "tool_count": len(inventory["tools"]),
                     "created": [item["kind"] for item in receipts], "preview_revision_confirmation": True,
-                    "issue_append_document_update": True, "retry_cancel_restart_revoke": True, "model_turns_started": 0, "user_config_changed": False}
+                    "issue_append_document_update": True, "local_web_independent_approval": True, "retry_cancel_restart_revoke": True, "model_turns_started": 0, "user_config_changed": False}
         except Exception as error:
             diagnostics = "\n".join(rpc.errors[-12:]) if rpc else ""
             raise RuntimeError(str(error) + "\n" + diagnostics) from error

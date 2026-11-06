@@ -65,6 +65,7 @@ class AgentRuntime:
         self._expires = time.monotonic() + 3600
         self._generation = secrets.token_hex(16)
         self.operations = {}
+        self.preview_tickets = {}
         from .agent_diagnostics import AgentDiagnostics
         self.diagnostics = AgentDiagnostics(self)
 
@@ -154,7 +155,9 @@ class AgentRuntime:
             enabled = bool(getattr(self.repository, "agent_service", None))
         else:
             enabled = startup_enabled(repository.root, self.base)
+        repository.agent_runtime = other
+        if getattr(repository, "agent_proposals", None):
+            repository.agent_proposals.recover()
         if enabled:
             other.set_enabled(True)
-        repository.agent_runtime = other
         return other

@@ -177,4 +177,8 @@ python server.py --data-dir <同一目录> --agent-recovery-abandon <operation_i
 
 ### AG-119 本机审查入口
 
-AI Agent 接入页的“提案管理”可查看当前空间所有客户端提案，Agent 工具仍只能访问自己的授权提案。每页20项、最多100项服务端限制；支持客户端/类型/状态/操作筛选。详情含字段、正文、差异、警告、版本、来源；正文清理后明确提示，不能用回执代替完整预览。网页批准尚未开放。
+AI Agent 接入页的“提案管理”可查看当前空间所有客户端提案，Agent 工具仍只能访问自己的授权提案。每页20项、最多100项服务端限制；支持客户端/类型/状态/操作筛选。详情含字段、正文、差异、警告、版本、来源；正文清理后明确提示，不能用回执代替完整预览。网页批准已于AG-120开放，需local_web提案和当前完整预览。
+
+### AG-120 网页独立批准
+
+管理客户端最低确认方式可选本机网页；旧配置不变。CLI新建可用 --agent-confirmation-mode local_web。Agent prepare_proposal 可请求confirmation_mode=local_web，不能降低客户端最低策略。此类提案的MCP commit返回confirmation_required，需要本机提案管理完整预览后批准。网页操作者仅代表持有本机会话，不宣称现实身份认证。

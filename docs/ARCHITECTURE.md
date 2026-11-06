@@ -106,3 +106,9 @@ info 复用 RecordRepository 和共享 Markdown 序列化，AgentService 严格�
 ### AG-119 本机提案管理
 
 ProposalManagement 复用 ProposalStore 的只读完整预览构造与取消状态机，管理路由沿用 loopback/同源/短期会话，Agent Authorization 一律拒绝。独立 agent-proposals feature 使用统一 API 和只读 Markdown 渲染；列表不返回正文，详情按需加载。读取不发起新提交或业务恢复。取消使用独立 proposal-actions 持久日志，不混用凭据操作日志。
+
+### AG-120 独立批准
+
+客户端 minimum_confirmation_mode 缺省 agent_attested；提案记录不可自动降低的有效 confirmation_mode。策略收紧将未终结旧提案升级版本、清空旧摘要并要求重新预览。管理预览生成仅内存10分钟票据，绑定会话/空间/版本/摘要/策略/授权版本；MCP不返回票据。
+
+网页批准在共享业务锁及凭据跨进程锁内重查权限、目标revision、配置和归一化，复用 AgentService.prepare_submission 与 ProposalStore.commit。持久批准记录先于事务准备；事务恢复核查批准关联，未应用时重查撤销/范围，已进入应用按磁盘事实完成原回执。凭据锁同线程可重入，覆盖恢复核查至应用，不把单文件替换宣称多文件事务。

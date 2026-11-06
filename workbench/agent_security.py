@@ -51,6 +51,16 @@ LEGACY_KINDS = ("issue", "document")
 AGENT_KINDS = (*LEGACY_KINDS, "todo", "info")
 
 
+CONFIRMATION_MODES = ("agent_attested", "local_web")
+
+
+def client_confirmation_mode(client):
+    mode = client.get("minimum_confirmation_mode", "agent_attested")
+    if mode not in CONFIRMATION_MODES:
+        raise AgentError("invalid_configuration", "客户端确认策略无效", 503)
+    return mode
+
+
 def client_kinds(client):
     kinds = client.get("kinds", list(LEGACY_KINDS))
     if not isinstance(kinds, list) or not kinds or any(not isinstance(kind, str) or kind not in AGENT_KINDS for kind in kinds):
@@ -91,7 +101,9 @@ class AgentSecurity:
         private_write(self.registry, {"schema_version": 1, "workspace_id": self.workspace_id, "clients": clients})
 
     @staticmethod
-    def validate_client(name, scopes, project_ids, categories, kinds=None):
+    def validate_client(name, scopes, project_ids, categories, kinds=None, minimum_confirmation_mode="agent_attested"):
+        if minimum_confirmation_mode not in CONFIRMATION_MODES:
+            raise ValueError("客户端确认策略无效")
         try:
             client_kinds({"kinds": list(LEGACY_KINDS) if kinds is None else kinds})
         except AgentError:
@@ -115,8 +127,8 @@ class AgentSecurity:
         from .agent_management import CredentialManager
         return CredentialManager(self)
 
-    def add_client(self, name, scopes, project_ids, categories, base_url, request_id=None, kinds=None):
-        return self.manager().run("create", {**({"kinds": kinds} if kinds is not None else {}),"name": name, "scopes": scopes, "project_ids": project_ids, "categories": categories, "base_url": base_url}, request_id=request_id)
+    def add_client(self, name, scopes, project_ids, categories, base_url, request_id=None, kinds=None, minimum_confirmation_mode="agent_attested"):
+        return self.manager().run("create", {"minimum_confirmation_mode": minimum_confirmation_mode, **({"kinds": kinds} if kinds is not None else {}), "name": name, "scopes": scopes, "project_ids": project_ids, "categories": categories, "base_url": base_url}, request_id=request_id)
 
     def change_client(self, client_id, rotate=False, expected_version=None, request_id=None):
         return self.manager().run("rotate" if rotate else "revoke", {}, client_id, expected_version, request_id)

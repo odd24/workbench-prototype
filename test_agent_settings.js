@@ -56,6 +56,7 @@ async function main() {
     const longName = 'Codex 接入与长中文授权名称'.repeat(4);
     await fill('#agentClientName', longName);
     await fill('#agentClientPermission', 'write', 'change');
+    await fill('#agentMinimumConfirmation', 'local_web', 'change');
     await click('[data-agent-all="project_ids"]');
     await click('[data-agent-all="categories"]');
     // Persist the operation, then drop only its browser response.
@@ -71,6 +72,7 @@ async function main() {
     assert.equal(Object.keys(registry).length, 1);
     assert.equal(registry[clientId].name, longName);
     assert.deepEqual(registry[clientId].kinds, ['issue', 'document', 'todo']);
+    assert.equal(registry[clientId].minimum_confirmation_mode, 'local_web');
     const config = JSON.parse(fs.readFileSync(path.join(credentials, workspace, `${clientId}.json`), 'utf8'));
     assert.equal(await client.evaluate(`document.body.innerText.includes(${JSON.stringify(config.token)})`), false);
     await click('[data-agent-action="registration-preview"]');

@@ -8,7 +8,7 @@ from datetime import date
 from collections import deque
 from functools import wraps
 
-from .agent_security import AgentError, allows, require_scope, client_kinds
+from .agent_security import AgentError, allows, require_scope, client_kinds, client_confirmation_mode
 from .records import matches_query
 from .markdown_io import normalize_info_fields
 
@@ -61,6 +61,7 @@ class AgentService:
             repository.agent_proposals.recover()
             repository.write_guard = repository.agent_proposals.guard_writes
         self.store = repository.agent_proposals
+        self.store.security = security
 
     @service_operation
     def accept_request(self, client):
@@ -87,10 +88,10 @@ class AgentService:
                           "update": ["title", "body", "tags", "info_fields"], "append": ["body"]}
         return {"kind_operations": {kind: ["create", "append", "update"] for kind in kinds},
                 "kind_fields": {kind: fields[kind] for kind in kinds}, "authorized_kinds": client_kinds(client),
-                "confirmation_modes": ["agent_attested"], "default_confirmation_mode": "agent_attested",
+                "confirmation_modes": ["agent_attested", "local_web"], "default_confirmation_mode": client_confirmation_mode(client),
                 "proposal_schema_versions": [1, 2], "api_version": "1", "workspace_id": self.security.workspace_id, "kinds": kinds,
                 "operations": ["create", "append", "update"], "limits": LIMITS, "scopes": client["scopes"],
-                "project_ids": client["project_ids"], "categories": client["categories"], "confirmation_mode": "agent_attested"}
+                "project_ids": client["project_ids"], "categories": client["categories"], "confirmation_mode": client_confirmation_mode(client)}
 
     @service_operation
     def projects(self, client, params):
@@ -291,17 +292,21 @@ class AgentService:
     @service_operation
     def prepare_proposal(self, client, payload):
         require_scope(client, "propose")
-        allowed = {"request_id", "operation", "kind", "target_id", "base_revision", "content", "source_note"}
+        allowed = {"request_id", "operation", "kind", "target_id", "base_revision", "content", "source_note", "confirmation_mode"}
         if set(payload) - allowed or not isinstance(payload.get("request_id"), str) or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", payload["request_id"]):
             raise AgentError("invalid_request", "参数或 request_id 无效")
         if not isinstance(payload.get("source_note", ""), str) or len(payload.get("source_note", "")) > 1000:
             raise AgentError("invalid_source", "来源说明无效")
+        requested_mode = payload.get("confirmation_mode", client_confirmation_mode(client))
+        if requested_mode not in {"agent_attested", "local_web"}:
+            raise AgentError("invalid_confirmation", "确认策略无效")
+        mode = "local_web" if "local_web" in {requested_mode, client_confirmation_mode(client)} else "agent_attested"
         existing = self.store.find_request(client, payload)
         if existing:
             return existing
         self.store.guard_writes()
         content, base = self.normalize_content(client, payload.get("kind"), payload.get("operation"), payload.get("content"), payload.get("target_id"), payload.get("base_revision"))
-        return self.store.create(client, payload, content, base)
+        return self.store.create(client, payload, content, base, mode)
 
     @service_operation
     def revise_proposal(self, client, proposal_id, payload):
@@ -309,6 +314,7 @@ class AgentService:
         if set(payload) - {"expected_version", "content", "base_revision"}:
             raise AgentError("unknown_field", "修改提案包含不支持的字段")
         proposal = self.store.owned(client, proposal_id)
+        self._enforce_confirmation_policy(client, proposal)
         self.store.editable(proposal, payload.get("expected_version"))
         revision = payload.get("base_revision", proposal["base_revision"])
         # Revisions supply the complete desired candidate, including for append.
@@ -319,13 +325,16 @@ class AgentService:
     @service_operation
     def preview_proposal(self, client, proposal_id):
         require_scope(client, "read")
-        return self.store.preview(self.store.owned(client, proposal_id))
+        proposal = self.store.owned(client, proposal_id)
+        self._enforce_confirmation_policy(client, proposal)
+        return self.store.preview(proposal)
 
     @service_operation
     def get_proposal(self, client, proposal_id):
         require_scope(client, "read")
         self.store.recover()
         proposal = self.store.owned(client, proposal_id)
+        self._enforce_confirmation_policy(client, proposal)
         result = self.store.public(proposal)
         if proposal["state"] == "committed":
             try:
@@ -356,6 +365,12 @@ class AgentService:
             raise AgentError("unknown_field", "取消提案包含不支持的字段")
         return self.store.cancel(self.store.owned(client, proposal_id), payload.get("expected_version"))
 
+    def _enforce_confirmation_policy(self, client, proposal):
+        if client_confirmation_mode(client) == "local_web" and proposal.get("confirmation_mode", "agent_attested") != "local_web" and proposal["state"] in {"draft", "previewed", "conflicted"}:
+            proposal.update(schema_version=2, digest_algorithm="sha256-json-v2", confirmation_mode="local_web", approval=None,
+                            version=proposal["version"] + 1, state="draft", previewed_version=None, preview_digest=None)
+            self.store._save(proposal)
+
     @service_operation
     def commit_proposal(self, client, proposal_id, payload):
         require_scope(client, "commit")
@@ -364,9 +379,19 @@ class AgentService:
             raise AgentError("unknown_field", "提交只能引用已预览版本，不能携带新正文")
         self.store.recover()
         proposal = self.store.owned(client, proposal_id)
+        self._enforce_confirmation_policy(client, proposal)
+        if proposal.get("confirmation_mode", "agent_attested") == "local_web" and proposal["state"] != "committed":
+            raise AgentError("confirmation_required", "此提案需要在本机提案管理中独立批准", 409, False, {"management_path": "/"})
         if proposal["state"] == "committed":
             return self.store.commit(proposal, payload.get("version"), payload.get("preview_digest"), payload.get("confirmation"), None)
         self.store.editable(proposal, payload.get("version"))
+        prepared = self.prepare_submission(client, proposal)
+        return self.store.commit(proposal, payload.get("version"), payload.get("preview_digest"), payload.get("confirmation"), prepared)
+
+    def prepare_submission(self, client, proposal):
+        require_scope(client, "read")
+        require_scope(client, "propose")
+        require_scope(client, "commit")
         saved = proposal["normalized_content"]
         try:
             content, _ = self.normalize_content(client, proposal["kind"], "create" if proposal["operation"] == "create" else "update", {key: value for key, value in saved.items() if key != "completed"}, proposal["target_id"], proposal["base_revision"])
@@ -377,4 +402,4 @@ class AgentService:
         if content != saved:
             raise AgentError("configuration_conflict", "当前配置会改变预览内容，请重新整理并预览", 409)
         prepared = self.repository.prepare_markdown_write(proposal["kind"], saved, proposal["target_id"], proposal["base_revision"])
-        return self.store.commit(proposal, payload.get("version"), payload.get("preview_digest"), payload.get("confirmation"), prepared)
+        return prepared

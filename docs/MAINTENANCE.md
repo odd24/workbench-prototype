@@ -130,3 +130,5 @@ Agent 提案/提交故障的恢复步骤、运行中清理和本机接受磁盘�
 停服备份同时保留.agent/proposal-actions批准证据和operations事务；不能删批准日志绕过。只有批准记录而无manifest不会自动补写。prepared未尝试应用时需要匹配私人授权才能恢复，恢复CLI通过--agent-config-dir装配该授权；缺失/不匹配时保留并报告，启动同空间/私人凭据环境核查；撤销后停止未应用写入，已进入应用按磁盘事实完成必要回执。仍可使用原report/abandon接受磁盘，不删除日志。
 
 AG-121尚缺真实非Codex客户端，恢复入口与未运行矩阵见[客户端兼容矩阵](AGENT_CLIENT_COMPATIBILITY.md)。文档准备不等于互操作通过。
+
+远程默认未提供实现；候选部署边界、威胁模型和恢复/停用验收见[AG-122设计准备](AGENT_REMOTE_DESIGN.md)。未经真实IdP/TLS/客户端验证不得标远程可用，不应直接公网化本机工作台。

@@ -82,3 +82,5 @@ AG-119：设置 → AI Agent 接入 → 提案管理，可按客户端/类型/�
 AG-120：客户端可设置最低确认方式为“本机网页独立批准”（CLI --agent-confirmation-mode local_web）。Agent 可请求同等或更严格策略，网页完整预览后点击批准入库；Agent自报确认不能绕过。批准响应丢失先查询原操作，不重复创建。
 
 非Codex客户端尚未实测，环境解除条件和完整矩阵见[客户端兼容验收](docs/AGENT_CLIENT_COMPATIBILITY.md)。
+
+远程MCP未实现：已准备[远程设计门槛与威胁模型](docs/AGENT_REMOTE_DESIGN.md)，缺少真实TLS/IdP/客户端，不能开启网络入口。

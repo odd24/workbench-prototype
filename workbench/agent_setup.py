@@ -54,7 +54,7 @@ def setup_instructions(security, client_id, origin):
         config = read_json(config_path)
     except (OSError, ValueError):
         raise AgentError("invalid_configuration", "客户端配置缺失或损坏，请核查备份或新建客户端", 503) from None
-    if not isinstance(config, dict) or config.get("schema_version") != 1 or config.get("workspace_id") != security.workspace_id or config.get("client_id") != client_id or hashlib.sha256(str(config.get("token", "")).encode()).hexdigest() != client["token_hash"]:
+    if not isinstance(config, dict) or config.get("schema_version") not in (1, 2) or config.get("workspace_id") != security.workspace_id or config.get("client_id") != client_id or hashlib.sha256(str(config.get("token", "")).encode()).hexdigest() != client["token_hash"]:
         raise AgentError("invalid_configuration", "客户端配置与空间不一致", 503)
     bridge = Path(__file__).resolve().parent.parent / "agent_bridge.py"
     executable = str(Path(sys.executable).resolve())

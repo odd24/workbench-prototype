@@ -24,7 +24,7 @@ def dispatch(handler):
         route = path[len(prefix):]
         routes = {"capabilities": (set(), lambda: service.capabilities(client)),
                   "projects": ({"limit", "cursor"}, lambda: service.projects(client, query)),
-                  "catalog": ({"project_id"}, lambda: service.catalog(client, query)),
+                  "catalog": ({"project_id", "kind"}, lambda: service.catalog(client, query)),
                   "search": ({"query", "kind", "project_id", "category", "limit", "cursor"}, lambda: service.search(client, query))}
         parts = route.split("/")
         if route == "proposals" and handler.command == "GET":

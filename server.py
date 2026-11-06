@@ -149,6 +149,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     admin.add_argument("--agent-recovery-report", action="store_true", help="停止服务后检查 Agent 恢复状态")
     admin.add_argument("--agent-recovery-abandon", metavar="OPERATION_ID", help="停止服务后接受当前磁盘状态并取消未决提案")
     parser.add_argument("--agent-scope", action="append", choices=["read", "propose", "commit"], help="允许操作，可重复；默认只读")
+    parser.add_argument("--agent-kind", action="append", choices=["issue", "document", "todo", "info"], help="允许类型，可重复；缺省仅 issue/document")
     parser.add_argument("--agent-project", action="append", default=[], help="允许项目 ID，可重复；* 表示全部")
     parser.add_argument("--agent-category", action="append", default=[], help="允许文档分类，可重复；* 表示全部")
     return parser
@@ -178,7 +179,7 @@ def main(argv=None):
             elif args.agent_management_abandon:
                 result = security.manager().abandon(args.agent_management_abandon)
             elif args.agent_client_add:
-                result = security.add_client(args.agent_client_add, args.agent_scope or ["read"], args.agent_project, args.agent_category, f"http://{'[::1]' if args.host == '::1' else args.host}:{args.port}")
+                result = security.add_client(args.agent_client_add, args.agent_scope or ["read"], args.agent_project, args.agent_category, f"http://{'[::1]' if args.host == '::1' else args.host}:{args.port}", kinds=args.agent_kind)
             else:
                 result = security.change_client(args.agent_client_revoke or args.agent_client_rotate, bool(args.agent_client_rotate))
             print(json.dumps(result, ensure_ascii=False))

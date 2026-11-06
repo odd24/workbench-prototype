@@ -70,3 +70,5 @@ python performance_acceptance.py
 ```
 
 性能脚本只使用系统临时目录。默认规模与机器基线见 [大数据性能验收](docs/PERFORMANCE_ACCEPTANCE.md)。任何手工验收也应使用一次性目录，不要在真实 `workbench-data/` 上执行迁移、清理或压力测试。
+
+AG-116 类型授权：管理页可显式选择 issue/document/todo/info，CLI 创建支持重复 `--agent-kind`。旧客户端及省略该字段仍仅 issue/document；本阶段仅 issue/document 开放业务操作，todo/info 授权不等于已开放写入，先查 capabilities。实施状态见 docs/AI_AGENT_PROGRESS.md。

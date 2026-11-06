@@ -44,3 +44,7 @@ Agent 提交第 2 版和其摘要，返回正式 ID 与保存结果。
 用户：“将这次排查中通用的步骤整理成知识文档，关联刚才的问题。”
 
 Agent 使用已得到的真实问题 ID 构造 [[ID]] 引用，准备知识文档预览，再单独等待确认。不要提前伪造两份新内容的 ID 或把多个提交描述成全有或全无事务。
+
+### 类型与能力协商（AG-116）
+
+每次先读 capabilities：kinds 表示当前可用且已授权的类型，authorized_kinds 表示授权白名单，kind_operations/kind_fields 表示各类型操作与字段。confirmation_modes/default_confirmation_mode 增加可协商表达，旧 confirmation_mode 保留 agent_attested。本阶段不支持 local_web；不把未开放的 todo/info 作为可写类型。catalog 可带 kind，省略保持 issue 工作流语义。引用也受类型授权，不能引用未授权类型。

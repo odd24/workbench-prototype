@@ -7,7 +7,7 @@ import re
 from collections import deque
 from functools import wraps
 
-from .agent_security import AgentError, allows, require_scope
+from .agent_security import AgentError, allows, require_scope, client_kinds
 from .records import matches_query
 
 
@@ -71,7 +71,13 @@ class AgentService:
     @service_operation
     def capabilities(self, client):
         require_scope(client, "read")
-        return {"api_version": "1", "workspace_id": self.security.workspace_id, "kinds": ["issue", "document"],
+        kinds = [kind for kind in ("issue", "document") if kind in client_kinds(client)]
+        fields = {"issue": {"create": ["title", "body", "tags", "project_id", "status", "priority"], "update": ["title", "body", "tags", "status", "priority"], "append": ["title", "body", "tags", "project_id", "status", "priority"]},
+                  "document": {"create": ["title", "body", "tags", "category"], "update": ["title", "body", "tags", "category"], "append": ["title", "body", "tags", "category"]}}
+        return {"kind_operations": {kind: ["create", "append", "update"] for kind in kinds},
+                "kind_fields": {kind: fields[kind] for kind in kinds}, "authorized_kinds": client_kinds(client),
+                "confirmation_modes": ["agent_attested"], "default_confirmation_mode": "agent_attested",
+                "proposal_schema_versions": [1, 2], "api_version": "1", "workspace_id": self.security.workspace_id, "kinds": kinds,
                 "operations": ["create", "append", "update"], "limits": LIMITS, "scopes": client["scopes"],
                 "project_ids": client["project_ids"], "categories": client["categories"], "confirmation_mode": "agent_attested"}
 
@@ -86,6 +92,11 @@ class AgentService:
     def catalog(self, client, params):
         require_scope(client, "read")
         project_id = params.get("project_id")
+        kind = params.get("kind", "issue")
+        if kind not in {"issue", "document"}:
+            raise AgentError("invalid_kind", "不支持的条目类型")
+        if kind not in client_kinds(client) and project_id:
+            raise AgentError("not_found", "项目不存在或不可访问", 404)
         result = {"tags": self.repository.list_tags(), "document_categories": [category for category in self.repository.document_categories()
                                          if allows(client, {"type": "document", "category": category})]}
         if project_id:
@@ -148,6 +159,8 @@ class AgentService:
         require_scope(client, "read")
         if kind not in {"issue", "document"} or operation not in {"create", "append", "update"}:
             raise AgentError("invalid_operation", "不支持的类型或操作")
+        if kind not in client_kinds(client):
+            raise AgentError("forbidden", "此客户端未获授权访问该类型", 403)
         if not isinstance(content, dict):
             raise AgentError("invalid_content", "内容必须是对象")
         fields = {"title", "body", "tags"} | ({"project_id", "status", "priority"} if kind == "issue" else {"category"})

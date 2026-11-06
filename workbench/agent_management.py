@@ -10,7 +10,7 @@ import time
 import uuid
 from contextlib import contextmanager
 
-from .agent_security import AgentError, private_write, read_json
+from .agent_security import AgentError, private_write, read_json, client_kinds
 from .write_coordinator import DataDirectoryLock
 
 
@@ -41,7 +41,7 @@ def client_version(client):
 
 def clean_client(client):
     keys = ("client_id", "name", "enabled", "scopes", "project_ids", "categories")
-    return {**{key: client[key] for key in keys}, "version": client_version(client)}
+    return {**{key: client[key] for key in keys}, "kinds": client_kinds(client), "version": client_version(client)}
 
 
 class CredentialManager:
@@ -66,7 +66,7 @@ class CredentialManager:
             value = read_json(path)
         except (OSError, ValueError):
             raise AgentError("management_recovery_required", "管理日志损坏，请检查备份", 503) from None
-        if not isinstance(value, dict) or value.get("schema_version") != 1 or value.get("workspace_id") != self.security.workspace_id or value.get("state") not in {"prepared", "completed", "recovery_required", "abandoned"}:
+        if not isinstance(value, dict) or value.get("schema_version") not in (1, 2) or value.get("workspace_id") != self.security.workspace_id or value.get("state") not in {"prepared", "completed", "recovery_required", "abandoned"}:
             raise AgentError("management_recovery_required", "管理日志版本或工作空间无效", 503)
         try:
             valid_id = str(uuid.UUID(value["client_id"])) == value["client_id"]
@@ -195,18 +195,20 @@ class CredentialManager:
             client_id = client_id or str(uuid.uuid4())
             config_path = self._config(client_id)
             before_config = read_json(config_path) if config_path.exists() else None
+            if before_config is not None and (not isinstance(before_config, dict) or before_config.get("schema_version") not in (1, 2)):
+                raise AgentError("unsupported_schema", "客户端配置格式不受支持", 503)
             after_config = before_config
             after = dict(before) if before else {"client_id": client_id, "enabled": True}
             after["management_revision"] = int(after.get("management_revision", 0)) + 1
             if action in {"create", "edit"}:
-                self.security.validate_client(params["name"], params["scopes"], params["project_ids"], params["categories"])
-                after.update(name=params["name"].strip(), scopes=sorted(set(params["scopes"])), project_ids=list(dict.fromkeys(params["project_ids"])), categories=list(dict.fromkeys(params["categories"])))
+                self.security.validate_client(params["name"], params["scopes"], params["project_ids"], params["categories"], params.get("kinds", client_kinds(after) if before else None))
+                after.update(authorization_schema_version=2, kinds=params.get("kinds", client_kinds(after)), name=params["name"].strip(), scopes=sorted(set(params["scopes"])), project_ids=list(dict.fromkeys(params["project_ids"])), categories=list(dict.fromkeys(params["categories"])))
             if action in {"create", "rotate", "origin"}:
                 if action != "create" and (not isinstance(before_config, dict) or before_config.get("client_id") != client_id or before_config.get("workspace_id") != self.security.workspace_id or hashlib.sha256(str(before_config.get("token", "")).encode()).hexdigest() != before["token_hash"]):
                     raise AgentError("invalid_configuration", "客户端凭据配置不一致，请核查备份或新建客户端", 503)
                 if action == "create":
                     self.security.validate_origin(params["base_url"])
-                    after_config = {"schema_version": 1, "workspace_id": self.security.workspace_id, "client_id": client_id, "base_url": params["base_url"].rstrip("/")}
+                    after_config = {"schema_version": 2, "workspace_id": self.security.workspace_id, "client_id": client_id, "base_url": params["base_url"].rstrip("/")}
                 else:
                     after_config = dict(before_config)
                 if action == "origin":
@@ -220,10 +222,12 @@ class CredentialManager:
                 after["enabled"] = False
             elif action != "edit":
                 raise ValueError("管理操作无效")
+            if after_config is not None:
+                after_config = {**after_config, "schema_version": 2, "kinds": client_kinds(after)}
             result = {"operation_id": operation_id, "client_id": client_id, "enabled": after["enabled"], "rotated": action == "rotate", "version": client_version(after)}
             if action == "create":
                 result.update(config_file=str(config_path), workspace_id=self.security.workspace_id)
-            value = {"schema_version": 1, "workspace_id": self.security.workspace_id, "operation_id": operation_id, "request_id": request_id, "input_digest": signature, "client_id": client_id,
+            value = {"schema_version": 2, "workspace_id": self.security.workspace_id, "operation_id": operation_id, "request_id": request_id, "input_digest": signature, "client_id": client_id,
                      "state": "prepared", "before_client": before, "after_client": after, "before_config": before_config, "after_config": after_config, "result": result}
             self._write(path, value)
             self.checkpoint("prepared")
@@ -263,7 +267,8 @@ class AgentManagement:
         fields = {"workspace_id", "request_id"} | ({"name", "scopes", "project_ids", "categories"} if action in {"create", "edit"} else set())
         if action != "create":
             fields.add("expected_version")
-        if not isinstance(payload, dict) or set(payload) != fields:
+        optional = {"kinds"} if action in {"create", "edit"} else set()
+        if not isinstance(payload, dict) or fields - set(payload) or set(payload) - fields - optional:
             raise AgentError("invalid_request", "客户端管理字段无效")
         if payload["workspace_id"] != self.runtime.status()["workspace_id"]:
             raise AgentError("workspace_mismatch", "工作空间已变化，请重新核对", 409)
@@ -275,6 +280,8 @@ class AgentManagement:
         params = {}
         if action in {"create", "edit"}:
             params = {key: payload[key] for key in ("name", "scopes", "project_ids", "categories")}
+            if "kinds" in payload:
+                params["kinds"] = payload["kinds"]
             security.validate_client(**params)
             if sorted(params["scopes"]) not in (["read"], ["commit", "propose", "read"]) or not (params["project_ids"] or params["categories"]):
                 raise ValueError("请选择只读或整理入库，并至少授权一个范围")

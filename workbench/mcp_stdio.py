@@ -39,7 +39,7 @@ class LocalAgentClient:
         if self.config_file.stat().st_size > 16384:
             raise ValueError("配置文件过大")
         config = json.loads(self.config_file.read_text(encoding="utf-8"))
-        if not isinstance(config, dict) or config.get("schema_version") != 1:
+        if not isinstance(config, dict) or config.get("schema_version") not in (1, 2):
             raise ValueError("配置格式不受支持")
         if not isinstance(config.get("base_url"), str):
             raise ValueError("配置地址无效")

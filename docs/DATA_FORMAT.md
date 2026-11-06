@@ -100,3 +100,9 @@ workbench-data/
 所有新增 JSON 使用原子替换；进程中断后依次比较回执和磁盘摘要恢复，不能简单把多文件原子写称为单一事务。第三方内容和不确定删除不自动覆盖。提案清理只删除已终结内容及对应安全快照，幂等映射仍保留；在途数据不清理。完整 ZIP 不包含这些流程状态，文件级灾难恢复需停止服务后完整复制，降级前须处理在途日志。
 
 正式条目链接使用 `/?item=issue|document&itemId=<稳定ID>`，不包含正文、令牌或磁盘路径。回执保存相对 web_path；web_url 在 HTTP 返回时根据当前可信本机地址生成。旧回执缺少该字段时兼容展示链接，不重写其提交内容。
+
+### AG-116 私人类型授权与流程格式
+
+clients.json 外层 schema_version=1 保持；新授权条目增加 authorization_schema_version=2 和显式 kinds（issue/document/todo/info 非空白名单）。缺失 kinds 按 issue/document 读取。客户端私人配置与新凭据管理日志 schema_version=2，兼容读取 1；配置内 kinds 只是镜像，权限以服务端授权为准。轮换不扩权，旧编辑请求省略 kinds 时保留原值。
+
+新提案/业务事务 schema_version=2；提案含 digest_algorithm=sha256-json-v2、confirmation_mode=agent_attested、approval=null，摘要覆盖规范内容、类型、来源、警告和确认策略；事务关联相同摘要与策略。schema=1 按旧预览载荷和摘要计算，旧提案不自动升级。未知版本拒绝写入、清理和 abandon，保留原证据。业务 Markdown/历史无迁移。local_web 尚未开放。

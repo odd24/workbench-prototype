@@ -47,6 +47,19 @@ def private_write(path, value):
         path.chmod(0o600)
 
 
+LEGACY_KINDS = ("issue", "document")
+AGENT_KINDS = (*LEGACY_KINDS, "todo", "info")
+
+
+def client_kinds(client):
+    kinds = client.get("kinds", list(LEGACY_KINDS))
+    if not isinstance(kinds, list) or not kinds or any(not isinstance(kind, str) or kind not in AGENT_KINDS for kind in kinds):
+        raise AgentError("invalid_configuration", "客户端类型授权无效", 503)
+    if client.get("authorization_schema_version", 1) not in (1, 2):
+        raise AgentError("unsupported_schema", "客户端授权版本不受支持", 503)
+    return list(dict.fromkeys(kinds))
+
+
 class AgentSecurity:
     def __init__(self, root: Path, config_dir: Path | None = None):
         self.root = root.resolve()
@@ -78,7 +91,11 @@ class AgentSecurity:
         private_write(self.registry, {"schema_version": 1, "workspace_id": self.workspace_id, "clients": clients})
 
     @staticmethod
-    def validate_client(name, scopes, project_ids, categories):
+    def validate_client(name, scopes, project_ids, categories, kinds=None):
+        try:
+            client_kinds({"kinds": list(LEGACY_KINDS) if kinds is None else kinds})
+        except AgentError:
+            raise ValueError("客户端类型授权无效") from None
         if not isinstance(name, str) or not name.strip() or len(name) > 100:
             raise ValueError("客户端名称无效")
         if not isinstance(scopes, list) or not scopes or any(not isinstance(scope, str) for scope in scopes) or set(scopes) - {"read", "propose", "commit"}:
@@ -98,8 +115,8 @@ class AgentSecurity:
         from .agent_management import CredentialManager
         return CredentialManager(self)
 
-    def add_client(self, name, scopes, project_ids, categories, base_url, request_id=None):
-        return self.manager().run("create", {"name": name, "scopes": scopes, "project_ids": project_ids, "categories": categories, "base_url": base_url}, request_id=request_id)
+    def add_client(self, name, scopes, project_ids, categories, base_url, request_id=None, kinds=None):
+        return self.manager().run("create", {**({"kinds": kinds} if kinds is not None else {}),"name": name, "scopes": scopes, "project_ids": project_ids, "categories": categories, "base_url": base_url}, request_id=request_id)
 
     def change_client(self, client_id, rotate=False, expected_version=None, request_id=None):
         return self.manager().run("rotate" if rotate else "revoke", {}, client_id, expected_version, request_id)
@@ -113,6 +130,7 @@ class AgentSecurity:
         blocked = self.manager().blocked_clients()
         for client in self.clients().values():
             if client.get("enabled") and client.get("client_id") not in blocked and hmac.compare_digest(client.get("token_hash", ""), token_hash):
+                client_kinds(client)
                 return client
         raise AgentError("unauthenticated", "Agent 凭据已失效或被撤销", 401)
 
@@ -123,6 +141,12 @@ def require_scope(client, scope):
 
 
 def allows(client, item):
+    kind = item.get("type")
+    kinds = client_kinds(client)
+    if kind is not None and kind not in kinds:
+        return False
+    if kind is None and not set(kinds) & {"issue", "todo", "info"}:
+        return False
     key = "categories" if item.get("type") == "document" else "project_ids"
     value = item.get("category", "未分类") if key == "categories" else item.get("project_id")
     values = client.get(key, [])

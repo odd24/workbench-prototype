@@ -6,7 +6,7 @@
 
 接入管理 UI 的需求、契约及验收分解见 [AGENT_SETTINGS_PLAN.md](AGENT_SETTINGS_PLAN.md)。AG-106 为文档工作；AG-107～111 的实施事实和当前状态见下表及记录。
 
-后续扩展详见 [AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。AG-115 仅文档；AG-116～126 均未启动，不影响已完成首期的历史状态。
+后续扩展详见 [AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。AG-115 仅文档；AG-116 已完成，AG-117～126 待开始，不影响已完成首期的历史状态。
 
 ## 工作项
 
@@ -28,7 +28,7 @@
 | AG-113 | 网页预览确认、一键登记 Codex 与结果恢复 | 已完成 | 2026-11-04 | 2026-11-04 | AG-112；用户明确授权 |
 | AG-114 | 入库关键日志摘录与来源引用规范 | 已完成 | 2026-11-04 | 2026-11-04 | 用户明确要求 |
 | AG-115 | 后续扩展详细方案与工作项登记（仅文档） | 已完成 | 2026-11-06 | 2026-11-06 | 用户要求先完善方案，不修改代码 |
-| AG-116 | 类型授权、能力协商与流程格式兼容 | 待开始 | — | — | AG-115；实现另行授权 |
+| AG-116 | 类型授权、能力协商与流程格式兼容 | 已完成 | 2026-11-06 | 2026-11-06 | AG-115；用户已授权实施 |
 | AG-117 | 待办 todo 查询、提案与持久写入 | 待开始 | — | — | AG-116 |
 | AG-118 | 结构化信息 info 与字段无损往返 | 待开始 | — | — | AG-117 |
 | AG-119 | 本机提案管理、预览、取消与结果查询 | 待开始 | — | — | AG-118 |
@@ -356,3 +356,21 @@
 - 环境收尾：一次此前挂起验收遗留临时目录的删除被自动审批以 blocked by policy 拒绝，目录保留；对应服务已停止、客户端全部撤销。后续隔离验收正常退出清理，不绕过拒绝。
 - 决策/风险：AG-DEC-001～005 的既定范围保持；Agent 确认声明、外部编辑器竞态、底层文件系统和旧无版本调用限制保留。Windows 进程锁已实测，POSIX 分支契约通过但 Linux 内核实机未验；其他 Agent/协议需另验。
 - 下一步：本期 AG-000～105 无遗留实施项。用户可按接入说明显式启用、创建正式客户端并登记 MCP；未擅自修改用户 Codex 配置。todo/info、独立网页批准和远程接入仍属后续范围。
+
+### 2026-11-06 / AG-116 / 开始
+
+- 工作区：git status --short 干净，无用户既有修改；本项为 AG 功能实施，不重开 RF 或 AG-000～115 历史。
+- 范围：显式 kinds 授权、旧凭据缺省 issue/document、范围交集与引用隔离、能力字段、schema=2 新提案/日志及 schema=1 旧摘要兼容；本项不提前开放 todo/info 写入和 local_web。
+- 预计文件：agent_security/management/service/proposals/tools/http、mcp_stdio、server CLI、agent-settings/index；专项测试与架构/数据/接入/维护/验收文档。
+- 验证计划：旧授权/轮换/分类迁移不扩权；严格字段/未知版本拒绝；新旧混合提案与故障恢复；Python 门禁、管理真实浏览器两主题两宽度、JS 语法、diff 检查。
+- 影响与风险：业务 Markdown、草稿和编辑器不变；新增私人授权字段与流程版本；旧摘要不得重算。远程身份/TLS/非 Codex 实机依赖在对应项核查，不用模拟替代。
+
+### 2026-11-06 / AG-116 / 完成
+
+- 实际文件：agent_security/management/service/proposals/tools/http/setup、mcp_stdio、server/http_api；agent-settings/index；test_agent_extensions.py、test_agent_settings.js；README、扩展方案、设置方案、架构/数据/接入/使用/维护及本台账。
+- 交付：kinds 显式白名单与旧 issue/document 缺省，UI/CLI 授权、轮换保权、引用/提案/项目范围交集；能力返回按类型操作/字段、有效授权、确认模式和流程版本。todo/info 仅可预授权，业务操作由后续项开放。
+- 格式兼容：业务 Markdown、草稿、历史和旧 API 不变；新私人配置/管理日志/提案/事务 schema=2，旧 schema=1 读取与原摘要保留；未知版本拒绝清理/放弃/写入并保留证据。发现 setup 旧配置版本检查遗漏并同步修复。
+- 自动检查：python -m unittest -q 全量 197 项通过；事务新增摘要关联后 test_agent_extensions/test_agent_recovery 13 项复验通过；全部 18 个 Node 契约通过；54 Python 和 43 JS 全文件语法、Markdown 本地链接/围栏、git diff --check 通过。
+- 真实验收：node test_agent_settings.js 使用临时数据/凭据/CODEX_HOME 通过，含显式 todo 授权落盘、缺省两类型、丢响应恢复、编辑/轮换/撤销、会话失效及浅深主题×1440/390；代表桌面表单与深色窄屏大量范围截图目视检查无溢出，截图留临时目录未提交。原长列表断言限定为项目/分类，类型固定列表不要求滚动。
+- 真实 Codex：python codex_agent_acceptance.py 通过，codex-cli 0.163.0-alpha.10.2 / MCP 2025-11-25，12 工具、旧两类型往返/修改/幂等/取消/重启/撤销；model_turns_started=0、user_config_changed=false。
+- 决策/风险：AG-DEC-006/009；尚未开放新业务类型或 local_web，不宣称远程/非 Codex 已验收。APP_VERSION=2026.11.06.1 与缓存同步；提交使用标题 Add explicit Agent type authorization（哈希由 git log 查询）。下一入口 AG-117。

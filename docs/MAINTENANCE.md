@@ -104,3 +104,9 @@ AG-108 的凭据管理恢复使用同一数据目录和凭据根：`python serve
 Agent 提案/提交故障的恢复步骤、运行中清理和本机接受磁盘命令见 [接入说明](AGENT_INTEGRATION.md)。遇到 recovery_required 不要删除 .agent，先停止服务完整备份后核查。即使不带 --enable-agent 启动，也不能绕过已有事务恢复。未决事务阻止业务写入与目录切换。
 
 发布 Agent 变更时运行 `node test_agent_workflows.js` 和 `python codex_agent_acceptance.py`；后者要求已安装 Codex CLI，只使用隔离配置/临时库，不调用模型。浏览器脚本覆盖深链接、两编辑器冲突和在途保存后继续输入的草稿保留。视觉基线另行使用临时样本库和空库运行；性能使用 `python performance_acceptance.py`。当前验收结果及剩余限制见 [AI_AGENT_ACCEPTANCE.md](AI_AGENT_ACCEPTANCE.md)。
+
+### AG-116 升级与降级
+
+升级兼容 schema=1 私人配置、凭据日志、提案和事务；新流程写 schema=2。旧凭据默认仅 issue/document，轮换和分类授权同步不扩权。新增专项 `python -m unittest -v test_agent_extensions`，管理修改运行 `node test_agent_settings.js`。
+
+降级前关闭 Agent、停止服务，备份业务目录（含 .agent）与私人凭据目录，使用当前版本 report/abandon 解决未决事务。旧版本不能读取 schema=2 时应保留文件并改回匹配版本，不删除 .agent/管理日志绕过，不把便携 ZIP 当作接入状态备份。

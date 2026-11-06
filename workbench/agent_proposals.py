@@ -69,8 +69,12 @@ class ProposalStore:
             value = read_json(path)
         except (ValueError, FileNotFoundError, TypeError):
             raise AgentError("not_found", "提案不存在或不可访问", 404)
-        if value.get("schema_version") != 1 or value.get("workspace_id") != self.workspace_id:
+        if type(value.get("schema_version")) is not int or value.get("schema_version") not in (1, 2) or value.get("workspace_id") != self.workspace_id:
             raise AgentError("unsupported_schema", "提案格式或工作空间不受支持", 503)
+        if value["schema_version"] == 2 and (value.get("digest_algorithm") != "sha256-json-v2" or value.get("confirmation_mode") != "agent_attested"):
+            raise AgentError("unsupported_schema", "提案摘要或确认策略不受支持", 503)
+        if value["schema_version"] == 1 and value.get("kind") not in {"issue", "document"}:
+            raise AgentError("unsupported_schema", "旧格式提案类型不受支持", 503)
         if value["state"] in {"draft", "previewed", "conflicted"} and value["expires_at"] <= stamp():
             value.update(state="expired", finished_at=value["expires_at"])
             self._save(value)
@@ -108,7 +112,7 @@ class ProposalStore:
             active += old["state"] in {"draft", "previewed", "conflicted", "committing", "recovery_required"}
         if active >= 100:
             raise AgentError("proposal_limit", "活动提案数量已达到上限", 429)
-        proposal = {"schema_version": 1, "workspace_id": self.workspace_id, "proposal_id": str(uuid.uuid4()),
+        proposal = {"schema_version": 2, "digest_algorithm": "sha256-json-v2", "confirmation_mode": "agent_attested", "approval": None, "workspace_id": self.workspace_id, "proposal_id": str(uuid.uuid4()),
                     "client_id": client["client_id"], "request_id": request["request_id"], "request_hash": request_hash,
                     "version": 1, "state": "draft", "operation": request["operation"], "kind": request["kind"],
                     "target_id": request.get("target_id"), "base_revision": request.get("base_revision"),
@@ -139,6 +143,8 @@ class ProposalStore:
     def preview_payload(self, proposal):
         warnings = ["新 ID 和创建/修改时间由服务端生成；用户可见字段以此预览为准。", "请展示完整内容，等待用户明确确认当前版本后再提交。"]
         preview = {key: proposal[key] for key in ("workspace_id", "proposal_id", "version", "operation", "kind", "target_id", "base_revision", "source_note")}
+        if proposal.get("schema_version") == 2:
+            preview.update(confirmation_mode=proposal["confirmation_mode"], digest_algorithm=proposal["digest_algorithm"])
         return {**preview, "content": proposal["normalized_content"], "warnings": warnings}
 
     def preview(self, proposal):
@@ -208,11 +214,14 @@ class ProposalStore:
                    "title": proposal["normalized_content"]["title"], "project_id": proposal["normalized_content"].get("project_id"),
                    "category": proposal["normalized_content"].get("category"),
                    "web_path": "/?" + urlencode({"item": proposal["kind"], "itemId": prepared.item_id})}
-        manifest = {"schema_version": 1, "workspace_id": self.workspace_id, "operation_id": operation_id,
+        manifest = {"schema_version": proposal["schema_version"], "workspace_id": self.workspace_id, "operation_id": operation_id,
                     "proposal_id": proposal["proposal_id"], "version": version, "kind": proposal["kind"],
                     "item_id": prepared.item_id, "relative_path": prepared.path.relative_to(self.repository.root).as_posix(),
                     "before_digest": byte_digest(prepared.before), "after_digest": byte_digest(prepared.after), "history_version": prepared.history_version,
                     "state": "prepared", "receipt": receipt, "confirmation": confirmation}
+        if proposal["schema_version"] == 2:
+            manifest.update(digest_algorithm=proposal["digest_algorithm"], preview_digest=preview_digest,
+                            confirmation_mode=proposal["confirmation_mode"], approval=proposal["approval"])
         self._target(manifest)
         try:
             atomic_write_bytes(directory / "after.md", prepared.after)
@@ -247,10 +256,12 @@ class ProposalStore:
                 if manifest_path.resolve() != manifest_path.absolute():
                     raise ValueError("事务路径无效")
                 manifest = read_json(manifest_path)
-                if manifest.get("schema_version") != 1 or manifest.get("workspace_id") != self.workspace_id or manifest.get("operation_id") != manifest_path.parent.name or manifest.get("state") not in {"prepared", "applying", "committed", "abandoned", "recovery_required"}:
+                if manifest.get("schema_version") not in (1, 2) or manifest.get("workspace_id") != self.workspace_id or manifest.get("operation_id") != manifest_path.parent.name or manifest.get("state") not in {"prepared", "applying", "committed", "abandoned", "recovery_required"}:
                     raise ValueError("不受支持的事务格式")
                 proposal = self._load(manifest["proposal_id"])
-                if proposal["version"] != manifest["version"]:
+                if manifest["schema_version"] == 2 and (manifest.get("digest_algorithm") != "sha256-json-v2" or manifest.get("confirmation_mode") != "agent_attested" or manifest.get("preview_digest") != proposal.get("preview_digest")):
+                    raise ValueError("事务确认策略或摘要不一致")
+                if proposal["version"] != manifest["version"] or proposal["schema_version"] != manifest["schema_version"]:
                     raise ValueError("事务提案版本不一致")
                 if manifest["state"] == "abandoned":
                     if proposal["state"] != "cancelled":
@@ -330,7 +341,7 @@ class ProposalStore:
             raise AgentError("not_unresolved", "该操作已恢复或不存在，无需放弃", 409)
         path = self.operations / operation_id / "manifest.json"
         manifest = read_json(path)
-        if manifest.get("schema_version") != 1 or manifest.get("workspace_id") != self.workspace_id:
+        if manifest.get("schema_version") not in (1, 2) or manifest.get("workspace_id") != self.workspace_id:
             raise AgentError("unsupported_schema", "不能放弃未知格式的事务，请使用匹配版本核查", 503)
         proposal = self._load(manifest["proposal_id"])
         if manifest["operation_id"] != operation_id or manifest["version"] != proposal["version"]:
@@ -359,6 +370,10 @@ class ProposalStore:
                 if directory.resolve() != directory.absolute():
                     raise AgentError("unsafe_state_path", "事务清理路径无效", 503)
                 manifest_path = directory / "manifest.json"
-                if not manifest_path.exists() or read_json(manifest_path).get("state") in {"committed", "abandoned"}:
+                if manifest_path.exists():
+                    manifest = read_json(manifest_path)
+                    if manifest.get("schema_version") not in (1, 2):
+                        raise AgentError("unsupported_schema", "不能清理未知格式的事务", 503)
+                if not manifest_path.exists() or manifest.get("state") in {"committed", "abandoned"}:
                     for filename in ("before.md", "after.md"):
                         (directory / filename).unlink(missing_ok=True)

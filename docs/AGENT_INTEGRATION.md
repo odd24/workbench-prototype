@@ -162,3 +162,7 @@ python server.py --data-dir <同一目录> --agent-recovery-abandon <operation_i
 此命令不改业务 Markdown，只将未决操作标记为放弃、提案标记取消并保留恢复证据。若需要其中的总结，重新创建预览并确认。未知版本/损坏身份的日志拒绝放弃，应使用匹配版本和完整备份核查，不能直接删除日志强行启用写入。恢复命令未暴露给 Agent 工具。
 
 所有覆盖继续使用原子文件替换和写前历史；事务恢复经过进程中断测试，底层文件系统落盘保证与日常备份仍是恢复边界。外部编辑器不服从服务锁，校验与替换间的跨程序竞态仍然存在。
+
+### 类型授权（AG-116）
+
+创建客户端可重复指定 `--agent-kind issue --agent-kind document`；省略时只授权 issue/document，项目通配不包含新类型权限。网页创建/编辑可明确选择四类；当前 todo/info 操作待后续工作项开放。先读取 capabilities 的 kinds、authorized_kinds、kind_operations、kind_fields，不能把已授权推断为已实现。旧凭据无需迁移；轮换保留类型。

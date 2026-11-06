@@ -51,6 +51,8 @@ async function main() {
     assert.equal(JSON.parse(fs.readFileSync(path.join(credentials, workspace, 'runtime.json'), 'utf8')).startup_enabled, true);
     await click('[data-agent-action="new"]');
     await waitForPage(client, "!!$('#agentClientName')");
+    assert.deepEqual(await client.evaluate("[...document.querySelectorAll('[data-agent-kind]:checked')].map(node => node.dataset.agentKind)"), ['issue', 'document']);
+    await click('[data-agent-kind=todo]');
     const longName = 'Codex 接入与长中文授权名称'.repeat(4);
     await fill('#agentClientName', longName);
     await fill('#agentClientPermission', 'write', 'change');
@@ -68,6 +70,7 @@ async function main() {
     const clientId = Object.keys(registry)[0];
     assert.equal(Object.keys(registry).length, 1);
     assert.equal(registry[clientId].name, longName);
+    assert.deepEqual(registry[clientId].kinds, ['issue', 'document', 'todo']);
     const config = JSON.parse(fs.readFileSync(path.join(credentials, workspace, `${clientId}.json`), 'utf8'));
     assert.equal(await client.evaluate(`document.body.innerText.includes(${JSON.stringify(config.token)})`), false);
     await click('[data-agent-action="registration-preview"]');
@@ -280,7 +283,7 @@ async function main() {
         await client.evaluate(`document.body.classList.toggle('dark', ${theme === 'dark'}); document.querySelector('.agent-client-form').scrollIntoView({block:'start'});`);
         await delay(200);
         assert.equal(await client.evaluate('document.documentElement.scrollWidth > innerWidth + 1'), false);
-        assert.equal(await client.evaluate("[...document.querySelectorAll('.agent-scope-options')].every(node => node.clientHeight <= 250 && node.scrollHeight > node.clientHeight)"), true);
+        assert.equal(await client.evaluate("[...document.querySelectorAll('.agent-scope-options:has([data-agent-scope])')].every(node => node.clientHeight <= 250 && node.scrollHeight > node.clientHeight)"), true);
         const screenshot = await client.call('Page.captureScreenshot', {format:'png'});
         fs.writeFileSync(path.join(screenshots, `many-scopes-${theme}-${width}.png`), Buffer.from(screenshot.data, 'base64'));
       }

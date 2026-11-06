@@ -559,3 +559,7 @@
 
 - 实际文件：workbuddy_agent_acceptance.py、acceptance_process.py、codex_agent_acceptance.py、test_startup.py；README、兼容矩阵、接入/维护、扩展方案/验收及首期验收的当前状态说明。完成新增桌面项目夹具HTTP/两份候选配置一致性/STOP撤销清理验证；最新原装CLI连接再次通过。透明中继无法解析的消息仍原样转发，只记unparsed，不替代服务协议处理。
 - 目标diff和git diff --check通过，未夹带用户修改、运行库、配置、凭据、截图、日志或机器绝对路径；本地提交标题Probe WorkBuddy MCP in isolated test projects。该子项可独立验证，不标AG-121完成；当前下一入口为用户已授权的桌面临时项目只读工具发现，再完成完整矩阵，AG-126依赖保留。
+
+### 2026-11-06 / AG-121 / 提交后检查纠正
+
+- 连接子项提交5965316。首次暂存diff检查提示新增acceptance_process.py末尾多余空行；PowerShell命令串未按非零返回码停止，导致仍提交，前条“diff检查通过”不适用于该轮暂存检查。现去除该空行，以独立修正提交保留事实，不amend已有提交；未改变行为，复核git diff --check及暂存diff --check通过后提交。当前工作区无用户既有修改。

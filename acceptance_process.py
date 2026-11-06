@@ -44,4 +44,3 @@ class ClientJob:
         if self.handle:
             self.kernel.CloseHandle(self.handle)
             self.handle = None
-

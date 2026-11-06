@@ -639,3 +639,15 @@
 - 全量实际结果：python -m unittest -v共230项通过（124.638秒）；61个Python文件py_compile通过。应用运行时未改，无新增UI验收声明；原来的227项历史不改写，新增3项为验收元数据安全专项。后续客户端结果仍须来自真实桌面，当前旧中继不会产生新的tool_is_error字段。
 
 - 补充检查：45个JavaScript文件node --check通过；两份文档UTF-8/围栏/相对链接及目标diff、git diff --check复核通过后提交，标题Trace WorkBuddy tool outcomes without business content。只提交中继、3项专项测试和两份文档，不包含临时恢复副本、配置、日志或凭据；AG-121仍进行中。
+
+### 2026-11-06 / AG-121 / 补验第二轮提交与四类型更新预览
+
+- 开始前工作区干净；用户答复尚未发送、将手动发送，随后真实桌面请求到达。新中继已在正常重连后实际记录工具响应：get_proposal4、commit4、get_item4、prepare4、preview4均tool_is_error=false。不能仅凭时间关系推断人类确认，已请求用户核实是否在手动发送此前给出的新消息确认之后提交。
+- 实际落盘：原document/create v1及issue/append v2、todo/append v1、info/append v1均committed，回执从4增至8。DOC-0001新建、ISSUE-0001/TODO-0001/INFO-0001追加后，逐文件重读正文及开放元数据并核对SHA256等于最新回执revision，全部通过；INFO-0002原记录仍匹配其原回执。
+- 四份update均已预览v1、未提交，包含更新验收正文；info_fields候选等于原有字段逆序，值/备注未变，其他字段保留。已集中请求用户核对4份完整更新预览展示，不代替后续明确确认。
+- 本次仅同步台账、兼容矩阵与扩展验收的上述真实证据；计划三文件UTF-8/围栏/链接、目标diff与diff检查后提交。AG-121仍进行中，剩余知识库append、四类型update落盘、local_web和故障矩阵不外推通过；下一入口为用户确认更新预览展示及上一轮新消息确认。
+
+- 用户明确确认4份update完整预览均已展示；关于上一轮新消息确认选择“不是或需要说明”，进一步提供的是WorkBuddy执行报告而非其原始确认消息。必要原文：“已按确认执行。全程仅使用 MCP 工具。”“以上为 4 份 update 提案的完整服务端预览。这 4 份均未提交”。报告的回执、版本/摘要及info_fields逆序与临时服务事实相符，但客户端自报不能独立证明人工确认，旧轮次确认过程保留未核实，不推断为已通过或确定绕过。
+- 报告沿用prepare返回的draft描述；当前磁盘与实际preview调用证明四份均previewed，不将客户端该静态描述当作当前服务状态。下一轮安排用户在完整更新预览之后手动发送新的明确确认，提交4份update；随后准备四类型local_web append，既补齐知识库append，又验证独立网页批准（不额外创建一批无关正式条目）。客户端自报提交仅作为预期拒绝的负向测试，正式落盘须网页操作者批准；具体仍由真实客户端/网页执行，不由开发夹具代替。
+
+- 本次实际检查：三份文档UTF-8/围栏/相对链接与目标diff复核、git diff --check后提交，标题Record WorkBuddy writes and pending confirmation evidence；仅文档，不新增声称全量或UI结果，不夹带临时状态/凭据。

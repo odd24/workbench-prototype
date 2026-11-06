@@ -1,8 +1,9 @@
 """Explicit installed-WorkBuddy MCP connection probe, with no model turn.
 
 This is deliberately a partial compatibility check, not the AG-121 write matrix.
-The relay forwards bytes unchanged and records protocol metadata only; it never
-generates client requests or substitutes a simulated MCP client.
+The default relay forwards bytes unchanged and records protocol metadata only.
+Explicit --protocol-faults injects fixed server requests and consumes only their
+replies; it never generates client requests or substitutes a simulated client.
 """
 from __future__ import annotations
 
@@ -15,7 +16,8 @@ import sys
 import tempfile
 import threading
 import time
-from contextlib import contextmanager
+import uuid
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 from acceptance_process import ClientJob
@@ -25,6 +27,42 @@ from workbench.agent_runtime import AgentRuntime
 
 
 ROOT = Path(__file__).resolve().parent
+
+
+class ProtocolFaultProbe:
+    """Explicit server-message injection; never enabled by the default relay."""
+
+    def __init__(self, enabled=False):
+        self.enabled = enabled
+        self.started = False
+        self.pending = {}
+        self.completed = threading.Event()
+
+    def requests(self):
+        if not self.enabled or self.started:
+            return []
+        self.started = True
+        messages = []
+        for name, method in (("ping", "ping"), ("unknown_method", "workbench/probe_unknown_method")):
+            request_id = "workbench-fixture-" + str(uuid.uuid4())
+            self.pending[request_id] = name
+            messages.append({"jsonrpc": "2.0", "id": request_id, "method": method})
+        return messages
+
+    def consume(self, message):
+        if "method" in message or message.get("id") not in self.pending:
+            return None
+        name = self.pending.pop(message["id"])
+        error = message.get("error")
+        code = error.get("code") if isinstance(error, dict) else None
+        valid = (message.get("result") == {} and "error" not in message) if name == "ping" else (
+            type(code) is int and code == -32601 and "result" not in message)
+        event = {"fixture_reply": name, "valid": valid}
+        if type(code) is int:
+            event["error_code"] = code
+        if not self.pending:
+            self.completed.set()
+        return event
 
 
 def protocol_metadata(message, pending):
@@ -84,29 +122,51 @@ def disposable_directory():
                 time.sleep(0.5)
 
 
-def relay():
+def relay(protocol_faults=False):
     trace = Path(os.environ["WORKBENCH_PROBE_TRACE"])
     process = subprocess.Popen(
         [sys.executable, str(ROOT / "agent_bridge.py"), "--config", os.environ["WORKBENCH_PROBE_CONFIG"]],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
     lock = threading.Lock()
+    output_lock = threading.Lock()
     pending = {}
+    fault_probe = ProtocolFaultProbe(protocol_faults)
 
     def forward(source, target, direction):
         try:
             for line in source:
+                consumed = None
+                injections = []
                 with lock, trace.open("a", encoding="utf-8") as stream:
                     event = {"direction": direction}
                     try:
-                        event.update(protocol_metadata(json.loads(line), pending))
+                        message = json.loads(line)
+                        if direction == "client_to_server":
+                            consumed = fault_probe.consume(message)
+                            if message.get("method") == "notifications/initialized":
+                                injections = fault_probe.requests()
+                        event.update(consumed if consumed is not None else protocol_metadata(message, pending))
                     except (ValueError, TypeError, AttributeError, KeyError):
                         # Metadata parsing must not filter malformed wire input
                         # or change the real server's response to that input.
                         event = {"direction": direction, "unparsed": True}
                     stream.write(json.dumps(event, ensure_ascii=False) + "\n")
-                target.write(line)
-                target.flush()
+                if consumed is not None:
+                    # These replies belong to the explicit synthetic server
+                    # requests, not to the real workbench server.
+                    continue
+                if protocol_faults and direction == "server_to_client" and "tools" in event:
+                    fault_probe.completed.wait(2)
+                with output_lock if direction == "server_to_client" else nullcontext():
+                    target.write(line)
+                    target.flush()
+                for injection in injections:
+                    with lock, trace.open("a", encoding="utf-8") as stream:
+                        stream.write(json.dumps({"direction": "fixture_to_client", "fixture_request": injection["method"]}) + "\n")
+                    with output_lock:
+                        sys.stdout.buffer.write((json.dumps(injection) + "\n").encode("utf-8"))
+                        sys.stdout.buffer.flush()
         except (BrokenPipeError, OSError):
             pass
         finally:
@@ -147,7 +207,7 @@ def isolated_environment(base):
     return env
 
 
-def run_acceptance(install):
+def run_acceptance(install, protocol_faults=False):
     cli = install / "resources" / "app.asar.unpacked" / "cli" / "bin" / "codebuddy"
     node = shutil.which("node")
     if not cli.is_file() or not node:
@@ -167,7 +227,7 @@ def run_acceptance(install):
             config = read_json(Path(info["config_file"]))
             trace = base / "protocol.jsonl"
             mcp = {"mcpServers": {"workbench_probe": {"type": "stdio", "command": sys.executable,
-                "args": [str(Path(__file__).resolve()), "--relay"], "env": {
+                "args": [str(Path(__file__).resolve()), "--relay", *(["--protocol-faults"] if protocol_faults else [])], "env": {
                     "WORKBENCH_PROBE_TRACE": str(trace), "WORKBENCH_PROBE_CONFIG": info["config_file"]}}}}
             (base / "config" / ".mcp.json").write_text(json.dumps(mcp), encoding="utf-8")
             version = subprocess.run([node, str(cli), "--version"], cwd=cwd, env=env,
@@ -200,12 +260,18 @@ def run_acceptance(install):
             assert initialized and initialized["protocolVersion"] == "2025-11-25", "Client initialize not observed"
             assert any(item.get("method") == "notifications/initialized" for item in requests), "Client initialized notification missing"
             assert inventories and len(inventories[0]) == 12, "Installed client did not discover the full tool catalog"
-            assert not any("error_code" in item for item in events), "Protocol error observed"
+            errors = [item["error_code"] for item in events if "error_code" in item and "fixture_reply" not in item]
+            probe_replies = [item for item in events if "fixture_reply" in item]
+            assert not errors, "Protocol error observed"
+            if protocol_faults:
+                assert {item["fixture_reply"] for item in probe_replies} == {"ping", "unknown_method"}, "Client did not answer injected server requests"
+                assert all(item["valid"] for item in probe_replies), "Client gave an unexpected server-request response"
             return {"cli_version": version, "exit_code": process.returncode, "timed_out": timed_out,
                 "connected": connected, "initialize": initialized,
-                "methods": [item.get("method") for item in requests], "tool_count": len(inventories[0]) if inventories else 0,
+                "methods": [item["method"] for item in requests if "method" in item], "tool_count": len(inventories[0]) if inventories else 0,
                 "server_protocols": [item["protocolVersion"] for item in events if item["direction"] == "server_to_client" and "protocolVersion" in item],
-                "protocol_errors": [item["error_code"] for item in events if "error_code" in item],
+                "protocol_errors": errors, "protocol_faults": protocol_faults,
+                "fixture_replies": probe_replies,
                 "model_turns_started": 0, "real_user_config_changed": False,
                 "write_matrix": "not_run_no_public_direct_tool_call_entry_verified",
                 "ag121_complete": False}
@@ -219,7 +285,7 @@ def run_acceptance(install):
                     workbench.close()
 
 
-def run_session(install):
+def run_session(install, protocol_faults=False):
     """Prepare a disposable desktop project; never launch the real profile.
 
     The user must explicitly accept task/recent-project history in the existing
@@ -242,7 +308,7 @@ def run_session(install):
             info = workbench.security.add_client("WorkBuddy isolated session", ["read", "propose", "commit"],
                 [project["id"]], ["验收知识"], workbench.base_url, kinds=["issue", "todo", "info", "document"])
             mcp = {"mcpServers": {"workbench_probe": {"type": "stdio", "command": sys.executable,
-                "args": [str(Path(__file__).resolve()), "--relay"], "env": {
+                "args": [str(Path(__file__).resolve()), "--relay", *(["--protocol-faults"] if protocol_faults else [])], "env": {
                     "WORKBENCH_PROBE_TRACE": str(base / "protocol.jsonl"), "WORKBENCH_PROBE_CONFIG": info["config_file"]}}}}
             # Documented desktop path plus bundled CLI's project path. These
             # are candidate project files; discovery must be verified live.
@@ -252,6 +318,7 @@ def run_session(install):
             manifest = {"workbench_url": workbench.base_url, "project_id": project["id"],
                 "category": "验收知识", "temporary_workspace": str(cwd), "stop_file": str(base / "STOP"),
                 "desktop_launched": False, "model_turns_started_by_fixture": 0,
+                "protocol_faults": protocol_faults,
                 "requires_user_decision": "Existing desktop profile may persist task/recent-project history; project MCP discovery unverified"}
             (base / "session.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
             print(json.dumps(manifest, ensure_ascii=False, indent=2), flush=True)
@@ -271,11 +338,12 @@ if __name__ == "__main__":
     parser.add_argument("--install-dir", type=Path,
         default=Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "WorkBuddy")
     parser.add_argument("--relay", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--protocol-faults", action="store_true", help="Explicitly inject fixed server ping/unknown requests; no model or business writes")
     parser.add_argument("--desktop-session", action="store_true", help="Prepare temporary project files only; never launch or modify the real desktop profile")
     args = parser.parse_args()
     if args.relay:
-        relay()
+        relay(args.protocol_faults)
     elif args.desktop_session:
-        run_session(args.install_dir)
+        run_session(args.install_dir, args.protocol_faults)
     else:
-        print(json.dumps(run_acceptance(args.install_dir), ensure_ascii=False, indent=2))
+        print(json.dumps(run_acceptance(args.install_dir, args.protocol_faults), ensure_ascii=False, indent=2))

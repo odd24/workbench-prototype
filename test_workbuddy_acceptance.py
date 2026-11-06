@@ -4,10 +4,38 @@ import copy
 import json
 import unittest
 
-from workbuddy_agent_acceptance import protocol_metadata
+from workbuddy_agent_acceptance import ProtocolFaultProbe, protocol_metadata
 
 
 class WorkBuddyMetadataTests(unittest.TestCase):
+    def test_explicit_fault_probe_consumes_only_its_own_replies(self):
+        self.assertEqual(ProtocolFaultProbe().requests(), [])
+        probe = ProtocolFaultProbe(True)
+        messages = probe.requests()
+        self.assertEqual(probe.requests(), [])
+        self.assertEqual([message["method"] for message in messages], ["ping", "workbench/probe_unknown_method"])
+        normal = {"id": "normal-tool", "result": {"content": "PRIVATE"}}
+        self.assertIsNone(probe.consume(normal))
+        self.assertFalse(probe.completed.is_set())
+        ping = probe.consume({"id": messages[0]["id"], "result": {}})
+        unknown = probe.consume({"id": messages[1]["id"], "error": {"code": -32601, "data": "PRIVATE"}})
+        self.assertEqual(ping, {"fixture_reply": "ping", "valid": True})
+        self.assertEqual(unknown, {"fixture_reply": "unknown_method", "valid": True, "error_code": -32601})
+        self.assertTrue(probe.completed.is_set())
+        self.assertNotIn("PRIVATE", json.dumps([ping, unknown]))
+        self.assertIsNone(probe.consume({"id": messages[0]["id"], "result": {}}))
+
+    def test_fault_probe_does_not_treat_unexpected_responses_as_success(self):
+        probe = ProtocolFaultProbe(True)
+        messages = probe.requests()
+        ping = probe.consume({"id": messages[0]["id"], "result": {"unexpected": True}})
+        unknown = probe.consume({"id": messages[1]["id"], "error": "PRIVATE"})
+        self.assertFalse(ping["valid"])
+        self.assertFalse(unknown["valid"])
+        another = ProtocolFaultProbe(True)
+        invalid_code = another.requests()[1]["id"]
+        self.assertFalse(another.consume({"id": invalid_code, "error": {"code": -32601.0}})["valid"])
+
     def test_interleaved_outcomes_exclude_secrets_and_business_content(self):
         pending = {}
         messages = [

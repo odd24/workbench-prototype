@@ -21,6 +21,16 @@ python workbuddy_agent_acceptance.py
 
 2026-11-06实际结果：CLI2.103.3、退出0、Connected、MCP2025-11-25、initialize→notifications/initialized→tools/list、12工具、无协议错误、model_turns_started=0、real_user_config_changed=false。CLI initialize中的clientInfo.name=workbench_probe来自登记名称，不作为客户端厂商或身份认证依据。临时凭据在清理前撤销；Windows Job关闭回收本次客户端后代，临时目录清理失败会报错。
 
+### 显式协议故障模式
+
+```powershell
+python workbuddy_agent_acceptance.py --protocol-faults
+```
+
+默认中继不注入消息；仅显式模式在initialized之后发送固定服务端ping及workbench/probe_unknown_method请求，并单独标注fixture_request/fixture_reply。只消费这两条合成服务端请求的客户端回复，其余消息仍逐字节转发；不构造客户端调用或业务响应。工具目录响应最多等待2秒供客户端回复，进程整体超时和回收规则不变。探针期待ping空结果、未知方法-32601，依据[MCP2025-11-25 ping规范](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping)及[JSON-RPC错误定义](https://www.jsonrpc.org/specification)。合成消息不能描述为工作台业务服务实际发起的请求。
+
+2026-11-06原装CLI2.103.3显式模式实际通过：两项fixture_reply均valid=true，未知方法-32601、ping空结果、连接/12工具及退出0，无模型turn或正式配置修改。默认模式重跑通过且fixture_replies为空。新增2项专项验证仅消费探针自身回复、异常回复不算成功、不记录业务内容；此前3项元数据安全检查保留。CLI结果不外推桌面；桌面须在仅此临时连接器的已展示完整项中给--relay追加--protocol-faults并手工重连，再读取实际回复，不自动修改用户配置。
+
 尚未核实公开无模型直接工具调用入口。原装CLI公开mcp子命令仅登记/移除/列表/详情；不能因其内部打包了MCP SDK就抽出SDK冒充真实客户端。用户已表示有可用于隔离测试的账号/额度；下一步准备独立会话并由用户完成认证，账号/令牌不能贴入聊天或复制正式配置。若需要模型行为测试，单独记录实际模型/消费边界和用户新确认，不能把程序夹具声明当成人类确认。
 
 [官方WorkBuddy MCP指南](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/MCP-Guide)描述桌面用户级~/.workbuddy/mcp.json、项目级.workbuddy/mcp.json；本次附带CLI的安装文档则描述CODEBUDDY_CONFIG_DIR下.mcp.json。两者须区分，不能把CLI临时目录写入桌面正式配置。桌面入口会登记系统协议，登录回调的隔离仍需核实，尚未启动第二个桌面实例。

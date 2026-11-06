@@ -182,3 +182,5 @@ AI Agent 接入页的“提案管理”可查看当前空间所有客户端提�
 ### AG-120 网页独立批准
 
 管理客户端最低确认方式可选本机网页；旧配置不变。CLI新建可用 --agent-confirmation-mode local_web。Agent prepare_proposal 可请求confirmation_mode=local_web，不能降低客户端最低策略。此类提案的MCP commit返回confirmation_required，需要本机提案管理完整预览后批准。网页操作者仅代表持有本机会话，不宣称现实身份认证。
+
+非Codex当前未验证；隔离配置契约、逐项验收与解除条件见[客户端兼容矩阵](AGENT_CLIENT_COMPATIBILITY.md)，不能将Codex结果外推。

@@ -128,3 +128,5 @@ Agent 提案/提交故障的恢复步骤、运行中清理和本机接受磁盘�
 新增python -m unittest -v test_agent_web_approval，涵盖四类型三操作、独立票据、撤销/收窄/策略变化、幂等/并发和真实进程正文写后退出。node test_agent_proposal_workflows.js覆盖网页批准及响应丢失刷新查询；真实Codex脚本涵盖local_web拒绝自报和本机批准后同回执查询。
 
 停服备份同时保留.agent/proposal-actions批准证据和operations事务；不能删批准日志绕过。只有批准记录而无manifest不会自动补写。prepared未尝试应用时需要匹配私人授权才能恢复，恢复CLI通过--agent-config-dir装配该授权；缺失/不匹配时保留并报告，启动同空间/私人凭据环境核查；撤销后停止未应用写入，已进入应用按磁盘事实完成必要回执。仍可使用原report/abandon接受磁盘，不删除日志。
+
+AG-121尚缺真实非Codex客户端，恢复入口与未运行矩阵见[客户端兼容矩阵](AGENT_CLIENT_COMPATIBILITY.md)。文档准备不等于互操作通过。

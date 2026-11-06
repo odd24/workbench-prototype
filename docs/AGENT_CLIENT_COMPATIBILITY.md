@@ -7,7 +7,7 @@
 | 客户端 | 精确版本/传输 | 状态 | 证据与限制 |
 | --- | --- | --- | --- |
 | Codex CLI | 0.163.0-alpha.10.2 / stdio MCP 2025-11-25 | 已实测 | python codex_agent_acceptance.py；12工具、四类型、两确认路径、重启/撤销；无模型turn，不计为非Codex验收 |
-| WorkBuddy桌面 | 5.1.5 / 本机stdio | 未运行桌面任务 | 已只读核实安装版本；桌面登录、任务与写入矩阵未验收 |
+| WorkBuddy桌面 | 5.1.5 / 拟接本机stdio | 第一轮未通过：工具未加载 | 用户详细报告未执行capabilities/list_projects/catalog；桥接未观察到initialize，写入/故障矩阵未运行 |
 | WorkBuddy附带的原装CodeBuddy CLI | 2.103.3 / stdio MCP2025-11-25 | 连接与工具发现通过 | python workbuddy_agent_acceptance.py；真实initialize/initialized/tools/list、12工具、Connected；无模型turn，写入/故障矩阵未运行 |
 | 远程 OAuth/Streamable HTTP 客户端 | 当前范围取消 | 未验证 | 用户仅单机使用；本机stdio结果不能外推 |
 
@@ -36,6 +36,10 @@ python workbuddy_agent_acceptance.py --desktop-session
 用户2026-11-06明确允许此次例外：在已有WorkBuddy桌面打开该临时项目，由用户手动最多8轮；桌面可能保留任务/最近项目记录，其他正式配置和登录资料不得读取或修改。不将该例外扩大到自动模型调用、正式数据或全局MCP登记。账号额度不等于独立CLI API Key。
 
 第一轮只读capabilities/list_projects/四类型catalog，报告空间与授权，工具未加载直接报告，不修改全局配置。随后依下表逐项执行四类型三操作、两确认路径和故障；agent_attested需展示完整预览后等用户在客户端新消息确认，local_web需临时网页独立批准。每轮保留真实工具/持久化证据；8轮不足则如实记录，不超出用户允许的手动范围。
+
+桌面第一轮实际未通过：用户详细报告工具未加载，连接器无已启用workbench_probe；临时服务仍可读，但桥接没有initialize。此前简短“已调用”答复由该详细报告纠正。本次资源count=0本身不能判断失败，因为工作台仅提供tools。候选项目文件存在不等于桌面已登记。已用1轮手动任务，最多剩余7轮。
+
+下一候选是由用户在桌面连接器中仅新增并启用临时workbench_probe，完整新项在本任务TEMP下WORKBUDDY_MCP_REVIEW.json审查；只指向临时库和凭据，不含令牌正文、不替换其他条目，同名差异先停。**尚未获全局登记例外授权，未执行该操作**；不得把原项目测试授权扩大为全局配置修改。结束需撤销临时凭据并仅移除本次条目，保留任务历史例外的原边界。
 
 曾尝试原装CLI --serve本机Web UI：HTTP健康检查通过，但用户确认没有登录/模型配置入口，安装内iam.md要求API Key或OAuth token。不能用桌面账号额度直接登录该空白UI；已停止并清理该临时会话，删除误导性的--session入口，不要求用户另办API Key。浏览器自动化被本次Work设置禁用，没有把HTTP检查记作UI通过。
 

@@ -83,3 +83,5 @@ AG-126本机交付审计独立提交使用标题 Record local extension acceptan
 本轮全量初次226项因Windows后代管道/cwd清理失败；验收脚本改用共享Job回收并新增父先退出场景，最终227项通过，启动专项5项通过。真实Codex、WorkBuddy原装CLI连接和生命周期演练重跑通过；60Python/45JS语法、28Markdown编码/围栏/相对链接及diff检查通过。应用运行时未改，19Node/真实浏览器结果沿用前文已运行记录，本次没有重跑或伪称新的UI通过。桌面项目夹具的HTTP/配置生成/STOP撤销清理通过不等于桌面接入完成。
 
 当前本地提交标题Probe WorkBuddy MCP in isolated test projects；保留初期失败目录清理被自动审批拒绝的事实及本机解除入口于台账。
+
+WorkBuddy桌面第一轮详细回报已收到：工具未加载、连接器未启用，未执行capabilities/list_projects/catalog。临时服务正常但无桌面initialize记录，记未通过；此前简短“已调用”不计通过。资源count=0与tools能力独立。临时项目配置路径未生效，已准备完整临时连接器新项供审查；新增全局条目不在原项目例外授权内，尚未执行。AG-121/126均未完成，剩余手动轮次最多7轮。

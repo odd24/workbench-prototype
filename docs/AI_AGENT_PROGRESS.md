@@ -651,3 +651,13 @@
 - 报告沿用prepare返回的draft描述；当前磁盘与实际preview调用证明四份均previewed，不将客户端该静态描述当作当前服务状态。下一轮安排用户在完整更新预览之后手动发送新的明确确认，提交4份update；随后准备四类型local_web append，既补齐知识库append，又验证独立网页批准（不额外创建一批无关正式条目）。客户端自报提交仅作为预期拒绝的负向测试，正式落盘须网页操作者批准；具体仍由真实客户端/网页执行，不由开发夹具代替。
 
 - 本次实际检查：三份文档UTF-8/围栏/相对链接与目标diff复核、git diff --check后提交，标题Record WorkBuddy writes and pending confirmation evidence；仅文档，不新增声称全量或UI结果，不夹带临时状态/凭据。
+
+### 2026-11-06 / AG-121 / 四类型更新落盘与网页批准前置
+
+- 本轮开始前工作区干净。用户对“确认4份update，再准备4份local_web追加”的指定任务明确回复已发送、正在执行；此前已核实4份update完整展示。真实桌面随后查询4份原update并提交，四类型v1均committed，工具响应均非错误，回执从8增至12。本轮具备用户所述的新消息确认与实际往返证据，不补推此前未核实的历史确认。
+- 逐份重读四类型update正式Markdown，SHA256匹配回执revision，正文及开放元数据与候选一致，末尾更新验收文本保留；INFO-0001的6项info_fields等于原字段完全逆序、值/备注保留，全部通过。
+- 随后真实客户端生成四类型local_web/append v1，均previewed；四次客户端自报确认commit均tool_is_error=true。四份提案approval/receipt均空，持久回执仍12，尚无网页批准。错误码和客户端完整展示已请求用户报告，不能仅从isError推断confirmation_required。
+- 精确范围仅同步台账/兼容矩阵/扩展验收，文档与diff检查后提交。下一入口为用户核实拒绝错误码，并在临时网页“设置→AI Agent接入→提案管理”逐份重新读取完整预览后独立批准；开发夹具不发管理批准请求。知识库append尚未落盘，local_web正向和其余故障矩阵仍未通过。
+
+- 用户确认4份local_web完整预览均已展示、4次均confirmation_required，并提供客户端错误表：message为“此提案需要在本机提案管理中独立批准”，retryable=false，无成功item_id/revision；客户端报告未重试、未重建。该报告与4次工具isError、4份空批准/回执和仍12份正式回执一致，四类型自报绕过拒绝通过。
+- 已给出临时网页独立操作步骤并请求实际结果；原夹具句柄仍运行，页面HTTP200，当前proposal-actions为0，4份local_web仍previewed。未通过管理API代替用户批准。本次三文件文档编码/围栏/链接与目标diff检查后提交，标题Verify WorkBuddy updates and independent approval rejection；网页正向仍待真实操作，不标本项完成。

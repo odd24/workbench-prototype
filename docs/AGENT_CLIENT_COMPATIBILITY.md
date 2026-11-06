@@ -7,7 +7,7 @@
 | 客户端 | 精确版本/传输 | 状态 | 证据与限制 |
 | --- | --- | --- | --- |
 | Codex CLI | 0.163.0-alpha.10.2 / stdio MCP 2025-11-25 | 已实测 | python codex_agent_acceptance.py；12工具、四类型、两确认路径、重启/撤销；无模型turn，不计为非Codex验收 |
-| WorkBuddy桌面 | 5.1.5 / 拟接本机stdio | 第一轮未通过：工具未加载 | 用户详细报告未执行capabilities/list_projects/catalog；桥接未观察到initialize，写入/故障矩阵未运行 |
+| WorkBuddy桌面 | 5.1.5 / stdio MCP2025-11-25 | 临时连接器握手/12工具及部分真实调用已验证 | 首轮工具未加载；手工新增临时连接器后实际53次工具调用，4份create回执（issue/todo/info×2）；完整预览展示与用户确认过程待回报，其他矩阵未完成 |
 | WorkBuddy附带的原装CodeBuddy CLI | 2.103.3 / stdio MCP2025-11-25 | 连接与工具发现通过 | python workbuddy_agent_acceptance.py；真实initialize/initialized/tools/list、12工具、Connected；无模型turn，写入/故障矩阵未运行 |
 | 远程 OAuth/Streamable HTTP 客户端 | 当前范围取消 | 未验证 | 用户仅单机使用；本机stdio结果不能外推 |
 
@@ -39,13 +39,17 @@ python workbuddy_agent_acceptance.py --desktop-session
 
 桌面第一轮实际未通过：用户详细报告工具未加载，连接器无已启用workbench_probe；临时服务仍可读，但桥接没有initialize。此前简短“已调用”答复由该详细报告纠正。本次资源count=0本身不能判断失败，因为工作台仅提供tools。候选项目文件存在不等于桌面已登记。已用1轮手动任务，最多剩余7轮。
 
-下一候选是由用户在桌面连接器中仅新增并启用临时workbench_probe，完整新项在本任务TEMP下WORKBUDDY_MCP_REVIEW.json审查；只指向临时库和凭据，不含令牌正文、不替换其他条目，同名差异先停。**尚未获全局登记例外授权，未执行该操作**；不得把原项目测试授权扩大为全局配置修改。结束需撤销临时凭据并仅移除本次条目，保留任务历史例外的原边界。
+下一候选是由用户在桌面连接器中仅新增并启用临时workbench_probe，完整新项在本任务TEMP下WORKBUDDY_MCP_REVIEW.json审查；只指向临时库和凭据，不含令牌正文、不替换其他条目，同名差异先停。用户随后明确允许新增该临时连接器，已给出仅合并新条目和同名差异保留的操作步骤；授权当时登记/连接仍待实际证据，后续实际结果见下文。该授权仅限所展示的临时项，不扩展为读取认证、覆盖其他配置或自动模型调用。结束需撤销临时凭据并仅移除本次条目，保留任务历史例外的原边界。
 
 曾尝试原装CLI --serve本机Web UI：HTTP健康检查通过，但用户确认没有登录/模型配置入口，安装内iam.md要求API Key或OAuth token。不能用桌面账号额度直接登录该空白UI；已停止并清理该临时会话，删除误导性的--session入口，不要求用户另办API Key。浏览器自动化被本次Work设置禁用，没有把HTTP检查记作UI通过。
 
 停止：在输出stop_file位置创建空文件，或启动终端Ctrl+C；最多保留2小时。退出撤销测试凭据、关闭临时工作台并清理本次目录；若桌面仍持有项目目录，先由用户关闭该任务。认证/日志/配置不进Git，未完成会话不生成通过回执。
 
 ## 3. 隔离配置契约
+
+桌面后续实际证据：用户报告连接成功并已开始发送任务；透明中继观察到clientInfo.name=connector:custom-mcp:workbench_probe、version=1.0.0、initialize/initialized、12工具目录及ping响应。一次快照共53次tools/call：capabilities×5、list_projects×5、get_catalog×12、search×13、prepare×6、preview×4、commit×4、get_item×2、list_proposals×1、get_proposal×1；另有一次notifications/cancelled。工具名元数据不含参数/业务响应，不能独立证明四类型目录、错误处理或取消语义通过。
+
+临时磁盘复核4份提案均为create、version=previewed_version=1、agent_attested、committed，有对应持久回执及正式Markdown：ISSUE-0001、TODO-0001、INFO-0001、INFO-0002；无知识库文件。未记录到JSON-RPC error_code，但中继没有记录工具isError，不能据此宣称所有调用成功。没有读取真实客户端任务历史或认证；完整预览是否向用户展示、提交前是否有后续新消息确认、实际任务轮数待用户反馈。agent_attested回执本身不证明人类确认。尚未安排额外模型任务。
 
 工作台启动使用全新临时数据和私人凭据根，监听127.0.0.1及动态端口。客户端使用临时配置/缓存/工作目录；登记仅使用程序和args数组，不复制真实用户配置。显式授权四类型及测试项目/分类，并保留另一个不授权todo/info的旧凭据作为拒绝对照。
 

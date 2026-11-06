@@ -112,3 +112,5 @@ ProposalManagement 复用 ProposalStore 的只读完整预览构造与取消状�
 客户端 minimum_confirmation_mode 缺省 agent_attested；提案记录不可自动降低的有效 confirmation_mode。策略收紧将未终结旧提案升级版本、清空旧摘要并要求重新预览。管理预览生成仅内存10分钟票据，绑定会话/空间/版本/摘要/策略/授权版本；MCP不返回票据。
 
 网页批准在共享业务锁及凭据跨进程锁内重查权限、目标revision、配置和归一化，复用 AgentService.prepare_submission 与 ProposalStore.commit。持久批准记录先于事务准备；事务恢复核查批准关联，未应用时重查撤销/范围，已进入应用按磁盘事实完成原回执。凭据锁同线程可重入，覆盖恢复核查至应用，不把单文件替换宣称多文件事务。
+
+当前AG-116～120本机扩展已验收；独立远程适配器尚未实现。可用边界/外部缺口/恢复入口见[扩展验收](AI_AGENT_EXTENSION_ACCEPTANCE.md)，不能把远程候选架构当成代码事实。

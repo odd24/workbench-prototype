@@ -1,0 +1,73 @@
+# AI Agent 扩展验收记录
+
+日期：2026-11-06。当前应用版本：2026.11.06.5。依据[扩展方案](AI_AGENT_EXTENSION_PLAN.md)和[实施台账](AI_AGENT_PROGRESS.md)。**本机AG-116～120已完成；整个AG-116～126方案未完成，外部真实验收门槛受阻。** 不能把本文的本机通过结果当作非Codex或远程互操作证明。
+
+## 1. 工作项逐项状态
+
+| 工作项 | 状态 | 已有交付/证据 | 尚缺内容 |
+| --- | --- | --- | --- |
+| AG-116 | 已完成 | 显式kinds授权、能力协商、旧凭据和schema1摘要兼容、新schema2 | 无本项未验收内容 |
+| AG-117 | 已完成 | todo查询/三操作、日期/工作流、恢复和深链接、真实Codex/浏览器 | 无本项未验收内容 |
+| AG-118 | 已完成 | info无状态、有序多行字段/空格/边界/恢复、保存重开 | 无本项未验收内容 |
+| AG-119 | 已完成 | 本机管理分页/筛选/完整预览/取消/回执，真实浏览器 | 无本项未验收内容 |
+| AG-120 | 已完成 | local_web独立批准、票据/策略/授权/幂等恢复，真实进程/CLI/Codex/浏览器 | 无本项未验收内容 |
+| AG-121 | 受阻 | [兼容矩阵和隔离步骤](AGENT_CLIENT_COMPATIBILITY.md)已准备 | 可用真实非Codex客户端、精确版本与直接工具调用证据 |
+| AG-122 | 受阻 | [官方规范核查、候选拓扑与威胁模型](AGENT_REMOTE_DESIGN.md)已准备 | 目标网络/origin、TLS/代理、IdP/内省/撤销及真实客户端可行性 |
+| AG-123 | 受阻（未开工） | 授权已具备，设计门槛未过 | AG-122真实门槛通过后实施身份映射/网络入口 |
+| AG-124 | 受阻（未开工） | 依赖链已记录 | AG-123后实施并验证远程协议/流/会话 |
+| AG-125 | 受阻（未开工） | 真实拓扑矩阵已列入远程设计 | AG-121/124完成及真实TLS/IdP/客户端拓扑演练 |
+| AG-126 | 受阻（本机部分已验证） | 全量本机门禁、隔离生命周期、文档/提交审计 | AG-121～125完成后的全扩展兼容/远程停用/最终交付 |
+
+AG-123～125的“受阻”只说明前置条件缺失，没有启动实现，也没有把代码写完等同验收。
+
+## 2. 实际功能与兼容影响
+
+- 四类型issue/document/todo/info复用原领域仓储、历史、Markdown和写入协调；未增加运行时第三方库/构建链，不新增命令执行、删除或通用代理工具。
+- kinds缺失仍仅issue/document；项目通配不扩张到新类型。轮换/分类迁移/旧编辑请求保留类型和最低确认策略。引用、搜索和提案访问继续受有效授权交集限制。
+- 旧schema1提案保持原摘要；新schema2摘要包含确认策略。旧策略收紧产生新版本，不能用旧预览确认；未知版本保留证据、拒绝不安全写入/清理/放弃。
+- todo截止日期新值为有效YYYY-MM-DD/null，省略保留旧值；completed按工作流推导。旧转换保留ISSUE编号的todo可读写/恢复，但不生成会被严格TODO链接拒绝的地址，仍从项目页打开。
+- info字段保持顺序、多行、引号、value/note首尾空格；共享归一化扩为200项/名称200字符。Agent单项value/note各64KiB，正文与字段合计256KiB；超限拒绝，不悄悄截断旧读取。原颜色、附件、links不被Agent覆盖。
+- 管理页复用本机同源短期会话，跨客户端查阅/筛选/完整预览/取消，正文清理明确提示。Agent凭据不能访问管理路由。
+- local_web需要独立网页批准，10分钟票据只在进程/页面内存。批准先持久记录再调用同一事务；MCP自报确认不能绕过。sessionStorage只记请求/提案ID，丢响应查原操作；不证明现实身份或模型遵规。
+- 业务Markdown无批量迁移，旧数据、旧凭据默认权限、旧对话确认和12工具名继续兼容；APP_VERSION和受影响资源缓存已同步。
+
+## 3. 自动门禁与真实验收
+
+| 检查 | 实际结果 | 覆盖范围/限制 |
+| --- | --- | --- |
+| python -m unittest -v | 最终226项通过 | 仓储/HTTP/授权/schema/并发/幂等/恢复/管理/协议/安全；新增批准专项13项 |
+| 全部test*.js | 19个契约通过 | 包含真实Edge设置/提案/四类型业务/两编辑器/概念图等 |
+| Python/JS全文件语法 | 通过；AG-120时57Python/45JS，AG-126新增生命周期脚本另编译 | 没有把语法检查当成功能验收 |
+| Markdown编码/围栏/相对链接、git diff --check | 通过 | 文档与目标diff，不含机器路径/业务数据/截图 |
+| python codex_agent_acceptance.py | 通过 | codex-cli0.163.0-alpha.10.2、MCP2025-11-25、12工具、四类型、两确认路径；无模型turn/用户配置修改 |
+| node test_agent_proposal_workflows.js | 通过 | 空空间/25项分页/筛选/多行完整预览、取消、旧版本/会话拒绝、网页批准和丢响应刷新查回执 |
+| node test_agent_settings.js | 通过 | 显式类型/minimum local_web保存、授权/轮换/撤销/丢响应和设置回归 |
+| node test_agent_workflows.js | 通过 | 四类型深链接/刷新/保存重开、info字段顺序空格与草稿恢复、Agent/UI冲突/在途输入 |
+| node test_editor_workflows.js | 通过 | 记录/知识库保存失败重试、关闭/切页/重开/刷新草稿、历史/外部冲突 |
+| python extension_lifecycle_acceptance.py | 通过 | 四类型×两方式8条，关闭Agent普通HTTP仍可读、停服完整备份/批准回执恢复、便携ZIP CRC/排除接入状态/新身份 |
+| 非Codex客户端 | 未运行 | 用户暂无目标客户端；不把协议单测或Codex算作替代 |
+| 远程TLS/IdP/真实客户端、远程停用 | 未运行 | 未具备AG-122门槛，远程实现未启动 |
+
+真实Edge已覆盖浅/深主题×1440/390宽度，长中文/空库/大量提案与范围、focus/disabled/error；代表截图目视检查，只留临时目录。所有写入/故障注入/客户端/备份均临时数据与私人配置，未操作真实workbench-data或真实客户端配置。
+
+失败与纠正没有隐去：AG-118编辑器行为通过后清理临时Edge目录EPERM导致命令失败，增加正常Browser.close后重跑通过；AG-120一轮全量223项中既有Windows后代管道清理失败，专项和最终226项重跑通过；新提案浏览器初次未等待应用装配导致导航干扰，修正等待后通过；生命周期脚本最初未创建临时文档分类，按正常领域前置创建后通过。这些失败轮次未写成成功。
+
+性能脚本和视觉基线全量在本轮未重新运行，本文不复用首期性能数字声称扩展性能达标；本轮实际字段大小边界和真实UI矩阵已运行。远程性能/网络资源上限必须在真实拓扑重新校准。
+
+## 4. 本地提交和恢复入口
+
+| 提交 | 工作项 | 内容 |
+| --- | --- | --- |
+| 0953a07 | AG-116 | Add explicit Agent type authorization |
+| f9f9568 | AG-117 | Enable scoped Agent todo workflows |
+| db77326 | AG-118 | Enable lossless Agent info workflows |
+| 42d5f48 | AG-119 | Add local Agent proposal management |
+| eed7c2a | AG-120 | Enforce independent local web proposal approval |
+| 3e348f8 | AG-121准备 | Prepare real non-Codex compatibility acceptance；工作项仍受阻 |
+| 87f2d84 | AG-122准备 | Document remote MCP design gates and threats；工作项仍受阻 |
+
+AG-126本机交付审计独立提交使用标题 Record local extension acceptance and external gates，哈希由git log查询。没有重写用户提交，没有提交真实数据、秘密、缓存、日志或截图。
+
+继续入口：先按[兼容矩阵](AGENT_CLIENT_COMPATIBILITY.md)提供真实非Codex版本/隔离调用设施；远程按[设计门槛](AGENT_REMOTE_DESIGN.md)确定实际网络/证书代理/IdP/资源受众并验证发行/内省/撤销。已有开发授权持续有效，外部条件满足后从台账受阻项继续；新增付费/账号/依赖需审查具体选择。
+
+本机剩余边界：外部编辑器不遵守进程锁、底层文件系统崩溃边界以及旧无revision调用的限制仍保留；网页批准不抵御已控制本机用户环境的进程。降级前解决未决日志，停服备份业务目录与私人状态，不删除.agent或批准日志绕过。

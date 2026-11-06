@@ -132,3 +132,5 @@ Agent 提案/提交故障的恢复步骤、运行中清理和本机接受磁盘�
 AG-121尚缺真实非Codex客户端，恢复入口与未运行矩阵见[客户端兼容矩阵](AGENT_CLIENT_COMPATIBILITY.md)。文档准备不等于互操作通过。
 
 远程默认未提供实现；候选部署边界、威胁模型和恢复/停用验收见[AG-122设计准备](AGENT_REMOTE_DESIGN.md)。未经真实IdP/TLS/客户端验证不得标远程可用，不应直接公网化本机工作台。
+
+显式隔离生命周期演练：python extension_lifecycle_acceptance.py，验证四类型两确认路径、关闭Agent普通读取、停服完整备份/批准回执恢复、便携ZIP CRC/接入排除/新身份。仅使用TemporaryDirectory，不启动模型或修改用户配置。[扩展验收](AI_AGENT_EXTENSION_ACCEPTANCE.md)区分本机通过与非Codex/远程未验证。

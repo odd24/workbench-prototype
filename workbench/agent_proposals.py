@@ -177,7 +177,9 @@ class ProposalStore:
         if kind == "document":
             valid = len(parts) == 2 and parts[0] == "documents"
         else:
-            valid = kind == "issue" and len(parts) == 4 and parts[0] == "projects" and parts[2] == "issues"
+            valid = kind in {"issue", "todo"} and len(parts) == 4 and parts[0] == "projects" and parts[2] == {"issue": "issues", "todo": "todos"}[kind]
+            if kind == "todo" and not re.fullmatch(r"(?:TODO|ISSUE)-\d+" if manifest.get("before_digest") else r"TODO-\d+", manifest["item_id"]):
+                valid = False
         if not valid or not target.name.startswith(manifest["item_id"] + "-") or target.suffix != ".md":
             raise ValueError("事务目标类型无效")
         return target
@@ -214,6 +216,8 @@ class ProposalStore:
                    "title": proposal["normalized_content"]["title"], "project_id": proposal["normalized_content"].get("project_id"),
                    "category": proposal["normalized_content"].get("category"),
                    "web_path": "/?" + urlencode({"item": proposal["kind"], "itemId": prepared.item_id})}
+        if proposal["kind"] == "todo" and not prepared.item_id.startswith("TODO-"):
+            receipt["web_path"] = None  # Converted legacy IDs remain readable via the record UI.
         manifest = {"schema_version": proposal["schema_version"], "workspace_id": self.workspace_id, "operation_id": operation_id,
                     "proposal_id": proposal["proposal_id"], "version": version, "kind": proposal["kind"],
                     "item_id": prepared.item_id, "relative_path": prepared.path.relative_to(self.repository.root).as_posix(),
@@ -296,7 +300,7 @@ class ProposalStore:
                 if meta.get("id") != manifest["item_id"] or meta.get("type") != manifest["kind"]:
                     raise ValueError("事务快照身份无效")
                 # Parent removal (e.g. project moved externally) cannot resurrect a project.
-                if manifest["kind"] == "issue" and not self.repository.project(meta.get("project_id")):
+                if manifest["kind"] != "document" and not self.repository.project(meta.get("project_id")):
                     raise ValueError("事务所属项目不存在")
                 manifest["state"] = "applying"
                 atomic_write_json(manifest_path, manifest)

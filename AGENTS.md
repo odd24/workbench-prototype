@@ -13,7 +13,7 @@
 AI Agent 功能文档（实现事实以台账与验收记录为准）：
 
 - 实施方案：[docs/AI_AGENT_PLAN.md](docs/AI_AGENT_PLAN.md)
-- 后续扩展方案：[docs/AI_AGENT_EXTENSION_PLAN.md](docs/AI_AGENT_EXTENSION_PLAN.md)（AG-116～126 待实施；状态以台账为准）
+- 后续扩展方案：[docs/AI_AGENT_EXTENSION_PLAN.md](docs/AI_AGENT_EXTENSION_PLAN.md)（AG-116 起逐项实施；状态以台账为准）
 - 接入管理 UI 方案：[docs/AGENT_SETTINGS_PLAN.md](docs/AGENT_SETTINGS_PLAN.md)（实现状态以台账为准）
 - 实施台账：[docs/AI_AGENT_PROGRESS.md](docs/AI_AGENT_PROGRESS.md)
 - 接入与使用：[docs/AGENT_INTEGRATION.md](docs/AGENT_INTEGRATION.md)、[docs/AGENT_USAGE.md](docs/AGENT_USAGE.md)

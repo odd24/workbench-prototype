@@ -64,7 +64,9 @@ def dispatch(handler):
         def display_links(value):
             if isinstance(value.get("receipt"), dict):
                 value = {**value, "receipt": display_links(value["receipt"])}
-            if value.get("proposal_id") and value.get("item_id") and value.get("kind") in {"issue", "document"}:
+            if value.get("proposal_id") and value.get("item_id") and value.get("kind") in {"issue", "document", "todo"}:
+                if value["kind"] == "todo" and not value["item_id"].startswith("TODO-"):
+                    return {**value, "web_path": None, "web_url": None}
                 path = "/?" + urlencode({"item": value["kind"], "itemId": value["item_id"]})
                 return {**value, "web_path": path, "web_url": "http://" + handler.headers["Host"] + path}
             return value

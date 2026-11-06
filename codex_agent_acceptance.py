@@ -147,7 +147,7 @@ def run_acceptance(codex=None):
         try:
             project = workbench.repository.create_project({"name": "Codex 接入验收"})
             workbench.repository.ensure_document_category("验收知识")
-            info = workbench.security.add_client("Codex 临时验收", ["read", "propose", "commit"], [project["id"]], ["验收知识"], workbench.base_url)
+            info = workbench.security.add_client("Codex 临时验收", ["read", "propose", "commit"], [project["id"]], ["验收知识"], workbench.base_url, kinds=["issue", "document", "todo"])
             client_config = Path(info["config_file"])
             codex_home = base / "isolated-codex"
             codex_home.mkdir()
@@ -193,9 +193,9 @@ def run_acceptance(codex=None):
             assert call("list_projects")["items"][0]["id"] == project["id"]
             call("get_catalog", {"project_id": project["id"]})
             receipts = []
-            for kind in ("issue", "document"):
+            for kind in ("issue", "document", "todo"):
                 content = {"title": "Codex 客户端验收 " + kind, "body": "## 已验证事实\n\n临时测试，不含真实工作资料。\n\n```sh\necho 'test only'\n```"}
-                content.update({"project_id": project["id"]} if kind == "issue" else {"category": "验收知识"})
+                content.update({"project_id": project["id"]} if kind != "document" else {"category": "验收知识"})
                 proposal = call("prepare_proposal", {"request_id": "codex-create-" + kind, "kind": kind, "operation": "create", "content": content})
                 preview = call("preview_proposal", {"proposal_id": proposal["proposal_id"]})
                 assert preview["content"]["body"] == content["body"]
@@ -221,7 +221,7 @@ def run_acceptance(codex=None):
             call("preview_proposal", {"proposal_id": cancelled["proposal_id"]})
             assert call("cancel_proposal", {"proposal_id": cancelled["proposal_id"], "expected_version": 1})["state"] == "cancelled"
             call("list_proposals")
-            assert len(call("search")["items"]) == 2
+            assert len(call("search")["items"]) == 3
             workbench.close()
             workbench = LocalWorkbench(data, credentials)
             private_write(client_config, {**read_json(client_config), "base_url": workbench.base_url})

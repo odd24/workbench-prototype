@@ -21,14 +21,14 @@ def obj(properties=None, required=()):
 
 
 TEXT = {"type": "string"}
-KIND = {"type": "string", "enum": ["issue", "document"]}
+KIND = {"type": "string", "enum": ["issue", "document", "todo"]}
 VERSION = {"type": "integer", "minimum": 1}
 HASH = {"type": "string", "pattern": "^[a-f0-9]{64}$"}
 PROPOSAL_ID = {"type": "string", "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$"}
 PAGINATION = {"cursor": {"type": "string", "pattern": "^[0-9]+$"}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}}
 CONTENT = obj({"title": {"type": "string", "maxLength": 200}, "body": {"type": "string", "maxLength": 262144},
                "tags": {"type": "array", "items": TEXT, "maxItems": 100}, "project_id": TEXT,
-               "status": TEXT, "priority": TEXT, "category": TEXT})
+               "status": TEXT, "priority": TEXT, "due": {"type": ["string", "null"]}, "category": TEXT})
 CONFIRMATION = obj({"mode": {"type": "string", "enum": ["agent_attested"]},
                     "user_confirmed": {"type": "boolean", "const": True}, "note": {"type": "string", "maxLength": 1000}}, ["mode", "user_confirmed"])
 
@@ -61,6 +61,12 @@ def validate(value, schema):
     """Validate only the schema vocabulary explicitly used by our declarations."""
     kind = schema.get("type")
     types = {"object": dict, "array": list, "string": str, "integer": int, "boolean": bool}
+    if isinstance(kind, list):
+        if value is None and "null" in kind:
+            return
+        if isinstance(value, str) and "string" in kind:
+            return validate(value, {**schema, "type": "string"})
+        raise ValueError("参数类型无效")
     if kind in types and type(value) is not types[kind]:
         raise ValueError("参数类型无效")
     if "enum" in schema and value not in schema["enum"]:

@@ -47,4 +47,8 @@ Agent 使用已得到的真实问题 ID 构造 [[ID]] 引用，准备知识文�
 
 ### 类型与能力协商（AG-116）
 
-每次先读 capabilities：kinds 表示当前可用且已授权的类型，authorized_kinds 表示授权白名单，kind_operations/kind_fields 表示各类型操作与字段。confirmation_modes/default_confirmation_mode 增加可协商表达，旧 confirmation_mode 保留 agent_attested。本阶段不支持 local_web；不把未开放的 todo/info 作为可写类型。catalog 可带 kind，省略保持 issue 工作流语义。引用也受类型授权，不能引用未授权类型。
+每次先读 capabilities：kinds 表示当前可用且已授权的类型，authorized_kinds 表示授权白名单，kind_operations/kind_fields 表示各类型操作与字段。confirmation_modes/default_confirmation_mode 增加可协商表达，旧 confirmation_mode 保留 agent_attested。本阶段不支持 local_web；AG-117 起 todo 可写，info 仍不可写。catalog 可带 kind，省略保持 issue 工作流语义。引用也受类型授权，不能引用未授权类型。
+
+### AG-117 待办流程
+
+读取 kind=todo 的工作流和目标 revision 后创建提案；预览包含状态、优先级、到期日及推导 completed。更新省略的字段保留，清空到期日显式传 null；不要直接写 completed 或迁移项目。append 仅追加正文。旧转换记录可能保留 ISSUE ID，没有 todo 链接时从项目页打开，勿修改稳定 ID。

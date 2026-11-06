@@ -5311,7 +5311,7 @@ document.addEventListener('change', async event => {
 
 async function openItemLink(link = navigationFeature.readItemLink()) {
   if (!link) return false;
-  if (link.invalid || !['issue', 'document'].includes(link.kind)) {
+  if (link.invalid || !['issue', 'document', 'todo'].includes(link.kind)) {
     navigationFeature.clearItemLink();
     notify('打开链接无效', '请检查条目类型和编号', true);
     return false;
@@ -5336,7 +5336,7 @@ async function openItemLink(link = navigationFeature.readItemLink()) {
       openDocument(item.id, '', {fromItemLink:true});
     } else {
       selectedProjectId = item.project_id;
-      projectTab = 'issues';
+      projectTab = link.kind === 'todo' ? 'todos' : 'issues';
       projectFilters = {status:'', tag:'', priority:''};
       setPage('project', {preserveItemLink:true});
       await openDrawer(item.id, {fromItemLink:true});

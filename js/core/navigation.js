@@ -44,8 +44,8 @@
       const kind = params.get('item');
       const itemId = params.get('itemId');
       if (params.getAll('item').length !== 1 || params.getAll('itemId').length !== 1 ||
-          !['issue', 'document'].includes(kind) || !/^(?:ISSUE|TODO|INFO|IDEA|DOC)-\d+$/.test(itemId || '') ||
-          (kind === 'document' && !itemId.startsWith('DOC-'))) return {invalid:true};
+          !['issue', 'document', 'todo'].includes(kind) || !/^(?:ISSUE|TODO|INFO|IDEA|DOC)-\d+$/.test(itemId || '') ||
+          (kind === 'document' && !itemId.startsWith('DOC-')) || (kind === 'todo' && !itemId.startsWith('TODO-'))) return {invalid:true};
       return {kind, itemId};
     }
 

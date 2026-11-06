@@ -106,3 +106,9 @@ workbench-data/
 clients.json 外层 schema_version=1 保持；新授权条目增加 authorization_schema_version=2 和显式 kinds（issue/document/todo/info 非空白名单）。缺失 kinds 按 issue/document 读取。客户端私人配置与新凭据管理日志 schema_version=2，兼容读取 1；配置内 kinds 只是镜像，权限以服务端授权为准。轮换不扩权，旧编辑请求省略 kinds 时保留原值。
 
 新提案/业务事务 schema_version=2；提案含 digest_algorithm=sha256-json-v2、confirmation_mode=agent_attested、approval=null，摘要覆盖规范内容、类型、来源、警告和确认策略；事务关联相同摘要与策略。schema=1 按旧预览载荷和摘要计算，旧提案不自动升级。未知版本拒绝写入、清理和 abandon，保留原证据。业务 Markdown/历史无迁移。local_web 尚未开放。
+
+### AG-117 todo 字段与兼容
+
+Agent todo create 接受 title/project_id/body/tags/status/priority/due；update 不迁移项目；append 仅 body。due 新值必须是有效 YYYY-MM-DD 或 null，不做时区转换；省略保留原值，更新时不改变的旧日期字符串继续保留。completed/时间/ID 由服务端产生。业务 Markdown 格式不变，未开放元数据、附件和 links 由原仓储保留。
+
+历史 issue↔todo 转换保留原 ID；新建 todo 必须 TODO 编号，已有 ISSUE 编号的 todo 更新日志可恢复。新 todo 链接强制 TODO 前缀；旧转换记录回执 web_path/web_url 为 null，应从项目页打开，不伪造不匹配链接。旧 issue 链接兼容范围不收窄。

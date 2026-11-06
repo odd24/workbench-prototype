@@ -110,3 +110,7 @@ Agent 提案/提交故障的恢复步骤、运行中清理和本机接受磁盘�
 升级兼容 schema=1 私人配置、凭据日志、提案和事务；新流程写 schema=2。旧凭据默认仅 issue/document，轮换和分类授权同步不扩权。新增专项 `python -m unittest -v test_agent_extensions`，管理修改运行 `node test_agent_settings.js`。
 
 降级前关闭 Agent、停止服务，备份业务目录（含 .agent）与私人凭据目录，使用当前版本 report/abandon 解决未决事务。旧版本不能读取 schema=2 时应保留文件并改回匹配版本，不删除 .agent/管理日志绕过，不把便携 ZIP 当作接入状态备份。
+
+### AG-117 验证入口
+
+待办专项包含 test_agent_extensions.TodoAgentTests、node test_frontend_entry.js、node test_agent_workflows.js 与 python codex_agent_acceptance.py（增加 todo，仍仅隔离配置）。新建/更新事务恢复继续走原 before/after/第三方判定；删除项目后不恢复创建项目。旧转换编号兼容见数据格式。

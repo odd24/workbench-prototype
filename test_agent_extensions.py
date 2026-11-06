@@ -95,6 +95,115 @@ class AgentExtensionTests(AgentFixture, unittest.TestCase):
         with self.assertRaises(AgentError):
             self.store.cleanup()
         self.assertEqual((self.store.proposals / (preview["proposal_id"] + ".json")).read_bytes(), before)
+class TodoAgentTests(AgentFixture, unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        self.client = {**self.client, "kinds": ["issue", "document", "todo"]}
+
+    def spec(self, kind="todo", operation="create", **overrides):
+        result = super().spec("issue" if kind == "todo" else kind, operation, **overrides)
+        result["kind"] = kind
+        return result
+
+    def test_three_operations_dates_search_read_and_persistence(self):
+        spec = self.spec()
+        spec["content"]["due"] = "2028-02-29"
+        preview = self.prepare_preview(spec)
+        self.assertEqual(preview["content"]["due"], "2028-02-29")
+        self.assertFalse(preview["content"]["completed"])
+        receipt = self.commit(preview)
+        for operation in ("append", "update"):
+            self.reload()
+            item = self.service.get_item(self.client, "todo", receipt["item_id"])
+            data = {"body": "补充正文"} if operation == "append" else {"due": None, "priority": "高"}
+            preview = self.prepare_preview(self.spec(operation=operation, target_id=item["id"], base_revision=item["revision"], content=data))
+            receipt = self.commit(preview)
+            self.assertEqual(self.commit(preview), receipt)
+        self.reload()
+        saved = self.service.get_item(self.client, "todo", receipt["item_id"])
+        self.assertIsNone(saved["due"])
+        self.assertEqual(saved["priority"], "高")
+        self.assertIn("补充正文", saved["body"])
+        self.assertEqual(self.service.read_item(self.client, "todo", saved["id"], {"length": 3})["body"], saved["body"][:3])
+        self.assertEqual(self.service.search(self.client, {"kind": "todo"})["items"][0]["id"], saved["id"])
+        self.assertEqual(len(self.service.catalog(self.client, {"project_id": self.project["id"], "kind": "todo"})["statuses"]), len(self.repo.config()["status_templates"]["todo"]))
+
+    def test_invalid_dates_fields_and_append_metadata_never_write(self):
+        for due in ("2026-02-29", "2026-1-01", "", "2026-01-01T00:00:00Z", 12, False):
+            spec = self.spec()
+            spec["content"]["due"] = due
+            with self.subTest(due=due), self.assertRaises(AgentError):
+                self.prepare_preview(spec)
+        for field in ("completed", "info_fields", "category"):
+            spec = self.spec()
+            spec["content"][field] = True
+            with self.subTest(field=field), self.assertRaises(AgentError):
+                self.prepare_preview(spec)
+        item = self.repo.create_record({"type": "todo", "project_id": self.project["id"], "title": "原记录"})
+        with self.assertRaises(AgentError):
+            self.prepare_preview(self.spec(operation="append", target_id=item["id"], base_revision=item["revision"], content={"body": "新增", "title": "不许修改"}))
+
+    def test_legacy_due_metadata_and_converted_id_remain_usable(self):
+        item = self.repo.create_record({"type": "issue", "project_id": self.project["id"], "title": "旧格式", "due": "2020-01-02T03:04:05", "links": ["source"], "attachments": [{"name": "旧附件"}]})
+        item = self.repo.convert_record(item["id"], "todo")
+        preview = self.prepare_preview(self.spec(operation="update", target_id=item["id"], base_revision=item["revision"], content={"body": "仅改正文", "status": "待办"}))
+        receipt = self.commit(preview)
+        self.assertIsNone(receipt["web_path"])
+        self.reload()
+        saved = self.repo.get_record(item["id"])[0]
+        self.assertEqual(saved["due"], item["due"])
+        self.assertEqual(saved["attachments"], item["attachments"])
+        self.assertEqual(saved["links"], item["links"])
+
+    def test_conflict_workflow_narrowed_permission_and_external_changes(self):
+        receipt = self.commit(self.prepare_preview())
+        item = self.service.get_item(self.client, "todo", receipt["item_id"])
+        preview = self.prepare_preview(self.spec(operation="update", target_id=item["id"], base_revision=item["revision"], content={"body": "候选"}))
+        self.repo.update_record(item["id"], {"body": "外部变更"})
+        with self.assertRaises(AgentError): self.commit(preview)
+        self.assertEqual(self.repo.get_record(item["id"])[0]["body"], "外部变更")
+        preview = self.prepare_preview()
+        workflows = self.repo.config()["workflow_templates"]
+        workflows[0]["statuses"]["todo"][0]["name"] = "已改名"
+        self.repo.save_workflow_templates(workflows)
+        with self.assertRaises(AgentError): self.commit(preview)
+        with self.assertRaises(AgentError):
+            self.service.get_proposal({**self.client, "kinds": ["issue", "document"]}, preview["proposal_id"])
+
+    def test_recovery_all_boundaries_and_deleted_project(self):
+        for stage in ("snapshots", "manifest", "committing", "applying", "history", "target", "receipt", "proposal"):
+            with self.subTest(stage=stage):
+                if self.store.blocked:
+                    self.tearDown(); self.setUp()
+                preview = self.prepare_preview()
+                def interrupt(checkpoint):
+                    if checkpoint == stage: raise OSError("fault")
+                with patch.object(self.store, "checkpoint", side_effect=interrupt), self.assertRaises(AgentError): self.commit(preview)
+                self.reload()
+                proposal = self.service.get_proposal(self.client, preview["proposal_id"])
+                expected = "previewed" if stage == "snapshots" else "recovery_required" if stage in {"applying", "history"} else "committed"
+                self.assertEqual(proposal["state"], expected)
+        preview = self.prepare_preview()
+        self.repo.delete_project(self.project["id"])
+        with self.assertRaises(AgentError): self.commit(preview)
+
+    def test_update_recovery_and_concurrent_replay_preserve_one_history(self):
+        from concurrent.futures import ThreadPoolExecutor
+        for stage in ("manifest", "applying", "history", "target", "receipt", "proposal"):
+            with self.subTest(stage=stage):
+                receipt = self.commit(self.prepare_preview())
+                item = self.service.get_item(self.client, "todo", receipt["item_id"])
+                preview = self.prepare_preview(self.spec(operation="update", target_id=item["id"], base_revision=item["revision"], content={"body": "恢复候选", "due": "2027-01-01"}))
+                def interrupt(checkpoint):
+                    if checkpoint == stage: raise OSError("fault")
+                with patch.object(self.store, "checkpoint", side_effect=interrupt), self.assertRaises(AgentError): self.commit(preview)
+                self.reload()
+                self.assertFalse(self.store.blocked)
+                with ThreadPoolExecutor(max_workers=4) as pool:
+                    receipts = list(pool.map(lambda _: self.commit(preview), range(4)))
+                self.assertTrue(all(value == receipts[0] for value in receipts))
+                self.assertEqual(len(self.repo.list_history(item["id"])), 1)
+                self.assertEqual(self.repo.get_record(item["id"])[0]["due"], "2027-01-01")
 
 
 if __name__ == "__main__":

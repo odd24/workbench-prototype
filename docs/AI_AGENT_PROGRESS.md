@@ -29,7 +29,7 @@
 | AG-114 | 入库关键日志摘录与来源引用规范 | 已完成 | 2026-11-04 | 2026-11-04 | 用户明确要求 |
 | AG-115 | 后续扩展详细方案与工作项登记（仅文档） | 已完成 | 2026-11-06 | 2026-11-06 | 用户要求先完善方案，不修改代码 |
 | AG-116 | 类型授权、能力协商与流程格式兼容 | 已完成 | 2026-11-06 | 2026-11-06 | AG-115；用户已授权实施 |
-| AG-117 | 待办 todo 查询、提案与持久写入 | 待开始 | — | — | AG-116 |
+| AG-117 | 待办 todo 查询、提案与持久写入 | 已完成 | 2026-11-06 | 2026-11-06 | AG-116 |
 | AG-118 | 结构化信息 info 与字段无损往返 | 待开始 | — | — | AG-117 |
 | AG-119 | 本机提案管理、预览、取消与结果查询 | 待开始 | — | — | AG-118 |
 | AG-120 | 网页独立批准与持久恢复 | 待开始 | — | — | AG-119 |
@@ -374,3 +374,22 @@
 - 真实验收：node test_agent_settings.js 使用临时数据/凭据/CODEX_HOME 通过，含显式 todo 授权落盘、缺省两类型、丢响应恢复、编辑/轮换/撤销、会话失效及浅深主题×1440/390；代表桌面表单与深色窄屏大量范围截图目视检查无溢出，截图留临时目录未提交。原长列表断言限定为项目/分类，类型固定列表不要求滚动。
 - 真实 Codex：python codex_agent_acceptance.py 通过，codex-cli 0.163.0-alpha.10.2 / MCP 2025-11-25，12 工具、旧两类型往返/修改/幂等/取消/重启/撤销；model_turns_started=0、user_config_changed=false。
 - 决策/风险：AG-DEC-006/009；尚未开放新业务类型或 local_web，不宣称远程/非 Codex 已验收。APP_VERSION=2026.11.06.1 与缓存同步；提交使用标题 Add explicit Agent type authorization（哈希由 git log 查询）。下一入口 AG-117。
+
+### 2026-11-06 / AG-117 / 开始
+
+- 前置：AG-116 提交 0953a07；git status --short 干净。
+- 范围：todo 读取/搜索/catalog/create/append/update；日期与工作流、派生 completed、既有元数据保留、事务恢复和稳定深链接。复用领域预备写与编辑器，不改变草稿/保存实现。
+- 文件：agent_service/tools/proposals/http、repository、navigation/app/index/agent-settings；专项 Python、Node 浏览器与真实 Codex 脚本；版本及相关文档。
+- 计划：三操作持久往返、旧授权拒绝、日期非法/清空/旧值保留、工作流变化/外部冲突、重复并发/各阶段恢复；导航和真实浏览器主题/宽度/刷新/保存重开；真实 Codex 三类型回归、语法/diff。
+- 核查：网页 due 输入 YYYY-MM-DD 或 null，领域历史读取宽容字符串；新日期严格校验，未修改的旧值兼容保留，不迁移旧文件。已有 issue/todo 转换保留稳定原 ID，todo 新深链接严格 TODO 前缀；旧 issue 链接兼容逻辑不收窄。
+- 风险：扩大恢复路径必须仍限定 projects/<id>/todos/TODO-*.md；外部编辑器不遵守锁的剩余竞态保持。
+
+### 2026-11-06 / AG-117 / 完成
+
+- 文件：agent_service/tools/proposals/http、repository/http_api；navigation/app/agent-settings/index；test_agent_extensions、test_frontend_entry、test_agent_workflows、codex_agent_acceptance；AGENTS/README/架构/数据/维护/接入/使用和本台账。
+- 实现：受显式授权的 todo 查询/搜索/分段读取、项目工作流、新建/正文追加/更新；日期严格新值和清空、推导 completed、附件/links/旧日期保留；TODO 深链接进入已有抽屉，不新增编辑器。
+- 兼容决策：发现历史转换保留 ISSUE 编号；保留此类 todo 更新/恢复，不改 ID，回执不生成会被严格新链接拒绝的地址，用户从项目页打开。旧 issue 链接不收窄；业务 Markdown 无迁移。新日期按 YYYY-MM-DD/null，原旧值未改时保留。
+- 验证：python -m unittest -q test_agent_extensions test_agent_proposals test_agent_recovery test_agent_api test_mcp_stdio 49 项通过，随后新增更新六阶段恢复/四线程重复提交后 test_agent_extensions 11 项复验通过；node test_frontend_entry.js、test_agent_workflows.js、test_agent_settings.js 通过；全 Python/JS 语法及 git diff --check 通过。
+- 真实浏览器：三类型深链接/刷新、浅深主题×1440/390、可视化→Markdown→保存→重开、未保存取消、Agent/UI 冲突、保存期间继续输入和缺失/非法链接通过；临时数据与凭据。未修改编辑器保存内核，既有草稿流程保持。
+- 真实 Codex：隔离脚本通过，codex-cli 0.163.0-alpha.10.2 / MCP 2025-11-25，12 工具与 issue/document/todo 新建、预览修改/确认/读取/幂等/重启/撤销；model_turns_started=0、user_config_changed=false。
+- APP_VERSION=2026.11.06.2，受影响缓存同步。风险：外部编辑器写入竞态保留；info/local_web 未开放。提交标题 Enable scoped Agent todo workflows；下一入口 AG-118。

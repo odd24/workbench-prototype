@@ -19,7 +19,7 @@ async function main() {
   let client;
   try {
     await waitForHttp(`${baseUrl}/api/health`);
-    const provisioned = childProcess.spawnSync(python, ['server.py', '--data-dir', data, '--agent-config-dir', credentials, '--agent-client-add', '浏览器临时验收', '--agent-scope', 'read', '--agent-scope', 'propose', '--agent-scope', 'commit', '--agent-project', '*', '--agent-category', '*', '--port', String(port)], {cwd:__dirname, encoding:'utf8', env:{...process.env, PYTHONIOENCODING:'utf-8'}, windowsHide:true});
+    const provisioned = childProcess.spawnSync(python, ['server.py', '--data-dir', data, '--agent-config-dir', credentials, '--agent-client-add', '浏览器临时验收', '--agent-scope', 'read', '--agent-scope', 'propose', '--agent-scope', 'commit', '--agent-kind', 'issue', '--agent-kind', 'document', '--agent-kind', 'todo', '--agent-project', '*', '--agent-category', '*', '--port', String(port)], {cwd:__dirname, encoding:'utf8', env:{...process.env, PYTHONIOENCODING:'utf-8'}, windowsHide:true});
     assert.equal(provisioned.status, 0, provisioned.stderr);
     const info = JSON.parse(provisioned.stdout);
     const config = JSON.parse(fs.readFileSync(info.config_file, 'utf8'));
@@ -46,7 +46,8 @@ async function main() {
     const body = '## 已验证事实\n\n- [ ] 后续验证\n\n```sh\nprintf \'one two\'\nprintf "three"\n```\n\n| 项目 | 结论 |\n| --- | --- |\n| 检查 | 待验证 |';
     const issue = await saveByAgent('issue', 'create', {title:'AI 整理的问题：' + '长中文标题验收'.repeat(8), project_id:project.id, body});
     const document = await saveByAgent('document', 'create', {title:'AI 整理的知识：' + '长中文标题验收'.repeat(8), category:'未分类', body:body + `\n\n关联问题：[[${issue.item_id}]]`});
-    for (const receipt of [issue, document]) {
+    const todo = await saveByAgent('todo', 'create', {title:'AI 待办验收', project_id:project.id, body, due:'2028-02-29'});
+    for (const receipt of [issue, document, todo]) {
       assert.equal(new URL(receipt.web_url).origin, baseUrl);
       assert.equal(new URL(receipt.web_url).searchParams.get('itemId'), receipt.item_id);
     }
@@ -59,12 +60,12 @@ async function main() {
     await client.connect();
     await client.call('Page.enable');
     await client.call('Runtime.enable');
-    const waitOpened = async receipt => waitForPage(client, receipt.kind === 'issue'
+    const waitOpened = async receipt => waitForPage(client, receipt.kind !== 'document'
       ? `!window.__agentOldDocument && apiAvailable && currentRecord?.id === ${JSON.stringify(receipt.item_id)} && detailDrawer.classList.contains('visible')`
       : `!window.__agentOldDocument && apiAvailable && currentDocument?.id === ${JSON.stringify(receipt.item_id)} && $('#documentDialog').open`);
     const navigate = async receipt => { await client.evaluate('window.__agentOldDocument = true'); await client.call('Page.navigate', {url:receipt.web_url}); await waitOpened(receipt); };
     await waitOpened(issue);
-    for (const receipt of [issue, document]) {
+    for (const receipt of [issue, document, todo]) {
       await navigate(receipt);
       await client.evaluate('window.__agentOldDocument = true');
       await client.call('Page.reload');
@@ -74,7 +75,7 @@ async function main() {
           await client.call('Emulation.setDeviceMetricsOverride', {width, height:900, deviceScaleFactor:1, mobile:false});
           await client.evaluate(`(() => { document.body.classList.toggle('dark', ${theme === 'dark'}); $('#documentOutline').classList.toggle('collapsed', ${width < 600}); return true; })()`);
           await delay(200);
-          const state = await client.evaluate(`({overflow:document.documentElement.scrollWidth > innerWidth + 1, dirty:${receipt.kind === 'issue' ? 'recordSession.dirty' : 'documentSession.dirty'}, controls:${receipt.kind === 'document' ? "$$('[contenteditable=true], [data-editor-block]', $('#documentReadPane')).length" : '0'}})`);
+          const state = await client.evaluate(`({overflow:document.documentElement.scrollWidth > innerWidth + 1, dirty:${receipt.kind !== 'document' ? 'recordSession.dirty' : 'documentSession.dirty'}, controls:${receipt.kind === 'document' ? "$$('[contenteditable=true], [data-editor-block]', $('#documentReadPane')).length" : '0'}})`);
           assert.equal(state.overflow, false);
           assert.equal(state.dirty, false);
           assert.equal(state.controls, 0);
@@ -98,7 +99,7 @@ async function main() {
           }
         }
       }
-      const isIssue = receipt.kind === 'issue';
+      const isIssue = receipt.kind !== 'document';
       const serialized = await client.evaluate(`(async () => {
         ${isIssue ? "setEditorMode('wysiwyg'); const markdown = editorToMarkdown($('.editor')); setEditorMode('markdown'); $('.markdown-source').value = markdown; markEditorChanged(); recordSession.cancel(); await saveEditorNow(); await openDrawer(currentRecord.id); return markdown.trim();" : "setDocumentMode('visual'); const markdown = documentMarkdownContent(); $('#documentBody').value = markdown; markDocumentChanged(); documentSession.cancel(); await saveDocument({notifyUser:false}); const id = currentDocument.id; await closeDocumentEditor(); documents = await api('/documents'); openDocument(id); return markdown.trim();"}
       })()`);
@@ -131,9 +132,9 @@ async function main() {
     await client.evaluate(`(() => { $('#mergedConflictContent').value = '合并后的知识总结'; $('#conflictMerged').click(); return true; })()`);
     await waitForPage(client, `!$('#conflictDialog').open && !documentSession.dirty`);
     assert.equal((await request(`/documents/${document.item_id}`)).body, '合并后的知识总结');
-    for (const receipt of [issue, document]) {
+    for (const receipt of [issue, document, todo]) {
       await navigate(receipt);
-      const isIssue = receipt.kind === 'issue';
+      const isIssue = receipt.kind !== 'document';
       const endpoint = `/api/${isIssue ? 'records' : 'documents'}/${receipt.item_id}`;
       await client.evaluate(`(() => {
         const originalFetch = window.fetch;

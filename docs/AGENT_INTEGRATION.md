@@ -165,4 +165,8 @@ python server.py --data-dir <同一目录> --agent-recovery-abandon <operation_i
 
 ### 类型授权（AG-116）
 
-创建客户端可重复指定 `--agent-kind issue --agent-kind document`；省略时只授权 issue/document，项目通配不包含新类型权限。网页创建/编辑可明确选择四类；当前 todo/info 操作待后续工作项开放。先读取 capabilities 的 kinds、authorized_kinds、kind_operations、kind_fields，不能把已授权推断为已实现。旧凭据无需迁移；轮换保留类型。
+创建客户端可重复指定 `--agent-kind issue --agent-kind document`；省略时只授权 issue/document，项目通配不包含新类型权限。网页创建/编辑可明确选择四类；AG-117 起 todo 已可用，info 操作待后续项开放。先读取 capabilities 的 kinds、authorized_kinds、kind_operations、kind_fields，不能把已授权推断为已实现。旧凭据无需迁移；轮换保留类型。
+
+### AG-117 待办
+
+授权需显式包含 todo（管理页选择或创建 CLI --agent-kind todo），旧凭据不自动获得。capabilities 已列出 todo 三操作；catalog 传 kind=todo 和 project_id 取得工作流。到期日可省略或设 null；新增/变更必须有效 YYYY-MM-DD。待办追加仅传非空 body。

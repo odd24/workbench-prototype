@@ -1,13 +1,13 @@
 # Agent 客户端兼容矩阵与隔离验收
 
-核查日期：2026-11-06。工作项：AG-121。当前结论：**AG-121进行中；WorkBuddy附带CLI真实连接/12工具发现通过，完整读写互操作未验收**。用户已提供WorkBuddy安装并表示有测试账号/额度，可准备隔离会话。不能把连接通过写成完整兼容通过。
+核查日期：2026-11-07。工作项：AG-121。当前结论：**AG-121进行中；WorkBuddy桌面四类型三操作、两确认路径及查询/幂等/取消子集已有真实证据，完整协议和故障矩阵尚未收口**。原装CLI连接与显式协议探针通过，不能外推桌面。逐轮历史和确认缺口保留在下文。
 
 ## 1. 已有证据和缺口
 
 | 客户端 | 精确版本/传输 | 状态 | 证据与限制 |
 | --- | --- | --- | --- |
 | Codex CLI | 0.163.0-alpha.10.2 / stdio MCP 2025-11-25 | 已实测 | python codex_agent_acceptance.py；12工具、四类型、两确认路径、重启/撤销；无模型turn，不计为非Codex验收 |
-| WorkBuddy桌面 | 5.1.5 / stdio MCP2025-11-25 | 临时连接器握手/12工具及部分真实调用已验证 | 首轮工具未加载；手工新增临时连接器后实际53次工具调用，4份create回执（issue/todo/info×2）；完整预览展示与用户确认过程待回报，其他矩阵未完成 |
+| WorkBuddy桌面 | 5.1.5 / stdio MCP2025-11-25 | 四类型三操作、两确认路径及查询/幂等/取消子集已实测 | 16份历史回执与正式文件重读一致；四类型update有完整展示/新消息确认，local_web有独立网页批准。较早轮次确认未独立核实；协议、认证、重启/丢响应等仍待完成 |
 | WorkBuddy附带的原装CodeBuddy CLI | 2.103.3 / stdio MCP2025-11-25 | 连接与工具发现通过 | python workbuddy_agent_acceptance.py；真实initialize/initialized/tools/list、12工具、Connected；无模型turn，写入/故障矩阵未运行 |
 | 远程 OAuth/Streamable HTTP 客户端 | 当前范围取消 | 未验证 | 用户仅单机使用；本机stdio结果不能外推 |
 
@@ -78,7 +78,7 @@ python workbuddy_agent_acceptance.py --desktop-session
 
 | 组 | 真实操作 | 必须保留的脱敏证据 | 当前结果 |
 | --- | --- | --- | --- |
-| 协议 | initialize/initialized、tools/list、UTF-8、ping、未知消息/字段、断连/重连 | 客户端/OS/协议版本、12工具目录、错误码、stdout仅协议 | 原装CLI/桌面握手12工具及桌面重连真实请求通过；一次取消通知不等于取消语义通过，未知消息未运行 |
+| 协议 | initialize/initialized、tools/list、UTF-8、ping、未知消息/字段、断连/重连 | 客户端/OS/协议版本、12工具目录、错误码、stdout仅协议 | 原装CLI/桌面握手12工具及桌面重连真实请求通过；一次取消通知不等于取消语义通过，原装CLI显式ping/未知方法通过，桌面探针尚未实际启用 |
 | 查询 | kinds范围交集、catalog四类型、分页、分段正文、引用越权 | 允许/拒绝对照、完整分段拼接等于磁盘正文 | 四类型catalog、授权范围、两页无重复、6段707字符拼接逐字等于磁盘通过；越权读取not_found/引用invalid_reference通过，legacy kinds交集待验 |
 | create | issue/document/todo/info各新建 | 完整预览/警告/版本、规范字段、保存后重读与新仓储重载 | 四类型真实新建落盘/正文字段及回执哈希重读通过；完整确认过程仍待补证 |
 | append | 四类型各追加 | 合成全文、todo/info只接受body，字段不隐式合并 | 四类型追加/正文/字段/回执SHA256通过，document由网页批准落盘；info附加status被unknown_field拒绝 |
@@ -86,8 +86,8 @@ python workbuddy_agent_acceptance.py --desktop-session
 | agent_attested | 展示当前完整预览，修改后旧确认拒绝、取消 | 真实工具往返；程序测试声明不能称为人类确认或模型遵规证明 | 四类型update具备完整展示/指定新用户消息/提交证据；取消候选修订后旧版version_conflict、取消后invalid_state通过，较早轮次确认缺口保留 |
 | local_web | Agent自报确认拒绝，本机网页重新预览批准，再由客户端查询 | confirmation_required、同一版本/摘要/回执，无可兑换票据到客户端 | 四类型自报拒绝→用户网页批准→真实客户端查询/重放原回执通过，批准日志/版本/摘要/正式文件一致 |
 | 幂等 | 相同request_id重试、不同输入拒绝、提交丢响应先查询 | 只有一份正式条目/历史，原回执不变 | 四份提交重放原回执；prepare原样同提案、不同body为idempotency_conflict，旧版/取消拒绝通过；提交丢响应恢复待验 |
-| 故障 | 撤销/轮换、服务重启、错空间、isError、限流 | 令牌失效生效、持久恢复、无秘密输出 | 未运行 |
-| UI | 结果链接打开，记录/知识库保存重开与冲突 | 浅深主题/桌面窄屏、草稿不丢失 | 未运行 |
+| 故障 | 撤销/轮换、服务重启、错空间、isError、限流 | 令牌失效生效、持久恢复、无秘密输出 | 真实业务拒绝已记录isError；撤销/轮换、服务重启、错空间和限流尚待真实桌面验收，开发侧恢复不替代 |
+| UI | 结果链接打开，记录/知识库保存重开与冲突 | 浅深主题/桌面窄屏、草稿不丢失 | 四类型链接和两编辑器由独立真实Edge契约覆盖；本次WorkBuddy回执链接的人工打开仍未核实 |
 
 取消MCP请求不等于撤销已经持久提交的业务事务；需分别查询提案状态。已删除条目不能因重试重新创建。客户端升级后重新验收，不能沿用旧版本通过标签。
 
@@ -133,3 +133,21 @@ python workbuddy_agent_acceptance.py --desktop-session
 每组记录实际命令、精确版本、测试时间、退出码、关键返回字段和异常；原文仅取必要脱敏片段。秘密/完整配置不进Git，截图只留临时目录。测试完成撤销临时客户端，停止服务/客户端，核验隔离进程退出后清理本任务临时目录；保留失败/未运行事实。
 
 完成门槛为矩阵全部要求具备真实证据，并更新[台账](AI_AGENT_PROGRESS.md)、[接入](AGENT_INTEGRATION.md)、[验收](AI_AGENT_ACCEPTANCE.md)。本文件已准备不代表AG-121完成。
+
+### 2026-11-07 续验环境与桌面探针核查
+
+旧恢复服务已停止且旧测试身份撤销；新续验夹具从最新live复制114个文件，逐文件核对复制及源未变化的SHA256，保留16份历史回执。旧身份保持撤销，另发同范围的新测试身份；不改写历史提案归属，新身份不能查询旧身份的私人提案。新loopback服务HTTP200只证明开发侧环境可用。临时配置、私人状态与trace不进Git。
+
+新完整连接器项显式含--relay和--protocol-faults，已展示给用户并获得“已替换完整项并保存重连”的反馈；随后只读核查仍仅见旧--relay进程、新trace不存在。因此模式尚未运行，不能记桌面成功或协议失败。已请求核对界面程序/参数两个非秘密字段，未读取正式客户端配置/认证，也未替用户发模型请求。
+
+用户再次添加参数重连后，实际中继argv已含--relay --protocol-faults。连接探针和后续业务客户端分别出现真实回复，关键脱敏原文：
+
+```json
+{"direction":"client_to_server","fixture_reply":"ping","valid":true}
+{"direction":"client_to_server","fixture_reply":"unknown_method","valid":true,"error_code":-32601}
+{"direction":"server_to_client","error_code":-32002}
+```
+
+第三行来自后续业务连接提前于notifications/initialized发出的tools/list；服务拒绝后，客户端完成initialized并重试，实际获得12工具。不能将该错误从成功记录中抹去，也不能把成功重试说成没有协议错误。业务连接clientInfo.name=workbench_probe/version1.0.0，仅为配置名称，不作为厂商身份认证。
+
+第6轮真实客户端依序capabilities/get_item/prepare/preview均tool_is_error=false；新append提案e736dfa2-35a9-40ec-8926-a683cebaa6bf v1、agent_attested、previewed、无回执，旧16回执不变。完整预览是否实际向用户展示仍待答复，开发侧不提交；后续丢响应尚未施加。

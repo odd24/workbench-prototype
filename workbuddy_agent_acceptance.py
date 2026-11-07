@@ -70,6 +70,15 @@ def protocol_metadata(message, pending):
     event = {}
     if "method" in message:
         event["method"] = message["method"]
+    if message.get("method") == "notifications/cancelled":
+        params = message.get("params")
+        request_id = params.get("requestId") if isinstance(params, dict) else None
+        tool = pending.get(request_id) if type(request_id) in {int, str} else None
+        event["cancelled_request_pending"] = tool is not None
+        if tool is not None:
+            event["cancelled_tool"] = tool
+        # Keep the association: cancellation never proves that business work
+        # was undone, and a late response must still be observed separately.
     if message.get("method") == "initialize":
         event.update({key: message["params"].get(key) for key in ("protocolVersion", "clientInfo")})
     if message.get("method") == "tools/call":

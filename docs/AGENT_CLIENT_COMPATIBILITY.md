@@ -17,7 +17,7 @@
 python workbuddy_agent_acceptance.py
 ```
 
-脚本默认从当前用户安装目录定位WorkBuddy附带CLI；自定义安装用--install-dir传目录。使用已有Node运行原装bin/codebuddy，不提取/改写客户端实现、不安装SDK。CLI先执行--version，再执行mcp list。临时透明中继逐字节转发工作台桥接协议，仅记录方法、协议/客户端版本、工具名称、JSON-RPC错误码与工具结果的tool_is_error布尔，不构造客户端请求。请求ID仅在内存关联响应（最多256项），不落盘ID、参数、正文或结构化业务结果；异常isError类型单独记tool_result_malformed，不当作成功。旧记录没有tool_is_error时不补推结果；当前已启动的旧中继需正常重连才会加载补强代码。输出固定ag121_complete=false，避免被当作完整矩阵验收脚本。
+脚本默认从当前用户安装目录定位WorkBuddy附带CLI；自定义安装用--install-dir传目录。使用已有Node运行原装bin/codebuddy，不提取/改写客户端实现、不安装SDK。CLI先执行--version，再执行mcp list。临时透明中继逐字节转发工作台桥接协议，仅记录方法、协议/客户端版本、工具名称、JSON-RPC错误码与工具结果的tool_is_error布尔，不构造客户端请求。请求ID仅在内存关联响应（最多256项），不落盘ID、参数、正文或结构化业务结果；取消通知新增cancelled_request_pending及匹配时的cancelled_tool，不记录reason，仍保留关联以观察迟到响应，不把通知当业务撤销；异常isError类型单独记tool_result_malformed，不当作成功。旧记录没有tool_is_error时不补推结果；当前已启动的旧中继需正常重连才会加载补强代码。输出固定ag121_complete=false，避免被当作完整矩阵验收脚本。
 
 2026-11-06实际结果：CLI2.103.3、退出0、Connected、MCP2025-11-25、initialize→notifications/initialized→tools/list、12工具、无协议错误、model_turns_started=0、real_user_config_changed=false。CLI initialize中的clientInfo.name=workbench_probe来自登记名称，不作为客户端厂商或身份认证依据。临时凭据在清理前撤销；Windows Job关闭回收本次客户端后代，临时目录清理失败会报错。
 
@@ -151,3 +151,17 @@ python workbuddy_agent_acceptance.py --desktop-session
 第三行来自后续业务连接提前于notifications/initialized发出的tools/list；服务拒绝后，客户端完成initialized并重试，实际获得12工具。不能将该错误从成功记录中抹去，也不能把成功重试说成没有协议错误。业务连接clientInfo.name=workbench_probe/version1.0.0，仅为配置名称，不作为厂商身份认证。
 
 第6轮真实客户端依序capabilities/get_item/prepare/preview均tool_is_error=false；新append提案e736dfa2-35a9-40ec-8926-a683cebaa6bf v1、agent_attested、previewed、无回执，旧16回执不变。完整预览是否实际向用户展示仍待答复，开发侧不提交；后续丢响应尚未施加。
+
+
+### 取消证据补强与本机安装版本变化
+
+新增2项专项验证取消关联在途工具但不泄露requestId/reason/参数、迟到响应仍可单独记录，以及未知/畸形取消不消耗pending；7项专项通过。此为验收中继，默认仍逐字节转发；旧中继不热更新，尚无新版字段的真实取消通知，不能标桌面取消语义通过。
+
+本轮原装CLI复查两次失败，实际错误为：
+
+```text
+Error: Cannot find module '../dist/codebuddy'
+code: 'MODULE_NOT_FOUND'
+```
+
+只读安装元数据核查：磁盘WorkBuddy.exe为5.9.3，CLI package版本2.165.0；旧5.1.5/2.103.3历史保留，不把旧版完整矩阵直接升级。当前安装仅有codebuddy-lite-wb.mjs；原装bin/codebuddy提供CODEBUDDY_FORCE_LITE_WB_BUNDLE=1入口，使用该固定环境开关后真实CLI显式探针通过（2.165.0、12工具、ping空结果、未知方法-32601、退出0、无模型turn/真实配置修改）。本次通过临时Python调用覆盖隔离环境开关，仓库命令尚未修复；后续应独立修复验收启动设施。未提取SDK/修改厂商安装文件。桌面运行中版本已请求用户核实，磁盘安装版本不冒充运行中版本。

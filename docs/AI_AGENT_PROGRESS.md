@@ -724,3 +724,15 @@
 
 - 第6轮实际capabilities/get_item/prepare/preview四次均tool_is_error=false；新issue/append提案e736dfa2-35a9-40ec-8926-a683cebaa6bf v1、agent_attested、previewed，无回执，持久回执仍16。已请求用户核实完整展示，不把previewed当展示/批准。实际中继argv现已含--relay --protocol-faults；业务连接也回复两项显式探针。另有一次tools/list提前于initialized，服务-32002，客户端随后初始化并重试发现12工具；保留真实错误与成功重试，不宣称无协议错误。
 - 本次三文档UTF-8/代码围栏/相对链接、目标diff与git diff --check通过后形成独立记录提交；运行时、数据格式/API、缓存与正式配置无变化。AG-121仍进行中，未施加的提交丢响应等不标通过，AG-126仍待剩余兼容矩阵。
+
+
+### 2026-11-07 / AG-121 / 取消关联证据补强开始
+
+- 开始前工作区干净，HEAD df59628。用户已核实第6轮完整预览；已为指定v1提案设置一次成功HTTP提交响应截断，尚待用户第7轮新消息确认和真实执行。当前夹具不代发commit。
+- 精确范围：workbuddy_agent_acceptance.py的脱敏protocol_metadata增加取消通知与内存pending请求的关联（工具名/是否仍待响应），保留原逐字节转发、不记录请求ID/参数/reason/业务正文；已有pending上限256不变。对应test_workbuddy_acceptance.py覆盖真实关联、迟到结果/未知取消及不泄密。仅验收设施，不改应用取消语义、业务契约、UI或版本。
+- 目的：一次notifications/cancelled不足以证明取消的是哪个在途请求；下一次正常重连后新中继可提供关联证据，当前运行中继不热替换、不回填历史。计划专项/语法/默认和显式原装CLI连接、必要全量Python、文档diff；真实桌面取消仍需用户实际停止及重连后查询，不以专项替代。
+
+- 实际7项中继专项及两Python文件语法通过。原装CLI显式探针复查两次连接断言失败，已安全核查隔离子进程stderr：Cannot find module '../dist/codebuddy'/MODULE_NOT_FOUND；不是协议回复断言失败。磁盘安装元数据现为WorkBuddy5.9.3、CLI2.165.0，仅有lite-wb产物。原装启动器提供固定环境CODEBUDDY_FORCE_LITE_WB_BUNDLE=1；在隔离调用临时补该开关后真实CLI2.165.0显式探针/12工具/退出0通过，无模型turn/真实配置修改，未提取SDK或改厂商文件。旧5.1.5/2.103.3历史不重写，新桌面运行版本待用户核实；仓库CLI启动默认命令仍需另行修复，不把临时覆盖说成默认已通过。
+- 第7轮观察到实际commit工具isError，HTTP故障日志对应真实200提交响应后截断；随后真实客户端get_proposal/get_item非错误，无新prepare。磁盘committed、回执17；正式问题SHA256等于239540b8d7d3497cdaeca1337063a2736d4debd80a1c8de49596bea34ca9ef07，正文及全部开放字段逐项等于候选，提案receipt等于持久回执。已保存17份回执/正式问题哈希基线供重启核查。尚待用户报告首次错误码和实际确认/查询结果，不以tool_is_error推断错误码。
+
+- 取消关联补强本轮全量234项Python通过（102.959秒）；7项专项、两脚本py_compile通过。仅验收中继/保护性测试和两文档，实际桌面取消仍待后续正常重连后执行；本次不借用默认CLI失败轮次作通过。两文档UTF-8/围栏/相对链接及目标diff、git diff --check复核后独立提交。下一入口：修复当前安装lite-wb的验收启动选择，再继续用户第7轮结果与重启/认证/取消。

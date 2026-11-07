@@ -8,6 +8,31 @@ from workbuddy_agent_acceptance import ProtocolFaultProbe, protocol_metadata
 
 
 class WorkBuddyMetadataTests(unittest.TestCase):
+    def test_cancellation_correlates_without_hiding_late_outcome_or_secrets(self):
+        pending = {}
+        protocol_metadata({"id": "PRIVATE_ID", "method": "tools/call", "params": {
+            "name": "workbench_commit_proposal", "arguments": {"body": "PRIVATE_BODY"}}}, pending)
+        message = {"method": "notifications/cancelled", "params": {
+            "requestId": "PRIVATE_ID", "reason": "PRIVATE_REASON"}}
+        original = copy.deepcopy(message)
+        event = protocol_metadata(message, pending)
+        self.assertEqual(event, {"method": "notifications/cancelled", "cancelled_request_pending": True,
+                                "cancelled_tool": "workbench_commit_proposal"})
+        self.assertEqual(message, original)
+        self.assertEqual(pending, {"PRIVATE_ID": "workbench_commit_proposal"})
+        outcome = protocol_metadata({"id": "PRIVATE_ID", "result": {"isError": False}}, pending)
+        self.assertEqual(outcome, {"tool": "workbench_commit_proposal", "tool_is_error": False})
+        self.assertEqual(protocol_metadata(message, pending),
+                         {"method": "notifications/cancelled", "cancelled_request_pending": False})
+        self.assertNotIn("PRIVATE", json.dumps([event, outcome]))
+
+    def test_unmatched_or_malformed_cancellation_does_not_consume_pending(self):
+        for params in ({"requestId": "unknown"}, {"requestId": []}, {"requestId": True}, None):
+            pending = {1: "workbench_search"}
+            event = protocol_metadata({"method": "notifications/cancelled", "params": params}, pending)
+            self.assertEqual(event, {"method": "notifications/cancelled", "cancelled_request_pending": False})
+            self.assertEqual(pending, {1: "workbench_search"})
+
     def test_explicit_fault_probe_consumes_only_its_own_replies(self):
         self.assertEqual(ProtocolFaultProbe().requests(), [])
         probe = ProtocolFaultProbe(True)

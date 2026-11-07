@@ -125,3 +125,17 @@ Node包括真实Edge设置/提案管理/四类型深链接/两编辑器保存重
 第8轮最终报告与服务/磁盘相符：原v1回执重放完全不变；旧授权仅issue/document/read，info/todo搜索为空/读取not_found、issue读取成功、三次create均forbidden无新提案；最后四类型/scopes恢复。开发侧核info/todo文件等于续验源哈希，INFO6字段。客户端恢复后再读取仍待下一轮，撤销/取消与新版四类型两确认尚未完成；不把本轮通过扩张为完整新版兼容。
 
 5.9.3第9轮在途capabilities的notifications/cancelled实际关联pending工具，用户确认执行中停止；仍有迟到isError，不承诺同步HTTP立即抢占。第10轮同一连接恢复capabilities/原回执/INFO-0001/TODO-0001读取，业务未回滚。四类型local_web create完整展示和四次confirmation_required后，用户真实网页独立批准；批准日志/版本/摘要/21份回执与四份正式文件全部字段/正文/SHA256核对通过，info三字段多行空格保持。新ID为ISSUE-0003/DOC-0002/TODO-0002/INFO-0003。当前Windows11专业版22631，WorkBuddy5.9.3(d4692421)/CLI2.165.0；不把UI模型标签Hy4当后端精确版本。新版append/update、取消版本负向与撤销/最终清理继续推进。
+
+## 8. 2026-11-07 当前版本最终复核
+
+第11轮四份原网页回执查询/重放不变，四份agent_attested append完整展示；用户新消息确认任务后，第12轮四份追加落盘，回执25。随后四份update完整展示、用户再发送指定确认任务，第13轮四份更新落盘并各成功get_item，用户确认均成功且停止。正式文件正文/全部开放字段等于当前候选、SHA256等于各自回执；两段回归正文各一次。todo完成且due=null、info三项字段逆序且原值/备注保持、document改标题但DOC-0002稳定，issue优先级高。当前29份回执与四份正式文件保存独立字节哈希检查点；用户已打开/刷新四种正式结果链接，标题/类型正确。
+
+最终自动门禁：python -m unittest -v共235项通过（107.463秒），61Python/45JS全文件语法通过，19项Node契约整组通过。早先Node首次提案初始化等待超时、独立重跑及后续18项通过保留为历史事实；最终整组没有失败或放宽断言。真实Edge覆盖两编辑器保存重开/草稿/冲突、接入设置/提案管理/四类型链接、概念图、浅深主题及桌面窄屏；本轮不宣称运行完整performance_acceptance.py或visual_baseline.js。
+
+python codex_agent_acceptance.py以真实Codex0.163.0-alpha.10.2/MCP2025-11-25通过12工具、四类型、两确认路径、重启/撤销，无模型turn/真实用户配置修改。python extension_lifecycle_acceptance.py通过四类型×两确认模式8组、停用Agent后网页可读、停止后完整备份/回执恢复、ZIP CRC/凭据排除/新空间身份。生命周期脚本的non_codex_and_remote标记仅指它自身未运行这些外部客户端；WorkBuddy证据独立记录，远程按用户范围取消。
+
+本次仅验收设施及文档变化，应用运行时、公共API、Markdown数据格式、APP_VERSION=2026.11.06.5和资源缓存均未变；旧数据和旧授权兼容不变，不迁移真实库。架构/数据格式/接入摘要中遗漏todo/info或未明确历史阶段的描述已按当前代码事实修正，未反向改写AG-116阶段历史。
+
+第14轮真实客户端已完成范围/引用/非法字段拒绝，提案5页13项、搜索2页4项无重复；原prepare重放同提案、改输入idempotency_conflict；候选v2清空字段后旧v1提交version_conflict、取消后invalid_state，正式三字段/revision不变。末尾正常撤销后探针与三次读取均unauthenticated/false，注册表disabled；29回执加四正式文件33项哈希全部不变、各新条目历史仍两份。707字符六段读取汇总与磁盘仅offset93一字符不同（汇总项目显示名用连字符、磁盘空格），其余706字符一致，原始工具结果核对仍待用户提供，不将汇总转写推定为协议故障，也不先称逐字通过。
+
+用户移除临时连接器；两个夹具STOP后退出0、端口均关闭、按命令行匹配未见相关进程，临时身份与旧副本凭据均已撤销。六个任务临时目录的递归删除先后被自动审批拒绝、仅返回blocked by policy，未尝试其他方式绕过；用户手工删除后已只读核实六处均不存在。清理完整，不涉及真实库、私人认证或其他连接器。

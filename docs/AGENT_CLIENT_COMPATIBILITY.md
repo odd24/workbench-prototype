@@ -1,6 +1,6 @@
 # Agent 客户端兼容矩阵与隔离验收
 
-核查日期：2026-11-07。工作项：AG-121。当前结论：**AG-121进行中；WorkBuddy桌面四类型三操作、两确认路径及查询/幂等/取消子集已有真实证据，完整协议和故障矩阵尚未收口**。原装CLI连接与显式协议探针通过，不能外推桌面。逐轮历史和确认缺口保留在下文。
+核查日期：2026-11-07。工作项：AG-121。当前结论：**AG-121进行中；当前WorkBuddy5.9.3四类型三操作、两确认路径、协议/故障/取消撤销已有真实证据，待第14轮分段汇总一字符差异的原始结果核实**。原装CLI连接与显式协议探针单列。临时连接器/服务/身份/目录收尾已完成；逐轮历史和较早确认缺口保留在下文。
 
 ## 1. 已有证据和缺口
 
@@ -9,7 +9,7 @@
 | Codex CLI | 0.163.0-alpha.10.2 / stdio MCP 2025-11-25 | 已实测 | python codex_agent_acceptance.py；12工具、四类型、两确认路径、重启/撤销；无模型turn，不计为非Codex验收 |
 | WorkBuddy桌面 | 5.1.5 / stdio MCP2025-11-25 | 四类型三操作、两确认路径及查询/幂等/取消子集已实测 | 16份历史回执与正式文件重读一致；四类型update有完整展示/新消息确认，local_web有独立网页批准。较早轮次确认未独立核实；协议、认证、重启/丢响应等仍待完成 |
 | WorkBuddy附带的原装CodeBuddy CLI | 2.103.3 / stdio MCP2025-11-25 | 连接与工具发现通过 | python workbuddy_agent_acceptance.py；真实initialize/initialized/tools/list、12工具、Connected；无模型turn，写入/故障矩阵未运行 |
-| WorkBuddy桌面 | 5.9.3 (d4692421) / stdio MCP2025-11-25 | 显式协议探针及issue追加丢响应查询通过，矩阵进行中 | 用户关于页核实版本；第6～7轮真实预览/提交/查询与17份回执一致，未沿用5.1.5全部结果为新版通过 |
+| WorkBuddy桌面 | 5.9.3 (d4692421) / stdio MCP2025-11-25 | 四类型三操作、两确认路径、协议/故障及取消撤销已实测；收尾核对中 | 用户关于页核实版本；第6～14轮真实任务与29份回执/正式文件一致；第14轮707字汇总有一字符转写差异待核原始工具结果，未沿用5.1.5结果作为新版通过 |
 | 当前附带原装CLI | 2.165.0 / lite-wb / stdio MCP2025-11-25 | 默认连接及显式探针通过 | 原装启动器固定lite开关，12工具、退出0、无模型turn；旧默认入口缺少产物失败已保留 |
 | 远程 OAuth/Streamable HTTP 客户端 | 当前范围取消 | 未验证 | 用户仅单机使用；本机stdio结果不能外推 |
 
@@ -83,12 +83,12 @@ python workbuddy_agent_acceptance.py --desktop-session
 | 协议 | initialize/initialized、tools/list、UTF-8、ping、未知消息/字段、断连/重连 | 客户端/OS/协议版本、12工具目录、错误码、stdout仅协议 | 原装CLI/桌面握手12工具及桌面重连真实请求通过；一次取消通知不等于取消语义通过，原装CLI与5.9.3桌面显式ping/未知方法均通过；曾提前tools/list获-32002后初始化重试成功，5.9.3在途capabilities收到关联取消，迟到isError后同一连接查询恢复；不承诺立即中断/回滚 |
 | 查询 | kinds范围交集、catalog四类型、分页、分段正文、引用越权 | 允许/拒绝对照、完整分段拼接等于磁盘正文 | 四类型catalog、授权范围、两页无重复、6段707字符拼接逐字等于磁盘通过；越权读取not_found/引用invalid_reference通过，5.9.3旧授权缺kinds时仅issue/document，info/todo搜索空/读取not_found、issue允许对照通过，原四类型恢复；5.9.3第10轮info/todo读取恢复通过 |
 | create | issue/document/todo/info各新建 | 完整预览/警告/版本、规范字段、保存后重读与新仓储重载 | 5.1.5历史四类型落盘、较早确认缺口保留；5.9.3四类型local_web新建独立网页批准/日志/正文和字段/回执哈希重读通过 |
-| append | 四类型各追加 | 合成全文、todo/info只接受body，字段不隐式合并 | 四类型追加/正文/字段/回执SHA256通过，document由网页批准落盘；info附加status被unknown_field拒绝 |
-| update | 四类型各更新/重排info_fields | revision校验、保留未开放元数据、清空/省略差别 | 四类型update及info字段反转落盘通过；取消候选省略字段保留6项、显式空列表变0项已核对，空字段候选未正式提交 |
+| append | 四类型各追加 | 合成全文、todo/info只接受body，字段不隐式合并 | 5.9.3四份agent_attested完整展示后新消息确认提交，正文/字段/回执SHA256通过；5.1.5另有网页批准追加；info附加status被unknown_field拒绝 |
+| update | 四类型各更新/重排info_fields | revision校验、保留未开放元数据、清空/省略差别 | 5.9.3四份完整展示后新消息确认提交；todo完成/due=null、info三字段逆序保值、文档改标题ID稳定及issue优先级通过；取消候选省略保留3项、显式空列表0项，取消后正式字段/revision未变 |
 | agent_attested | 展示当前完整预览，修改后旧确认拒绝、取消 | 真实工具往返；程序测试声明不能称为人类确认或模型遵规证明 | 四类型update具备完整展示/指定新用户消息/提交证据；取消候选修订后旧版version_conflict、取消后invalid_state通过，较早轮次确认缺口保留 |
 | local_web | Agent自报确认拒绝，本机网页重新预览批准，再由客户端查询 | confirmation_required、同一版本/摘要/回执，无可兑换票据到客户端 | 四类型自报拒绝→用户网页批准→真实客户端查询/重放原回执通过，批准日志/版本/摘要/正式文件一致 |
 | 幂等 | 相同request_id重试、不同输入拒绝、提交丢响应先查询 | 只有一份正式条目/历史，原回执不变 | 四份提交重放原回执；prepare原样同提案、不同body为idempotency_conflict，旧版/取消拒绝通过；5.9.3唯一提交成功响应截断→先查原提案/正式问题→重启后重放原回执通过 |
-| 故障 | 撤销/轮换、服务重启、错空间、isError、限流 | 令牌失效生效、持久恢复、无秘密输出 | 真实业务拒绝已记录isError；5.9.3实际服务重启后原回执重放不变，轮换旧令牌401/新令牌恢复、错空间头409、真实限流429/重启恢复均通过；撤销仍待运行，合成条件见下文 |
+| 故障 | 撤销/轮换、服务重启、错空间、isError、限流 | 令牌失效生效、持久恢复、无秘密输出 | 5.9.3实际服务重启后原回执重放不变，轮换旧令牌401/新令牌恢复、错空间头409、真实限流429/重启恢复通过；最终正常撤销后探针及capabilities/get_proposal/get_item均unauthenticated，注册表disabled；合成条件见下文 |
 | UI | 结果链接打开，记录/知识库保存重开与冲突 | 浅深主题/桌面窄屏、草稿不丢失 | 四类型链接和两编辑器由独立真实Edge契约覆盖；5.9.3新建四类型的真实结果链接用户已逐份打开并刷新，标题/类型正确 |
 
 取消MCP请求不等于撤销已经持久提交的业务事务；需分别查询提案状态。已删除条目不能因重试重新创建。客户端升级后重新验收，不能沿用旧版本通过标签。
@@ -201,3 +201,27 @@ HTTP夹具已从真实服务取得200只读结果，再延迟响应12秒；桥�
 当前OS实测Windows11专业版10.0.22631；用户截图的模型UI标签为Hy4，未独立核实后端模型版本，不将单次客户端执行外推为任意模型遵规保证。第11轮网页回执查询/重放及四类型append待执行，新版update/旧版本拒绝/最终撤销与链接人工打开仍待收口。
 
 用户已逐份打开并刷新本轮ISSUE-0003/DOC-0002/TODO-0002/INFO-0003正式结果链接，确认均对应正确标题/类型；此为手工结果打开证据，不外推为新的编辑器主题/草稿冲突验收。第11轮已由用户手动发送，读写后续仍待实际结果。
+
+### 5.9.3第11～14轮：更新、负向与最终撤销
+
+第11轮客户端四份原网页回执查询/重放不变，四份append完整预览展示经用户核实；用户新消息发送指定确认任务后，第12轮四份agent_attested append提交、回执25。随后四份update完整展示经用户核实，用户再发送新确认任务，第13轮四份提交及各自get_item成功，用户确认全部成功并停止。四份正式正文/开放字段等于候选、SHA256等于回执；todo完成且due=null、info三项字段完全逆序但内容/空格/LF保持、document改标题但DOC-0002稳定、issue优先级高。追加及更新段各一次，回执29，四个新条目各两份修改历史。
+
+第14轮报告核实：未授权项目搜索空、catalog及ISSUE-0002读取not_found，越权引用invalid_reference、info追加非法status为unknown_field，均未生成提案。list_proposals(limit=3)五页共13项，cursor为3/6/9/12/null；search(limit=2)两页四个新ID，无重复。INFO-0001分段offset为0/128/256/384/512/640，末段next_offset=null、body_characters=707；汇总正文与磁盘逐字核查有一字符差异，原始工具结果核对待补，不能据707长度一致声称逐字一致。
+
+取消专用提案479662ac-b9c9-4b6d-a7ca-acad8c48b4e5：省略info_fields的v1保留三项，原prepare重放同一提案、改body复用request_id为idempotency_conflict；revise显式空列表的v2预览为0项，旧v1提交version_conflict；取消v2后提交invalid_state。均retryable=false，无成功回执；最终cancelled/v2/previewed_version=2，正式INFO-0003仍三项、77字符、revision60b35224d6c14d7b25d805aa3753f60fe832fbe39c7103343f19c4457b14d34e，候选清空未落盘。
+
+末尾固定哨兵查询触发正常CredentialManager撤销，真实服务关键HTTP原文：
+
+```json
+{"fixture_mode":"revoke_before","fixture_step":null,"http_status":401,"route":"/api/agent/v1/proposals/00000000-0000-0000-0000-000000000014","service_error_code":"unauthenticated"}
+```
+
+用户第14轮报告原文摘录（省略表格中的request_id与重复说明）：
+
+```text
+探针 get_proposal(00000000-0000-0000-0000-000000000014) 本身即返回 unauthenticated「Agent 凭据已失效或被撤销」
+```
+
+随后严格仅capabilities/get_proposal/get_item三读，用户报告均unauthenticated/retryable=false、无正文或提案数据；中继三次isError及注册表enabled=false一致，无补权或换凭据。29回执加四份正式文件的33项字节哈希检查点不变，stdout trace无unparsed行。此为当前明确版本与临时范围的实测，不代表任意客户端/模型或远程互操作。
+
+收尾：用户已移除仅本次workbench_probe。两个临时夹具STOP后退出0，业务/代理端口均关闭，按命令行匹配未见相关进程；本次身份及旧live身份disabled。旧恢复原始静态副本曾留enabled=true，使用其既有空间的正常CredentialManager撤销后清理，未运行旧服务或重建空间。历史三处和本轮三处递归删除均曾被自动审批拒绝（只有blocked by policy），未换方法绕过；用户分别手工删除，只读核实六处目录均不存在，未触及其他客户端或正式数据。

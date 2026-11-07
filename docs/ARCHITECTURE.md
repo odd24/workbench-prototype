@@ -89,7 +89,7 @@ GET registrations/<request_id> 比较准备日志的前后摘要与当前文件�
 
 stdio MCP 入口为 agent_bridge.py，workbench/mcp_stdio.py 只负责协议和本机 HTTP 调用，agent_tools.py 定义公开工具及 Schema/使用规则；不会装配 Repository 或调用模型。协议/凭据错误输出脱敏，stdout 只含 JSON-RPC。真实 Codex 联调脚本使用隔离配置和临时工作空间，不更改用户现有设置。
 
-提交回执包含稳定 ID 的 `web_path`，HTTP 层按可信本机 Host 补全 `web_url`。导航模块只解析 issue/document 深链接，app.js 在处理已有草稿后打开原编辑器。旧回执缺少链接时兼容生成展示字段。两个编辑器在保存响应返回时比较当前输入和已发送内容；后续输入保留 dirty/草稿并使用返回 revision 继续保存，旧会话响应不得修改新会话。
+提交回执包含稳定 ID 的 `web_path`，HTTP 层按可信本机 Host 补全 `web_url`。首期导航解析 issue/document 深链接，当前已按 AG-117/118 扩展至 issue/document/todo/info；app.js 在处理已有草稿后打开原编辑器。旧回执缺少链接时兼容生成展示字段。两个编辑器在保存响应返回时比较当前输入和已发送内容；后续输入保留 dirty/草稿并使用返回 revision 继续保存，旧会话响应不得修改新会话。
 
 ### AG-116 类型授权与流程兼容
 

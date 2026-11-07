@@ -81,7 +81,7 @@ AG-119：设置 → AI Agent 接入 → 提案管理，可按客户端/类型/�
 
 AG-120：客户端可设置最低确认方式为“本机网页独立批准”（CLI --agent-confirmation-mode local_web）。Agent 可请求同等或更严格策略，网页完整预览后点击批准入库；Agent自报确认不能绕过。批准响应丢失先查询原操作，不重复创建。
 
-WorkBuddy桌面5.1.5已在临时库实测四类型新建/追加/更新、两确认路径、分页/分段读取、权限拒绝、幂等与取消；完整故障/协议矩阵仍在验收。原装CLI2.103.3可运行python workbuddy_agent_acceptance.py验证连接/12工具，追加--protocol-faults显式测试固定服务端ping/未知方法响应（不调用模型、不写业务数据）；CLI结果不外推桌面。完整结果见[客户端兼容验收](docs/AGENT_CLIENT_COMPATIBILITY.md)。
+WorkBuddy桌面5.9.3(d4692421)已在临时库实测四类型新建/追加/更新、两确认路径、权限拒绝、分页/分段、幂等取消、丢响应查询、服务重启及轮换/撤销等故障。原装CLI2.165.0可运行python workbuddy_agent_acceptance.py验证连接/12工具，追加--protocol-faults显式测试固定服务端ping/未知方法响应（不调用模型、不写业务数据）；lite-only安装由原装入口自动选择固定lite开关。桌面和CLI证据分别记录，旧5.1.5历史不改写；结果和限制见[客户端兼容验收](docs/AGENT_CLIENT_COMPATIBILITY.md)。
 
 按单机本地用途，远程接入已移出当前实施范围；不需要准备TLS/IdP/代理。[远程设计](docs/AGENT_REMOTE_DESIGN.md)仅保留历史参考，远程未实现。
 

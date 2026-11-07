@@ -71,7 +71,7 @@ python server.py --data-dir <同一目录> --agent-client-revoke <client_id>
 - `Authorization: Bearer <配置文件中的令牌>`。
 - `X-Workbench-Workspace: <workspace_id>`。
 
-支持 capabilities、projects、catalog、search 和 items，精确字段见实施方案。catalog 返回现有文档分类和标签；传 project_id 才返回对应工作流状态。search 只返回授权范围内的问题与知识文档摘要；获取完整正文用 items，offset/length 按字符分段（默认最多 65536 字符），以 next_offset 判断是否完整。响应不返回磁盘绝对路径或本机配置。
+支持 capabilities、projects、catalog、search 和 items，精确字段见实施方案。catalog 返回现有文档分类和标签；传 project_id 才返回对应工作流状态。search 按凭据 kinds 返回授权范围内的问题、知识文档、待办和结构化信息摘要，旧凭据缺省仅 issue/document；获取完整正文用 items，offset/length 按字符分段（默认最多 65536 字符），以 next_offset 判断是否完整。响应不返回磁盘绝对路径或本机配置。
 
 分页默认 20，最大 100；limit/cursor 必须有效。未知参数和重复参数返回 400。每客户端每分钟最多 120 次已认证请求，超限返回可重试 429。
 
@@ -183,7 +183,7 @@ AI Agent 接入页的“提案管理”可查看当前空间所有客户端提�
 
 管理客户端最低确认方式可选本机网页；旧配置不变。CLI新建可用 --agent-confirmation-mode local_web。Agent prepare_proposal 可请求confirmation_mode=local_web，不能降低客户端最低策略。此类提案的MCP commit返回confirmation_required，需要本机提案管理完整预览后批准。网页操作者仅代表持有本机会话，不宣称现实身份认证。
 
-WorkBuddy桌面5.1.5已在临时库实测四类型三操作、两确认路径、查询权限/分段/分页及幂等取消；完整协议/故障验收仍进行中。附带CLI2.103.3的连接/显式协议探针结果单列，不能外推桌面。具体范围与未运行项见[客户端兼容矩阵](AGENT_CLIENT_COMPATIBILITY.md)，不将Codex结果代替非Codex证据。
+WorkBuddy桌面5.9.3(d4692421)已在临时库实测四类型三操作、两确认路径、权限拒绝、幂等取消、提交丢响应查询、服务重启、轮换/撤销、错空间及限流。附带原装CLI2.165.0的连接/显式协议探针结果单列；旧5.1.5/2.103.3证据保留历史标签。精确范围及限制见[客户端兼容矩阵](AGENT_CLIENT_COMPATIBILITY.md)，不将Codex或CLI结果代替桌面证据。
 
 远程接入仍未实现，不能代理原4173端口作为远程MCP。[远程设计与外部门槛](AGENT_REMOTE_DESIGN.md)记录候选方案和待提供的真实环境。
 
@@ -191,6 +191,6 @@ WorkBuddy桌面5.1.5已在临时库实测四类型三操作、两确认路径、
 
 ### WorkBuddy本机兼容验收（AG-121进行中）
 
-已核实桌面5.1.5及随附原装CLI2.103.3。python workbuddy_agent_acceptance.py使用临时环境执行真实mcp list，只证明MCP2025-11-25连接与12工具发现；追加--protocol-faults显式注入固定服务端ping/未知方法，仅观察真实客户端回复，不替代客户端或发起模型。桌面已通过用户手动真实任务验证四类型新建/追加/更新及独立网页批准往返，剩余认证/故障/协议项未完成，不宣称完整兼容。
+当前核实桌面5.9.3(d4692421)、随附原装CLI2.165.0、stdio MCP2025-11-25。python workbuddy_agent_acceptance.py使用临时环境执行真实mcp list，只证明连接与12工具发现；追加--protocol-faults显式注入固定服务端ping/未知方法，仅观察真实客户端回复，不替代客户端或发起模型。lite-only安装由原装bin的固定CODEBUDDY_FORCE_LITE_WB_BUNDLE=1选择lite-wb，完整安装保持默认入口，无SDK提取或厂商文件修改。桌面矩阵另由用户手动真实任务验证；单次结果不保证任意模型遵规，也不构成现实身份认证。
 
 python workbuddy_agent_acceptance.py --desktop-session只准备临时项目与工作台，不启动桌面或模型；使用已有桌面的任务历史与仅本次临时连接器例外已获用户明确许可，手动额度及实际轮次以台账为准，不读取正式认证、不自动调用模型。桌面与随附CLI配置路径不同，项目候选文件不等于桌面登记成功；本次实际通过用户手工登记临时连接器完成连接。完整步骤、清理责任与剩余矩阵见[客户端兼容验收](AGENT_CLIENT_COMPATIBILITY.md)。

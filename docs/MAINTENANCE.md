@@ -129,7 +129,7 @@ Agent 提案/提交故障的恢复步骤、运行中清理和本机接受磁盘�
 
 停服备份同时保留.agent/proposal-actions批准证据和operations事务；不能删批准日志绕过。只有批准记录而无manifest不会自动补写。prepared未尝试应用时需要匹配私人授权才能恢复，恢复CLI通过--agent-config-dir装配该授权；缺失/不匹配时保留并报告，启动同空间/私人凭据环境核查；撤销后停止未应用写入，已进入应用按磁盘事实完成必要回执。仍可使用原report/abandon接受磁盘，不删除日志。
 
-AG-121已定位WorkBuddy5.1.5及其原装CLI2.103.3；python workbuddy_agent_acceptance.py只验证隔离连接与12工具发现，完整读写矩阵待真实会话；--desktop-session仅准备一次性项目（使用已有桌面的历史记录例外须明确授权）。恢复入口与未运行矩阵见[客户端兼容矩阵](AGENT_CLIENT_COMPATIBILITY.md)。文档准备不等于互操作通过。
+AG-121已在WorkBuddy桌面5.1.5实际验证四类型三操作、两确认路径、查询权限/分页/分段及幂等取消，完整协议/故障矩阵仍待收口。原装CLI2.103.3的python workbuddy_agent_acceptance.py只验证隔离连接/12工具；--protocol-faults显式注入固定服务端ping/未知方法、验证真实回复，无模型/业务写入，不能外推桌面。--desktop-session仅准备一次性项目，已有桌面历史/临时连接器例外及手动测试额度以台账授权为准；结束需撤销临时凭据并清理副本/别名、由用户移除临时连接器，不把配置文件存在当作真实接入成功。恢复入口与未运行矩阵见[客户端兼容矩阵](AGENT_CLIENT_COMPATIBILITY.md)。
 
 远程默认未提供实现；候选部署边界、威胁模型和恢复/停用验收见[AG-122设计准备](AGENT_REMOTE_DESIGN.md)。未经真实IdP/TLS/客户端验证不得标远程可用，不应直接公网化本机工作台。
 

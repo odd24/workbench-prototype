@@ -79,13 +79,13 @@ python workbuddy_agent_acceptance.py --desktop-session
 | 组 | 真实操作 | 必须保留的脱敏证据 | 当前结果 |
 | --- | --- | --- | --- |
 | 协议 | initialize/initialized、tools/list、UTF-8、ping、未知消息/字段、断连/重连 | 客户端/OS/协议版本、12工具目录、错误码、stdout仅协议 | 原装CLI/桌面握手12工具及桌面重连真实请求通过；一次取消通知不等于取消语义通过，未知消息未运行 |
-| 查询 | kinds范围交集、catalog四类型、分页、分段正文、引用越权 | 允许/拒绝对照、完整分段拼接等于磁盘正文 | 未运行 |
+| 查询 | kinds范围交集、catalog四类型、分页、分段正文、引用越权 | 允许/拒绝对照、完整分段拼接等于磁盘正文 | 四类型catalog、授权范围、两页无重复、6段707字符拼接逐字等于磁盘通过；越权读取not_found/引用invalid_reference通过，legacy kinds交集待验 |
 | create | issue/document/todo/info各新建 | 完整预览/警告/版本、规范字段、保存后重读与新仓储重载 | 四类型真实新建落盘/正文字段及回执哈希重读通过；完整确认过程仍待补证 |
-| append | 四类型各追加 | 合成全文、todo/info只接受body，字段不隐式合并 | 四类型真实追加及正文/字段/回执SHA256重读通过，document由独立网页批准落盘；非法追加字段对照待验 |
-| update | 四类型各更新/重排info_fields | revision校验、保留未开放元数据、清空/省略差别 | 用户确认完整展示并发送指定确认任务后，四类型update落盘及回执/正文/开放字段重读通过，info有序字段反转保持；清空/省略对照仍缺 |
-| agent_attested | 展示当前完整预览，修改后旧确认拒绝、取消 | 真实工具往返；程序测试声明不能称为人类确认或模型遵规证明 | 本轮四类型update具备用户完整展示/已发送指定新确认任务与实际提交证据；较早轮次确认仍未核实，旧版本拒绝/取消未运行 |
-| local_web | Agent自报确认拒绝，本机网页重新预览批准，再由客户端查询 | confirmation_required、同一版本/摘要/回执，无可兑换票据到客户端 | 四类型自报绕过拒绝通过；用户网页批准4份，批准日志/版本/摘要/回执及正式文件一致，客户端批准后查询待验 |
-| 幂等 | 相同request_id重试、不同输入拒绝、提交丢响应先查询 | 只有一份正式条目/历史，原回执不变 | 未运行 |
+| append | 四类型各追加 | 合成全文、todo/info只接受body，字段不隐式合并 | 四类型追加/正文/字段/回执SHA256通过，document由网页批准落盘；info附加status被unknown_field拒绝 |
+| update | 四类型各更新/重排info_fields | revision校验、保留未开放元数据、清空/省略差别 | 四类型update及info字段反转落盘通过；取消候选省略字段保留6项、显式空列表变0项已核对，空字段候选未正式提交 |
+| agent_attested | 展示当前完整预览，修改后旧确认拒绝、取消 | 真实工具往返；程序测试声明不能称为人类确认或模型遵规证明 | 四类型update具备完整展示/指定新用户消息/提交证据；取消候选修订后旧版version_conflict、取消后invalid_state通过，较早轮次确认缺口保留 |
+| local_web | Agent自报确认拒绝，本机网页重新预览批准，再由客户端查询 | confirmation_required、同一版本/摘要/回执，无可兑换票据到客户端 | 四类型自报拒绝→用户网页批准→真实客户端查询/重放原回执通过，批准日志/版本/摘要/正式文件一致 |
+| 幂等 | 相同request_id重试、不同输入拒绝、提交丢响应先查询 | 只有一份正式条目/历史，原回执不变 | 四份提交重放原回执；prepare原样同提案、不同body为idempotency_conflict，旧版/取消拒绝通过；提交丢响应恢复待验 |
 | 故障 | 撤销/轮换、服务重启、错空间、isError、限流 | 令牌失效生效、持久恢复、无秘密输出 | 未运行 |
 | UI | 结果链接打开，记录/知识库保存重开与冲突 | 浅深主题/桌面窄屏、草稿不丢失 | 未运行 |
 
@@ -110,6 +110,10 @@ python workbuddy_agent_acceptance.py --desktop-session
 随后用户核实4份完整展示、4次confirmation_required，提供客户端错误表（retryable=false、需要本机提案管理独立批准，无item_id/revision，无重试/重建）；与工具错误及空批准/回执状态一致。四类型自报绕过负向验证通过，网页正向仍待用户逐份重新读取完整预览后批准；夹具不代发批准HTTP请求。当前页面HTTP200、proposal-actions为0。
 
 用户随后在真实网页逐份独立批准4份local_web追加，四份completed批准日志与提案approval、版本/摘要及回执相符，正式回执16份；逐份重读正式文件的正文、开放字段及SHA256匹配，document append已保存。未通过夹具或Agent执行管理批准。下一轮由客户端查询回执/幂等并补查询负向；普通临时HTTP已准备未授权项目WorkBuddy-未授权对照及ISSUE-0002，磁盘存在且未授予当前客户端，用作真实范围/引用拒绝对照，尚不记拒绝通过。
+
+第四轮真实客户端报告与工具/磁盘核对：4份网页回执查询及重复提交返回原回执，回执16不变；四类型catalog已读取，分页两页ID无重复，search游标终止。INFO-0001分6段、707字符，完整拼接原文已逐字比对磁盘且revision匹配。未授权项目/ISSUE-0002搜索为空、catalog/get_item为not_found，引用为invalid_reference，非法info append附加status为unknown_field，均未生成越权提案。取消候选省略info_fields保留6项；下一轮已观察其v2空字段且cancelled，正式revision/6字段未变，具体旧版本/取消拒绝码待客户端回报。
+
+第五轮用户摘要与工具/磁盘一致：原样prepare同一提案v1，改body复用request_id为idempotency_conflict；修订显式info_fields=[]后v2完整预览，旧v1提交version_conflict；取消v2后提交invalid_state，无回执，均retryable=false。正式INFO-0001保持原6字段/revision，回执16不变。清空/省略区别在候选中验证，清空候选未正式提交。丢响应、服务重启与认证故障仍待真实客户端测试。
 
 后续最多8轮按下表批量补验；每轮由用户手动发送，所有提交仍等待当前完整预览后的新消息或网页独立批准。表格是待执行安排，不代表通过；额度不足时保留未完成项，不自动追加。
 

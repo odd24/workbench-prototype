@@ -147,6 +147,7 @@ async function main() {
       return {project:project.id, items:items.map(item => item.id), doc:doc.id};
     })()`);
     const sameTimes = async (selector, expression, detailed = true) => {
+      assert.equal(await client.evaluate(`$(${JSON.stringify(selector)}).textContent.includes('修改')`), false);
       assert.equal(await client.evaluate(`$(${JSON.stringify(selector)}).innerHTML === timestampsHtml(${expression}, ${detailed})`), true, selector);
     };
     const screenshot = async name => {
@@ -165,7 +166,7 @@ async function main() {
         await screenshot(`project-${width}-${dark}`);
         assert.equal(await client.evaluate(`$$('#kanban .kanban-card').every(card => card.querySelectorAll('.entity-times').length === 0)`), true);
         await client.evaluate(`projectViewMode = 'list'; renderProjectPage()`);
-        assert.equal(await client.evaluate(`$$('#kanban th').slice(-2).map(node => node.textContent).join('|')`), '创建时间|上次修改时间');
+        assert.equal(await client.evaluate(`$$('#kanban th').slice(-1).map(node => node.textContent).join('|')`), '创建时间');
         await client.evaluate(`projectTab = 'infos'; renderProjectPage()`);
         assert.equal(await client.evaluate(`$$('#kanban .info-display-card .entity-times time').length`), 0);
         await client.evaluate(`openGlobalStats()`);
@@ -177,7 +178,7 @@ async function main() {
         await screenshot(`document-${width}-${dark}`);
         assert.equal(await client.evaluate(`(() => { const r = $('#documentTimes').getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth; })()`), true);
         await client.evaluate(`$('#documentDialog').close(); openDocument()`);
-        assert.equal(await client.evaluate(`$('#documentTimes').textContent`), '创建：保存后生成修改：保存后生成');
+        assert.equal(await client.evaluate(`$('#documentTimes').textContent`), '创建：保存后生成');
         await client.evaluate(`$('#documentDialog').close(); renderDocumentsPage()`);
         assert.equal(await client.evaluate(`$$('[data-document-card="${ids.doc}"] .entity-times time').length`), 0);
         if (process.env.WORKBENCH_TIMESTAMP_SCREENSHOTS) {
@@ -192,14 +193,14 @@ async function main() {
     }
     await client.evaluate(`setPage('timeline')`);
     await waitForPage(client, `Boolean($('[data-timeline-sort="created"]'))`);
-    assert.equal(await client.evaluate(`$$('.timeline-table th').length`), 8);
-    for (const field of ['created', 'updated']) {
+    assert.equal(await client.evaluate(`$$('.timeline-table th').length`), 7);
+    for (const field of ['created']) {
       await client.evaluate(`$('[data-timeline-sort="${field}"]').click()`);
       assert.equal(await client.evaluate(`timelineSort.field`), field);
     }
     await screenshot('timeline');
     await client.evaluate(`timelineFilters.type = ['missing']; renderManagePage('timeline')`);
-    assert.equal(await client.evaluate(`$('.timeline-empty-row td').colSpan`), 8);
+    assert.equal(await client.evaluate(`$('.timeline-empty-row td').colSpan`), 7);
     await client.evaluate(`timelineFilters.type = []; renderManagePage('timeline')`);
     await delay(1100);
     for (const id of ids.items) {
@@ -260,7 +261,7 @@ async function main() {
     assert.equal(await client.evaluate(`currentDocument.created`), originalDoc.created);
     // Missing/invalid legacy metadata is displayed without creating new business values.
     await client.evaluate(`reloadCurrentDocumentFromDisk({...currentDocument, created:'', updated:'invalid'})`);
-    assert.equal(await client.evaluate(`$('#documentTimes').textContent`), '创建：未记录修改：时间格式异常');
+    assert.equal(await client.evaluate(`$('#documentTimes').textContent`), '创建：未记录');
 
     assert.equal(await client.evaluate(`(() => {
       const originalRecords = records; const originalDocuments = documents;
@@ -275,7 +276,7 @@ async function main() {
         renderDocumentsPage();
         if ($$('.document-card .entity-times').length !== 0) return false;
         selectedProjectId = ${JSON.stringify(ids.project)}; projectTab = 'overview'; projectViewMode = 'list'; renderProjectPage();
-        return $$('#kanban tbody time').length === 240 && $$('#kanban .auto-collapsed-record').length > 0;
+        return $$('#kanban tbody time').length === 120 && $$('#kanban .auto-collapsed-record').length > 0;
       } finally { records = originalRecords; documents = originalDocuments; }
     })()`), true);
     console.log('Timestamp browser workflows passed: all record types, project and document views, new documents, save/failure/reopen/reload, external edits, history restore, sorting, legacy times, empty/120 items, light/dark, desktop/narrow.');

@@ -35,7 +35,7 @@
   }
 
   function timestampsHtml(item, detailed = false) {
-    return `<span class="entity-times${detailed ? ' entity-times-detail' : ''}"><span>创建：${timestampHtml(item?.created, detailed, !item)}</span><span>修改：${timestampHtml(item?.updated, detailed, !item)}</span></span>`;
+    return `<span class="entity-times${detailed ? ' entity-times-detail' : ''}"><span>创建：${timestampHtml(item?.created, detailed, !item)}</span></span>`;
   }
 
   const api = {$, $$, escapeHtml, safeColor, timestampHtml, timestampsHtml};

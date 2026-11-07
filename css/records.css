@@ -45,7 +45,7 @@
 .timeline-table-wrap{width:100%;max-width:100%;overflow-x:auto}
 .timeline-table{width:100%;min-width:1100px;table-layout:fixed}
 .timeline-table th,.timeline-table td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;word-break:keep-all}
-.timeline-table th:nth-child(1){width:7%}.timeline-table th:nth-child(2){width:23%}.timeline-table th:nth-child(3){width:12%}.timeline-table th:nth-child(4){width:9%}.timeline-table th:nth-child(5){width:8%}.timeline-table th:nth-child(6){width:11%}.timeline-table th:nth-child(7),.timeline-table th:nth-child(8){width:15%}
+.timeline-table th:nth-child(1){width:7%}.timeline-table th:nth-child(2){width:38%}.timeline-table th:nth-child(3){width:12%}.timeline-table th:nth-child(4){width:9%}.timeline-table th:nth-child(5){width:8%}.timeline-table th:nth-child(6){width:11%}.timeline-table th:nth-child(7){width:15%}
 .timeline-table .tag-row{flex-wrap:nowrap;overflow:hidden}
 .timeline-table td:nth-child(2) strong{display:block}
 .timeline-table .timeline-empty-row{cursor:default}.timeline-table .timeline-empty-row:hover{background:transparent}.timeline-table .timeline-empty-row td{padding:42px 14px;text-align:center;color:var(--muted)}

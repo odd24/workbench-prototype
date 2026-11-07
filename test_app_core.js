@@ -10,6 +10,16 @@ assert.deepEqual(dom.$$('.item', {querySelectorAll:() => new Set(['a', 'b'])}), 
 assert.equal(dom.escapeHtml('<unsafe>'), '&lt;unsafe&gt;');
 assert.equal(dom.safeColor('#FF0000'), '#ff0000');
 assert.equal(dom.safeColor('rgb(255, 0, 0)'), '#64748b');
+assert.equal(dom.timestampHtml(null), '<span>未记录</span>');
+assert.equal(dom.timestampHtml(''), '<span>未记录</span>');
+for (const value of ['not-a-date', '<img src=x onerror=alert(1)>', 0, false, {}]) {
+  assert.equal(dom.timestampHtml(value), '<span>时间格式异常</span>');
+}
+const timestamp = new Date(2026, 10, 7, 9, 8, 6).toISOString();
+assert.match(dom.timestampHtml(timestamp), />2026-11-07 09:08<\/time>/);
+assert.match(dom.timestampHtml(timestamp, true), />2026-11-07 09:08:06<\/time>/);
+assert.match(dom.timestampsHtml(null), /创建：<span>保存后生成<\/span>/);
+assert.match(dom.timestampsHtml({}), /修改：<span>未记录<\/span>/);
 assert.equal(typeof api.request, 'function');
 assert.equal(typeof dialogs.notify, 'function');
 assert.equal(typeof dialogs.open, 'function');

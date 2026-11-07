@@ -38,6 +38,8 @@ python server.py
 
 ## 主要能力
 
+- 项目、条目及知识库文档统一显示创建时间和上次修改时间：卡片及列表精确到分钟，详情精确到秒，按浏览器本地时区显示。旧数据缺失时间显示“未记录”，未保存文档显示“保存后生成”。修改时间沿用 Markdown 的 `updated`；项目包含自身资料及排序设置的保存，不汇总子条目活动；外部编辑器未同步时间字段时可能仍显示旧值。
+
 - 项目记录支持状态、标签和优先级组合筛选及一键清除；切换项目或记录页签时自动清空筛选。
 - 项目、问题、待办及无状态结构化信息；旧 `idea` 文件兼容读取，但不再从 UI 新建。
 - 自定义工作流、状态、标签、排序、归档、回收站、历史版本和全局搜索。
@@ -63,6 +65,7 @@ python server.py
 ```powershell
 python -m unittest -v
 node test_editor_workflows.js
+node test_timestamp_workflows.js
 node test_agent_workflows.js
 node test_agent_settings.js
 python codex_agent_acceptance.py

@@ -85,3 +85,6 @@
 #historySnapshot{display:block;white-space:normal;overflow-wrap:anywhere;max-width:100%;padding:12px;background:var(--surface-2);color:var(--text)}
 
 .detail-drawer>footer>div:last-child>*{flex-shrink:0}
+
+/* Shared creation and modification metadata. */
+.entity-times{display:flex;flex-wrap:wrap;gap:2px 14px;min-width:0;color:var(--muted);font-size:var(--type-meta,12px);font-weight:400;line-height:1.6;text-align:left}.entity-times>span{white-space:nowrap}.entity-times time{font:inherit;color:inherit;font-variant-numeric:tabular-nums}.entity-times-detail{margin:6px 0 12px}.kanban-card>.entity-times,.info-display-card>.entity-times{margin-top:10px}.document-card footer{flex-wrap:wrap;gap:4px 12px}.document-card footer .entity-times{flex-basis:100%}.home-item-content>.entity-times{margin-top:3px}.data-table time{white-space:nowrap;font-variant-numeric:tabular-nums}

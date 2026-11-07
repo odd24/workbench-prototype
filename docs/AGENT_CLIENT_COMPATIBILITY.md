@@ -80,15 +80,15 @@ python workbuddy_agent_acceptance.py --desktop-session
 
 | 组 | 真实操作 | 必须保留的脱敏证据 | 当前结果 |
 | --- | --- | --- | --- |
-| 协议 | initialize/initialized、tools/list、UTF-8、ping、未知消息/字段、断连/重连 | 客户端/OS/协议版本、12工具目录、错误码、stdout仅协议 | 原装CLI/桌面握手12工具及桌面重连真实请求通过；一次取消通知不等于取消语义通过，原装CLI显式ping/未知方法通过，桌面探针尚未实际启用 |
-| 查询 | kinds范围交集、catalog四类型、分页、分段正文、引用越权 | 允许/拒绝对照、完整分段拼接等于磁盘正文 | 四类型catalog、授权范围、两页无重复、6段707字符拼接逐字等于磁盘通过；越权读取not_found/引用invalid_reference通过，legacy kinds交集待验 |
+| 协议 | initialize/initialized、tools/list、UTF-8、ping、未知消息/字段、断连/重连 | 客户端/OS/协议版本、12工具目录、错误码、stdout仅协议 | 原装CLI/桌面握手12工具及桌面重连真实请求通过；一次取消通知不等于取消语义通过，原装CLI与5.9.3桌面显式ping/未知方法均通过；曾提前tools/list获-32002后初始化重试成功，实际请求取消仍待验 |
+| 查询 | kinds范围交集、catalog四类型、分页、分段正文、引用越权 | 允许/拒绝对照、完整分段拼接等于磁盘正文 | 四类型catalog、授权范围、两页无重复、6段707字符拼接逐字等于磁盘通过；越权读取not_found/引用invalid_reference通过，5.9.3旧授权缺kinds时仅issue/document，info/todo搜索空/读取not_found、issue允许对照通过，原四类型恢复；恢复后info/todo读取待复核 |
 | create | issue/document/todo/info各新建 | 完整预览/警告/版本、规范字段、保存后重读与新仓储重载 | 四类型真实新建落盘/正文字段及回执哈希重读通过；完整确认过程仍待补证 |
 | append | 四类型各追加 | 合成全文、todo/info只接受body，字段不隐式合并 | 四类型追加/正文/字段/回执SHA256通过，document由网页批准落盘；info附加status被unknown_field拒绝 |
 | update | 四类型各更新/重排info_fields | revision校验、保留未开放元数据、清空/省略差别 | 四类型update及info字段反转落盘通过；取消候选省略字段保留6项、显式空列表变0项已核对，空字段候选未正式提交 |
 | agent_attested | 展示当前完整预览，修改后旧确认拒绝、取消 | 真实工具往返；程序测试声明不能称为人类确认或模型遵规证明 | 四类型update具备完整展示/指定新用户消息/提交证据；取消候选修订后旧版version_conflict、取消后invalid_state通过，较早轮次确认缺口保留 |
 | local_web | Agent自报确认拒绝，本机网页重新预览批准，再由客户端查询 | confirmation_required、同一版本/摘要/回执，无可兑换票据到客户端 | 四类型自报拒绝→用户网页批准→真实客户端查询/重放原回执通过，批准日志/版本/摘要/正式文件一致 |
-| 幂等 | 相同request_id重试、不同输入拒绝、提交丢响应先查询 | 只有一份正式条目/历史，原回执不变 | 四份提交重放原回执；prepare原样同提案、不同body为idempotency_conflict，旧版/取消拒绝通过；提交丢响应恢复待验 |
-| 故障 | 撤销/轮换、服务重启、错空间、isError、限流 | 令牌失效生效、持久恢复、无秘密输出 | 真实业务拒绝已记录isError；撤销/轮换、服务重启、错空间和限流尚待真实桌面验收，开发侧恢复不替代 |
+| 幂等 | 相同request_id重试、不同输入拒绝、提交丢响应先查询 | 只有一份正式条目/历史，原回执不变 | 四份提交重放原回执；prepare原样同提案、不同body为idempotency_conflict，旧版/取消拒绝通过；5.9.3唯一提交成功响应截断→先查原提案/正式问题→重启后重放原回执通过 |
+| 故障 | 撤销/轮换、服务重启、错空间、isError、限流 | 令牌失效生效、持久恢复、无秘密输出 | 真实业务拒绝已记录isError；5.9.3实际服务重启后原回执重放不变，轮换旧令牌401/新令牌恢复、错空间头409、真实限流429/重启恢复均通过；撤销仍待运行，合成条件见下文 |
 | UI | 结果链接打开，记录/知识库保存重开与冲突 | 浅深主题/桌面窄屏、草稿不丢失 | 四类型链接和两编辑器由独立真实Edge契约覆盖；本次WorkBuddy回执链接的人工打开仍未核实 |
 
 取消MCP请求不等于撤销已经持久提交的业务事务；需分别查询提案状态。已删除条目不能因重试重新创建。客户端升级后重新验收，不能沿用旧版本通过标签。
@@ -154,7 +154,6 @@ python workbuddy_agent_acceptance.py --desktop-session
 
 第6轮真实客户端依序capabilities/get_item/prepare/preview均tool_is_error=false；新append提案e736dfa2-35a9-40ec-8926-a683cebaa6bf v1、agent_attested、previewed、无回执，旧16回执不变。完整预览是否实际向用户展示仍待答复，开发侧不提交；后续丢响应尚未施加。
 
-
 ### 取消证据补强与本机安装版本变化
 
 新增2项专项验证取消关联在途工具但不泄露requestId/reason/参数、迟到响应仍可单独记录，以及未知/畸形取消不消耗pending；7项专项通过。此为验收中继，默认仍逐字节转发；旧中继不热更新，尚无新版字段的真实取消通知，不能标桌面取消语义通过。
@@ -168,7 +167,20 @@ code: 'MODULE_NOT_FOUND'
 
 只读安装元数据核查：磁盘WorkBuddy.exe为5.9.3，CLI package版本2.165.0；旧5.1.5/2.103.3历史保留，不把旧版完整矩阵直接升级。当前安装仅有codebuddy-lite-wb.mjs；原装bin/codebuddy提供CODEBUDDY_FORCE_LITE_WB_BUNDLE=1入口，使用该固定环境开关后真实CLI显式探针通过（2.165.0、12工具、ping空结果、未知方法-32601、退出0、无模型turn/真实配置修改）。本次通过临时Python调用覆盖隔离环境开关，仓库命令尚未修复；后续应独立修复验收启动设施。未提取SDK/修改厂商安装文件。桌面运行中版本已请求用户核实，磁盘安装版本不冒充运行中版本。
 
-
 用户“关于”截图确认当前运行桌面5.9.3(d4692421)，Electron37.10.0/Chromium138.0.7204.251/Node22.16.0。第6～7轮及本轮桌面探针按该版本记录；旧5.1.5四类型三操作历史不改写为新版全量通过。第7轮首次唯一commit为service_unavailable、retryable=true、无回执；随后原提案查询committed/同v1摘要及持久回执，正式ISSUE-0001完整正文286字符、revision239540b8d7d3497cdaeca1337063a2736d4debd80a1c8de49596bea34ca9ef07，追加只一次。与HTTP故障日志真实200后截断、工具commit isError→get_proposal/get_item成功、磁盘正文/开放字段/17回执核对一致，无重建。客户端报告“待验证无”只指本轮，不代表完整兼容矩阵收口。
 
 CLI验收入口已修复：只有完整codebuddy.js缺失且lite-wb.mjs存在才选择原装固定lite开关；完整安装保持默认路径，不改厂商安装。8项专项通过，当前默认/--protocol-faults两命令均真实CLI2.165.0、cli_bundle=lite-wb、12工具、退出0通过，默认无注入、显式两回复valid，无模型turn/正式配置修改。两次旧启动失败保留；该修复不改变应用运行时/协议/数据/资源版本。
+
+### 5.9.3第8轮：重启、幂等与授权故障
+
+用户确认按八次capabilities严格顺序执行。真实服务重启后get_proposal/get_item与原v1 commit重放均返回原回执，revision/committed_at不变，回执仍17。错空间头得到409 workspace_mismatch/retryable=false；桥接已发请求时轮换，旧令牌得到401 unauthenticated/false，下一请求自动重读配置后200。夹具以真实HTTP预置120/min窗口，实际429 rate_limited/true；真实业务服务重启后200。服务端旧授权模拟去除kinds且仅read，capabilities仅issue/document；两次search为空，INFO/TODO读取not_found，ISSUE允许读取，三次create均forbidden（缺propose），无提案生成。随后正常管理写恢复原显式四类型/scopes，capabilities200。
+
+代表性HTTP夹具原文（其条件是显式合成，响应来自真实服务）：
+
+```json
+{"fixture_mode":"wrong_workspace","fixture_step":1,"http_status":409,"route":"/api/agent/v1/capabilities","service_error_code":"workspace_mismatch"}
+{"fixture_mode":"rotate_before","fixture_step":2,"http_status":401,"route":"/api/agent/v1/capabilities","service_error_code":"unauthenticated"}
+{"fixture_mode":"rate_fill","fixture_step":4,"http_status":429,"route":"/api/agent/v1/capabilities","service_error_code":"rate_limited"}
+```
+
+以上和真实工具isError/恢复成功、持久注册表及17份回执/正式问题哈希一致；INFO-0001/TODO-0001文件仍等于复制源哈希、INFO6字段，无删除。客户端尚未在恢复后重读info/todo，留下一轮验证。错空间头只证明注入错误被服务拒绝/客户端收到错误，不冒称已测试客户端配置文件真实损坏。限流为真实服务限额加人工流量预置，不声称自然高负载性能。撤销/实际取消及新版四类型两确认仍待运行。

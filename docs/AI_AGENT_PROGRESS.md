@@ -725,7 +725,6 @@
 - 第6轮实际capabilities/get_item/prepare/preview四次均tool_is_error=false；新issue/append提案e736dfa2-35a9-40ec-8926-a683cebaa6bf v1、agent_attested、previewed，无回执，持久回执仍16。已请求用户核实完整展示，不把previewed当展示/批准。实际中继argv现已含--relay --protocol-faults；业务连接也回复两项显式探针。另有一次tools/list提前于initialized，服务-32002，客户端随后初始化并重试发现12工具；保留真实错误与成功重试，不宣称无协议错误。
 - 本次三文档UTF-8/代码围栏/相对链接、目标diff与git diff --check通过后形成独立记录提交；运行时、数据格式/API、缓存与正式配置无变化。AG-121仍进行中，未施加的提交丢响应等不标通过，AG-126仍待剩余兼容矩阵。
 
-
 ### 2026-11-07 / AG-121 / 取消关联证据补强开始
 
 - 开始前工作区干净，HEAD df59628。用户已核实第6轮完整预览；已为指定v1提案设置一次成功HTTP提交响应截断，尚待用户第7轮新消息确认和真实执行。当前夹具不代发commit。
@@ -736,7 +735,6 @@
 - 第7轮观察到实际commit工具isError，HTTP故障日志对应真实200提交响应后截断；随后真实客户端get_proposal/get_item非错误，无新prepare。磁盘committed、回执17；正式问题SHA256等于239540b8d7d3497cdaeca1337063a2736d4debd80a1c8de49596bea34ca9ef07，正文及全部开放字段逐项等于候选，提案receipt等于持久回执。已保存17份回执/正式问题哈希基线供重启核查。尚待用户报告首次错误码和实际确认/查询结果，不以tool_is_error推断错误码。
 
 - 取消关联补强本轮全量234项Python通过（102.959秒）；7项专项、两脚本py_compile通过。仅验收中继/保护性测试和两文档，实际桌面取消仍待后续正常重连后执行；本次不借用默认CLI失败轮次作通过。两文档UTF-8/围栏/相对链接及目标diff、git diff --check复核后独立提交。下一入口：修复当前安装lite-wb的验收启动选择，再继续用户第7轮结果与重启/认证/取消。
-
 
 ### 2026-11-07 / AG-121 / 新安装CLI入口兼容修复开始
 
@@ -750,3 +748,23 @@
 - 用户明确授权第8轮之后最多再6轮手动任务，用于当前5.9.3故障/取消及升级对应四类型/两确认契约，不自动发模型。用户截图确认的版本信息作为来源；历史5.1.5结果保留独立标签。
 - 第8轮准备：用户第7轮已停止后，只替换本任务临时HTTP代理进程以加入固定顺序的显式故障控制，保持同一临时origin/配置文件/身份；未更改正式配置或应用运行时。代理更换不冒充业务服务重启。随后通过原夹具CONTROL实际重启业务服务，17份回执及正式问题SHA256基线全部不变。
 - 新HTTP夹具仅按八次capabilities序列注入：正常、错误空间头、请求发出后轮换（本次旧token）、正常新token、真实120/min窗口预置、实际服务重启、服务端临时旧授权缺kinds且read-only、恢复原显式授权。旧授权模拟仅修改本任务TEMP注册表，范围收窄；恢复通过正常CredentialManager且仅恢复预置前的原范围，不自动扩权。错误空间头与限流预置/注册表条件是合成故障，不能冒充客户端真实配置损坏或自然流量；真实请求和响应由客户端/服务完成。已给出第8轮顺序任务，尚待执行，不先标通过。
+
+### 2026-11-07 / AG-121 / 第8轮重启与认证矩阵实际执行
+
+- 工作区干净、HEAD38d2839。第8轮由用户明确反馈已发送，真实客户端按顺序完成八次capabilities，固定HTTP阶段0～7全部消费；业务服务正常恢复，原17份回执/正式问题哈希基线全部不变。最初实际业务服务重启与限流后的再次重启都由原夹具重新装配真实Repository/AgentService/Runtime，不以代理进程替换冒充。
+- 关键HTTP原文（合成条件由夹具施加，错误响应由真实服务返回）：
+
+```json
+{"fixture_mode":"wrong_workspace","fixture_step":1,"http_status":409,"route":"/api/agent/v1/capabilities","service_error_code":"workspace_mismatch"}
+{"fixture_mode":"rotate_before","fixture_step":2,"http_status":401,"route":"/api/agent/v1/capabilities","service_error_code":"unauthenticated"}
+{"fixture_mode":"rate_fill","fixture_step":4,"http_status":429,"route":"/api/agent/v1/capabilities","service_error_code":"rate_limited"}
+{"fixture_mode":"restore_explicit","fixture_step":7,"http_status":200,"route":"/api/agent/v1/capabilities"}
+```
+
+- 相邻阶段实际正常200：轮换后下一次客户端请求重新读取新令牌；限流后真实重启清空服务内窗口再通过。旧授权阶段去除服务端kinds/authorization_schema_version并仅read，info/todo读取两次isError、issue读取成功、两次search成功和三次prepare isError；尚待用户报告具体结果/错误码，不从isError猜测。最后通过正常CredentialManager恢复原显式issue/todo/info/document与commit/propose/read，enabled保持有效。
+- 新版完整矩阵尚未收口：用户已获最多6轮追加额度；下一入口是第8轮最终报告、同临时连接器正常重连加载取消关联元数据、实际停止一次只读请求并核查状态，再进行5.9.3四类型/两确认路径对应回归。未移除/撤销该临时连接器，最终清理尚待；不标AG-121/126完成。
+
+- 用户第8轮最终报告已核实：八次capabilities严格按序、未补调/重试；get_proposal/get_item及原v1提交重放返回同回执（ID/revision/committed_at不变）；错空间workspace_mismatch与旧令牌unauthenticated均retryable=false，限流rate_limited为true。旧授权capabilities仅issue/document及read；info/todo search为空、读取not_found，issue读取成功；三次create均forbidden（缺propose scope），无新提案。恢复capabilities原四类型/scopes，业务回执17不变。
+- 开发侧另核INFO-0001/TODO-0001文件SHA256等于续验源manifest，INFO仍6字段；客户端关于“空结果可能是授权收窄”的推测不拿来代替服务端文件事实。恢复后客户端info/todo再读取仍留下一轮验证，不由本次磁盘核查冒充。下一入口正常重连加载新版取消关联；不要求改程序/参数/env，不自动发模型任务。
+
+- 本次三文档UTF-8/围栏/相对链接与目标diff、git diff --check通过，独立提交第8轮已执行证据；未改代码，不重跑已通过的235Python/19Node充当新实现。

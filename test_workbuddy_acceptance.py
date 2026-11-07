@@ -2,12 +2,25 @@
 
 import copy
 import json
+import tempfile
 import unittest
+from pathlib import Path
 
-from workbuddy_agent_acceptance import ProtocolFaultProbe, protocol_metadata
+from workbuddy_agent_acceptance import ProtocolFaultProbe, installed_cli_bundle, protocol_metadata
 
 
 class WorkBuddyMetadataTests(unittest.TestCase):
+    def test_original_launcher_selection_preserves_full_and_supports_lite_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            install = Path(directory)
+            dist = install / "resources" / "app.asar.unpacked" / "cli" / "dist"
+            dist.mkdir(parents=True)
+            self.assertEqual(installed_cli_bundle(install), "default")
+            (dist / "codebuddy-lite-wb.mjs").write_text("", encoding="utf-8")
+            self.assertEqual(installed_cli_bundle(install), "lite-wb")
+            (dist / "codebuddy.js").write_text("", encoding="utf-8")
+            self.assertEqual(installed_cli_bundle(install), "default")
+
     def test_cancellation_correlates_without_hiding_late_outcome_or_secrets(self):
         pending = {}
         protocol_metadata({"id": "PRIVATE_ID", "method": "tools/call", "params": {

@@ -9,6 +9,8 @@
 | Codex CLI | 0.163.0-alpha.10.2 / stdio MCP 2025-11-25 | 已实测 | python codex_agent_acceptance.py；12工具、四类型、两确认路径、重启/撤销；无模型turn，不计为非Codex验收 |
 | WorkBuddy桌面 | 5.1.5 / stdio MCP2025-11-25 | 四类型三操作、两确认路径及查询/幂等/取消子集已实测 | 16份历史回执与正式文件重读一致；四类型update有完整展示/新消息确认，local_web有独立网页批准。较早轮次确认未独立核实；协议、认证、重启/丢响应等仍待完成 |
 | WorkBuddy附带的原装CodeBuddy CLI | 2.103.3 / stdio MCP2025-11-25 | 连接与工具发现通过 | python workbuddy_agent_acceptance.py；真实initialize/initialized/tools/list、12工具、Connected；无模型turn，写入/故障矩阵未运行 |
+| WorkBuddy桌面 | 5.9.3 (d4692421) / stdio MCP2025-11-25 | 显式协议探针及issue追加丢响应查询通过，矩阵进行中 | 用户关于页核实版本；第6～7轮真实预览/提交/查询与17份回执一致，未沿用5.1.5全部结果为新版通过 |
+| 当前附带原装CLI | 2.165.0 / lite-wb / stdio MCP2025-11-25 | 默认连接及显式探针通过 | 原装启动器固定lite开关，12工具、退出0、无模型turn；旧默认入口缺少产物失败已保留 |
 | 远程 OAuth/Streamable HTTP 客户端 | 当前范围取消 | 未验证 | 用户仅单机使用；本机stdio结果不能外推 |
 
 ## 2. 真实连接证据与剩余条件
@@ -165,3 +167,8 @@ code: 'MODULE_NOT_FOUND'
 ```
 
 只读安装元数据核查：磁盘WorkBuddy.exe为5.9.3，CLI package版本2.165.0；旧5.1.5/2.103.3历史保留，不把旧版完整矩阵直接升级。当前安装仅有codebuddy-lite-wb.mjs；原装bin/codebuddy提供CODEBUDDY_FORCE_LITE_WB_BUNDLE=1入口，使用该固定环境开关后真实CLI显式探针通过（2.165.0、12工具、ping空结果、未知方法-32601、退出0、无模型turn/真实配置修改）。本次通过临时Python调用覆盖隔离环境开关，仓库命令尚未修复；后续应独立修复验收启动设施。未提取SDK/修改厂商安装文件。桌面运行中版本已请求用户核实，磁盘安装版本不冒充运行中版本。
+
+
+用户“关于”截图确认当前运行桌面5.9.3(d4692421)，Electron37.10.0/Chromium138.0.7204.251/Node22.16.0。第6～7轮及本轮桌面探针按该版本记录；旧5.1.5四类型三操作历史不改写为新版全量通过。第7轮首次唯一commit为service_unavailable、retryable=true、无回执；随后原提案查询committed/同v1摘要及持久回执，正式ISSUE-0001完整正文286字符、revision239540b8d7d3497cdaeca1337063a2736d4debd80a1c8de49596bea34ca9ef07，追加只一次。与HTTP故障日志真实200后截断、工具commit isError→get_proposal/get_item成功、磁盘正文/开放字段/17回执核对一致，无重建。客户端报告“待验证无”只指本轮，不代表完整兼容矩阵收口。
+
+CLI验收入口已修复：只有完整codebuddy.js缺失且lite-wb.mjs存在才选择原装固定lite开关；完整安装保持默认路径，不改厂商安装。8项专项通过，当前默认/--protocol-faults两命令均真实CLI2.165.0、cli_bundle=lite-wb、12工具、退出0通过，默认无注入、显式两回复valid，无模型turn/正式配置修改。两次旧启动失败保留；该修复不改变应用运行时/协议/数据/资源版本。

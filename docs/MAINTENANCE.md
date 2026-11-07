@@ -138,3 +138,6 @@ AG-121已在WorkBuddy桌面5.1.5实际验证四类型三操作、两确认路径
 当前范围更新（2026-11-06）：AG-122～125按用户单机用途取消，原远程外部门槛不再阻塞本机交付；既有设计仅作历史参考。本机使用不需要TLS/IdP/代理，原loopback边界保持。
 
 显式客户端验收的Windows后代进程由acceptance_process.ClientJob回收；该模块只被验收脚本引用，不进入应用运行时。修改它需运行test_startup和真实Codex/WorkBuddy连接检查，涵盖根进程先退出仍持有管道/cwd的场景。临时会话存在时不要把其健康检查当作模型或完整兼容通过。
+
+
+WorkBuddy验收脚本兼容原装lite-only安装：完整CLI产物缺失且lite-wb.mjs存在时，通过厂商bin入口的固定环境开关选择lite-wb，输出cli_bundle；不提取SDK或修改安装文件。2026-11-07当前CLI2.165.0默认/显式探针通过，桌面运行版本由用户关于页核实为5.9.3，旧5.1.5结果保留独立版本标签。客户端升级后不能直接继承旧版完整矩阵，现状见[兼容矩阵](AGENT_CLIENT_COMPATIBILITY.md)。

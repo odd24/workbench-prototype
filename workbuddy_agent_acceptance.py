@@ -216,6 +216,14 @@ def isolated_environment(base):
     return env
 
 
+def installed_cli_bundle(install):
+    """Use the vendor launcher's fixed lite selector for lite-only packages."""
+    dist = install / "resources" / "app.asar.unpacked" / "cli" / "dist"
+    if not (dist / "codebuddy.js").is_file() and (dist / "codebuddy-lite-wb.mjs").is_file():
+        return "lite-wb"
+    return "default"
+
+
 def run_acceptance(install, protocol_faults=False):
     cli = install / "resources" / "app.asar.unpacked" / "cli" / "bin" / "codebuddy"
     node = shutil.which("node")
@@ -224,6 +232,9 @@ def run_acceptance(install, protocol_faults=False):
     with disposable_directory() as directory:
         base = Path(directory)
         env = isolated_environment(base)
+        bundle = installed_cli_bundle(install)
+        if bundle == "lite-wb":
+            env["CODEBUDDY_FORCE_LITE_WB_BUNDLE"] = "1"
         cwd = base / "workspace"
         cwd.mkdir()
         job = ClientJob()
@@ -275,7 +286,7 @@ def run_acceptance(install, protocol_faults=False):
             if protocol_faults:
                 assert {item["fixture_reply"] for item in probe_replies} == {"ping", "unknown_method"}, "Client did not answer injected server requests"
                 assert all(item["valid"] for item in probe_replies), "Client gave an unexpected server-request response"
-            return {"cli_version": version, "exit_code": process.returncode, "timed_out": timed_out,
+            return {"cli_version": version, "cli_bundle": bundle, "exit_code": process.returncode, "timed_out": timed_out,
                 "connected": connected, "initialize": initialized,
                 "methods": [item["method"] for item in requests if "method" in item], "tool_count": len(inventories[0]) if inventories else 0,
                 "server_protocols": [item["protocolVersion"] for item in events if item["direction"] == "server_to_client" and "protocolVersion" in item],

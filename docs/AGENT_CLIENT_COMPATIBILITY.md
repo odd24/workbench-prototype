@@ -80,16 +80,16 @@ python workbuddy_agent_acceptance.py --desktop-session
 
 | 组 | 真实操作 | 必须保留的脱敏证据 | 当前结果 |
 | --- | --- | --- | --- |
-| 协议 | initialize/initialized、tools/list、UTF-8、ping、未知消息/字段、断连/重连 | 客户端/OS/协议版本、12工具目录、错误码、stdout仅协议 | 原装CLI/桌面握手12工具及桌面重连真实请求通过；一次取消通知不等于取消语义通过，原装CLI与5.9.3桌面显式ping/未知方法均通过；曾提前tools/list获-32002后初始化重试成功，实际请求取消仍待验 |
-| 查询 | kinds范围交集、catalog四类型、分页、分段正文、引用越权 | 允许/拒绝对照、完整分段拼接等于磁盘正文 | 四类型catalog、授权范围、两页无重复、6段707字符拼接逐字等于磁盘通过；越权读取not_found/引用invalid_reference通过，5.9.3旧授权缺kinds时仅issue/document，info/todo搜索空/读取not_found、issue允许对照通过，原四类型恢复；恢复后info/todo读取待复核 |
-| create | issue/document/todo/info各新建 | 完整预览/警告/版本、规范字段、保存后重读与新仓储重载 | 四类型真实新建落盘/正文字段及回执哈希重读通过；完整确认过程仍待补证 |
+| 协议 | initialize/initialized、tools/list、UTF-8、ping、未知消息/字段、断连/重连 | 客户端/OS/协议版本、12工具目录、错误码、stdout仅协议 | 原装CLI/桌面握手12工具及桌面重连真实请求通过；一次取消通知不等于取消语义通过，原装CLI与5.9.3桌面显式ping/未知方法均通过；曾提前tools/list获-32002后初始化重试成功，5.9.3在途capabilities收到关联取消，迟到isError后同一连接查询恢复；不承诺立即中断/回滚 |
+| 查询 | kinds范围交集、catalog四类型、分页、分段正文、引用越权 | 允许/拒绝对照、完整分段拼接等于磁盘正文 | 四类型catalog、授权范围、两页无重复、6段707字符拼接逐字等于磁盘通过；越权读取not_found/引用invalid_reference通过，5.9.3旧授权缺kinds时仅issue/document，info/todo搜索空/读取not_found、issue允许对照通过，原四类型恢复；5.9.3第10轮info/todo读取恢复通过 |
+| create | issue/document/todo/info各新建 | 完整预览/警告/版本、规范字段、保存后重读与新仓储重载 | 5.1.5历史四类型落盘、较早确认缺口保留；5.9.3四类型local_web新建独立网页批准/日志/正文和字段/回执哈希重读通过 |
 | append | 四类型各追加 | 合成全文、todo/info只接受body，字段不隐式合并 | 四类型追加/正文/字段/回执SHA256通过，document由网页批准落盘；info附加status被unknown_field拒绝 |
 | update | 四类型各更新/重排info_fields | revision校验、保留未开放元数据、清空/省略差别 | 四类型update及info字段反转落盘通过；取消候选省略字段保留6项、显式空列表变0项已核对，空字段候选未正式提交 |
 | agent_attested | 展示当前完整预览，修改后旧确认拒绝、取消 | 真实工具往返；程序测试声明不能称为人类确认或模型遵规证明 | 四类型update具备完整展示/指定新用户消息/提交证据；取消候选修订后旧版version_conflict、取消后invalid_state通过，较早轮次确认缺口保留 |
 | local_web | Agent自报确认拒绝，本机网页重新预览批准，再由客户端查询 | confirmation_required、同一版本/摘要/回执，无可兑换票据到客户端 | 四类型自报拒绝→用户网页批准→真实客户端查询/重放原回执通过，批准日志/版本/摘要/正式文件一致 |
 | 幂等 | 相同request_id重试、不同输入拒绝、提交丢响应先查询 | 只有一份正式条目/历史，原回执不变 | 四份提交重放原回执；prepare原样同提案、不同body为idempotency_conflict，旧版/取消拒绝通过；5.9.3唯一提交成功响应截断→先查原提案/正式问题→重启后重放原回执通过 |
 | 故障 | 撤销/轮换、服务重启、错空间、isError、限流 | 令牌失效生效、持久恢复、无秘密输出 | 真实业务拒绝已记录isError；5.9.3实际服务重启后原回执重放不变，轮换旧令牌401/新令牌恢复、错空间头409、真实限流429/重启恢复均通过；撤销仍待运行，合成条件见下文 |
-| UI | 结果链接打开，记录/知识库保存重开与冲突 | 浅深主题/桌面窄屏、草稿不丢失 | 四类型链接和两编辑器由独立真实Edge契约覆盖；本次WorkBuddy回执链接的人工打开仍未核实 |
+| UI | 结果链接打开，记录/知识库保存重开与冲突 | 浅深主题/桌面窄屏、草稿不丢失 | 四类型链接和两编辑器由独立真实Edge契约覆盖；5.9.3新建四类型的真实结果链接用户已逐份打开并刷新，标题/类型正确 |
 
 取消MCP请求不等于撤销已经持久提交的业务事务；需分别查询提案状态。已删除条目不能因重试重新创建。客户端升级后重新验收，不能沿用旧版本通过标签。
 
@@ -184,3 +184,20 @@ CLI验收入口已修复：只有完整codebuddy.js缺失且lite-wb.mjs存在才
 ```
 
 以上和真实工具isError/恢复成功、持久注册表及17份回执/正式问题哈希一致；INFO-0001/TODO-0001文件仍等于复制源哈希、INFO6字段，无删除。客户端尚未在恢复后重读info/todo，留下一轮验证。错空间头只证明注入错误被服务拒绝/客户端收到错误，不冒称已测试客户端配置文件真实损坏。限流为真实服务限额加人工流量预置，不声称自然高负载性能。撤销/实际取消及新版四类型两确认仍待运行。
+
+### 5.9.3第9～10轮：在途取消与四类型网页批准
+
+用户正常重连后发送单次capabilities，在其执行时点击停止。实际脱敏中继原文：
+
+```json
+{"direction":"client_to_server","method":"notifications/cancelled","cancelled_request_pending":true,"cancelled_tool":"workbench_capabilities"}
+{"direction":"server_to_client","tool":"workbench_capabilities","tool_is_error":true}
+```
+
+HTTP夹具已从真实服务取得200只读结果，再延迟响应12秒；桥接既有同步HTTP上限10秒，取消后仍观察到迟到isError，不能声称立即中断或撤销业务。17回执/正式问题不变。第10轮同一连接（中间无新initialize）capabilities/get_proposal/INFO-0001/TODO-0001成功，用户报告原回执不变、info707/todo111字符完整可读；当前trace无unparsed行，未观察额外非JSON输出。
+
+第10轮四类型catalog/检索已执行。document携project_id的catalog得到invalid_request，改为仅kind=document后成功；文档按分类、无项目归属，符合领域契约。四个独立wb593-create-* request_id生成local_web v1完整预览，用户核实展示，四次自报提交均confirmation_required/false无回执。用户随后在真实网页逐份重新预览批准，四份completed批准日志/提案approval/版本/摘要/持久回执一致，回执21。正式ISSUE-0003/DOC-0002/TODO-0002/INFO-0003的正文及全部开放字段重新解析匹配候选、SHA256匹配回执；todo due=2026-11-30，info3字段顺序、引号、LF及value/note首尾空格与请求逐字一致。未由夹具/Agent代替网页批准。
+
+当前OS实测Windows11专业版10.0.22631；用户截图的模型UI标签为Hy4，未独立核实后端模型版本，不将单次客户端执行外推为任意模型遵规保证。第11轮网页回执查询/重放及四类型append待执行，新版update/旧版本拒绝/最终撤销与链接人工打开仍待收口。
+
+用户已逐份打开并刷新本轮ISSUE-0003/DOC-0002/TODO-0002/INFO-0003正式结果链接，确认均对应正确标题/类型；此为手工结果打开证据，不外推为新的编辑器主题/草稿冲突验收。第11轮已由用户手动发送，读写后续仍待实际结果。

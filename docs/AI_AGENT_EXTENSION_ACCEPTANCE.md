@@ -123,3 +123,5 @@ Node包括真实Edge设置/提案管理/四类型深链接/两编辑器保存重
 用户关于页截图确认5.9.3(d4692421)，附带CLI2.165.0，旧5.1.5/2.103.3结果保留独立标签。新版第7轮真实首次提交丢响应后先查原提案/正式问题成功，唯一追加、17份回执，正式revision239540b8d7d3497cdaeca1337063a2736d4debd80a1c8de49596bea34ca9ef07；客户端报告与服务端/磁盘一致。第8轮八阶段capabilities已完成，真实服务返回workspace_mismatch409/旧令牌unauthenticated401/rate_limited429，轮换新令牌与真实服务重启后恢复200，旧授权模拟后已恢复原授权；具体查询/三次prepare拒绝及原回执重放结果仍待客户端报告。合成条件和真实调用区分记录，不把开发侧预置当自然故障，不声明现实身份认证。新版剩余类型/确认/取消和最终撤销清理尚未完成。
 
 第8轮最终报告与服务/磁盘相符：原v1回执重放完全不变；旧授权仅issue/document/read，info/todo搜索为空/读取not_found、issue读取成功、三次create均forbidden无新提案；最后四类型/scopes恢复。开发侧核info/todo文件等于续验源哈希，INFO6字段。客户端恢复后再读取仍待下一轮，撤销/取消与新版四类型两确认尚未完成；不把本轮通过扩张为完整新版兼容。
+
+5.9.3第9轮在途capabilities的notifications/cancelled实际关联pending工具，用户确认执行中停止；仍有迟到isError，不承诺同步HTTP立即抢占。第10轮同一连接恢复capabilities/原回执/INFO-0001/TODO-0001读取，业务未回滚。四类型local_web create完整展示和四次confirmation_required后，用户真实网页独立批准；批准日志/版本/摘要/21份回执与四份正式文件全部字段/正文/SHA256核对通过，info三字段多行空格保持。新ID为ISSUE-0003/DOC-0002/TODO-0002/INFO-0003。当前Windows11专业版22631，WorkBuddy5.9.3(d4692421)/CLI2.165.0；不把UI模型标签Hy4当后端精确版本。新版append/update、取消版本负向与撤销/最终清理继续推进。

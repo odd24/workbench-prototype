@@ -768,3 +768,23 @@
 - 开发侧另核INFO-0001/TODO-0001文件SHA256等于续验源manifest，INFO仍6字段；客户端关于“空结果可能是授权收窄”的推测不拿来代替服务端文件事实。恢复后客户端info/todo再读取仍留下一轮验证，不由本次磁盘核查冒充。下一入口正常重连加载新版取消关联；不要求改程序/参数/env，不自动发模型任务。
 
 - 本次三文档UTF-8/围栏/相对链接与目标diff、git diff --check通过，独立提交第8轮已执行证据；未改代码，不重跑已通过的235Python/19Node充当新实现。
+
+### 2026-11-07 / AG-121 / 第9轮真实取消与新版回归开始
+
+- HEADbc64cb9、工作区干净。用户在第8轮完成后手工重连同一临时连接器，再发送第9轮单次capabilities只读任务并明确反馈在执行期间点击停止。固定HTTP夹具收到真实capabilities且业务服务已200读完后，只延迟其响应12秒，没有业务写入。
+- 新中继实际关键原文：
+
+```json
+{"direction":"client_to_server","method":"tools/call","tool":"workbench_capabilities"}
+{"direction":"client_to_server","method":"notifications/cancelled","cancelled_request_pending":true,"cancelled_tool":"workbench_capabilities"}
+{"direction":"server_to_client","tool":"workbench_capabilities","tool_is_error":true}
+```
+
+- 相比此前只有孤立通知，本轮关联确认为在途capabilities；通知不证明服务端立即中断，桥接既有同步HTTP有10秒上限，实际仍观察到迟到isError。17回执与正式问题哈希全部不变，未撤销已接受事务、不回滚正文。停止后复用/复连查询留给第10轮真实客户端核对，不由开发侧读取冒充。
+- 第10轮范围：当前5.9.3读取原回执及恢复后的info/todo、四类型catalog/搜索；四类型local_web新建候选与有序多行info_fields、完整展示，四次自报绕过负向，网页批准另由用户操作。已给出明确四个独立request_id（wb593-create-issue/document/todo/info分别展开），不自动模型/不代替批准；预计仅三验收文档更新，无应用代码/缓存/数据格式变化。后续append/update逐轮完整展示后等新确认，所有写入仍只临时库。
+
+- 第10轮用户提供完整报告：停止后原提案committed/revision未变，INFO-0001(707字符)/TODO-0001(111字符)读取恢复；四类型catalog已读，document错误携project_id时invalid_request，移除项目参数后成功，符合文档仅分类契约，不改应用。四份local_web create v1完整预览已展示，四次自报提交均confirmation_required/retryable=false、无回执。info三项有序字段按指定模板逐字核对，含引号、换行和首尾空格。
+- 用户随后明确报告四份已在临时网页逐份完整预览并独立批准。实际四份committed、local_web批准日志各1份completed、approval/版本/摘要与提案及回执相同；正式文件重新解析的正文/全部开放字段等于候选、SHA256等于回执。ID为ISSUE-0003、DOC-0002、TODO-0002、INFO-0003，回执21。开发夹具未调用管理批准。
+- 第11轮已安排真实客户端查询/重放上述四份网页回执，再完整读取、准备四份新的agent_attested append完整预览后停止；尚待执行/展示核实，不把安排记结果。已请用户打开/刷新四种正式结果链接，手工结果待回报。下一轮仍须新的明确确认后提交，不自行批准。
+
+- 用户确认四种正式结果链接均打开正确且刷新正常；第11轮已发送、正在执行。三文档UTF-8/围栏/相对链接及目标diff、git diff --check通过后独立提交第9～10轮证据；不借用旧版读写标签完成新版append/update。

@@ -18,12 +18,12 @@
   </script>
   <link rel="stylesheet" href="css/tokens.css?v=20260918-1">
   <link rel="stylesheet" href="css/base.css?v=20260918-1">
-  <link rel="stylesheet" href="css/components.css?v=20261107-2">
+  <link rel="stylesheet" href="css/components.css?v=20261107-3">
   <link rel="stylesheet" href="css/layout.css?v=20260918-1">
   <link rel="stylesheet" href="css/records.css?v=20261107-2">
   <link rel="stylesheet" href="css/management.css?v=20261107-1">
-  <link rel="stylesheet" href="css/editor.css?v=20261104-1">
-  <link rel="stylesheet" href="css/knowledge-base.css?v=20261107-2">
+  <link rel="stylesheet" href="css/editor.css?v=20261107-3">
+  <link rel="stylesheet" href="css/knowledge-base.css?v=20261107-3">
   <link rel="stylesheet" href="css/concept-map.css?v=20260918-1">
   <link rel="stylesheet" href="css/responsive.css?v=20261107-2">
 </head>
@@ -214,7 +214,6 @@
       <header><div><button class="icon-button record-back" id="recordBack" aria-label="返回上一条记录" title="返回上一条记录">←</button><span class="type-icon issue">!</span><button class="record-id" id="drawerRecordId" title="点击复制记录 ID">ISSUE-0001</button></div><div><span class="record-id-help">在其他记录中输入 [[ID]] 即可引用</span><button class="icon-button" id="copyRecordId" aria-label="复制记录 ID" title="复制记录 ID">⧉</button><button class="icon-button dialog-close" id="closeDrawer" aria-label="关闭" title="关闭">✕</button></div></header>
     <div class="drawer-content">
       <input class="drawer-title" id="drawerTitle" value="登录页面偶尔请求失败" aria-label="标题" spellcheck="false">
-      <div id="drawerTimes"></div>
       <div class="meta-grid"><span class="non-info-meta">状态</span><select class="non-info-meta" id="drawerStatus"></select><span class="non-info-meta">优先级</span><select class="non-info-meta" id="drawerPriority"><option>低</option><option>普通</option><option>高</option><option>紧急</option></select><span>所属项目</span><button id="drawerProject">网站重构</button><span class="non-info-meta">截止日期</span><input class="non-info-meta" type="date" id="drawerDue"><span>标签</span><div class="tag-row" id="drawerTags"><button>＋ 添加标签</button></div></div>
       <section class="info-fields-panel" id="infoFieldsPanel"><header><div><strong>信息字段</strong><small>拖动调整顺序；每个字段都可保存多行文本或命令并单独复制</small></div><div class="info-fields-actions"><span class="info-color-label">色条</span><div id="infoColorPicker"></div><button type="button" id="addDrawerInfoField">＋ 添加字段</button></div></header><div id="drawerInfoFieldList"></div></section>
       <div class="editor-tabs unified-editor-tabs"><button class="active" data-editor-mode="wysiwyg">可视化编辑</button><button data-editor-mode="markdown">Markdown 源码</button><button data-editor-mode="split">分栏预览</button><button id="toggleEditorExpand" class="editor-expand-button" aria-pressed="false" title="展开编辑区域">⛶ 展开编辑</button></div>
@@ -230,7 +229,7 @@
       <section class="relation-box"><header><strong>关联内容</strong><button id="addRelation">＋ 添加关联</button></header><div id="relationList"><div class="empty-state">暂无关联内容</div></div></section>
       <section class="relation-box"><header><strong>附件</strong><button id="addAttachment">＋ 添加附件</button></header><input type="file" id="attachmentInput" hidden><div id="attachmentList"><div class="empty-state">暂无附件</div></div></section>
     </div>
-    <footer><div class="editor-save-status"><span class="save-indicator">✓ 已保存</span><label class="save-on-leave-option"><input type="checkbox" id="saveOnLeave"> 自动保存</label></div><div><span class="external-editor-split"><button class="secondary-button" id="openExternalEditor" title="使用默认外部编辑器打开 Markdown"><span id="externalEditorButtonLabel">外部编辑器打开</span></button><button class="secondary-button" id="chooseExternalEditor" aria-label="选择外部编辑器" title="选择外部编辑器">⌄</button></span><button class="secondary-button" id="convertRecord">转换为待办</button><button class="secondary-button" id="showHistory">查看历史</button><button class="secondary-button danger-button" id="deleteRecord">删除</button><button class="primary-button" id="saveRecord" aria-keyshortcuts="Control+S" title="保存（Ctrl+S）" disabled>保存</button></div></footer>
+    <footer><div class="editor-save-status"><div id="drawerTimes"></div><div class="editor-save-controls"><span class="save-indicator">✓ 已保存</span><label class="save-on-leave-option"><input type="checkbox" id="saveOnLeave"> 自动保存</label></div></div><div><span class="external-editor-split"><button class="secondary-button" id="openExternalEditor" title="使用默认外部编辑器打开 Markdown"><span id="externalEditorButtonLabel">外部编辑器打开</span></button><button class="secondary-button" id="chooseExternalEditor" aria-label="选择外部编辑器" title="选择外部编辑器">⌄</button></span><button class="secondary-button" id="convertRecord">转换为待办</button><button class="secondary-button" id="showHistory">查看历史</button><button class="secondary-button danger-button" id="deleteRecord">删除</button><button class="primary-button" id="saveRecord" aria-keyshortcuts="Control+S" title="保存（Ctrl+S）" disabled>保存</button></div></footer>
   </aside>
 
   <dialog class="history-dialog" id="historyDialog">
@@ -326,7 +325,6 @@
   <dialog class="document-dialog unified-editor-host" id="documentDialog">
     <div class="document-dialog-shell">
       <header><div><p class="eyebrow">知识库</p><h2 id="documentDialogTitle">新建文档</h2></div><div class="document-dialog-actions"><span class="external-editor-split document-external-editor"><button type="button" class="secondary-button" id="openDocumentExternal"><span id="documentExternalEditorLabel">外部编辑器打开</span></button><button type="button" class="secondary-button" id="chooseDocumentExternal" aria-label="选择外部编辑器" title="选择外部编辑器">⌄</button></span><button type="button" class="secondary-button" id="showDocumentHistory">查看历史</button><button type="button" class="secondary-button" id="exportDocument">导出文档</button><button type="button" class="secondary-button" id="toggleDocumentMode">阅读模式</button><button type="button" class="icon-button dialog-close" id="closeDocumentDialog" aria-label="关闭">✕</button></div></header>
-      <div class="document-times" id="documentTimes"></div>
       <div class="document-workspace">
         <aside class="document-outline" id="documentOutline"><header><strong>文档导航</strong><button type="button" id="toggleDocumentOutline" title="收起导航" aria-label="收起文档导航">‹</button></header><div class="document-outline-title" id="documentOutlineTitle">新建文档</div><nav id="documentOutlineNav"></nav></aside>
         <main class="document-workspace-main">
@@ -353,7 +351,7 @@
       <article class="document-read-pane markdown-preview" id="documentReadPane"></article>
         </main>
       </div>
-      <footer><button type="button" class="secondary-button danger-button" id="deleteDocument">删除文档</button><span class="document-save-state" id="documentSaveState"></span><button type="button" class="primary-button" id="saveDocument">保存文档</button></footer>
+      <footer><button type="button" class="secondary-button danger-button" id="deleteDocument">删除文档</button><div class="document-save-status"><div id="documentTimes"></div><span class="document-save-state" id="documentSaveState"></span></div><button type="button" class="primary-button" id="saveDocument">保存文档</button></footer>
     </div>
     <div class="document-selection-toolbar" id="documentSelectionToolbar" aria-hidden="true"><select data-selection-heading aria-label="标题级别"><option value="p">正文</option><option value="h1">H1</option><option value="h2">H2</option><option value="h3">H3</option></select><button type="button" data-document-command="bold" title="加粗"><b>B</b></button><button type="button" data-document-command="italic" title="斜体"><i>I</i></button><button type="button" data-document-command="underline" title="下划线"><u>U</u></button><button type="button" id="documentSelectionLink" title="链接"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20"/></svg></button><button type="button" id="documentSelectionCode" title="行内代码"><svg viewBox="0 0 24 24"><path d="m8 9-3 3 3 3M16 9l3 3-3 3"/></svg></button><span class="document-color-split"><button type="button" class="document-color-apply text-color" data-document-color-apply="foreColor" title="应用上次字体颜色"><span>A</span></button><button type="button" class="document-color-menu" data-document-color-menu="foreColor">⌄</button></span><span class="document-color-split"><button type="button" class="document-color-apply fill-color" data-document-color-apply="hiliteColor" title="应用上次背景颜色"><span>A</span></button><button type="button" class="document-color-menu" data-document-color-menu="hiliteColor">⌄</button></span></div>
     <div class="document-common-color-palette" id="documentColorPalette" hidden></div>
@@ -388,6 +386,6 @@
   <script src="js/editor/editor-blocks.js?v=20260923-1"></script>
   <script src="js/editor/editor-host.js?v=20260923-1"></script>
   <script src="concept-map.js?v=20261019-21"></script>
-  <script src="app.js?v=20261107-2"></script>
+  <script src="app.js?v=20261107-3"></script>
 </body>
 </html>

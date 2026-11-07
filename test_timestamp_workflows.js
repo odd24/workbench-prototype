@@ -163,22 +163,23 @@ async function main() {
         await client.evaluate(`document.body.classList.toggle('dark', ${dark}); projectTab = 'overview'; projectViewMode = 'board'; setPage('project')`);
         await sameTimes('#projectTimes', `projects.find(item => item.id === ${JSON.stringify(ids.project)})`);
         await screenshot(`project-${width}-${dark}`);
-        assert.equal(await client.evaluate(`$$('#kanban .kanban-card').every(card => card.querySelectorAll('.entity-times time').length === 2)`), true);
+        assert.equal(await client.evaluate(`$$('#kanban .kanban-card').every(card => card.querySelectorAll('.entity-times').length === 0)`), true);
         await client.evaluate(`projectViewMode = 'list'; renderProjectPage()`);
         assert.equal(await client.evaluate(`$$('#kanban th').slice(-2).map(node => node.textContent).join('|')`), '创建时间|上次修改时间');
         await client.evaluate(`projectTab = 'infos'; renderProjectPage()`);
-        assert.equal(await client.evaluate(`$$('#kanban .info-display-card .entity-times time').length`), 2);
+        assert.equal(await client.evaluate(`$$('#kanban .info-display-card .entity-times time').length`), 0);
         await client.evaluate(`openGlobalStats()`);
-        assert.equal(await client.evaluate(`$('.global-project-row .entity-times').textContent.includes('创建：')`), true);
+        assert.equal(await client.evaluate(`$('.global-project-row .entity-times') === null`), true);
         await client.evaluate(`$('#globalStatsDialog').close()`);
         await client.evaluate(`openDocument(${JSON.stringify(ids.doc)})`);
         await sameTimes('#documentTimes', 'currentDocument');
+        assert.equal(await client.evaluate(`Boolean($('#documentDialog footer #documentTimes'))`), true);
         await screenshot(`document-${width}-${dark}`);
         assert.equal(await client.evaluate(`(() => { const r = $('#documentTimes').getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth; })()`), true);
         await client.evaluate(`$('#documentDialog').close(); openDocument()`);
         assert.equal(await client.evaluate(`$('#documentTimes').textContent`), '创建：保存后生成修改：保存后生成');
         await client.evaluate(`$('#documentDialog').close(); renderDocumentsPage()`);
-        assert.equal(await client.evaluate(`$$('[data-document-card="${ids.doc}"] .entity-times time').length`), 2);
+        assert.equal(await client.evaluate(`$$('[data-document-card="${ids.doc}"] .entity-times time').length`), 0);
         if (process.env.WORKBENCH_TIMESTAMP_SCREENSHOTS) {
           await client.evaluate(`setPage('documents'); documentOpenCategories.add('时间验收'); renderDocumentsPage()`);
           await delay(100);
@@ -204,6 +205,7 @@ async function main() {
     for (const id of ids.items) {
       await client.evaluate(`openDrawer(${JSON.stringify(id)})`);
       await sameTimes('#drawerTimes', 'currentRecord');
+      assert.equal(await client.evaluate(`Boolean($('#detailDrawer footer #drawerTimes'))`), true);
       await screenshot(`drawer-${id}`);
       const original = await client.evaluate(`({created:currentRecord.created, updated:currentRecord.updated})`);
       await client.evaluate(`window.timestampFetch = window.fetch; window.fetch = (url, options) => options?.method === 'PATCH' && String(url).includes('/records/') ? Promise.reject(new Error('验收模拟保存失败')) : window.timestampFetch(url, options); $('.drawer-title').value += '已编辑'; markEditorChanged(); recordSession.cancel()`);
@@ -271,7 +273,7 @@ async function main() {
         records = Array.from({length:120}, (_, index) => ({...originalRecords[0], id:'ISSUE-TEST-' + index, created:stamp, updated:stamp, project_id:${JSON.stringify(ids.project)}}));
         documents = Array.from({length:120}, (_, index) => ({id:'DOC-TEST-' + index, type:'document', title:'大量数据与长中文标题'.repeat(5), body:'正文', category:'时间验收', tags:[], created:stamp, updated:stamp}));
         renderDocumentsPage();
-        if ($$('.document-card .entity-times time').length !== 240) return false;
+        if ($$('.document-card .entity-times').length !== 0) return false;
         selectedProjectId = ${JSON.stringify(ids.project)}; projectTab = 'overview'; projectViewMode = 'list'; renderProjectPage();
         return $$('#kanban tbody time').length === 240 && $$('#kanban .auto-collapsed-record').length > 0;
       } finally { records = originalRecords; documents = originalDocuments; }

@@ -144,4 +144,4 @@ WorkBuddy验收脚本兼容原装lite-only安装：完整CLI产物缺失且lite-
 
 ## 创建与修改时间展示
 
-运行 `node test_timestamp_workflows.js`，使用临时数据目录和真实 Edge/Chrome，覆盖项目、三类条目、知识库的双时间、排序、保存失败/重试、重开/刷新、外部修改、历史恢复、缺失及异常时间、空数据/120 项、浅色/深色和桌面/窄屏。`WORKBENCH_TIMESTAMP_SCREENSHOTS=1` 将评审截图写入系统临时目录，不写入仓库。该功能只读取现有 `created`/`updated`，不迁移数据；文件 mtime 仍只用于外部变更检测，不替代业务修改时间。
+运行 `node test_timestamp_workflows.js`，使用临时数据目录和真实 Edge/Chrome，覆盖项目概览、三类条目底部左侧及知识库底部右侧的双时间、卡片不显示时间、排序、保存失败/重试、重开/刷新、外部修改、历史恢复、缺失及异常时间、空数据/120 项、浅色/深色和桌面/窄屏。`WORKBENCH_TIMESTAMP_SCREENSHOTS=1` 将评审截图写入系统临时目录，不写入仓库。该功能只读取现有 `created`/`updated`，不迁移数据；文件 mtime 仍只用于外部变更检测，不替代业务修改时间。

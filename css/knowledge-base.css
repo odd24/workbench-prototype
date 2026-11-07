@@ -47,4 +47,4 @@
 /* Keep action labels readable while the narrow header scrolls. */
 .document-dialog-actions>*{flex-shrink:0}
 
-.document-times{flex-shrink:0;padding:8px 18px;border-bottom:1px solid var(--line);background:var(--surface)}.document-times .entity-times-detail{margin:0}.document-workspace{position:relative}
+.document-save-status{margin-left:auto;min-width:0;text-align:right}.document-save-status .entity-times-detail{margin:0;flex-direction:column;align-items:flex-end;gap:0}.document-save-status .document-save-state{display:block}.document-workspace{position:relative}

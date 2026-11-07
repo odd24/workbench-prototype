@@ -844,3 +844,15 @@
 - 实际收尾文件为README、AI_AGENT_ACCEPTANCE、AI_AGENT_EXTENSION_PLAN、AI_AGENT_EXTENSION_ACCEPTANCE、AI_AGENT_PROGRESS及ARCHITECTURE；先前接入/使用/维护/数据格式已同步。无应用运行时/API/Markdown格式/旧授权变化，APP_VERSION和资源缓存不变，无真实数据迁移。
 - 最终检查结果：235Python（107.463秒）、19Node整组、61Python/45JS语法、真实Codex与生命周期通过，命令及范围见前文；本次仅文档状态变化，28Markdown编码/围栏/相对链接、目标diff和git diff --check通过后提交，不重复运行已通过门禁充当新实现。最终提交标题Complete local Agent extension delivery。
 - AG-126于2026-11-07完成，沿用AG-DEC-006～009；无当前本机范围遗留项。远程AG-122～125保持已取消，不实施/不标通过；不同客户端版本与模型限制、取消迟到语义及本轮未跑性能/视觉基线均保留。后续客户端升级须重跑对应契约，不自动创建新工作项或发模型任务。
+
+
+### 2026-11-07 / 提案预览交互优化 / 已完成
+
+- 用户授权按预览优化方案实施；普通功能维护，不改变模块边界或公共契约，不新增RF或改写已完成AG状态。开始前Git干净。
+- 范围：大弹窗、固定头尾和正文滚动、本页连续切换、关闭恢复列表位置与焦点、可读字段与完整原始信息、弹窗内反馈；保留批准/取消二次确认及未决操作恢复。
+- 预计文件：agent-proposals.js、management.css、responsive.css、index.html、提案浏览器测试、README/使用/验收与本台账。API、Markdown、草稿、历史、外部修改和凭据持久化不变。
+- 计划检查：Python全量与语法、JS语法、提案/设置/样式Node契约、真实Edge浅深×桌面窄屏截图检查及diff检查。重点风险为嵌套确认焦点、关闭时迟到请求、未决写入不得重放。
+
+- 2026-11-07完成：实际修改README、AGENT_USAGE、AGENT_SETTINGS_ACCEPTANCE、本台账、js/features/agent-proposals.js、css/management.css、css/responsive.css、index.html和test_agent_proposal_workflows.js。完整预览改大弹窗，固定头尾/窄屏全屏、连续查看、位置/焦点恢复和可读字段均完成；原始字段/正文/差异/警告/来源完整保留。
+- 实际检查：Python235项通过（97.261秒）；提案/设置浏览器与样式Node契约通过；主入口/修改JS语法、Python编译和diff检查通过。浅深×1440/390顶部/底部截图已目视检查；关闭慢请求、嵌套确认、过期版本、取消丢响应、批准在途关闭/刷新原操作查询与成功结果已验证。详情见AGENT_SETTINGS_ACCEPTANCE末节。
+- 兼容与风险：不改后端/API/正式数据格式/草稿/历史/外部修改或凭据契约；关闭清理预览并使迟到响应失效，未决请求继续保留；无新增决策编号或遗留项。此次不重跑真实Codex/WorkBuddy模型联调或性能基线，不改变既有实测边界。下一步按用户新需求维护。

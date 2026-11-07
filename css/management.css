@@ -28,4 +28,26 @@
 
 .agent-diagnostic ol{padding-left:22px;line-height:1.7}.agent-diagnostic li{padding:10px 0;border-bottom:1px solid var(--line)}.agent-diagnostic li p{margin:5px 0}.agent-diagnostic small{color:var(--muted)}
 
-.agent-proposal-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:12px;margin-top:14px}.agent-proposal-filters label{display:grid;gap:6px}.agent-proposal-detail{overflow-wrap:anywhere}.agent-proposal-detail pre{max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere}.agent-proposal-markdown{display:block;min-width:0;max-width:100%;overflow-x:auto}.agent-proposal-markdown [contenteditable]{pointer-events:none}
+.agent-proposal-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:12px;margin-top:14px}.agent-proposal-filters label{display:grid;gap:6px}.agent-proposal-detail{overflow-wrap:anywhere}.agent-proposal-detail pre{max-width:100%;overflow-x:auto;white-space:pre;overflow-wrap:normal}.agent-proposal-markdown{display:block;min-width:0;max-width:100%;overflow-x:auto}.agent-proposal-markdown [contenteditable]{pointer-events:none}
+
+/* 提案完整预览：固定头尾，仅正文滚动。 */
+.agent-proposal-dialog{width:min(1100px,92vw);max-width:92vw;height:90dvh;max-height:90dvh;padding:0;overflow:hidden;grid-template-rows:auto minmax(0,1fr) auto;background:var(--surface);color:var(--text)}
+.agent-proposal-dialog[open]{display:grid}
+.agent-proposal-dialog>header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:18px 22px;border-bottom:1px solid var(--line);min-width:0}
+.agent-proposal-dialog>header>div{min-width:0}
+.agent-proposal-dialog h2{margin:0 0 6px;font-size:var(--type-section-title);overflow-wrap:anywhere;max-height:4.5em;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3}
+.agent-proposal-dialog>header small{color:var(--muted)}
+.agent-proposal-dialog .dialog-close{position:static;flex:none}
+.agent-proposal-preview-body{padding:8px 22px 22px;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+.agent-proposal-dialog>footer{padding:10px 22px 16px;border-top:1px solid var(--line);background:var(--surface);min-width:0;max-height:45dvh;overflow:auto}
+.agent-proposal-dialog>footer>.settings-actions{justify-content:space-between;gap:12px}
+.agent-proposal-dialog nav{display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-size:var(--type-meta)}
+.agent-proposal-dialog .agent-feedback{margin-bottom:8px}
+.agent-proposal-dialog .agent-feedback:empty{display:none}
+.agent-proposal-fields{display:grid;grid-template-columns:minmax(70px,120px) minmax(0,1fr);gap:8px 14px;align-items:start}
+.agent-proposal-fields dt{color:var(--muted);padding-top:12px;overflow-wrap:anywhere}
+.agent-proposal-fields dd{margin:0;min-width:0}
+.agent-proposal-fields pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.agent-proposal-detail summary{cursor:pointer;color:var(--accent);padding:12px 0}
+
+.dark .agent-proposal-dialog{color-scheme:dark}

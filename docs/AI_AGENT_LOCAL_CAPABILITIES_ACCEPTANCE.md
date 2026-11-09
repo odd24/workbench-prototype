@@ -49,3 +49,51 @@
 APP_VERSION=2026.11.09.1；settings JS/management CSS缓存20261109-1。无业务Markdown/JSON迁移、草稿/历史/编辑器格式变化。所有测试临时数据及隔离凭据/客户端配置，未接管真实客户端；未启动模型turn，未跑新增业务真实客户端验收（留AG-142）、性能或独立视觉基线脚本。
 
 决策AG-LOCAL-DEC-009～012。下一项为监督审查后AG-129。概念图、文件、附件、删除、项目及配置业务能力仍未开放；未来资源身份与完整迁移/恢复由各自工作项承接，不能借本项休眠配置宣称可用。
+
+
+## AG-129：新提案与多步骤持久恢复基础
+
+日期：2026-11-09。开工基线f6463db，AG-128监督审查接受后派发，工作区干净；用户总体执行授权持续有效。本项只贯通现有四类型三操作，不开放文件/附件/概念图/删除/项目/配置能力。
+
+### 实际实现与兼容
+
+- agent_execution.py仅静态markdown@1/12种组合，逻辑计划包含两个受控步骤history_snapshot、markdown_write、归属/既有ID及候选摘要。具体目标路径/ID/历史版本由领域Prepared和服务端派生，不接受任意路径、方法或测试处理器。
+- 新proposal3/sha256-json-v3绑定授权management_revision与完整client_version、相关依赖、计划摘要；manifest3使用独立execution_schema_version=1及具体计划摘要/实际字节/进度，原领域Prepared.apply仍是历史与正文唯一写入入口。旧1/2原读取/摘要及恢复分支保留。
+- 依赖只绑定当前归属存在、模板ID/当前kind的name+completed完整状态集合、候选使用标签名称存在性、固定引用ID集合/revision。相关状态集合成员增删保守冲突；无关项目/说明/排序/分类和标签颜色不绑定，不包含私人settings/data_dir。此保守粒度及代价已在AG-LOCAL-DEC-015明确。
+- history/target真实写后、步骤日志更新前均有退出接点；恢复以快照摘要和磁盘字节判断，正文仍before须重查授权/依赖，即使history已完成；正文after只补原回执。create applying后正文缺失仍歧义拒绝，不能新分ID重建。
+- 文件内ID、workspace/proposal/version/client/kind/operation/目标归属、快照候选与receipt显式交叉校验；非秘密摘要不能替代语义校验。未知提案/manifest/步骤/算法/批准格式先零写预检，阻止其他已知日志恢复、清理或取消绕过；在途错误content_cleaned标记也拒绝。
+- 新批准action3绑定逻辑计划/授权/依赖，已批准但无manifest只查询not_applied，不自动提交。批准完成回执/授权字段严格验证，执行manifest还核验实际agent_attested确认或独立网页批准证据，撤去确认标记也零写拒绝。旧批准2和取消1保留。策略收紧保持proposal3、递增版本/清预览/绑定新授权；旧四类凭据无需新增休眠grant。
+- 匹配终结回执时仍逐一验证JSON格式/身份/摘要，不重复读取终结Markdown快照；在途完整读验。过期扫描仅在真正过期且允许过期时进行，expire=False预检不再每提案扫描operations。
+
+### 实际检查
+
+| 检查 | 实际结果 |
+| --- | --- |
+| python -m unittest -v | 267项通过，227.517秒 |
+| python -m unittest test_agent_execution -q | 新执行16项通过，24.000秒；早期首轮14项20.721秒通过 |
+| python -m unittest test_agent_execution test_agent_proposals test_agent_recovery test_agent_web_approval -q | 后续在途清理标记防御后48项通过，61.705秒 |
+| python -m unittest test_agent_execution test_agent_web_approval -q | 批准记录嵌套字段/完成回执严格校验后29项通过，53.018秒；最后再补manifest确认完整性后29项58.889秒通过 |
+| 全Python/JS语法 | 64个Python、46个JS通过，编译输出临时目录；收口再核对最终文件 |
+| Node契约 | 共20个分别通过：首组19项中17通过，提案UI修正后独立通过，概念图/编辑器两项串行复验通过；不宣称一次整组全绿 |
+
+执行专项证据：四类型×三操作真实路径/唯一回执；状态集合新增/删除冲突与无关改动不冲突；引用revision变化冲突；history已落但日志未记录时撤销阻止正文发布；target已落但进度未记录时撤销仍补原回执；篡改kind/目录且重算非秘密摘要拒绝、未知格式前后全部状态文件字节不变；schema1/2/3混合预览原文件字节和摘要不变、旧1/2未决创建恢复、旧2更新history后恢复保持一份历史。
+
+十阶段独立临时空间真实os._exit涵盖snapshots、manifest、committing、applying、history、history_logged、target、target_logged、receipt、proposal，重启后同ID/回执，update历史一份。真实server --disable-agent两组：匹配私人授权正常恢复已接受更新，缺失配置保持applying/旧正文、不绕过权限。并发8次提交返回同回执；取消/过期/清理/abandon和第三方内容保护沿用并扩展既有专项。
+
+预检I/O回归样本136提案、16份真实终结manifest，断言operations目录只扫描一次、终结Markdown快照读取零次；所有JSON格式仍预检。这只是临时I/O回归证据，不是完整性能基线或大文件性能验收。
+
+### 浏览器及失败复验
+
+真实Edge提案预览显示保存范围与完整执行依据，展开计划JSON并验证markdown@1；浅/深×1440/390四张新截图已目视检查，长中文、focus、disabled、滚动正文/固定头尾、完整预览、取消/批准、过期版本、丢响应查询、刷新与两个编辑器保存/草稿/历史/外部冲突均实际通过相应Node契约。截图只在临时目录，不提交。
+
+首轮47项Python专项出现5失败/12错误；持久授权夹具修正后36项仍有2失败/12错误，继续修正reload挂载后的恢复后36项64.820秒通过。首错暴露Todo/Info旧夹具仅在内存扩权及reload未接入私人授权后恢复；已改为CredentialManager持久授权，并按真实server二阶段接入顺序复验，不放宽新恢复鉴权。新建提案算法预期改v3，另补真实旧1/2夹具证明兼容，不能只靠改断言。
+
+新增浏览器测试最初在多次Runtime.evaluate中重复声明顶层const，已改为IIFE并增加原错误打印，复验通过。失败时finally清理EPERM可能掩盖首错，保留该事实；概念图清理也出现EPERM，编辑器初始化等待超时，两项串行复验通过，未修改应用行为/等待超时/业务断言，不将所有失败归因OS。关闭对应测试进程后只读按验收目录前缀核对Python/Edge进程为空，对应监听端口为空；不扫描或读取其他业务服务。
+
+### 收尾与剩余边界
+
+自动审批曾拒绝清理3处本轮失败临时目录，仅返回blocked by policy；未换工具/命令绕过。对应后缀为workbench-proposals-browser-jmeItf、workbench-proposals-browser-bu1xhC、workbench-edge-concept-4nNPX9。已确认无按这些目录匹配的Python/Edge进程；用户随后手工删除，监督及执行只读核实三处均不存在。没有真实连接器/客户端配置变更；隔离测试凭据不输出，不把服务停止混称主动撤销。测试fixture停服/退出后清理，截图仅作临时评审。
+
+APP_VERSION2026.11.09.2、agent-proposals.js缓存20261109-2；业务Markdown格式/领域仓储边界/草稿/历史格式不变，旧提案不强制迁移。决策AG-LOCAL-DEC-013～017。新增业务能力/真实模型客户端新功能验收/性能及独立视觉基线未运行，分别留后续项；AG-128休眠授权不激活。下一项须监督审查后派发AG-130，本项不串入文件授权。
+
+AG-129提交前最终检查：64Python/46JS语法、修改Markdown编码/围栏/84相对链接、历史状态/后续待开始及生成物排除、git diff --check通过。

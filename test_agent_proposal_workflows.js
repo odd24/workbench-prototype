@@ -114,6 +114,16 @@ async function main() {
       const shot = await client.call('Page.captureScreenshot', {format:'png'});
       fs.writeFileSync(path.join(screenshots, `proposal-${theme}-${width}.png`), Buffer.from(shot.data, 'base64'));
     }
+    assert.equal(await client.evaluate("document.querySelector('.agent-proposal-detail').textContent.includes('保存范围')"), true);
+    assert.equal(await client.evaluate("JSON.parse(document.querySelector('[data-proposal-execution] pre').textContent).execution_plan.handler"), 'markdown@1');
+    for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
+      await client.call('Emulation.setDeviceMetricsOverride', {width, height:1000, deviceScaleFactor:1, mobile:false});
+      await client.evaluate(`(() => { document.body.classList.toggle('dark', ${theme === 'dark'}); const details = document.querySelector('[data-proposal-execution]'); details.open = true; details.querySelector('summary').focus(); details.scrollIntoView({block:'start', behavior:'instant'}); })()`);
+      await delay(100);
+      assert.equal(await client.evaluate('document.documentElement.scrollWidth > innerWidth + 1'), false);
+      const shot = await client.call('Page.captureScreenshot', {format:'png'});
+      fs.writeFileSync(path.join(screenshots, `execution-${theme}-${width}.png`), Buffer.from(shot.data, 'base64'));
+    }
     const original = proposals.find(item => item.proposal_id === selected);
     await agent(`proposals/${selected}`, 'PATCH', {expected_version:1, content:{...original.normalized_content, body:'已修订'}});
     await click('#proposalPreviewDialog [data-proposal-action=cancel]'); await confirm();
@@ -180,6 +190,7 @@ async function main() {
     await waitForPage(client, "$('#proposalFeedback').textContent === '' && !agentProposalsFeature.isBusy()");
     console.log(`Proposal browser workflows passed: uninitialized,pagination,filters,modal,position-focus,continuous-preview,late-response,nested-confirmation,full-preview,disabled-approval,stale-version,cancel,response-loss,reload-query,session-failure,light/dark,desktop/narrow. Screenshots: ${screenshots}`);
   } catch (error) {
+    console.error('Proposal workflow failure:', error.stack || error);
     if (client) console.error(await client.evaluate("({page:currentPage, content:$('#manageContent').innerText, busy:agentProposalsFeature.isBusy(), pages:navigationFeature.managePages, resolved:navigationFeature.resolvePage('agent_proposals', projects, selectedProjectId)})").catch(() => null));
     throw error;
   } finally {

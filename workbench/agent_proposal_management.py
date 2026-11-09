@@ -8,6 +8,7 @@ import time
 
 from .agent_proposals import ProposalStore, digest, stamp
 from .agent_management import client_version, credential_lock
+from .agent_execution import validate_action
 from .agent_security import AgentError, allows, read_json
 from .agent_service import page, service_operation, AgentService
 from .persistence import atomic_write_json
@@ -120,6 +121,7 @@ class ProposalManagement:
 
     @service_operation
     def cancel(self, proposal_id, payload):
+        self._require_store().preflight()
         if not isinstance(payload, dict) or set(payload) != {"expected_version", "request_id", "workspace_id"} or payload["workspace_id"] != self.workspace_id:
             raise AgentError("invalid_request", "取消参数或工作空间无效")
         store = self._require_store()
@@ -154,6 +156,7 @@ class ProposalManagement:
 
     @service_operation
     def approve(self, proposal_id, payload):
+        self._require_store().preflight()
         fields = {"workspace_id", "version", "preview_digest", "preview_ticket", "request_id"}
         if not isinstance(payload, dict) or set(payload) != fields or payload["workspace_id"] != self.workspace_id or type(payload["version"]) is not int or not isinstance(payload["preview_ticket"], str):
             raise AgentError("invalid_request", "网页批准参数无效")
@@ -162,7 +165,7 @@ class ProposalManagement:
         signature = digest(["approve", proposal_id, payload])
         if path.exists():
             previous = read_json(path)
-            if previous.get("schema_version") in (1, 2) and previous.get("input_digest") != signature:
+            if previous.get("schema_version") in (1, 2, 3) and previous.get("input_digest") != signature:
                 raise AgentError("request_conflict", "请求编号已用于其他提案操作", 409)
             action = self._load_approval(path)
             if action["input_digest"] != signature:
@@ -186,9 +189,14 @@ class ProposalManagement:
             prepared = service.prepare_submission(client, proposal)
             approval = {"mode": "local_web", "version": proposal["version"], "preview_digest": payload["preview_digest"],
                         "operation_id": path.stem, "input_digest": signature, "approved_at": stamp()}
+            if proposal["schema_version"] == 3:
+                approval.update(plan_digest=proposal["plan_digest"], authorization_revision=proposal["authorization_revision"],
+                                dependencies_digest=digest(proposal["dependencies"]))
             action = {"schema_version": 2, "workspace_id": self.workspace_id, "request_id": payload["request_id"], "operation": "approve",
                       "proposal_id": proposal_id, "version": proposal["version"], "input_digest": signature, "approval": approval,
                       "business_operation_id": f"{proposal_id}-{proposal['version']}", "state": "approved"}
+            if proposal["schema_version"] == 3:
+                action.update(schema_version=3, proposal_schema_version=3, plan_digest=proposal["plan_digest"])
             atomic_write_json(path, action)
             self.checkpoint("approval_record")
             proposal["approval"] = approval
@@ -203,10 +211,17 @@ class ProposalManagement:
 
     def _load_approval(self, path):
         action = read_json(path)
-        if action.get("schema_version") != 2 or action.get("workspace_id") != self.workspace_id or action.get("operation") != "approve" or action.get("state") not in {"approved", "completed", "not_applied"} or self.request_key(action.get("request_id")) != path.stem:
+        if type(action.get("schema_version")) is not int or action.get("schema_version") not in (2, 3) or action.get("workspace_id") != self.workspace_id or action.get("operation") != "approve" or action.get("state") not in {"approved", "completed", "not_applied"} or self.request_key(action.get("request_id")) != path.stem:
             raise AgentError("unsupported_schema", "网页批准日志格式无效，保留证据核查", 503)
         if action.get("business_operation_id") != f"{action.get('proposal_id')}-{action.get('version')}" or action.get("approval", {}).get("operation_id") != path.stem:
             raise AgentError("unsupported_schema", "网页批准事务关联无效", 503)
+        if action["schema_version"] == 3 and (action.get("proposal_schema_version") != 3 or action.get("plan_digest") != action.get("approval", {}).get("plan_digest")):
+            raise AgentError("unsupported_schema", "网页批准计划关联无效", 503)
+        if action["schema_version"] == 3:
+            try:
+                validate_action(action, path.stem)
+            except (ValueError, TypeError, KeyError):
+                raise AgentError("unsupported_schema", "网页批准执行字段无效", 503) from None
         return action
 
     @service_operation

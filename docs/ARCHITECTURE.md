@@ -125,3 +125,10 @@ AgentSecurity在原模块内严格归一化休眠能力，CredentialManager仍�
 capabilities.capability_authorization区分configured配置、静态已实现处理器提供的implemented及有效授权effective；当前新增能力两者均空，原四类型三操作和12个MCP工具保持。持久dormant状态不能被Agent/管理请求激活，后续上线仍须管理员重新授权，AG-129与各业务能力须承接此不变量。新schema的catalog仅返回可见条目使用的标签，分类按范围过滤；有权空项目仍返回工作流，休眠客户端无旧数据元信息。legacy全局标签行为保留。
 
 根registry2/client授权3/log3/transport2职责与落盘顺序见DATA_FORMAT的AG-128节。根/日志双门槛拒绝旧二进制接入管理和鉴权，读取旧库不自动升级。完成/失败/abandon不降格式；未知日志先全量预检再恢复，避免按文件名先应用旧快照。普通网页可在关闭Agent时读取业务内容，这不代表旧版能安全读取新授权。所有后续业务工具仍未开放。
+
+
+### AG-129 执行计划与恢复
+
+agent_execution.py是ProposalStore内部的静态契约/校验模块，仅markdown@1和现有12组合，不是动态执行器或平行CRUD。ProposalStore仍负责提案/执行状态及回执，领域Prepared仍负责历史和正文写入。新3绑定实际依赖、授权revision及完整保存计划；旧1/2原分支保留。计划/manifest/快照/批准/receipt交叉校验，目标仅四类型受控路径；预检零写后才恢复，已完成匹配回执无需重复读Markdown快照。pending步骤仍逐字验快照，history/target写后和进度记录之间均有故障接点。
+
+依赖粒度及保守状态集合绑定见本机方案AG-LOCAL-DEC-015；不绑定整个配置或所有可见资源。正文发布前重查权限/版本/依赖，历史已写不算正文已应用；正文已after则补原回执，不能重写后来已编辑或删除目标。server现有runtime挂载后的第二阶段恢复覆盖关闭接入启动，缺失私人授权保持写保护；状态读取仍不初始化空间。锁序保持空间切换→业务→凭据，不在锁内等待HTTP或子进程。休眠新能力仍不可用。

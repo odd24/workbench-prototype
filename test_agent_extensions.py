@@ -62,7 +62,7 @@ class AgentExtensionTests(AgentFixture, unittest.TestCase):
         self.assertEqual(preview["preview_digest"], expected)
         fresh = self.prepare_preview()
         self.assertEqual(fresh["confirmation_mode"], "agent_attested")
-        self.assertEqual(fresh["digest_algorithm"], "sha256-json-v2")
+        self.assertEqual(fresh["digest_algorithm"], "sha256-json-v3")
         def interrupt(stage):
             if stage == "target":
                 raise OSError("fault after target")
@@ -98,7 +98,9 @@ class AgentExtensionTests(AgentFixture, unittest.TestCase):
 class TodoAgentTests(AgentFixture, unittest.TestCase):
     def setUp(self):
         super().setUp()
-        self.client = {**self.client, "kinds": ["issue", "document", "todo"]}
+        params = {key: self.client[key] for key in ("name", "scopes", "project_ids", "categories")}
+        self.security.manager().run("edit", {**params, "kinds": ["issue", "document", "todo"]}, self.client["client_id"], client_version(self.client))
+        self.client = self.security.clients()[self.client["client_id"]]
 
     def spec(self, kind="todo", operation="create", **overrides):
         result = super().spec("issue" if kind == "todo" else kind, operation, **overrides)
@@ -209,7 +211,9 @@ class TodoAgentTests(AgentFixture, unittest.TestCase):
 class InfoAgentTests(AgentFixture, unittest.TestCase):
     def setUp(self):
         super().setUp()
-        self.client = {**self.client, "kinds": ["issue", "document", "todo", "info"]}
+        params = {key: self.client[key] for key in ("name", "scopes", "project_ids", "categories")}
+        self.security.manager().run("edit", {**params, "kinds": ["issue", "document", "todo", "info"]}, self.client["client_id"], client_version(self.client))
+        self.client = self.security.clients()[self.client["client_id"]]
 
     def spec(self, kind="info", operation="create", **overrides):
         spec = super().spec("issue" if kind == "info" else kind, operation, **overrides)

@@ -21,6 +21,7 @@ class AgentFixture:
         self.client = self.security.clients()[info["client_id"]]
         self.service = AgentService(self.repo, self.security)
         self.store = self.service.store
+        self.store.recover()
 
     def tearDown(self):
         self.temp.cleanup()
@@ -45,3 +46,4 @@ class AgentFixture:
         self.repo = Repository(self.repo.root)
         self.service = AgentService(self.repo, self.security)
         self.store = self.service.store
+        self.store.recover()  # Match startup's recovery after attaching private authorization.

@@ -60,7 +60,7 @@ python server.py
 
 前期 AI 接入扩展见 [详细执行方案](docs/AI_AGENT_EXTENSION_PLAN.md)：AG-116～121、AG-126 已完成，覆盖待办/结构化信息、提案管理、网页独立批准和本机客户端兼容；远程 AG-122～125 已取消且未实现。当前状态以 [实施台账](docs/AI_AGENT_PROGRESS.md) 和 [扩展验收](docs/AI_AGENT_EXTENSION_ACCEPTANCE.md) 为准。
 
-附件上传、本机文件读取、概念图、删除、项目创建及分类/工作流变更已另行形成 [本机能力扩展执行方案](docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)。AG-127 仅为文档规划；用户已于2026-11-09授权执行，AG-128授权基础已完成，AG-129～143待开始。这些能力目前尚未通过 Agent 接口开放。
+附件上传、本机文件读取、概念图、删除、项目创建及分类/工作流变更已另行形成 [本机能力扩展执行方案](docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)。AG-127 仅为文档规划；用户已于2026-11-09授权执行，AG-128授权基础与AG-129执行基础已完成，AG-130～143待开始。这些能力目前尚未通过 Agent 接口开放。
 
 项目没有包管理器或构建步骤。架构和模块职责见 [架构说明](docs/ARCHITECTURE.md)，日常修改、测试和发布步骤见 [维护说明](docs/MAINTENANCE.md)。重构执行事实记录在 [进度台账](docs/REFACTORING_PROGRESS.md)。
 
@@ -94,3 +94,5 @@ WorkBuddy桌面5.9.3(d4692421)已在临时库实测四类型新建/追加/更新
 当前本机扩展已交付：AG-116～121、AG-126已完成；AG-122～125按用户用途取消，远程未实现。最终235项Python、19项Node、全文件语法、真实客户端及备份恢复验收通过，临时接入已清理。详见[扩展验收与本地提交](docs/AI_AGENT_EXTENSION_ACCEPTANCE.md)。
 
 AG-128已支持后续能力的休眠授权管理和能力协商；休眠配置尚不可使用，未来启用必须重新授权。实际测试和兼容边界见[本机能力验收](docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md)。
+
+AG-129已增加新提案保存计划与逐步持久恢复，旧提案摘要兼容保留；新增业务能力仍未开放。执行依据、故障复验和边界见[本机能力验收](docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md)。

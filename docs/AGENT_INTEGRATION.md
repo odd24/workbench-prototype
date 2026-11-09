@@ -1,6 +1,6 @@
 # 通用 Agent 接入
 
-规划提示（2026-11-09）：文件读取、附件上传、概念图、删除、项目创建及分类/工作流变更见 [本机能力扩展执行方案](AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)。AG-128授权基础已完成，AG-129～143待开始；下文当前接入命令、能力与限制不因此改变。
+规划提示（2026-11-09）：文件读取、附件上传、概念图、删除、项目创建及分类/工作流变更见 [本机能力扩展执行方案](AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)。AG-128授权基础与AG-129执行基础已完成，AG-130～143待开始；下文当前接入命令、能力与限制不因此改变。
 
 本文说明设置界面和备用 CLI 接入方式。AG-107～110 提供启停、授权管理、配置向导与分层诊断。设计见 [接入管理 UI 方案](AGENT_SETTINGS_PLAN.md)，实际状态见 [实施台账](AI_AGENT_PROGRESS.md)。
 
@@ -211,3 +211,12 @@ python workbuddy_agent_acceptance.py --desktop-session只准备临时项目与�
 仍需原`--agent-client-add`、隔离或目标空间的data-dir和一致agent-config-dir；旧kinds/project/category默认不被补为通配。此配置只保存休眠意向，不创建项目。管理API沿用clients POST/PATCH，可选capability_grants；edit省略保留、显式空清空。首次新格式保存会建立root2/log3门槛，旧版本拒绝管理；降级前见维护步骤。
 
 capabilities新增capability_authorization.configured/implemented/effective/activation。configured不能当可用权限；当前新增能力implemented/effective均空。新授权schema3的catalog标签只来自可见条目，有权空项目可查工作流但标签为空；legacy catalog兼容行为不变。协议工具数量和原四类型操作不变。
+
+
+### AG-129 新提案保存计划
+
+新建提案使用schema3；旧schema1/2继续按原算法读取和确认，不自动重算已预览摘要。capabilities新增execution_schema_versions=[1]、proposal_schema_versions包含3，仍仅12工具及四类型三操作。完整预览包含authorization_revision、dependencies、execution_plan、plan_digest；客户端须展示全部依据，授权或相关依赖变化后修订并重新预览确认。
+
+现有四类业务的旧凭据可直接生成新3提案，不要求配置休眠grants。新计划当前仅历史快照与Markdown保存，新增文件/附件/图/删除/项目及配置操作仍未开放。引用只绑定固定ID及revision，状态集合成员增删也会冲突；项目说明/排序、无关资源和标签颜色不引起冲突。提交仍只接受版本和预览摘要，不接受替换正文或执行计划。
+
+网页完整预览增加保存范围与执行版本依据，批准action3绑定逻辑计划及授权/依赖；已批准但未形成manifest时查询not_applied，不自动发起新提交。遇commit_interrupted先查询原proposal；未知格式或recovery_required按维护入口核查，不能删除日志或换request_id重建。

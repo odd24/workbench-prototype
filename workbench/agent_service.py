@@ -11,6 +11,7 @@ from functools import wraps
 from .agent_security import AgentError, allows, require_scope, client_kinds, client_confirmation_mode, client_capability_grants
 from .records import matches_query
 from .markdown_io import normalize_info_fields
+from .agent_execution import authorization_revision
 
 
 LIMITS = {"body_bytes": 256 * 1024, "title_characters": 200, "request_bytes": 1024 * 1024,
@@ -89,7 +90,7 @@ class AgentService:
         return {"kind_operations": {kind: ["create", "append", "update"] for kind in kinds},
                 "kind_fields": {kind: fields[kind] for kind in kinds}, "authorized_kinds": client_kinds(client),
                 "confirmation_modes": ["agent_attested", "local_web"], "default_confirmation_mode": client_confirmation_mode(client),
-                "proposal_schema_versions": [1, 2], "api_version": "1", "workspace_id": self.security.workspace_id, "kinds": kinds,
+                "proposal_schema_versions": [1, 2, 3], "execution_schema_versions": [1], "api_version": "1", "workspace_id": self.security.workspace_id, "kinds": kinds,
                 "operations": ["create", "append", "update"], "limits": LIMITS, "scopes": client["scopes"],
                 "project_ids": client["project_ids"], "categories": client["categories"], "confirmation_mode": client_confirmation_mode(client),
                 "capability_authorization": {"configured": client_capability_grants(client),
@@ -314,7 +315,32 @@ class AgentService:
             return existing
         self.store.guard_writes()
         content, base = self.normalize_content(client, payload.get("kind"), payload.get("operation"), payload.get("content"), payload.get("target_id"), payload.get("base_revision"))
-        return self.store.create(client, payload, content, base, mode)
+        return self.store.create(client, payload, content, base, mode, dependencies=self.execution_dependencies(client, payload["kind"], content))
+
+    def execution_dependencies(self, client, kind, content):
+        """Only dependencies that decide this candidate; never private config paths."""
+        statuses = []
+        if kind == "document":
+            category = content["category"]
+            owner = {"type": "document_category", "name": category, "exists": category in self.repository.document_categories()}
+        else:
+            project = self.repository.project(content["project_id"])
+            owner = {"type": "project", "id": content["project_id"], "exists": project is not None}
+            if kind != "info" and project:
+                owner["workflow_template"] = project.get("workflow_template", "standard")
+                catalog = self.catalog(client, {"kind": kind, "project_id": content["project_id"]})
+                statuses = [{"name": value["name"], "completed": bool(value.get("completed"))} for value in catalog["statuses"]]
+        known_tags = {tag["name"] for tag in self.repository.list_tags()}
+        tags = [{"name": name, "exists": name in known_tags} for name in sorted(content.get("tags", []))]
+        text = content["body"] + "\n" + "\n".join(value for field in content.get("info_fields", []) for value in field.values())
+        references = []
+        for item_id in sorted(set(re.findall(r"\[\[([A-Za-z]+-\d+)(?:#[^\]]*)?\]\]", text))):
+            item = (self.repository.get_document(item_id) if item_id.startswith("DOC-") else self.repository.get_record(item_id))[0]
+            if not item or not allows(client, item):
+                raise AgentError("invalid_reference", "引用不存在或不可访问")
+            item = self.get_item(client, item["type"], item_id)
+            references.append({"kind": item["type"], "id": item_id, "revision": item["revision"]})
+        return {"schema_version": 1, "owner": owner, "statuses": statuses, "tags": tags, "references": references}
 
     @service_operation
     def revise_proposal(self, client, proposal_id, payload):
@@ -328,7 +354,8 @@ class AgentService:
         # Revisions supply the complete desired candidate, including for append.
         operation = "create" if proposal["operation"] == "create" else "update"
         content, base = self.normalize_content(client, proposal["kind"], operation, payload.get("content"), proposal["target_id"], revision)
-        return self.store.revise(proposal, payload["expected_version"], content, revision, base)
+        return self.store.revise(proposal, payload["expected_version"], content, revision, base, client=client,
+                                 dependencies=self.execution_dependencies(client, proposal["kind"], content))
 
     @service_operation
     def preview_proposal(self, client, proposal_id):
@@ -375,8 +402,11 @@ class AgentService:
 
     def _enforce_confirmation_policy(self, client, proposal):
         if client_confirmation_mode(client) == "local_web" and proposal.get("confirmation_mode", "agent_attested") != "local_web" and proposal["state"] in {"draft", "previewed", "conflicted"}:
-            proposal.update(schema_version=2, digest_algorithm="sha256-json-v2", confirmation_mode="local_web", approval=None,
+            schema = 3 if proposal["schema_version"] == 3 else 2
+            proposal.update(schema_version=schema, digest_algorithm=f"sha256-json-v{schema}", confirmation_mode="local_web", approval=None,
                             version=proposal["version"] + 1, state="draft", previewed_version=None, preview_digest=None)
+            if schema == 3:
+                proposal["authorization_revision"] = authorization_revision(client)
             self.store._save(proposal)
 
     @service_operation
@@ -401,6 +431,11 @@ class AgentService:
         require_scope(client, "propose")
         require_scope(client, "commit")
         saved = proposal["normalized_content"]
+        if proposal["schema_version"] == 3:
+            if authorization_revision(client) != proposal["authorization_revision"]:
+                raise AgentError("authorization_changed", "授权版本已变化，请修订并重新完整预览", 409)
+            if self.execution_dependencies(client, proposal["kind"], saved) != proposal["dependencies"]:
+                raise AgentError("dependency_changed", "相关依赖或集合已变化，请修订并重新预览", 409)
         try:
             content, _ = self.normalize_content(client, proposal["kind"], "create" if proposal["operation"] == "create" else "update", {key: value for key, value in saved.items() if key != "completed"}, proposal["target_id"], proposal["base_revision"])
         except AgentError as error:

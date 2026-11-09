@@ -105,7 +105,7 @@ workbench-data/
 
 clients.json 外层 schema_version=1 保持；新授权条目增加 authorization_schema_version=2 和显式 kinds（issue/document/todo/info 非空白名单）。缺失 kinds 按 issue/document 读取。客户端私人配置与新凭据管理日志 schema_version=2，兼容读取 1；配置内 kinds 只是镜像，权限以服务端授权为准。轮换不扩权，旧编辑请求省略 kinds 时保留原值。
 
-新提案/业务事务 schema_version=2；提案含 digest_algorithm=sha256-json-v2、confirmation_mode=agent_attested、approval=null，摘要覆盖规范内容、类型、来源、警告和确认策略；事务关联相同摘要与策略。schema=1 按旧预览载荷和摘要计算，旧提案不自动升级。未知版本拒绝写入、清理和 abandon，保留原证据。业务 Markdown/历史无迁移。AG-116 阶段仅开放 agent_attested，当前 local_web 按下文 AG-120 契约开放。
+AG-116阶段的新提案/业务事务 schema_version=2；提案含 digest_algorithm=sha256-json-v2、confirmation_mode=agent_attested、approval=null，摘要覆盖规范内容、类型、来源、警告和确认策略；事务关联相同摘要与策略。schema=1 按旧预览载荷和摘要计算，旧提案不自动升级。未知版本拒绝写入、清理和 abandon，保留原证据。业务 Markdown/历史无迁移。AG-116 阶段仅开放 agent_attested，当前 local_web 按下文 AG-120 契约开放。
 
 ### AG-117 todo 字段与兼容
 
@@ -141,3 +141,14 @@ AG-116 的根1/授权2/管理日志2是历史格式，仍兼容读取，不因�
 新管理日志schema3含registry_schema=2，复用before/after客户端与配置快照。首次升级先恢复旧prepared，旧recovery_required阻止升级；恢复先预检全部日志格式，新日志与旧未决混合拒绝。持久顺序prepared3→原子根2格式门槛（原clients不变）→config→根2目标授权→completed。日志在根升级前阻止旧版鉴权/管理恢复；根2阻止旧clients读取。各单文件原子写不代表多文件事务；故障/abandon/清空grants不回退根2或日志3。completed/abandoned删除秘密快照，保留精简幂等回执。旧日志/旧摘要继续按原版本读取恢复，不静默重算。
 
 capability_grant_state=dormant持久保存；当前实现验证该状态，篡改成active拒绝鉴权。所有新增能力implemented/effective为空，capabilities.capability_authorization.activation=requires_reauthorization说明未来开启要求；后续处理器必须保留此门槛，仅实现上线不能激活旧授权。分类/模板名称只有休眠意向；文档分类变更移除对应grant资源且重命名不恢复grant，名称复用不复活；其他对象首次启用必须重新绑定可验证身份并由管理员授权，属于后续能力工作项。
+
+
+### AG-129 proposal3与执行日志
+
+当前新建提案schema_version=3、digest_algorithm=sha256-json-v3；旧1/2读取/预览摘要/历史恢复保持，不静默迁移已预览值。新字段authorization_revision={management_revision,client_version}、dependencies={schema_version:1,owner,statuses,tags,references}、execution_plan与plan_digest进入完整预览摘要。逻辑计划包含markdown@1、kind/operation、归属/既有target_id、候选摘要及两个静态步骤，source_bindings当前固定空；新ID/时间仍提交时服务端分配。grants休眠规则独立，现有业务不要求authorization_schema3。
+
+具体operations/<proposal>-<version>/manifest.json外层schema3，execution_schema_version=1；含operation/access_target/client、授权/依赖、具体execution_plan及execution_plan_digest、step_states。具体计划将逻辑摘要绑定item_id/relative_path/before_digest/after_digest/history_version，receipt增加逻辑及具体计划摘要。before.md/after.md仍为受控快照，history_snapshot与markdown_write仍复用领域Prepared方法，进度日志不能代替实际字节证明。合法进度pending/pending→completed/applying→completed/completed；历史步骤对新建无旧快照副作用。
+
+批准action3含proposal_schema_version=3及plan_digest，approval还绑定authorization_revision/dependencies_digest；批准记录先于manifest，响应丢失查同请求，未形成manifest则not_applied。旧action2批准/action1取消不改。
+
+恢复/清理先预检全部版本和身份再执行，未知格式不修改其他已知日志。未发布正文时重查授权/依赖，即使历史已落；正文after只补原回执，后续权限变化不阻止完成已应用事实。create applying目标不存在不能猜测从未写过，进入核查。正常关闭接入仍可用正确私人授权恢复；缺失授权不绕过。已完成回执持续保留，30天内容清理不清在途快照，也不移除幂等证据。

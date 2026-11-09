@@ -4,7 +4,7 @@
 
 主方案：[AI_AGENT_PLAN.md](AI_AGENT_PLAN.md)。前期扩展：[AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。实施事实与状态：[AI_AGENT_PROGRESS.md](AI_AGENT_PROGRESS.md)。执行规范：[AGENTS.md](../AGENTS.md)。
 
-**当前执行状态（2026-11-09）：用户最新明确“现在开始执行方案”，AG-128 已完成授权基础，尚未开放新增业务；AG-129～143 待开始，状态以台账为准。此前 AG-127 仅文档和暂停实施是历史事实。方案不等于能力已实现或验收；不得提前开放后续业务工具或操作真实客户端。**
+**当前执行状态（2026-11-09）：用户最新明确“现在开始执行方案”，AG-128 已完成授权基础，尚未开放新增业务；AG-129执行基础已完成、AG-130～143待开始，状态以台账为准。此前 AG-127 仅文档和暂停实施是历史事实。方案不等于能力已实现或验收；不得提前开放后续业务工具或操作真实客户端。**
 
 ## 1. 目标与交付范围
 
@@ -253,7 +253,7 @@ capabilities 明示 authorized capabilities、kind_operations、kind_fields、�
 
 ## 12. 工作项、文件与独立验收
 
-以下是预计接点，不是要求创建所有候选文件。实施前确定最小变更，不复制现有 CRUD 或另建 Repository 进程。AG-127 为本文档治理；AG-128已完成、AG-129～143待开始，实际状态以台账为准。
+以下是预计接点，不是要求创建所有候选文件。实施前确定最小变更，不复制现有 CRUD 或另建 Repository 进程。AG-127 为本文档治理；AG-128/129已完成、AG-130～143待开始，实际状态以台账为准。
 
 | ID | 范围/依赖 | 预计文件或模块 | 独立完成证据 |
 | --- | --- | --- | --- |
@@ -340,3 +340,14 @@ Codex、WorkBuddy 分别记录客户端/CLI/协议版本、工具目录刷新、
 新schema catalog标签仅来自旧授权范围内可见条目，分类仍按授权过滤；空项目仍可查其工作流，空可见数据标签为空。仅休眠客户端projects/search/catalog无元数据，正文/引用不泄露；capabilities与必要固定诊断可用。legacy catalog保留现有全局标签兼容行为。以上格式及恢复顺序须由实际测试验证，不是本节文字自行证明安全。
 
 AG-128实际结果见[本机能力验收](AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md)，其余规划不因授权基础完成自动成为已实现能力。
+
+
+## 16. AG-129 执行契约（已实现，实际验收见分册）
+
+- AG-LOCAL-DEC-013：新建proposal3/sha256-json-v3，旧1/2原分支和原摘要保留，修订旧提案不自动改摘要版本，旧策略收紧仍走原已登记升级。新3策略收紧保持3、递增版本、清预览并绑定新授权；其余授权变化须修订后新预览。
+- AG-LOCAL-DEC-014：唯一静态处理器markdown@1，12种四类型×create/append/update；逻辑计划含目标归属/既有ID或提交时分配、候选摘要、history_snapshot/markdown_write、空source_bindings。具体manifest外层3、独立execution_schema_version=1，绑定实际ID/服务端目标路径、前后字节摘要、history_version、授权/依赖/预览/逻辑计划和具体计划摘要。两步复用原领域Prepared.apply边界，不提供动态方法、任意路径或测试处理器。
+- AG-LOCAL-DEC-015：依赖仅归属存在和工作流模板ID、当前kind状态完整name/completed集合、候选已用标签名称存在性、固定引用ID集合及revision。状态集合是保守绑定：同一被使用状态集合成员增删即冲突，即使已选状态仍存在；换来明确检测模板集合变化，代价是这类变更需重预览。无关项目/说明/排序/分类、其他类型状态、标签颜色不绑定。无settings/data_dir/不可见资源清单。
+- AG-LOCAL-DEC-016：prepared/applying标记不替代磁盘事实；history写后、日志记录前及target写后、记录前均可真实退出。正文仍before时重查授权完整版本、依赖及快照，history已完成不能跳过；正文after时核对历史/批准/回执绑定后只完成原回执。create applying目标缺失仍歧义拒绝，不创建新ID补写。receipt存在后不重放后来的修改/删除。
+- AG-LOCAL-DEC-017：所有proposal/manifest/action版本、步骤、算法和跨字段身份先零写预检，再恢复/过期/修订/取消/清理；schema3必须交叉校验文件ID/proposal/client/kind/operation/归属、候选快照和回执，非秘密摘要不是语义认证。已完成回执匹配时仍验证JSON格式及绑定，不反复读取正文快照；在途快照逐字验证。过期保护只在确实过期且允许过期时扫描相关操作，不在expire=False全量预检中重复扫描目录。未知/损坏保留现场并拒写；abandon只接受识别且身份一致的计划，表示接受当前磁盘，不回滚或新建内容。
+
+新3网页批准action3独立于execution manifest，绑定逻辑计划摘要、授权revision和依赖摘要；批准已记但manifest未存在时查询返回not_applied，不自动发起提交。旧批准action2/取消action1保留。未应用恢复需要对应私人授权，server现有runtime接入后第二阶段recover在关闭Agent时也运行；私人授权缺失保持阻塞，不猜测配置位置。AG-128的dormant继续拒激活，旧authorization1/2亦可使用现有Markdown新3提案，无需创建休眠grant。

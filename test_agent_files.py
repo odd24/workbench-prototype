@@ -639,6 +639,48 @@ class FileHTTPTests(unittest.TestCase):
         self.assertEqual(output[0][0], 200)
         self.assertIn("body", output[0][1])
 
+    def test_post_file_approval_hash_releases_outer_write_locks_for_revoke_disable_and_switch(self):
+        from server import Repository
+        original = LocalFileHandle.chunks
+        for change in ("revoke", "disable", "switch"):
+            with self.subTest(change=change):
+                if change != "revoke":
+                    self.tearDown(); self.setUp()
+                version = client_version(self.security.clients()[self.client_id])
+                status, preview = self.manage("/preview", {"workspace_id": self.security.workspace_id, "expected_version": version, "path": str(self.source), "purposes": ["text_read"], "encoding": "auto", "max_bytes": 10485760, "duration_seconds": 3600}, "POST")
+                self.assertEqual(status, 200, preview)
+                payload = {key: preview[key] for key in ("workspace_id", "expected_version", "preview_id", "preview_digest")}
+                payload.update(approved=True, request_id=uuid.uuid4().hex)
+                entered, release = threading.Event(), threading.Event()
+                def slow(handle, deadline):
+                    entered.set()
+                    release.wait(5)
+                    yield from original(handle, deadline)
+                output = []
+                handler = self.workbench.server.RequestHandlerClass
+                with patch.object(LocalFileHandle, "chunks", slow):
+                    worker = threading.Thread(target=lambda: output.append(self.manage("/confirm", payload, "POST")))
+                    worker.start()
+                    try:
+                        self.assertTrue(entered.wait(3))
+                        started = time.monotonic()
+                        if change == "revoke":
+                            status, value = self.request(f"/api/local/agent-management/clients/{self.client_id}/revoke", {"workspace_id": self.security.workspace_id, "expected_version": version, "request_id": uuid.uuid4().hex}, "POST", True)
+                            self.assertEqual(status, 200, value)
+                        elif change == "disable":
+                            status, value = self.request("/api/local/agent-management/runtime", {"workspace_id": self.security.workspace_id, "expected_version": self.runtime.status()["version"], "request_id": uuid.uuid4().hex, "enabled": False}, "PATCH", True)
+                            self.assertEqual(status, 200, value)
+                        else:
+                            with handler.repository_switch_lock:
+                                handler.repository = Repository(self.base / "changed-workspace")
+                        self.assertLess(time.monotonic() - started, 2, "management mutation waited for file hash")
+                    finally:
+                        release.set(); worker.join(10)
+                handler.repository = self.repo
+                self.assertFalse(worker.is_alive())
+                self.assertGreaterEqual(output[0][0], 400)
+                self.assertEqual(load_ledger(self.security)["files"], {})
+
 
 if __name__ == "__main__":
     unittest.main()

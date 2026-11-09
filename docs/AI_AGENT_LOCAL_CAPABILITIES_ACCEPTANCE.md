@@ -136,3 +136,11 @@ Windows固定本机NTFS/普通文件句柄，逐层拒重解析/目录联接，�
 决策018～023。每段O(file-size)全扫描，5秒只在本机同步读块之间检查，OS等待可能更长；已获发布许可的数据不能撤回且可迟到。文件名与内容可能发往外部模型服务，管理员预览明确披露。attachment_source仅未来意向，不能文本读取或上传。本次原始MCP和既有真实Codex无模型回归不替代AG-142新增业务客户端矩阵；无真实新能力模型turn、性能基线或独立视觉基线验收。下一项AG-131须监督派发，本次到此停止。
 
 最终67Python/46JS语法、10份修改Markdown/72相对链接/围栏编码、后续待开始状态和git diff --check通过；diff无业务数据、私人凭据、日志或评审截图。
+
+### AG-131开工发现的POST外锁缺陷与独立修复
+
+监督审查AG-131长流接点时发现：130专用dispatcher虽然将hash放在自身短锁外，do_POST/PUT等的serialized_write装饰器仍在分派前持空间/业务锁。130此前真实GET长读测试不能证明管理POST批准也释放外层锁；原验收证据保留其实际范围，不重写为已验证该POST边界。
+
+独立修复将Agent与同源Agent管理的分派从外层锁中豁免，继续使用各dispatcher自己的短锁；普通网页变更仍由原装饰器与guard协调。新增真实HTTP POST文件确认长hash测试，期间客户端撤销HTTP、关闭接入HTTP及换库锁均在2秒内完成，hash结束后拒绝发布、私人file-grants仍空。APP_VERSION2026.11.09.4，不改前端、数据/API格式或旧网页锁。
+
+python -m unittest test_agent_files test_agent_api test_agent_runtime test_agent_execution test_server -q：107项83.793秒通过；node test_agent_settings.js原设置及130文件全流程通过；四个涉及Python入口/测试编译及git diff --check通过。此为独立缺陷修复，不包含未验证上传代码；AG-131仍进行中。

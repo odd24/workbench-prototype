@@ -27,13 +27,18 @@ from .paths import (
 
 
 APP_DIR = Path(__file__).resolve().parent.parent
-APP_VERSION = "2026.11.09.3"
+APP_VERSION = "2026.11.09.4"
 MAX_JSON_BODY_BYTES = 15_000_000
 
 
 def serialized_write(method):
     @wraps(method)
     def call(self):
+        path = unquote(urlparse(self.path).path)
+        if path.startswith(("/api/agent/", "/api/local/agent-management/")):
+            # Agent dispatchers coordinate their short mutations explicitly.
+            # Wrapping dispatch itself also locks streaming IO and file hashes.
+            return method(self)
         with self.repository_switch_lock, self.repository.write_lock:
             return method(self)
     return call

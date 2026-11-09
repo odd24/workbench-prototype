@@ -33,6 +33,10 @@ def dispatch(handler):
             if any(len(values) != 1 for values in raw.values()):
                 raise AgentError("invalid_request", "筛选参数不能重复")
             params = {key: values[0] for key, values in raw.items()}
+        parts = route.split("/")
+        if len(parts) in (3, 4) and parts[0] == "clients" and parts[2] == "files":
+            dispatch_files(handler, parts, origin)
+            return True
         with handler.repository_switch_lock, handler.repository.write_lock:
             runtime = getattr(handler.repository, "agent_runtime", None)
             if runtime is None:
@@ -127,3 +131,62 @@ def dispatch(handler):
     except Exception:
         handler._json(AgentError("management_failed", "接入管理失败，请检查配置后重试", 500).payload(request_id), 500)
     return True
+
+
+def dispatch_files(handler, parts, origin):
+    from .agent_files import FileManagement
+    from .agent_management import credential_lock
+    with handler.repository_switch_lock:
+        repository = handler.repository
+        runtime = getattr(repository, "agent_runtime", None)
+        if not runtime or not runtime.status()["workspace_id"]:
+            raise AgentError("not_initialized", "请先开启接入", 409)
+        runtime.authorize(handler.headers.get("X-Workbench-Management-Token"))
+        generation = runtime._generation
+        if handler.command != "GET" and handler.headers.get("Origin") != origin:
+            raise AgentError("forbidden", "管理写入需要同源Origin", 403)
+        management = FileManagement(runtime)
+    payload = None
+    if handler.command != "GET":
+        if handler._content_length() > 65536 or handler.headers.get("Content-Type", "").split(";")[0] != "application/json":
+            raise AgentError("invalid_request", "文件管理请求需要有界JSON")
+        payload = handler._body()
+    client_id = parts[1]
+    if len(parts) == 3 and handler.command == "GET":
+        with repository.write_lock, credential_lock(management.security.config_dir):
+            result = management.list(client_id)
+    elif len(parts) == 4 and parts[3] == "preview" and handler.command == "POST":
+        result = management.preview(client_id, payload)
+    elif len(parts) == 4 and parts[3] == "confirm" and handler.command == "POST":
+        if not isinstance(payload, dict) or set(payload) != {"workspace_id", "preview_id", "preview_digest", "expected_version", "request_id", "approved"} or payload["approved"] is not True or payload["workspace_id"] != management.security.workspace_id or not isinstance(payload["request_id"], str) or not 1 <= len(payload["request_id"]) <= 100:
+            raise AgentError("approval_required", "需要明确批准当前完整预览")
+        manager = management.security.manager()
+        operation_id = hashlib.sha256(payload["request_id"].encode()).hexdigest()
+        with credential_lock(management.security.config_dir):
+            replay = (manager.directory / f"{operation_id}.json").exists()
+            if replay:
+                result = manager.run("file_grant_create", {"record": None, "approval_digest": payload["preview_digest"]}, client_id, payload["expected_version"], payload["request_id"])
+        if not replay:
+            record = management.approved_record(client_id, payload)  # Hash only after approval, unlocked.
+            with handler.repository_switch_lock:
+                if handler.repository is not repository or getattr(repository, "agent_runtime", None) is not runtime or runtime._generation != generation:
+                    raise AgentError("workspace_changed", "工作空间已变化，授权未发布", 409)
+                runtime.authorize(handler.headers.get("X-Workbench-Management-Token"))
+                with repository.write_lock:
+                    result = management.commit(client_id, payload, record)
+    elif len(parts) == 4 and handler.command == "DELETE":
+        if not isinstance(payload, dict) or set(payload) != {"workspace_id", "expected_version", "request_id"} or payload["workspace_id"] != management.security.workspace_id:
+            raise AgentError("invalid_request", "撤销文件授权参数无效")
+        with handler.repository_switch_lock:
+            if handler.repository is not repository:
+                raise AgentError("workspace_changed", "工作空间已变化", 409)
+            with repository.write_lock:
+                result = management.security.manager().run("file_grant_revoke", {"file_id": parts[3]}, client_id, payload["expected_version"], payload["request_id"])
+    else:
+        raise AgentError("not_found", "文件管理接口不存在", 404)
+    with handler.repository_switch_lock:
+        if handler.repository is not repository or getattr(repository, "agent_runtime", None) is not runtime or runtime._generation != generation:
+            raise AgentError("workspace_changed", "工作空间已变化，管理结果未发布", 409)
+        runtime.authorize(handler.headers.get("X-Workbench-Management-Token"))
+    handler.connection.settimeout(5)
+    handler._json(result)

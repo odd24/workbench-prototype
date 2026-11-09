@@ -220,7 +220,7 @@ async function main() {
     assert.notEqual(JSON.parse(fs.readFileSync(path.join(credentials, workspace, `${clientId}.json`), 'utf8')).token, previousToken);
     await click('[data-agent-action="diagnose"]');
     await waitForPage(client, "document.querySelector('.agent-diagnostic')?.textContent.includes('自检 capabilities 只读请求成功')");
-    assert.equal(await client.evaluate("document.querySelector('.agent-diagnostic').textContent.includes('12 个工具')"), true);
+    assert.equal(await client.evaluate("document.querySelector('.agent-diagnostic').textContent.includes('15 个工具')"), true);
     await click('[data-agent-action="refresh"]');
     await waitForPage(client, "!agentSettingsFeature.isBusy() && document.querySelector('.agent-client')?.textContent.includes('最近自检请求：')");
     assert.equal(await client.evaluate("document.querySelector('.agent-client').textContent.includes('最近客户端请求：暂无记录')"), true);
@@ -344,6 +344,61 @@ async function main() {
     await confirm();
     await waitForPage(client, "!$('#agentClientName') && !agentSettingsFeature.isBusy()");
     assert.deepEqual(JSON.parse(fs.readFileSync(registryPath, 'utf8')).clients[dormant.client_id].capability_grants.grants, []);
+    // AG-130: no source bytes before consent; explicit file-only client,
+    // preview/cancel/approve, lost response and refresh/query, revoke.
+    const source = path.join(base, '临时文件与长中文名称'.repeat(4) + '.txt');
+    fs.writeFileSync(source, 'FILE-PRIVATE-BODY-不得出现在授权预览😀\n'.repeat(4));
+    await click('[data-agent-action="new-file"]');
+    await waitForPage(client, "!!$('#agentClientName')");
+    assert.equal(await client.evaluate("document.querySelectorAll('[data-agent-kind]:checked').length"), 0);
+    await fill('#agentClientName', '文件专用验收');
+    await client.evaluate("$('#agentClientForm').requestSubmit()");
+    await confirm();
+    await waitForPage(client, "!$('#agentClientName') && !agentSettingsFeature.isBusy()");
+    registry = JSON.parse(fs.readFileSync(registryPath, 'utf8')).clients;
+    const fileClient = Object.values(registry).find(item => item.name === '文件专用验收');
+    assert.deepEqual(fileClient.kinds, []);
+    assert.deepEqual(fileClient.project_ids, []);
+    assert.deepEqual(fileClient.active_file_ids, []);
+    assert.equal(fileClient.authorization_schema_version, 4);
+    await click(`[data-agent-action="files"][data-client-id="${fileClient.client_id}"]`);
+    await waitForPage(client, "!!$('#agentFilePath')");
+    await fill('#agentFilePath', source);
+    await click('[data-agent-action="file-preview"]');
+    await waitForPage(client, "!!$('#agentFilePreview')");
+    assert.equal(await client.evaluate("$('#agentFilePreview').textContent.includes('FILE-PRIVATE-BODY')"), false);
+    assert.equal(fs.existsSync(path.join(credentials, workspace, 'file-grants.json')), false);
+    await click('[data-agent-action="file-cancel"]');
+    assert.equal(await client.evaluate("!!$('#agentFilePreview')"), false);
+    await fill('#agentFilePath', source);
+    await click('[data-agent-action="file-preview"]');
+    await waitForPage(client, "!!$('#agentFilePreview')");
+    for (const theme of ['light', 'dark']) {
+      for (const width of [1440, 390]) {
+        await client.call('Emulation.setDeviceMetricsOverride', {width, height:1000, deviceScaleFactor:1, mobile:false});
+        await client.evaluate(`document.body.classList.toggle('dark', ${theme === 'dark'}); $('#agentFilePreview').scrollIntoView({block:'start'});`);
+        await delay(100);
+        assert.equal(await client.evaluate('document.documentElement.scrollWidth > innerWidth + 1'), false);
+        const screenshot = await client.call('Page.captureScreenshot', {format:'png'});
+        fs.writeFileSync(path.join(screenshots, `file-grants-${theme}-${width}.png`), Buffer.from(screenshot.data, 'base64'));
+      }
+    }
+    await client.evaluate(`window.__fileFetch = window.fetch.bind(window); window.fetch = async (...args) => { const response = await window.__fileFetch(...args); if (String(args[0]).endsWith('/files/confirm')) { window.fetch = window.__fileFetch; throw new Error('injected file confirmation response loss'); } return response; };`);
+    await click('[data-agent-action="file-confirm"]');
+    await confirm();
+    await waitForPage(client, "!!document.querySelector('[data-agent-action=file-resolve]') && agentSettingsFeature.isBusy()");
+    assert.equal(Object.keys(JSON.parse(fs.readFileSync(path.join(credentials, workspace, 'file-grants.json'), 'utf8')).files).length, 1);
+    await client.call('Page.reload');
+    await waitForPage(client, "!!document.querySelector('[data-agent-action=file-resolve]')");
+    await click('[data-agent-action="file-resolve"]');
+    await waitForPage(client, "!!document.querySelector('[data-agent-action=file-revoke]') && !document.querySelector('[data-agent-action=file-resolve]')");
+    assert.equal(Object.keys(JSON.parse(fs.readFileSync(path.join(credentials, workspace, 'file-grants.json'), 'utf8')).files).length, 1);
+    await click('[data-agent-action="file-revoke"]');
+    await confirm();
+    await waitForPage(client, "!!$('#agentFilesPanel') && !document.querySelector('[data-agent-action=file-revoke]')");
+    assert.deepEqual(JSON.parse(fs.readFileSync(registryPath, 'utf8')).clients[fileClient.client_id].active_file_ids, []);
+    assert.equal(Object.values(JSON.parse(fs.readFileSync(path.join(credentials, workspace, 'file-grants.json'), 'utf8')).files)[0].status, 'revoked');
+    console.log('AG-130 browser tests passed: file-only,metadata-preview,cancel,explicit-consent,lost-response,refresh-query,revoke,light/dark,desktop/narrow');
     console.log('Agent settings browser tests passed: first-use,enable,preference,create,lost-response-recovery,setup,registration-preview,explicit-replace,cancel,double-click,registration-response-loss,reload-query,automatic-read-check,copy,theme,width,unsaved,session-failure,conflict,edit,rotate,revoke,disable,reload');
     console.log(`Screenshots: ${screenshots}`);
   } catch (error) {

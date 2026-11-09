@@ -351,3 +351,17 @@ AG-128实际结果见[本机能力验收](AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE
 - AG-LOCAL-DEC-017：所有proposal/manifest/action版本、步骤、算法和跨字段身份先零写预检，再恢复/过期/修订/取消/清理；schema3必须交叉校验文件ID/proposal/client/kind/operation/归属、候选快照和回执，非秘密摘要不是语义认证。已完成回执匹配时仍验证JSON格式及绑定，不反复读取正文快照；在途快照逐字验证。过期保护只在确实过期且允许过期时扫描相关操作，不在expire=False全量预检中重复扫描目录。未知/损坏保留现场并拒写；abandon只接受识别且身份一致的计划，表示接受当前磁盘，不回滚或新建内容。
 
 新3网页批准action3独立于execution manifest，绑定逻辑计划摘要、授权revision和依赖摘要；批准已记但manifest未存在时查询返回not_applied，不自动发起提交。旧批准action2/取消action1保留。未应用恢复需要对应私人授权，server现有runtime接入后第二阶段recover在关闭Agent时也运行；私人授权缺失保持阻塞，不猜测配置位置。AG-128的dormant继续拒激活，旧authorization1/2亦可使用现有Markdown新3提案，无需创建休眠grant。
+
+
+## 17. AG-130 文件授权契约（已实现）
+
+- AG-LOCAL-DEC-018：文件授权独立于休眠capability_grants，client authorization4保存active_file_ids，与私人file-grants双向交集并受read scope/用途/期限约束；其余dormant不激活。文件专用客户端显式空旧类型/范围，不补假授权。root registry3/log4拒旧9b6924d，transport2无文件列表；新平台只在已验证Windows固定NTFS宣称files.read implemented。
+- AG-LOCAL-DEC-019：预览仅属性，不读取正文或hash，票据绑定管理session/workspace/client CAS、路径/句柄身份/大小/版本、用途/编码/期限/限额；confirm只接受票据与摘要、不得替换path。明确批准后才流式读取/hash。log4只存不透明快照ID/摘要，路径及必要秘密仅私人file-grants/management-snapshots；终结日志先持久化再删快照，删除失败可查询并重启回收，不删日志绕过。
+- AG-LOCAL-DEC-020：CreateFileW逐层OPEN_REPARSE_POINT属性句柄、拒share write/delete，叶GetFileType/DOS最终路径/卷FS/卷序列+file index/BasicInfo ChangeTime核对；QueryDosDevice拒SUBST等映射，只接受Windows报告的固定本机NTFS卷，不声称证明物理硬件。拒UNC/ADS/设备/保留名/目录/重解析及全部多硬链接，敏感目录/名称默认拒绝，不扫描真实认证材料。不可证明的平台/FS fail closed，旧业务不受影响。
+- AG-LOCAL-DEC-021：默认10MiB/1小时、显式至100MiB/24小时；同句柄64KiB流式hash时捕获目标片段，整digest/身份/大小/ChangeTime验证后返回，每段O(file size)而非全文入内存。每client2/全局4、块间5秒截止；同步本地OS读取仍有内核等待边界，不能宣称绝对5秒终止。attachment_source仅未来意向，binary仅信息，不获得文本或上传权。
+- AG-LOCAL-DEC-022：UTF8/BOM、UTF16 BOM/显式LE/BE及显式ascii/gb18030/cp1252严格解码；offset/length为原始字节，默认/max65536、min8，offset0消费BOM但body不含BOM，完整字符尾部边界/UTF16对齐，携source_revision避免混版。拒非法起点、源变化、过期和撤销。
+- AG-LOCAL-DEC-023：开始/结束短锁核验身份/空间epoch/授权，hash在所有业务/凭据/切换锁外。结束线性化发布许可后锁外限时网络发送；撤销先于许可阻止新响应，已获许可字节可迟到、无法收回。禁止锁内wfile.write，也不在换库后将旧请求重跑至新空间。
+
+平台规范依据（仅官方，行为须实测）：[CreateFileW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)、[GetFileInformationByHandle](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle)、[GetFinalPathNameByHandleW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfinalpathnamebyhandlew)、[GetDriveTypeW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getdrivetypew)、[GetFileType](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfiletype)、[FILE_BASIC_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_basic_info)。
+
+[QueryDosDeviceW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-querydosdevicew)用于检查当前DOS设备映射。快照首写未prepared的孤儿只持久abandoned再回收，不代替用户hash或发布；管理session、runtime版本与票据期限在长I/O后再次核查。批准预览披露受控display_name，Agent元信息只返回该名称，不返回父路径。实际测试见[本机能力验收](AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md)。

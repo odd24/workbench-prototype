@@ -132,3 +132,8 @@ capabilities.capability_authorization区分configured配置、静态已实现处
 agent_execution.py是ProposalStore内部的静态契约/校验模块，仅markdown@1和现有12组合，不是动态执行器或平行CRUD。ProposalStore仍负责提案/执行状态及回执，领域Prepared仍负责历史和正文写入。新3绑定实际依赖、授权revision及完整保存计划；旧1/2原分支保留。计划/manifest/快照/批准/receipt交叉校验，目标仅四类型受控路径；预检零写后才恢复，已完成匹配回执无需重复读Markdown快照。pending步骤仍逐字验快照，history/target写后和进度记录之间均有故障接点。
 
 依赖粒度及保守状态集合绑定见本机方案AG-LOCAL-DEC-015；不绑定整个配置或所有可见资源。正文发布前重查权限/版本/依赖，历史已写不算正文已应用；正文已after则补原回执，不能重写后来已编辑或删除目标。server现有runtime挂载后的第二阶段恢复覆盖关闭接入启动，缺失私人授权保持写保护；状态读取仍不初始化空间。锁序保持空间切换→业务→凭据，不在锁内等待HTTP或子进程。休眠新能力仍不可用。
+### AG-130 本机文件边界
+
+agent_file_handles使用标准库ctypes封装Windows句柄属性/最终路径/卷类型/文件身份，元数据句柄不能读正文；agent_files负责管理票据、私人授权表、用途交集、流式hash与编码/原始字节分段。无任意路径MCP、目录授权或源文件写入。agent_management复用跨进程锁、CAS及日志4快照恢复，不另建凭据或业务仓储。
+
+files HTTP单独捕获原repository/service及授权版本，长I/O不持业务/凭据/换库锁；结束短锁重验仍是原空间与服务、当前授权/期限后授予响应许可，socket限时写在锁外。撤销与许可的先后决定结果，无法撤回先获许可的数据。管理批准hash同样锁外，发布前重查同管理会话/票据/CAS；源内容不进入提案、草稿、搜索、历史、普通导出或管理日志。

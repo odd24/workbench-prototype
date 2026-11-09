@@ -130,7 +130,7 @@ def normalize_capability_grants(value):
 def client_capability_grants(client):
     try:
         value = normalize_capability_grants(client.get("capability_grants", {"schema_version": 1, "grants": []}))
-        if "capability_grants" in client and (client.get("authorization_schema_version") != 3 or client.get("capability_grant_state") != "dormant"):
+        if "capability_grants" in client and (client.get("authorization_schema_version") not in (3, 4) or client.get("capability_grant_state") != "dormant"):
             raise ValueError("授权必须休眠")
         return value
     except ValueError:
@@ -147,12 +147,25 @@ def client_confirmation_mode(client):
 def client_kinds(client):
     kinds = client.get("kinds", list(LEGACY_KINDS))
     version = client.get("authorization_schema_version", 1)
-    if type(version) is not int or version not in (1, 2, 3):
+    if type(version) is not int or version not in (1, 2, 3, 4):
         raise AgentError("unsupported_schema", "客户端授权版本不受支持", 503)
-    if not isinstance(kinds, list) or (not kinds and version != 3) or any(not isinstance(kind, str) or kind not in AGENT_KINDS for kind in kinds):
+    if not isinstance(kinds, list) or (not kinds and version not in (3, 4)) or any(not isinstance(kind, str) or kind not in AGENT_KINDS for kind in kinds):
         raise AgentError("invalid_configuration", "客户端类型授权无效", 503)
     client_capability_grants(client)
+    client_file_ids(client)
     return list(dict.fromkeys(kinds))
+
+
+def client_file_ids(client):
+    values = client.get("active_file_ids", [])
+    try:
+        if "active_file_ids" in client and client.get("authorization_schema_version") != 4:
+            raise ValueError()
+        if not isinstance(values, list) or len(values) > 100 or len(set(values)) != len(values) or any(not isinstance(value, str) or str(uuid.UUID(value)) != value for value in values):
+            raise ValueError()
+        return values.copy()
+    except (ValueError, TypeError, AttributeError):
+        raise AgentError("invalid_configuration", "客户端文件授权引用无效", 503) from None
 
 
 class AgentSecurity:
@@ -178,7 +191,7 @@ class AgentSecurity:
         if not self.registry.exists():
             return {}
         value = read_json(self.registry)
-        if not isinstance(value, dict) or type(value.get("schema_version")) is not int or value.get("schema_version") not in (1, 2) or value.get("workspace_id") != self.workspace_id or not isinstance(value.get("clients"), dict):
+        if not isinstance(value, dict) or type(value.get("schema_version")) is not int or value.get("schema_version") not in (1, 2, 3) or value.get("workspace_id") != self.workspace_id or not isinstance(value.get("clients"), dict):
             raise AgentError("unsupported_schema", "客户端配置格式或工作空间不匹配", 503)
         return value["clients"]
 
@@ -189,7 +202,9 @@ class AgentSecurity:
     def save_clients(self, clients, minimum_schema=1):
         version = max(self.registry_version(), minimum_schema)
         if any(client.get("authorization_schema_version") == 3 for client in clients.values()):
-            version = 2
+            version = max(version, 2)
+        if any(client.get("authorization_schema_version") == 4 for client in clients.values()):
+            version = 3
         private_write(self.registry, {"schema_version": version, "workspace_id": self.workspace_id, "clients": clients})
 
     @staticmethod

@@ -64,6 +64,21 @@ class AgentService:
         self.store = repository.agent_proposals
         self.store.security = security
 
+    def list_file_grants(self, client):
+        from .agent_files import authorized_files, public_info
+        from .agent_file_handles import SUPPORTED
+        if not SUPPORTED:
+            raise AgentError("unsupported_platform", "本机文件能力在当前平台不可用", 503)
+        return {"items": [public_info(item) for item in authorized_files(self.security, client).values()]}
+
+    def get_file_info(self, client, key):
+        from .agent_files import get_authorized, public_info
+        return public_info(get_authorized(self.security, client, key))
+
+    def read_file(self, client, key, params):
+        from .agent_files import get_authorized, read_segment
+        return read_segment(self.security, get_authorized(self.security, client, key, "text_read"), params)
+
     @service_operation
     def accept_request(self, client):
         now = time.monotonic()
@@ -87,6 +102,9 @@ class AgentService:
                           "update": ["title", "body", "tags", "status", "priority", "due"], "append": ["body"]}
         fields["info"] = {"create": ["title", "project_id", "body", "tags", "info_fields"],
                           "update": ["title", "body", "tags", "info_fields"], "append": ["body"]}
+        from .agent_files import authorized_files
+        from .agent_file_handles import SUPPORTED
+        file_grants = list(authorized_files(self.security, client).values()) if SUPPORTED else []
         return {"kind_operations": {kind: ["create", "append", "update"] for kind in kinds},
                 "kind_fields": {kind: fields[kind] for kind in kinds}, "authorized_kinds": client_kinds(client),
                 "confirmation_modes": ["agent_attested", "local_web"], "default_confirmation_mode": client_confirmation_mode(client),
@@ -94,8 +112,12 @@ class AgentService:
                 "operations": ["create", "append", "update"], "limits": LIMITS, "scopes": client["scopes"],
                 "project_ids": client["project_ids"], "categories": client["categories"], "confirmation_mode": client_confirmation_mode(client),
                 "capability_authorization": {"configured": client_capability_grants(client),
-                                             "implemented": [], "effective": [], "activation": "requires_reauthorization"},
-                "authorization_schema_versions": [1, 2, 3], "management_log_schema_versions": [1, 2, 3]}
+                                             "implemented": ["files.read"] if SUPPORTED else [], "effective": ["files.read"] if file_grants else [], "activation": "requires_reauthorization"},
+                "file_access": {"grant_required": True, "operations": ["list_file_grants"] + (["get_file_info"] if file_grants else []) + (["read_file"] if any("text_read" in item["purposes"] for item in file_grants) else []),
+                                "raw_chunk_bytes": 65536, "default_max_bytes": 10485760, "max_bytes": 104857600, "default_duration_seconds": 3600, "max_duration_seconds": 86400,
+                                "verification": "each segment rehashes the full approved file; raw byte offsets; use next_offset; attachment_source grants do not permit text reads or uploads",
+                                "revocation": "checked at response permit; already permitted responses may arrive after revocation", "timeout": "5 seconds checked between local synchronous reads; OS waits may exceed this"},
+                "authorization_schema_versions": [1, 2, 3, 4], "management_log_schema_versions": [1, 2, 3, 4]}
 
     @service_operation
     def projects(self, client, params):
@@ -116,7 +138,7 @@ class AgentService:
         if kind not in client_kinds(client) and project_id:
             raise AgentError("not_found", "项目不存在或不可访问", 404)
         tags = self.repository.list_tags()
-        if client.get("authorization_schema_version") == 3:
+        if client.get("authorization_schema_version") in (3, 4):
             visible = [item for item in self.repository.list_records() if allows(client, item)] + [item for item in self.repository.list_documents() if allows(client, item)]
             names = {name for item in visible for name in item.get("tags", [])}
             tags = [tag for tag in tags if tag["name"] in names]

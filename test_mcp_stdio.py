@@ -57,8 +57,8 @@ class MCPProtocolTests(unittest.TestCase):
     def test_tools_schemas_annotations_unknown_fields_and_business_results(self):
         self.initialize()
         tools = self.call("tools/list", {"_meta": {}})["result"]["tools"]
-        self.assertEqual(len(tools), 12)
-        self.assertEqual(len({item["name"] for item in tools}), 12)
+        self.assertEqual(len(tools), 15)
+        self.assertEqual(len({item["name"] for item in tools}), 15)
         for name in ("workbench_capabilities", "workbench_prepare_proposal"):
             description = next(item["description"] for item in tools if item["name"] == name)
             self.assertIn("关键原文摘录到正文代码块", description)
@@ -115,7 +115,7 @@ class MCPBridgeTests(unittest.TestCase):
 
     def test_real_stdio_full_workflow_eof_rotation_and_no_secret_output(self):
         self.start_bridge()
-        self.assertEqual(len(self.rpc.call("tools/list")["tools"]), 12)
+        self.assertEqual(len(self.rpc.call("tools/list")["tools"]), 15)
         result = self.tool("prepare_proposal", {"request_id": "stdio-1", "kind": "issue", "operation": "create", "content": {"title": "中文入库", "project_id": self.project["id"], "body": "多行\n\necho 'one'\necho two"}})
         self.assertFalse(result["isError"])
         proposal_id = result["structuredContent"]["proposal_id"]
@@ -141,13 +141,15 @@ class MCPBridgeTests(unittest.TestCase):
         params = {key: client[key] for key in ('name', 'scopes', 'project_ids', 'categories')}
         self.workbench.security.manager().run('edit', {**params, 'kinds':[], 'project_ids':[], 'categories':[], 'capability_grants':grants()}, client['client_id'], client_version(client))
         self.start_bridge()
-        self.assertEqual(len(self.rpc.call('tools/list')['tools']), 12)
+        self.assertEqual(len(self.rpc.call('tools/list')['tools']), 15)
         result = self.tool('capabilities')
         self.assertFalse(result['isError'])
         self.assertEqual(result['structuredContent']['capability_authorization']['effective'], [])
         self.assertEqual(self.tool('get_catalog')['structuredContent'], {'tags':[], 'document_categories':[]})
         self.assertTrue(self.tool('get_item', {'kind':'issue', 'item_id':'ISSUE-0001'})['isError'])
-        self.assertFalse(any(item['name'] == 'workbench_read_file' for item in self.rpc.call('tools/list')['tools']))
+        self.assertTrue(any(item['name'] == 'workbench_read_file' for item in self.rpc.call('tools/list')['tools']))
+        self.assertEqual(self.tool('list_file_grants')['structuredContent'], {'items':[]})
+        self.assertTrue(self.tool('get_file_info', {'file_id':'00000000-0000-0000-0000-000000000000'})['isError'])
 
     def test_service_down_invalid_config_and_remote_or_identity_changes(self):
         client = LocalAgentClient(self.config_file)

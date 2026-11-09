@@ -163,3 +163,11 @@ proposal3/manifest3(execution_schema_version=1)/approval action3保留原独立�
 正常关闭Agent入口的服务启动仍会在runtime挂载后恢复；匹配私人配置可恢复已接受操作，配置缺失则保持写保护、普通读取可用。CLI继续显式传同一agent-config-dir；不能猜测其他私人目录。已形成回执不因后来编辑/删除重放正文，清理只移除终结内容快照且保留幂等/计划/回执；在途记录即使被错误标为content_cleaned也拒绝恢复。
 
 预检逐一验证JSON格式/身份/摘要绑定，但匹配终结回执时不重新读取Markdown快照；在途快照仍完整验证。临时历史样本只证明预检I/O回归，不是完整性能基线。回退旧代码前先解决新事务并停服备份，旧版不认识schema3时不能删日志绕过。未来处理器须按版本新增分支，不改变markdown@1或旧摘要语义。
+
+### AG-130 文件授权与私人备份
+
+新增python -m unittest -v test_agent_files及node test_agent_settings.js；所有源文件、链接/盘符别名和凭据都必须为临时合成夹具。原生安全证明限Windows固定本机NTFS，拒所有多硬链接、重解析/联接、SUBST、UNC/设备/ADS；其他平台文件入口fail closed，旧业务保留。逐段O(file-size)校验、块间5秒截止仍有OS同步等待、已获许可响应可迟到，不能宣传绝对超时或撤回。
+
+停服匹配私人备份须包含clients根3、file-grants、management-operations日志4及management-snapshots，与原workspace身份保持一致；不能把私人目录复制到业务ZIP或Git。源文件不在业务备份里，恢复授权不会重新hash或读取源，后续读取仍按批准版本验证。批准或撤销结果不确定先查原operation；prepared/recovery_required保留现场，先report，再核对是否继续恢复或显式abandon。
+
+快照首写后未prepared即退出，重启在完整预检后先持久abandoned再清理，不发布授权。completed/abandoned后清理失败可由operation查询snapshot_cleanup_pending，重启恢复会重试，不能手动删日志或先删未决快照。根3下凭据轮换/编辑/撤销也使用同一日志4，完成后才清除秘密快照；不确定先查询，不重放。旧9b6924d必须拒绝新根/日志，降级只能停服恢复匹配旧备份，不能删除格式门槛。三文件工具的原始MCP实测不是AG-142真实模型客户端矩阵。

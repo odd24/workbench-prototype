@@ -17,6 +17,17 @@
     let registrationResult = null;
     let registrationPending = null;
     let registrationConfirming = false;
+    let files = null;
+    let filePreview = null;
+    let filePending = null;
+    function rememberFile(value) {
+      filePending = value;
+      try {
+        const key = `workbench.agentFiles.pending.${status.workspace_id}`;
+        if (value) global.sessionStorage.setItem(key, JSON.stringify(value));
+        else global.sessionStorage.removeItem(key);
+      } catch { /* The on-page query remains available. */ }
+    }
     const pendingKey = () => `workbench.agentRegistration.pending.${status.workspace_id}`;
     function rememberRegistration(value) {
       registrationPending = value;
@@ -30,7 +41,7 @@
     const errorText = error => error.payload?.message || error.message;
     const permissionName = scopes => scopes.length === 1 && scopes[0] === 'read' ? '只读查询' : scopes.length === 3 ? '整理并确认入库' : `旧版权限：${scopes.join(' / ')}`;
     const isDirty = () => Boolean(draft && JSON.stringify(draft) !== original);
-    const isBusy = () => busy || registrationConfirming || Boolean(pending) || Boolean(registrationPending);
+    const isBusy = () => busy || registrationConfirming || Boolean(pending) || Boolean(registrationPending) || Boolean(filePending);
     const valid = version => isActive() && version === epoch;
 
     async function request(path, options = {}) {
@@ -89,6 +100,13 @@
       const stateText = {enabled:'已开启', disabled:'已关闭', uninitialized:'尚未初始化'}[status.runtime_state] || '异常';
       root.innerHTML = `<div class="settings-stack agent-settings"><section class="settings-card"><div class="agent-section-head"><div><h2>AI Agent 接入</h2><p>当前状态：<strong id="agentRuntimeState">${stateText}</strong></p></div>${button('refresh', '刷新')}</div><dl class="agent-status"><dt>工作空间</dt><dd>${esc(status.workspace_id || '开启接入后初始化')}</dd><dt>服务地址</dt><dd>${esc(status.origin)}</dd><dt>运行设置来源</dt><dd>${esc({cli:'启动参数（本次覆盖）', preference:'本机启动偏好', ui:'本次界面设置'}[status.effective_source] || status.effective_source)}</dd></dl><div class="settings-actions">${button('toggle', status.enabled ? '关闭接入' : '开启接入')}<label><input id="agentStartupPreference" type="checkbox" ${status.startup_preference ? 'checked' : ''}>下次普通启动时开启</label>${button('preference', '保存启动偏好')}</div><p class="settings-hint">关闭接入保留授权与提案。显式启动参数只影响本次，保存的偏好用于下次普通启动。</p>${status.preference_error ? `<p class="agent-error">${esc(status.preference_error)}</p>` : ''}</section><p id="agentFeedback" class="agent-feedback" role="status" aria-live="polite"></p>${pending ? `<section class="settings-card"><p>上次操作结果尚未确定，请先查询，避免重复创建授权。</p>${button('resolve', '查询上次操作')}</section>` : ''}<section class="settings-card"><div class="agent-section-head"><h2>客户端授权</h2>${button('new', '添加客户端', !status.workspace_id ? 'disabled' : '')}</div><p class="settings-hint">授权只作用于当前工作空间；令牌保存在本机私人目录，页面不显示。</p><div class="agent-client-list">${catalog.items.map(client => `<article class="agent-client"><div><strong>${esc(client.name)}</strong><span class="agent-client-state">${client.recovery_required ? '需要恢复' : client.enabled ? '授权有效' : '已撤销'}</span><small>${esc(client.client_id)}</small><p>权限：${esc(permissionName(client.scopes))}</p><p>最低确认：${client.minimum_confirmation_mode === 'local_web' ? '本机网页独立批准' : '对话确认'}</p><p>类型：${esc((client.kinds || ['issue', 'document']).map(kind => kindNames[kind]).join('、'))}</p><p>后续能力：${esc(client.capability_grants?.grants?.map(grantSummary).join('；') || '未配置')}（尚未实现、不可使用）</p>${!client.kinds.length || !(client.project_ids.length || client.categories.length) ? '<p class="settings-hint">无旧业务数据权限，当前不可开展业务；连接成功仅表示接入可达。</p>' : ''}<p>项目：${esc(rangeText(client.project_ids, true))}</p><p>知识库：${esc(rangeText(client.categories))}</p><p>最近客户端请求：${esc(client.last_client_request_at ? new Date(client.last_client_request_at).toLocaleString() : "暂无记录")}（来源未独立验证）</p><p>最近自检请求：${esc(client.last_diagnostic_request_at ? new Date(client.last_diagnostic_request_at).toLocaleString() : "暂无记录")}</p>${client.invalid_categories.length || client.invalid_project_ids.length ? '<p class="agent-error">部分授权范围已失效，请编辑后重新核对。</p>' : ''}</div><div class="settings-actions">${client.enabled && !client.recovery_required ? `${button('edit', '编辑', `data-client-id="${esc(client.client_id)}"`)}${button('setup', '接入向导', `data-client-id="${esc(client.client_id)}"`)}${button('diagnose', '检查连接', `data-client-id="${esc(client.client_id)}"`)}${button('rotate', '轮换凭据', `data-client-id="${esc(client.client_id)}"`)}${button('repair', '更新服务地址', `data-client-id="${esc(client.client_id)}"`)}${button('revoke', '撤销', `data-client-id="${esc(client.client_id)}"`)}` : ''}</div></article>`).join('') || '<p class="empty-state">暂无客户端。先开启接入，再添加并选择授权范围。</p>'}</div></section>${formHtml()}<div id="agentSetupPanel"></div><div id="agentDiagnosticsPanel"></div></div>`;
       if (setup) paintSetup();
+      const clientHead = root.querySelector('.agent-client-list')?.parentElement.querySelector('.agent-section-head');
+      if (clientHead && status.workspace_id) clientHead.insertAdjacentHTML('beforeend', button('new-file', '添加文件专用客户端'));
+      root.querySelectorAll('.agent-client').forEach((node, index) => {
+        const client = catalog.items[index];
+        if (client.enabled && !client.recovery_required) node.querySelector('.settings-actions')?.insertAdjacentHTML('beforeend', button('files', '具体文件授权', `data-client-id="${esc(client.client_id)}"`));
+      });
+      if (files) root.querySelector('.agent-settings').insertAdjacentHTML('beforeend', filePanelHtml());
       if (diagnostic) paintDiagnostic();
       if (registrationPending) {
         const panel = global.document.createElement('section');
@@ -108,10 +126,14 @@
         if (!valid(version)) return false;
         if (status && status.workspace_id !== loaded.workspace_id) {
           draft = null; original = ''; setup = null; pending = null; diagnostic = null;
+          files = null; filePreview = null; filePending = null;
           registration = null; registrationResult = null; registrationPending = null;
           root.innerHTML = '<div class="empty-state">工作空间已变化，正在重新加载授权…</div>';
         }
         status = loaded;
+        if (!filePending && status.workspace_id) {
+          try { filePending = JSON.parse(global.sessionStorage.getItem(`workbench.agentFiles.pending.${status.workspace_id}`) || 'null'); } catch { filePending = null; }
+        }
         if (!registrationPending && status.workspace_id) {
           try { registrationPending = JSON.parse(global.sessionStorage.getItem(pendingKey()) || 'null'); } catch { registrationPending = null; }
         }
@@ -121,6 +143,7 @@
         if (!preserveDraft) { draft = null; original = ''; }
         busy = false;
         paint();
+        if (filePending && !files) await fileAction('files', filePending.client_id);
         return true;
       } catch (error) {
         if (valid(version)) {
@@ -140,11 +163,12 @@
       if (!await canReplaceForm()) return;
       draft = {client_id:client?.client_id || '', expected_version:client?.version || '', name:client?.name || '', guide:'codex',
         permission:client ? client.scopes.length === 1 && client.scopes[0] === 'read' ? 'read' : client.scopes.length === 3 ? 'write' : 'legacy' : 'read',
-        minimum_confirmation_mode:client?.minimum_confirmation_mode || 'agent_attested', kinds:[...(client?.kinds || ['issue', 'document'])], project_ids:[...(client?.project_ids || [])], categories:[...(client?.categories || [])], grants:structuredClone(client?.capability_grants?.grants || []), newAuthorization:client?.authorization_schema_version === 3};
+        minimum_confirmation_mode:client?.minimum_confirmation_mode || 'agent_attested', kinds:[...(client?.kinds || ['issue', 'document'])], project_ids:[...(client?.project_ids || [])], categories:[...(client?.categories || [])], grants:structuredClone(client?.capability_grants?.grants || []), newAuthorization:client?.authorization_schema_version >= 3};
       original = JSON.stringify(draft);
       setup = null;
       paint();
       find('#agentClientName')?.focus();
+      return true;
     }
 
     async function perform(route, method, payload) {
@@ -181,6 +205,7 @@
       const guide = draft.guide;
       const result = await perform(draft.client_id ? `clients/${draft.client_id}` : 'clients', draft.client_id ? 'PATCH' : 'POST', {
         workspace_id:status.workspace_id, ...(draft.client_id ? {expected_version:draft.expected_version} : {}), name:draft.name.trim(),
+        ...(draft.fileAccessOnly && !draft.client_id ? {file_access_only:true} : {}),
         ...((draft.grants.length || draft.newAuthorization) ? {capability_grants:{schema_version:1, grants:draft.grants}} : {}), minimum_confirmation_mode:draft.minimum_confirmation_mode, kinds:draft.kinds, scopes:draft.permission === 'write' ? ['read', 'propose', 'commit'] : ['read'], project_ids:draft.project_ids, categories:draft.categories,
       });
       if (!result) return false;
@@ -188,6 +213,62 @@
       notify('授权已保存', '客户端配置已保存到本机私人目录');
       await showSetup(result.client_id, guide);
       return true;
+    }
+
+    function filePreviewHtml() {
+      const value = filePreview;
+      const fields = {'客户端':`${value.client_name}（${value.client_id}）`, '文件名称':value.display_name, '完整本机路径':value.path,
+        '源文件大小':`${value.identity.size} 字节`, '用途':value.purposes.map(purpose => purpose === 'text_read' ? '读取文本' : '仅作为后续附件来源').join('、'),
+        '文本编码':value.encoding === 'auto' ? '自动识别 UTF8 / 带 BOM 的 UTF16' : value.encoding,
+        '授权大小上限':`${value.max_bytes / 1048576} MiB`, '批准后有效期限':`${value.duration_seconds / 3600} 小时`};
+      return `<div id="agentFilePreview"><h3>完整授权预览</h3><dl class="agent-status">${Object.entries(fields).map(([name, content]) => `<dt>${esc(name)}</dt><dd>${esc(content)}</dd>`).join('')}</dl><p>${esc(value.disclosure)}</p><details><summary>文件身份与授权版本依据</summary><pre>${esc(JSON.stringify({identity:value.identity, expected_version:value.expected_version, preview_digest:value.preview_digest}, null, 2))}</pre></details>${button('file-confirm', '明确批准当前文件授权')}${button('file-cancel', '取消预览')}</div>`;
+    }
+
+    function filePanelHtml() {
+      return `<section class="settings-card agent-setup" id="agentFilesPanel"><h2>具体文件授权 · ${esc(files.name)}</h2><p>仅支持Windows固定NTFS卷上的普通文件。确认前只查看文件属性，不读取正文。客户端可能把读取内容发送到外部模型服务；文件不会自动入库。附件来源仅记录意向，当前不提供上传。</p><label>本机文件绝对路径<input id="agentFilePath" placeholder="输入盘符开头的完整文件路径" maxlength="240"></label><label>用途<select id="agentFilePurpose"><option value="text_read">读取文本</option><option value="attachment_source">仅作为后续附件来源</option></select></label><label>编码<select id="agentFileEncoding">${['auto', 'utf-8', 'utf-16-le', 'utf-16-be', 'ascii', 'gb18030', 'cp1252', 'binary'].map(value => `<option>${value}</option>`).join('')}</select></label><label>最大大小（MiB，默认10，最高100）<input id="agentFileMax" type="number" min="1" max="100" value="10"></label><label>期限（小时，默认1，最长24）<input id="agentFileDuration" type="number" min="1" max="24" value="1"></label>${button('file-preview', '检查文件属性并预览授权')}${filePreview ? filePreviewHtml() : ''}${filePending ? `<p>结果待查询，请勿重复授权。请求编号：${esc(filePending.request_id)}</p>${button('file-resolve', '查询文件授权结果')}` : ''}<p>每段最多读取64KiB原始字节，每段都会重新校验完整文件。5秒截止在读块之间检查，操作系统同步等待可能更长。撤销前已获发布许可的响应可能延后到达，已发送内容不能收回。</p>${files.items.map(item => `<article><p>${esc(item.path)} · ${esc(item.purposes.join(' / '))} · ${esc(item.status)} · ${esc(new Date(item.expires_at * 1000).toLocaleString())}</p><small>${esc(item.file_id)} / ${esc(item.source_revision)}</small>${item.status === 'active' ? button('file-revoke', '撤销文件授权', `data-client-id="${esc(item.file_id)}"`) : ''}</article>`).join('') || '<p>尚无具体文件授权。</p>'}${button('files-close', '关闭文件授权')}</section>`;
+    }
+
+    async function fileAction(name, key) {
+      const version = epoch;
+      if (name === 'files-close') { if (!filePending) { files = null; filePreview = null; paint(); } return; }
+      if (name === 'file-cancel') { filePreview = null; paint(); return; }
+      const clientId = name === 'files' ? key : files?.client_id;
+      if (!clientId) return;
+      const client = catalog.items.find(item => item.client_id === clientId);
+      try {
+        if (name === 'files') {
+          const value = await request(`clients/${clientId}/files`);
+          if (!valid(version)) return;
+          files = {...value, client_id:clientId, name:client.name}; filePreview = null; paint();
+        } else if (name === 'file-preview' && !filePending) {
+          const payload = {workspace_id:status.workspace_id, expected_version:files.expected_version, path:find('#agentFilePath').value, purposes:[find('#agentFilePurpose').value], encoding:find('#agentFileEncoding').value, max_bytes:Number(find('#agentFileMax').value) * 1048576, duration_seconds:Number(find('#agentFileDuration').value) * 3600};
+          const value = await request(`clients/${clientId}/files/preview`, {method:'POST', body:JSON.stringify(payload)});
+          if (!valid(version)) return;
+          filePreview = value; paint();
+        } else if (name === 'file-confirm' && filePreview && !filePending) {
+          const preview = filePreview;
+          if (!await confirm({title:'明确批准读取这个文件？', message:`${preview.client_name}：${preview.path}`, detail:JSON.stringify(preview, null, 2), confirmText:'批准当前文件'})) return;
+          if (!valid(version) || preview !== filePreview) return;
+          const payload = {workspace_id:status.workspace_id, expected_version:preview.expected_version, preview_id:preview.preview_id, preview_digest:preview.preview_digest, request_id:id(), approved:true};
+          rememberFile({request_id:payload.request_id, client_id:clientId}); busy = true; paint();
+          await request(`clients/${clientId}/files/confirm`, {method:'POST', body:JSON.stringify(payload)});
+          if (!valid(version)) return;
+          rememberFile(null); filePreview = null; busy = false;
+          await load(); await fileAction('files', clientId);
+        } else if (name === 'file-resolve' && filePending) {
+          const value = await request(`operations/${encodeURIComponent(filePending.request_id)}`);
+          if (!valid(version)) return;
+          if (value.state === 'completed' || value.state === 'abandoned') { rememberFile(null); filePreview = null; await load(); await fileAction('files', clientId); }
+          else message('文件授权仍需恢复，请按维护说明查询日志。', true);
+        } else if (name === 'file-revoke' && !filePending) {
+          if (!await confirm({title:'撤销这个文件授权？', message:'后续响应许可将被拒绝，已获许可的数据无法收回。', confirmText:'撤销文件授权', danger:true})) return;
+          const payload = {workspace_id:status.workspace_id, expected_version:files.expected_version, request_id:id()};
+          rememberFile({request_id:payload.request_id, client_id:clientId});
+          await request(`clients/${clientId}/files/${key}`, {method:'DELETE', body:JSON.stringify(payload)});
+          if (!valid(version)) return;
+          rememberFile(null); filePreview = null; await load(); await fileAction('files', clientId);
+        }
+      } catch (error) { if (valid(version)) { if (name === 'file-resolve' && error.status === 404) { rememberFile(null); filePreview = null; } busy = false; paint(); message(`${errorText(error)}${filePending ? '；先查询原请求结果。' : ''}`, true); } }
     }
 
     function paintSetup() {
@@ -303,6 +384,12 @@
 
     async function action(name, clientId, grantIndex) {
       if (busy || registrationConfirming) return;
+      if (name === 'files' || name.startsWith('file-') || name === 'files-close') return fileAction(name, clientId);
+      if (filePending && name !== 'refresh') { message('请先查询文件授权原请求结果。', true); return; }
+      if (name === 'new-file') {
+        if (await openForm()) { draft.fileAccessOnly = true; draft.newAuthorization = true; draft.kinds = []; draft.project_ids = []; draft.categories = []; original = JSON.stringify(draft); paint(); message('创建只读文件专用客户端：保持空条目类型和业务范围，保存后通过“具体文件授权”逐个批准文件。'); }
+        return;
+      }
       if (name === 'remove-grant' && draft) {
         draft.grants.splice(Number(grantIndex), 1); paint(); return;
       }

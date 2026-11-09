@@ -210,13 +210,21 @@ python workbuddy_agent_acceptance.py --desktop-session只准备临时项目与�
 
 仍需原`--agent-client-add`、隔离或目标空间的data-dir和一致agent-config-dir；旧kinds/project/category默认不被补为通配。此配置只保存休眠意向，不创建项目。管理API沿用clients POST/PATCH，可选capability_grants；edit省略保留、显式空清空。首次新格式保存会建立root2/log3门槛，旧版本拒绝管理；降级前见维护步骤。
 
-capabilities新增capability_authorization.configured/implemented/effective/activation。configured不能当可用权限；当前新增能力implemented/effective均空。新授权schema3的catalog标签只来自可见条目，有权空项目可查工作流但标签为空；legacy catalog兼容行为不变。协议工具数量和原四类型操作不变。
+capabilities新增capability_authorization.configured/implemented/effective/activation。configured不能当可用权限；AG-128阶段新增能力implemented/effective均空。新授权schema3/4的catalog标签只来自可见条目，有权空项目可查工作流但标签为空；legacy catalog兼容行为不变。该阶段未增加工具，AG-130文件工具见下文。
 
 
 ### AG-129 新提案保存计划
 
-新建提案使用schema3；旧schema1/2继续按原算法读取和确认，不自动重算已预览摘要。capabilities新增execution_schema_versions=[1]、proposal_schema_versions包含3，仍仅12工具及四类型三操作。完整预览包含authorization_revision、dependencies、execution_plan、plan_digest；客户端须展示全部依据，授权或相关依赖变化后修订并重新预览确认。
+新建提案使用schema3；旧schema1/2继续按原算法读取和确认，不自动重算已预览摘要。capabilities新增execution_schema_versions=[1]、proposal_schema_versions包含3，AG-129阶段保持12工具及四类型三操作。完整预览包含authorization_revision、dependencies、execution_plan、plan_digest；客户端须展示全部依据，授权或相关依赖变化后修订并重新预览确认。
 
 现有四类业务的旧凭据可直接生成新3提案，不要求配置休眠grants。新计划当前仅历史快照与Markdown保存，新增文件/附件/图/删除/项目及配置操作仍未开放。引用只绑定固定ID及revision，状态集合成员增删也会冲突；项目说明/排序、无关资源和标签颜色不引起冲突。提交仍只接受版本和预览摘要，不接受替换正文或执行计划。
 
 网页完整预览增加保存范围与执行版本依据，批准action3绑定逻辑计划及授权/依赖；已批准但未形成manifest时查询not_applied，不自动发起新提交。遇commit_interrupted先查询原proposal；未知格式或recovery_required按维护入口核查，不能删除日志或换request_id重建。
+
+### AG-130 文件工具与管理
+
+固定工具目录增至15项，新增workbench_list_file_grants、workbench_get_file_info、workbench_read_file，对应GET /api/agent/v1/files、files/{file_id}、files/{file_id}/content。只接受UUID file_id，read必须有source_revision，可带原始字节offset/length（8～65536）；未知/重复query为400，缺失授权404，源变化409，不返回父路径。HTTP/MCP共享服务，不直接读取业务库外路径。
+
+文件批准只能在同源本机管理会话clients/{client_id}/files/{preview|confirm}执行，Agent凭据不能调用；confirm不接受path，仅当前票据/摘要、expected_version、稳定request_id、approved=true。管理GET files与DELETE files/{file_id}用于查看/撤销，具体完整契约见DATA_FORMAT。文件专用创建使用file_access_only=true及空旧类型/范围；已有客户端的文件ID由服务端批准流程维护，不允许通用编辑自报active_file_ids。
+
+capabilities区分Windows实现、当前具体授权与用途操作；configured休眠列表仍不生效。file_access明示大小/期限/分段上限、每段全文件校验、5秒块间截止及撤销许可边界。传输配置仍schema2，新授权4/根3/日志4建立旧版拒绝门槛；支持范围和管理员操作见AGENT_USAGE。原12工具和四类型三操作保留，此次原始MCP实测不代替AG-142真实模型客户端新增业务矩阵。

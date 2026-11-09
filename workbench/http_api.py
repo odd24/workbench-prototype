@@ -27,7 +27,7 @@ from .paths import (
 
 
 APP_DIR = Path(__file__).resolve().parent.parent
-APP_VERSION = "2026.11.09.2"
+APP_VERSION = "2026.11.09.3"
 MAX_JSON_BODY_BYTES = 15_000_000
 
 
@@ -118,6 +118,10 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
         if not unquote(urlparse(self.path).path).startswith("/api/agent/"):
             return False
         from .agent_http import dispatch
+        if unquote(urlparse(self.path).path).split("/")[1:5] == ["api", "agent", "v1", "files"]:
+            from .agent_http import dispatch_files
+            dispatch_files(self)
+            return True
         with self.repository_switch_lock:
             dispatch(self)
         return True

@@ -79,7 +79,7 @@ class AgentDiagnosticTests(unittest.TestCase):
         steps = {item["name"]: item for item in result["steps"]}
         for name in ("service", "authorization", "configuration", "python", "mcp", "read"):
             self.assertEqual(steps[name]["state"], "passed", result)
-        self.assertIn("12", steps["mcp"]["message"])
+        self.assertIn("15", steps["mcp"]["message"])
         self.assertEqual(self.start()[1]["operation_id"], operation["operation_id"])
         observed = self.runtime.diagnostics.observed(self.info["client_id"])
         self.assertIn("last_diagnostic_request_at", observed)

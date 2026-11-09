@@ -12,7 +12,7 @@ import uuid
 from contextlib import contextmanager
 
 from .agent_security import (AgentError, private_write, read_json, client_kinds, client_confirmation_mode,
-                             client_capability_grants, normalize_capability_grants, CAPABILITY_SPECS)
+                             client_capability_grants, normalize_capability_grants, CAPABILITY_SPECS, client_file_ids)
 from .write_coordinator import DataDirectoryLock
 
 
@@ -64,6 +64,7 @@ def clean_client(client):
     return {**{key: client[key] for key in keys}, "kinds": client_kinds(client), "minimum_confirmation_mode": client_confirmation_mode(client),
             "authorization_schema_version": client.get("authorization_schema_version", 1),
             "capability_grants": client_capability_grants(client), "capability_grant_state": "dormant",
+            "active_file_ids": client_file_ids(client),
             "management_revision": client.get("management_revision", 0), "version": client_version(client)}
 
 
@@ -71,7 +72,7 @@ class CredentialManager:
     def __init__(self, security):
         self.security = security
         self.directory = security.config_dir / "management-operations"
-        if self.directory.is_symlink():
+        if self.directory.resolve() != self.directory.absolute():
             raise AgentError("invalid_configuration", "管理日志目录无效", 503)
 
     def checkpoint(self, stage):
@@ -89,7 +90,7 @@ class CredentialManager:
             value = read_json(path)
         except (OSError, ValueError):
             raise AgentError("management_recovery_required", "管理日志损坏，请检查备份", 503) from None
-        if not isinstance(value, dict) or type(value.get("schema_version")) is not int or value.get("schema_version") not in (1, 2, 3) or value.get("workspace_id") != self.security.workspace_id or value.get("state") not in {"prepared", "completed", "recovery_required", "abandoned"}:
+        if not isinstance(value, dict) or type(value.get("schema_version")) is not int or value.get("schema_version") not in (1, 2, 3, 4) or value.get("workspace_id") != self.security.workspace_id or value.get("state") not in {"prepared", "completed", "recovery_required", "abandoned"}:
             raise AgentError("management_recovery_required", "管理日志版本或工作空间无效", 503)
         try:
             valid_id = str(uuid.UUID(value["client_id"])) == value["client_id"]
@@ -97,10 +98,22 @@ class CredentialManager:
             valid_id = False
         if not valid_id or value.get("operation_id") != path.stem or not isinstance(value.get("request_id"), str) or hashlib.sha256(value["request_id"].encode()).hexdigest() != path.stem:
             raise AgentError("management_recovery_required", "管理日志客户端无效", 503)
-        if value["state"] in {"prepared", "recovery_required"} and not {"before_config", "after_config", "before_client", "after_client"} <= value.keys():
+        if value["schema_version"] == 4:
+            if value.get("registry_schema") != 3 or value.get("operation_family") not in {"credential", "file"}:
+                raise AgentError("management_recovery_required", "管理文件授权格式门槛无效", 503)
+            if value["state"] in {"prepared", "recovery_required"}:
+                try:
+                    snapshot = read_json(self._snapshot_path(path.stem))
+                except (OSError, ValueError):
+                    raise AgentError("management_recovery_required", "管理私人快照缺失或损坏", 503) from None
+                if not isinstance(snapshot, dict) or set(snapshot) != {"schema_version", "operation_id", "workspace_id", "client_id", "values", "intent"} or snapshot.get("schema_version") != 1 or snapshot.get("operation_id") != path.stem or snapshot.get("workspace_id") != self.security.workspace_id or snapshot.get("client_id") != value["client_id"] or value.get("private_snapshot_id") != path.stem or digest(snapshot) != value.get("private_snapshot_digest") or not isinstance(snapshot.get("values"), dict) or any(not key.startswith(("before_", "after_")) for key in snapshot["values"]):
+                    raise AgentError("management_recovery_required", "管理私人快照校验失败", 503)
+                value.update(snapshot["values"])
+        required = {"before_client", "after_client"} | ({"before_files", "after_files"} if value.get("operation_family") == "file" else {"before_config", "after_config"})
+        if value["state"] in {"prepared", "recovery_required"} and not required <= value.keys():
             raise AgentError("management_recovery_required", "管理日志快照缺失", 503)
-        if value["schema_version"] == 3:
-            if type(value.get("registry_schema")) is not int or value.get("registry_schema") != 2:
+        if value["schema_version"] in (3, 4):
+            if type(value.get("registry_schema")) is not int or value.get("registry_schema") != (3 if value["schema_version"] == 4 else 2):
                 raise AgentError("management_recovery_required", "管理格式门槛缺失", 503)
             if value["state"] in {"prepared", "recovery_required"}:
                 try:
@@ -109,9 +122,13 @@ class CredentialManager:
                         raise ValueError("授权身份不符")
                     self.security.validate_client(after["name"], after["scopes"], after["project_ids"], after["categories"],
                                                   client_kinds(after), client_confirmation_mode(after),
-                                                  client_capability_grants(after) if after.get("authorization_schema_version") == 3 else None)
+                                                  client_capability_grants(after) if after.get("authorization_schema_version") in (3, 4) else None)
                 except (ValueError, KeyError, TypeError, AgentError):
                     raise AgentError("management_recovery_required", "管理授权快照无效，停止恢复", 503) from None
+        if value.get("operation_family") == "file" and value["state"] in {"prepared", "recovery_required"}:
+            from .agent_files import validate_ledger
+            validate_ledger(value["before_files"], self.security)
+            validate_ledger(value["after_files"], self.security)
         return value
 
     def blocked_clients(self):
@@ -119,7 +136,44 @@ class CredentialManager:
 
     def _write(self, path, value):
         self.directory.mkdir(mode=0o700, exist_ok=True)
-        private_write(path, value)
+        if value["schema_version"] != 4:
+            private_write(path, value)
+            return
+        values = {key: item for key, item in value.items() if key.startswith(("before_", "after_"))}
+        public = {key: item for key, item in value.items() if key not in values}
+        if isinstance(public.get("result"), dict):
+            public["result"] = {key: item for key, item in public["result"].items() if key != "config_file"}
+        if value["state"] in {"prepared", "recovery_required"}:
+            snapshot = {"schema_version": 1, "workspace_id": self.security.workspace_id, "operation_id": path.stem,
+                        "client_id": value["client_id"], "values": values, "intent": {key: item for key, item in public.items() if key not in {"private_snapshot_id", "private_snapshot_digest", "snapshot_cleanup_pending"}}}
+            snapshot_path = self._snapshot_path(path.stem, create=True)
+            private_write(snapshot_path, snapshot)
+            self.checkpoint("private_snapshot")
+            public.update(private_snapshot_id=path.stem, private_snapshot_digest=digest(snapshot))
+            value.update(private_snapshot_id=path.stem, private_snapshot_digest=digest(snapshot))
+        private_write(path, public)
+        if value["state"] in {"completed", "abandoned"}:
+            self.checkpoint("terminal_log")
+            self._cleanup_snapshot(path, public)
+
+    def _snapshot_path(self, operation_id, create=False):
+        directory = self.security.config_dir / "management-snapshots"
+        path = directory / f"{operation_id}.json"
+        if not re.fullmatch(r"[a-f0-9]{64}", operation_id) or directory.resolve() != directory.absolute() or path.resolve() != path.absolute():
+            raise AgentError("management_recovery_required", "管理私人快照路径无效", 503)
+        if create:
+            directory.mkdir(mode=0o700, exist_ok=True)
+        return path
+
+    def _cleanup_snapshot(self, path, value):
+        try:
+            self._snapshot_path(path.stem).unlink(missing_ok=True)
+            pending = False
+        except (OSError, AgentError):
+            pending = True
+        if value.get("snapshot_cleanup_pending", False) != pending:
+            value["snapshot_cleanup_pending"] = pending
+            private_write(path, value)
 
     def _config(self, client_id):
         path = self.security.config_dir / f"{client_id}.json"
@@ -128,6 +182,8 @@ class CredentialManager:
         return path
 
     def _finish(self, path, value):
+        if value.get("operation_family") == "file":
+            return self._finish_file(path, value)
         config_path = self._config(value["client_id"])
         try:
             current_config = read_json(config_path) if config_path.exists() else None
@@ -139,8 +195,8 @@ class CredentialManager:
             value["state"] = "recovery_required"
             self._write(path, value)
             return False
-        if value["schema_version"] == 3:
-            self.security.save_clients(clients, minimum_schema=2)
+        if value["schema_version"] in (3, 4):
+            self.security.save_clients(clients, minimum_schema=value["registry_schema"])
             self.checkpoint("format_fence")
         if value["after_config"] is not None and current_config != value["after_config"]:
             private_write(config_path, value["after_config"])
@@ -154,17 +210,99 @@ class CredentialManager:
         self.checkpoint("completed")
         return True
 
+    def _run_file(self, path, action, params, before, client_id, request_id, signature):
+        from copy import deepcopy
+        from .agent_files import load_ledger, validate_ledger, file_id
+        before_files = load_ledger(self.security)
+        after_files = deepcopy(before_files)
+        after = deepcopy(before)
+        ids = client_file_ids(before)
+        if action == "file_grant_create":
+            record = params["record"]
+            key = file_id(record["file_id"])
+            if record["client_id"] != client_id or key in after_files["files"] or len(ids) >= 100 or record["status"] != "active" or record["expires_at"] <= time.time():
+                raise ValueError("文件授权身份或数量无效")
+            after_files["files"][key] = record
+            ids = ids + [key]
+        else:
+            key = file_id(params["file_id"])
+            record = after_files["files"].get(key)
+            if not record or record["client_id"] != client_id:
+                raise AgentError("not_found", "文件授权不存在", 404)
+            record.update(status="revoked", version=record["version"] + 1)
+            ids = [item for item in ids if item != key]
+        validate_ledger(after_files, self.security)
+        after.update(authorization_schema_version=4, active_file_ids=ids, management_revision=int(before.get("management_revision", 0)) + 1)
+        result = {"operation_id": path.stem, "client_id": client_id, "file_id": key, "state": "completed", "version": client_version(after)}
+        value = {"schema_version": 4, "registry_schema": 3, "operation_family": "file", "workspace_id": self.security.workspace_id,
+                 "operation_id": path.stem, "request_id": request_id, "input_digest": signature, "client_id": client_id, "state": "prepared",
+                 "before_client": before, "after_client": after, "before_files": before_files, "after_files": after_files, "result": result}
+        self._write(path, value)
+        self.checkpoint("prepared")
+        if not self._finish_file(path, value):
+            raise AgentError("management_recovery_required", "文件授权发生外部变化，已停止覆盖", 503)
+        return result
+
+    def _finish_file(self, path, value):
+        from .agent_files import load_ledger, save_ledger
+        clients = self.security.clients()
+        if clients.get(value["client_id"]) not in (value["before_client"], value["after_client"]) or load_ledger(self.security) not in (value["before_files"], value["after_files"]):
+            value["state"] = "recovery_required"
+            self._write(path, value)
+            return False
+        self.security.save_clients(clients, minimum_schema=3)
+        self.checkpoint("format_fence")
+        save_ledger(self.security, value["after_files"])
+        self.checkpoint("file_ledger")
+        clients[value["client_id"]] = value["after_client"]
+        self.security.save_clients(clients, minimum_schema=3)
+        self.checkpoint("registry")
+        completed = {key: item for key, item in value.items() if not key.startswith(("before_", "after_"))}
+        completed["state"] = "completed"
+        self._write(path, completed)
+        self.checkpoint("completed")
+        return True
+
     def _recover(self):
         blocked = []
         # Validate every format before applying any older snapshot.
         logs = [(path, self._load(path)) for path in self._logs()]
+        orphans = []
+        snapshots = self.security.config_dir / "management-snapshots"
+        if snapshots.resolve() != snapshots.absolute():
+            raise AgentError("management_recovery_required", "管理私人快照目录无效", 503)
+        known = {path.stem: value for path, value in logs}
+        for snapshot_path in sorted(snapshots.glob("*.json")) if snapshots.exists() else []:
+            try:
+                snapshot = read_json(self._snapshot_path(snapshot_path.stem))
+                if not isinstance(snapshot, dict) or not isinstance(snapshot.get("intent"), dict):
+                    raise ValueError()
+                intent = snapshot["intent"]
+                if set(snapshot) != {"schema_version", "operation_id", "workspace_id", "client_id", "values", "intent"} or snapshot["schema_version"] != 1 or snapshot["workspace_id"] != self.security.workspace_id or snapshot["operation_id"] != snapshot_path.stem or not isinstance(snapshot["values"], dict) or intent.get("schema_version") != 4 or intent.get("registry_schema") != 3 or intent.get("operation_family") not in {"credential", "file"} or intent.get("state") not in {"prepared", "recovery_required"} or intent.get("client_id") != snapshot["client_id"] or intent.get("workspace_id") != self.security.workspace_id or intent.get("operation_id") != snapshot_path.stem or hashlib.sha256(intent["request_id"].encode()).hexdigest() != snapshot_path.stem or str(uuid.UUID(snapshot["client_id"])) != snapshot["client_id"]:
+                    raise ValueError()
+                if snapshot_path.stem in known:
+                    if known[snapshot_path.stem].get("private_snapshot_digest") != digest(snapshot):
+                        raise ValueError()
+                else:
+                    orphans.append({**intent, "private_snapshot_id": snapshot_path.stem, "private_snapshot_digest": digest(snapshot)})
+            except (KeyError, TypeError, ValueError, OSError):
+                raise AgentError("management_recovery_required", "管理私人快照格式无效，停止全部恢复", 503) from None
+        if (self.security.registry_version() == 3 or orphans or any(value["schema_version"] == 4 for _, value in logs)) and any(value["schema_version"] < 4 and value["state"] in {"prepared", "recovery_required"} for _, value in logs):
+            raise AgentError("management_recovery_required", "新文件授权日志与旧未决混合，停止恢复", 503)
         if any(value["schema_version"] == 3 for _, value in logs) and any(value["schema_version"] < 3 and value["state"] in {"prepared", "recovery_required"} for _, value in logs):
             raise AgentError("management_recovery_required", "新格式与旧未决日志混合，停止恢复并保留证据", 503)
+        # Snapshot-before-prepare exits have never changed authority. Persist a
+        # terminal decision before disposing of their private values.
+        for intent in orphans:
+            self.security.save_clients(self.security.clients(), minimum_schema=3)
+            self._write(self.directory / (intent["operation_id"] + ".json"), {**intent, "state": "abandoned", "result": None, "orphaned_before_prepare": True})
         for path, value in logs:
             if value["state"] == "prepared" and not self._finish(path, value):
                 blocked.append(value["client_id"])
             elif value["state"] == "recovery_required":
                 blocked.append(value["client_id"])
+            elif value["schema_version"] == 4:
+                self._cleanup_snapshot(path, value)
         return blocked
 
     def recover(self):
@@ -180,7 +318,7 @@ class CredentialManager:
         with credential_lock(self.security.config_dir):
             self._recover()
             value = self._load(path)
-        return {"operation_id": operation_id, "state": value["state"], "client_id": value["client_id"], "result": value.get("result") if value["state"] == "completed" else None}
+        return {"operation_id": operation_id, "state": value["state"], "client_id": value["client_id"], "snapshot_cleanup_pending": value.get("snapshot_cleanup_pending", False), "result": value.get("result") if value["state"] == "completed" else None}
 
     def report(self):
         with credential_lock(self.security.config_dir):
@@ -196,8 +334,8 @@ class CredentialManager:
             if value["state"] not in {"prepared", "recovery_required"}:
                 raise ValueError("只允许放弃未决管理操作")
             clients = self.security.clients()
-            if value["schema_version"] == 3:
-                self.security.save_clients(clients, minimum_schema=2)
+            if value["schema_version"] in (3, 4):
+                self.security.save_clients(clients, minimum_schema=value["registry_schema"])
             client = clients.get(value["client_id"])
             if client:
                 clients[value["client_id"]] = {**client, "enabled": False}
@@ -215,7 +353,7 @@ class CredentialManager:
             raise ValueError("客户端标识无效")
         operation_id = hashlib.sha256(request_id.encode()).hexdigest()
         path = self.directory / f"{operation_id}.json"
-        signature = digest([action, params, client_id, expected_version])
+        signature = digest([action, params.get("approval_digest") if action == "file_grant_create" else params, client_id, expected_version])
         with credential_lock(self.security.config_dir):
             blocked = self._recover()
             if path.exists():
@@ -223,7 +361,10 @@ class CredentialManager:
                 if value["input_digest"] != signature:
                     raise AgentError("request_conflict", "请求标识已用于其他操作", 409)
                 if value["state"] == "completed":
-                    return value["result"]
+                    result = value["result"]
+                    if action == "create" and "config_file" not in result:
+                        result = {**result, "config_file": str(self._config(value["client_id"]))}
+                    return result
                 raise AgentError("management_recovery_required", "原操作尚未完成，请查询或修复", 503)
             if client_id in blocked:
                 raise AgentError("management_recovery_required", "该客户端有未决管理操作，请先修复", 503)
@@ -234,9 +375,13 @@ class CredentialManager:
             if expected_version is not None and client_version(before) != expected_version:
                 raise AgentError("configuration_conflict", "客户端授权已变化，请重新核对", 409)
             if before and not before.get("enabled"):
-                if action != "revoke":
+                if action not in {"revoke", "file_grant_revoke"}:
                     raise ValueError("已撤销客户端不能重新启用，请新建客户端")
             client_id = client_id or str(uuid.uuid4())
+            if action in {"file_grant_create", "file_grant_revoke"}:
+                if blocked:
+                    raise AgentError("management_recovery_required", "先解决全部未决管理操作", 503)
+                return self._run_file(path, action, params, before, client_id, request_id, signature)
             config_path = self._config(client_id)
             before_config = read_json(config_path) if config_path.exists() else None
             if before_config is not None and (not isinstance(before_config, dict) or before_config.get("schema_version") not in (1, 2)):
@@ -245,13 +390,19 @@ class CredentialManager:
             after = dict(before) if before else {"client_id": client_id, "enabled": True}
             after["management_revision"] = int(after.get("management_revision", 0)) + 1
             if action in {"create", "edit"}:
-                new_authorization = "capability_grants" in params or after.get("authorization_schema_version") == 3
+                file_only = params.get("file_access_only", False)
+                if type(file_only) is not bool or file_only and (action != "create" or params.get("kinds") != [] or params["scopes"] != ["read"] or params["project_ids"] or params["categories"]):
+                    raise ValueError("文件专用客户端不能隐含旧业务范围")
+                new_authorization = "capability_grants" in params or after.get("authorization_schema_version") in (3, 4) or file_only
                 grants = normalize_capability_grants(params["capability_grants"]) if "capability_grants" in params else client_capability_grants(after)
                 kinds = params.get("kinds", client_kinds(after))
                 self.security.validate_client(params["name"], params["scopes"], params["project_ids"], params["categories"], kinds, params.get("minimum_confirmation_mode", client_confirmation_mode(after)), grants if new_authorization else None)
-                if action == "create" and not kinds and not grants["grants"]:
+                if action == "create" and not kinds and not grants["grants"] and not file_only:
                     raise ValueError("独立客户端至少配置一项休眠授权")
-                after.update(minimum_confirmation_mode=params.get("minimum_confirmation_mode", client_confirmation_mode(after)), authorization_schema_version=3 if new_authorization else 2, kinds=kinds, name=params["name"].strip(), scopes=sorted(set(params["scopes"])), project_ids=list(dict.fromkeys(params["project_ids"])), categories=list(dict.fromkeys(params["categories"])))
+                schema = 4 if file_only or after.get("authorization_schema_version") == 4 else 3 if new_authorization else 2
+                after.update(minimum_confirmation_mode=params.get("minimum_confirmation_mode", client_confirmation_mode(after)), authorization_schema_version=schema, kinds=kinds, name=params["name"].strip(), scopes=sorted(set(params["scopes"])), project_ids=list(dict.fromkeys(params["project_ids"])), categories=list(dict.fromkeys(params["categories"])))
+                if file_only:
+                    after["active_file_ids"] = []
                 if new_authorization:
                     after.update(capability_grants=grants, capability_grant_state="dormant")
             if action in {"create", "rotate", "origin"}:
@@ -280,10 +431,12 @@ class CredentialManager:
                 result.update(config_file=str(config_path), workspace_id=self.security.workspace_id)
             value = {"schema_version": 2, "workspace_id": self.security.workspace_id, "operation_id": operation_id, "request_id": request_id, "input_digest": signature, "client_id": client_id,
                      "state": "prepared", "before_client": before, "after_client": after, "before_config": before_config, "after_config": after_config, "result": result}
-            if self.security.registry_version() == 2 or after.get("authorization_schema_version") == 3:
+            if self.security.registry_version() >= 2 or after.get("authorization_schema_version") in (3, 4):
                 if blocked:
                     raise AgentError("management_recovery_required", "升级或写入新格式前须解决全部未决操作", 503)
                 value.update(schema_version=3, registry_schema=2)
+            if self.security.registry_version() == 3 or after.get("authorization_schema_version") == 4:
+                value.update(schema_version=4, registry_schema=3, operation_family="credential")
             self._write(path, value)
             self.checkpoint("prepared")
             if not self._finish(path, value):
@@ -324,6 +477,8 @@ class AgentManagement:
         if action != "create":
             fields.add("expected_version")
         optional = {"kinds", "minimum_confirmation_mode", "capability_grants"} if action in {"create", "edit"} else set()
+        if action == "create":
+            optional.add("file_access_only")
         if not isinstance(payload, dict) or fields - set(payload) or set(payload) - fields - optional:
             raise AgentError("invalid_request", "客户端管理字段无效")
         if payload["workspace_id"] != self.runtime.status()["workspace_id"]:
@@ -342,12 +497,16 @@ class AgentManagement:
             if "capability_grants" in params:
                 params["capability_grants"] = normalize_capability_grants(params["capability_grants"])
             current = security.clients().get(client_id, {})
-            validation = {**params, "authorization_schema_version": current.get("authorization_schema_version", 2)}
-            if "capability_grants" not in validation and current.get("authorization_schema_version") == 3:
+            validation = {**params, "authorization_schema_version": 4 if payload.get("file_access_only") is True else current.get("authorization_schema_version", 2)}
+            if "capability_grants" not in validation and current.get("authorization_schema_version") in (3, 4):
                 validation["capability_grants"] = client_capability_grants(current)
             security.validate_client(**validation)
             configured = validation.get("capability_grants", {}).get("grants", [])
-            if sorted(params["scopes"]) not in (["read"], ["commit", "propose", "read"]) or not (params["project_ids"] or params["categories"] or configured or current.get("authorization_schema_version") == 3):
+            if payload.get("file_access_only") is True:
+                params["file_access_only"] = True
+                if params.get("kinds") != [] or params["scopes"] != ["read"]:
+                    raise ValueError("文件专用客户端只允许只读和空条目类型")
+            if sorted(params["scopes"]) not in (["read"], ["commit", "propose", "read"]) or not (params["project_ids"] or params["categories"] or configured or current.get("authorization_schema_version") in (3, 4) or params.get("file_access_only")):
                 raise ValueError("请选择只读或整理入库，并至少授权一个范围")
             projects = {item["id"] for item in self.repository.list_projects()}
             categories = set(self.repository.document_categories())

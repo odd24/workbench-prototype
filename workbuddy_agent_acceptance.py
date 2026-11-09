@@ -279,7 +279,7 @@ def run_acceptance(install, protocol_faults=False):
             assert not timed_out and process.returncode == 0 and connected, "Installed client connection check failed"
             assert initialized and initialized["protocolVersion"] == "2025-11-25", "Client initialize not observed"
             assert any(item.get("method") == "notifications/initialized" for item in requests), "Client initialized notification missing"
-            assert inventories and len(inventories[0]) == 12, "Installed client did not discover the full tool catalog"
+            assert inventories and len(inventories[0]) == 15, "Installed client did not discover the full tool catalog"
             errors = [item["error_code"] for item in events if "error_code" in item and "fixture_reply" not in item]
             probe_replies = [item for item in events if "fixture_reply" in item]
             assert not errors, "Protocol error observed"

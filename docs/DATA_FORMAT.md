@@ -132,7 +132,7 @@ proposal-actions批准日志schema2含operation=approve、workspace/proposal/ver
 批准日志存在但无事务manifest时查询标not_applied，不自动提交；manifest完整且有匹配批准才恢复。prepared阶段原授权撤销或收窄则停止，applying/已落盘按before/after/第三方判定核查，删除后不重建。恢复保留未知/损坏证据。sessionStorage仅保存原request/proposal编号供结果查询，不存票据。
 
 
-### AG-128 休眠能力授权（当前格式）
+### AG-128 休眠能力授权（历史阶段，兼容读取）
 
 AG-116 的根1/授权2/管理日志2是历史格式，仍兼容读取，不因读取或列出旧客户端而改写。首次显式保存 capability_grants 才采用新授权：clients.json 根 schema_version=2；客户端 authorization_schema_version=3、capability_grants={schema_version:1,grants:[{capability,operations,resources,minimum_confirmation_mode}]}、capability_grant_state=dormant。详细结构、64项/64资源上限与类型白名单位于 agent_security；files.read 暂不接受配置。拒绝未知字段/版本、通配、任意路径和空资源。服务端状态不接受管理请求自报激活。
 
@@ -152,3 +152,15 @@ capability_grant_state=dormant持久保存；当前实现验证该状态，篡�
 批准action3含proposal_schema_version=3及plan_digest，approval还绑定authorization_revision/dependencies_digest；批准记录先于manifest，响应丢失查同请求，未形成manifest则not_applied。旧action2批准/action1取消不改。
 
 恢复/清理先预检全部版本和身份再执行，未知格式不修改其他已知日志。未发布正文时重查授权/依赖，即使历史已落；正文after只补原回执，后续权限变化不阻止完成已应用事实。create applying目标不存在不能猜测从未写过，进入核查。正常关闭接入仍可用正确私人授权恢复；缺失授权不绕过。已完成回执持续保留，30天内容清理不清在途快照，也不移除幂等证据。
+
+### AG-130 具体文件授权
+
+显式文件授权采用clients.json根3、authorization_schema_version=4与active_file_ids（最多100个UUID）；原kinds/范围不扩权，休眠capability_grants保持dormant。文件专用客户端显式kinds=[]、project_ids=[]、categories=[]及read scope。transport仍为2，不复制文件列表或源路径。旧根1/2和授权1/2/3兼容读取，首次批准或文件专用创建才设新门槛，撤销/abandon不降版。
+
+私人file-grants.json为schema1/workspace_id/files映射。每项含file_id/client_id、最终path、受控basename display_name、句柄identity（volume/index/size/created/written/changed）、sha256、source_revision、encoding/bom_bytes、purposes、expires_at、max_bytes、status/version。source_revision绑定identity和内容哈希。只有客户端active_file_ids与此表的active、同client、未过期项交集生效；text_read允许文本，attachment_source仅意向，不提供上传或文本权限。Agent只见display_name及无路径元信息；路径只在本机预览、私人表和必要私人快照。
+
+管理日志4包含registry_schema=3、operation_family=credential|file、固定私人快照ID/摘要及精简回执；不含源路径、正文、token或token_hash。management-snapshots/<operation sha256>.json为schema1，含workspace/operation/client、intent与before_/after_ values；credential为client/config，file为client/files。目录继承已收窄的私人ACL，固定ID派生且拒链接，恢复验证摘要/格式。持久顺序私人快照→prepared4→根3门槛→file ledger或transport config→client registry→completed→删除私人快照。prepared阻断该client；恢复只使用批准后的快照，不打开源文件。所有日志/私人快照/混合旧未决先预检，未知或损坏保留现场拒写。
+
+快照先写、prepared尚未写即退出时，没有发布任何授权；重启预检后为该intent持久化abandoned（orphaned_before_prepare），再回收快照。completed/abandoned落盘后清理失败标记snapshot_cleanup_pending，可查询原operation并在恢复时重试。终结记录始终先于删除，不删日志绕过。根3下普通凭据操作也使用日志4外置私人快照。
+
+批准预览仅元数据，10分钟、同管理会话/进程/空间/客户端CAS绑定；confirm只收票据/摘要及approved=true，不接替换path。批准后有界流式hash，不缓存全文；长hash后再次校验会话/票据期限/CAS才发布授权。响应丢失查原request，不能换ID重新授权。读取需source_revision，offset/length为原始字节，8～65536；返回end_offset/next_offset保证编码边界，BOM仅首段移除。每段同遍捕获并重算完整文件hash与前后句柄版本，源变更拒绝，不返回混版。

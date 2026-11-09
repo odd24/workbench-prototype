@@ -276,7 +276,13 @@ class AgentAPITests(unittest.TestCase):
             self.assertEqual(self.request('/api/agent/v1/' + route)[1]['items'], [])
         self.assertEqual(self.request('/api/agent/v1/catalog')[1], {'tags': [], 'document_categories': []})
         self.assertEqual(self.request('/api/agent/v1/items/issue/' + self.issue['id'])[0], 404)
-        for route in ('files', 'attachments', 'uploads'):
+        from workbench.agent_file_handles import SUPPORTED
+        code, files = self.request('/api/agent/v1/files')
+        self.assertEqual(code, 200 if SUPPORTED else 503)
+        if SUPPORTED:
+            self.assertEqual(files, {'items': []})
+        self.assertEqual(self.request('/api/agent/v1/files/00000000-0000-0000-0000-000000000000')[0], 404 if SUPPORTED else 503)
+        for route in ('attachments', 'uploads'):
             self.assertEqual(self.request('/api/agent/v1/' + route)[0], 404)
         self.assertEqual(self.request('/api/agent/v1/proposals', 'POST', {'request_id':'no-project', 'kind':'project', 'operation':'create', 'content':{'title':'禁止'}})[0], 400)
         self.assertEqual(self.request('/api/agent/v1/proposals', 'POST', {'request_id':'no-issue', 'kind':'issue', 'operation':'create', 'content':{'title':'禁止', 'project_id':self.project['id']}})[0], 403)

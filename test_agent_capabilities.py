@@ -48,7 +48,8 @@ class CapabilityTests(AgentFixture, unittest.TestCase):
         self.assertLess(Path(result["config_file"]).stat().st_size, 16384)
         capabilities = self.service.capabilities(client)
         self.assertEqual(capabilities["kinds"], [])
-        self.assertEqual(capabilities["capability_authorization"], {"configured": grants(), "implemented": [], "effective": [], "activation": "requires_reauthorization"})
+        from workbench.agent_file_handles import SUPPORTED
+        self.assertEqual(capabilities["capability_authorization"], {"configured": grants(), "implemented": ["files.read"] if SUPPORTED else [], "effective": [], "activation": "requires_reauthorization"})
         self.assertEqual(self.service.projects(client, {})["items"], [])
         self.assertEqual(self.service.search(client, {})["items"], [])
         self.assertEqual(self.service.catalog(client, {}), {"tags": [], "document_categories": []})

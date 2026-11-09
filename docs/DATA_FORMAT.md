@@ -130,3 +130,14 @@ Agent info create 接受 title/project_id/body/tags/info_fields；update 不迁�
 proposal-actions批准日志schema2含operation=approve、workspace/proposal/version/request、输入摘要、approved/completed/not_applied、business_operation_id和approval记录。approval含mode/version/preview_digest/approved_at/operation_id/input_digest，不包含票据或会话秘密；正式回执关联相同approval。票据只在进程与页面内存，10分钟、重启/会话/授权变更失效。
 
 批准日志存在但无事务manifest时查询标not_applied，不自动提交；manifest完整且有匹配批准才恢复。prepared阶段原授权撤销或收窄则停止，applying/已落盘按before/after/第三方判定核查，删除后不重建。恢复保留未知/损坏证据。sessionStorage仅保存原request/proposal编号供结果查询，不存票据。
+
+
+### AG-128 休眠能力授权（当前格式）
+
+AG-116 的根1/授权2/管理日志2是历史格式，仍兼容读取，不因读取或列出旧客户端而改写。首次显式保存 capability_grants 才采用新授权：clients.json 根 schema_version=2；客户端 authorization_schema_version=3、capability_grants={schema_version:1,grants:[{capability,operations,resources,minimum_confirmation_mode}]}、capability_grant_state=dormant。详细结构、64项/64资源上限与类型白名单位于 agent_security；files.read 暂不接受配置。拒绝未知字段/版本、通配、任意路径和空资源。服务端状态不接受管理请求自报激活。
+
+缺失 grants 等于无新能力；编辑省略保留、显式空清空。旧授权 kinds 缺省 issue/document且显式列表非空；授权3允许显式kinds=[]，新建独立客户端至少一条结构合法的休眠grant；既有授权3可清空成为拒绝全部业务的客户端。管理revision旧缺省0、每次操作递增，完整client_version摘要仍作CAS。transport配置保持schema2，不复制grants，16KiB上限不变。
+
+新管理日志schema3含registry_schema=2，复用before/after客户端与配置快照。首次升级先恢复旧prepared，旧recovery_required阻止升级；恢复先预检全部日志格式，新日志与旧未决混合拒绝。持久顺序prepared3→原子根2格式门槛（原clients不变）→config→根2目标授权→completed。日志在根升级前阻止旧版鉴权/管理恢复；根2阻止旧clients读取。各单文件原子写不代表多文件事务；故障/abandon/清空grants不回退根2或日志3。completed/abandoned删除秘密快照，保留精简幂等回执。旧日志/旧摘要继续按原版本读取恢复，不静默重算。
+
+capability_grant_state=dormant持久保存；当前实现验证该状态，篡改成active拒绝鉴权。所有新增能力implemented/effective为空，capabilities.capability_authorization.activation=requires_reauthorization说明未来开启要求；后续处理器必须保留此门槛，仅实现上线不能激活旧授权。分类/模板名称只有休眠意向；文档分类变更移除对应grant资源且重命名不恢复grant，名称复用不复活；其他对象首次启用必须重新绑定可验证身份并由管理员授权，属于后续能力工作项。

@@ -4,7 +4,7 @@
 
 主方案：[AI_AGENT_PLAN.md](AI_AGENT_PLAN.md)。前期扩展：[AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。实施事实与状态：[AI_AGENT_PROGRESS.md](AI_AGENT_PROGRESS.md)。执行规范：[AGENTS.md](../AGENTS.md)。
 
-**当前仅完成规划登记。用户明确要求“暂不执行，等待我的执行指令”；AG-128～143 全部待开始。本文不是功能已实现、开发已获启动授权或新能力已验收的证明。收到后续执行指令后，按授权范围重新核查代码和依赖、登记开工，不能仅凭本方案启动开发、读取文件、创建授权或操作真实客户端。**
+**当前执行状态（2026-11-09）：用户最新明确“现在开始执行方案”，AG-128 已完成授权基础，尚未开放新增业务；AG-129～143 待开始，状态以台账为准。此前 AG-127 仅文档和暂停实施是历史事实。方案不等于能力已实现或验收；不得提前开放后续业务工具或操作真实客户端。**
 
 ## 1. 目标与交付范围
 
@@ -253,7 +253,7 @@ capabilities 明示 authorized capabilities、kind_operations、kind_fields、�
 
 ## 12. 工作项、文件与独立验收
 
-以下是预计接点，不是要求创建所有候选文件。实施前确定最小变更，不复制现有 CRUD 或另建 Repository 进程。AG-127 为本文档治理；以下 AG-128～143 均待开始。
+以下是预计接点，不是要求创建所有候选文件。实施前确定最小变更，不复制现有 CRUD 或另建 Repository 进程。AG-127 为本文档治理；AG-128已完成、AG-129～143待开始，实际状态以台账为准。
 
 | ID | 范围/依赖 | 预计文件或模块 | 独立完成证据 |
 | --- | --- | --- | --- |
@@ -327,4 +327,16 @@ Codex、WorkBuddy 分别记录客户端/CLI/协议版本、工具目录刷新、
 
 待实施验证：Windows 文件身份与链接策略、源快照和文本续读边界、暂存最终配额、知识库附件兼容序列化、目录创建身份保留、图历史与自动保存冲突、分类/工作流迁移及授权恢复、客户端原始流支持。这些有对应工作项，不是已获得的结论。
 
-**继续入口：等待用户明确执行指令。收到后从授权范围内第一个未完成且依赖满足的工作项开工；通常从 AG-128 开始。AG-127 文档完成不允许把 AG-128 自动标为进行中。**
+**继续入口：AG-128完成后交监督审查；后续按依赖推进，不把 AG-127 文档完成当作历史开工授权。**
+
+
+## 15. AG-128 定稿契约（已实现，验收见新分册）
+
+- AG-LOCAL-DEC-009：configured 是已保存配置；implemented 只来自服务端静态处理器；effective 为实现、授权、scope、范围、策略及激活状态的交集。本项所有新增能力 implemented/effective 为空，旧四类型三操作保持。新增 grant 一律 dormant，首次启用必须管理员重新授权；未来代码上线不自动激活。
+- AG-LOCAL-DEC-010：capability_grants={schema_version:1, grants:[{capability, operations, resources, minimum_confirmation_mode}]}，所有层严格字段/类型/枚举，最多64条 grant，每条最多64资源；重复项拒绝。资源仅 workspace、project(id)、item(kind,id)、document_category(name)、concept_map(id)、concept_map_category(name)、project_attachment_category(project_id,name)、workflow_template(id)。具体能力的允许资源与操作见 agent_security 静态表；无任意路径、通配和空资源。files.read 仅列为规划能力，本项拒绝配置（具体 file_id 留 AG-130）。分类/模板仅保存休眠意向，不永久预授；文档分类消失即从 grant 收窄，名称重用不复活，其他资源启用前重新授权。
+- AG-LOCAL-DEC-011：根注册表2、client authorization3、management log3、transport2 分责。缺失 grants=无新增权限；edit省略保留、显式空清空。旧授权缺省 issue/document、不自动改写；新授权显式 kinds=[] 可保存结构合法休眠grant，旧范围可空。桥接不镜像 grants，16KiB不变。management_revision缺省0、管理变更递增，CAS仍用完整client_version摘要。
+- AG-LOCAL-DEC-012：首次新格式操作先恢复全部旧未决；任何受阻日志禁止格式升级。写log3 prepared→原子根2格式门槛（保留旧clients）→transport配置→根2目标授权→completed清快照。根2保持，不随清空/失败/abandon降版；log3也保持。旧版根读取/日志恢复必须拒绝，逐阶段用旧版实际入口验证。遇外部修改保留现场；停服解决未决后才能由新版受控回退或恢复匹配备份，禁止直接用旧版读取/管理新授权或删日志降级。
+
+新schema catalog标签仅来自旧授权范围内可见条目，分类仍按授权过滤；空项目仍可查其工作流，空可见数据标签为空。仅休眠客户端projects/search/catalog无元数据，正文/引用不泄露；capabilities与必要固定诊断可用。legacy catalog保留现有全局标签兼容行为。以上格式及恢复顺序须由实际测试验证，不是本节文字自行证明安全。
+
+AG-128实际结果见[本机能力验收](AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md)，其余规划不因授权基础完成自动成为已实现能力。

@@ -265,5 +265,22 @@ class AgentAPITests(unittest.TestCase):
         self.assertEqual(self.request("/api/agent/v1/capabilities")[0], 409)
 
 
+    def test_dormant_http_has_no_metadata_or_new_operations(self):
+        from test_agent_capabilities import grants
+        info = self.security.add_client('dormant', ['read', 'propose', 'commit'], [], [], 'http://127.0.0.1:4174', kinds=[], capability_grants=grants())
+        self.config = read_json(Path(info['config_file']))
+        result = self.request('/api/agent/v1/capabilities')[1]
+        self.assertEqual(result['kinds'], [])
+        self.assertEqual(result['capability_authorization']['effective'], [])
+        for route in ('projects', 'search'):
+            self.assertEqual(self.request('/api/agent/v1/' + route)[1]['items'], [])
+        self.assertEqual(self.request('/api/agent/v1/catalog')[1], {'tags': [], 'document_categories': []})
+        self.assertEqual(self.request('/api/agent/v1/items/issue/' + self.issue['id'])[0], 404)
+        for route in ('files', 'attachments', 'uploads'):
+            self.assertEqual(self.request('/api/agent/v1/' + route)[0], 404)
+        self.assertEqual(self.request('/api/agent/v1/proposals', 'POST', {'request_id':'no-project', 'kind':'project', 'operation':'create', 'content':{'title':'禁止'}})[0], 400)
+        self.assertEqual(self.request('/api/agent/v1/proposals', 'POST', {'request_id':'no-issue', 'kind':'issue', 'operation':'create', 'content':{'title':'禁止', 'project_id':self.project['id']}})[0], 403)
+
+
 if __name__ == "__main__":
     unittest.main()

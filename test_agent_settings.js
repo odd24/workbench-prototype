@@ -291,10 +291,63 @@ async function main() {
       }
     }
     await click('[data-agent-action="cancel-form"]');
+    // AG-128: save a dormant client with no legacy type or scope, then query a lost response.
+    await click('[data-agent-action="new"]');
+    await waitForPage(client, "!!$('#agentClientName')");
+    await fill('#agentClientName', '休眠独立客户端与长中文说明'.repeat(4));
+    await client.evaluate("document.querySelectorAll('[data-agent-kind]:checked').forEach(node => node.click())");
+    await fill('#agentGrantCapability', 'projects.create', 'change');
+    await click('[data-agent-action="add-grant"]');
+    await waitForPage(client, "$('#agentFeedback').textContent.includes('请选择操作')");
+    await click('[data-grant-operation="create"]');
+    await click('[data-agent-action="add-grant"]');
+    assert.equal(await client.evaluate("document.querySelector('.agent-client-form').textContent.includes('创建项目：新建')"), true);
+    for (const theme of ['light', 'dark']) {
+      for (const width of [1440, 390]) {
+        await client.call('Emulation.setDeviceMetricsOverride', {width, height:1000, deviceScaleFactor:1, mobile:false});
+        await client.evaluate(`document.body.classList.toggle('dark', ${theme === 'dark'}); $('#agentGrantCapability').focus({preventScroll:true}); $('#agentGrantCapability').closest('fieldset').scrollIntoView({block:'start', behavior:'instant'});`);
+        await delay(200);
+        await client.evaluate("window.scrollTo({top:window.scrollY + $('#agentGrantCapability').closest('fieldset').getBoundingClientRect().top - 85, behavior:'instant'})");
+        await delay(100);
+        assert.equal(await client.evaluate('document.documentElement.scrollWidth > innerWidth + 1'), false);
+        const screenshot = await client.call('Page.captureScreenshot', {format:'png'});
+        fs.writeFileSync(path.join(screenshots, `dormant-${theme}-${width}.png`), Buffer.from(screenshot.data, 'base64'));
+      }
+    }
+    await client.evaluate("$('#agentClientForm').requestSubmit()");
+    await waitForPage(client, "$('#appDialog').open");
+    assert.equal(await client.evaluate("$('#appDialog').textContent.includes('旧版不能管理授权')"), true);
+    assert.equal(await client.evaluate("$('#appDialog').textContent.includes('创建项目：新建')"), true);
+    await client.evaluate("new Promise(resolve => { $('#appDialog').addEventListener('close', () => resolve(true), {once:true}); $('#appDialog button[value=cancel]').click(); })");
+    await client.evaluate(`window.__dormantCalls = []; window.__dormantFetch = window.fetch.bind(window); window.fetch = async (...args) => { window.__dormantCalls.push([String(args[0]), args[1]?.method]); const response = await window.__dormantFetch(...args); if (String(args[0]).endsWith('/agent-management/clients') && args[1]?.method === 'POST') { window.fetch = window.__dormantFetch; throw new Error('dormant response loss'); } return response; };`);
+    await client.evaluate("$('#agentClientForm').requestSubmit()");
+    await confirm();
+    await waitForPage(client, "$('#agentFeedback').textContent.includes('查询上次操作') && agentSettingsFeature.isBusy()");
+    await click('[data-agent-action="resolve"]');
+    await waitForPage(client, "!$('#agentClientName') && !agentSettingsFeature.isBusy()");
+    const dormantRegistry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
+    assert.equal(dormantRegistry.schema_version, 2);
+    const dormant = Object.values(dormantRegistry.clients).find(item => item.name.startsWith('休眠独立'));
+    assert.deepEqual(dormant.kinds, []);
+    assert.deepEqual(dormant.project_ids, []);
+    assert.deepEqual(dormant.categories, []);
+    assert.equal(dormant.capability_grant_state, 'dormant');
+    const dormantConfig = JSON.parse(fs.readFileSync(path.join(credentials, workspace, `${dormant.client_id}.json`), 'utf8'));
+    assert.equal(dormantConfig.schema_version, 2);
+    assert.equal('capability_grants' in dormantConfig, false);
+    assert.equal(await client.evaluate("document.querySelector('.agent-client-list').textContent.includes('无旧业务数据权限')"), true);
+    await click(`[data-agent-action="edit"][data-client-id="${dormant.client_id}"]`);
+    await waitForPage(client, "!!$('#agentClientName')");
+    assert.equal(await client.evaluate("document.querySelectorAll('[data-agent-kind]:checked').length"), 0);
+    await click('[data-agent-action="remove-grant"]');
+    await client.evaluate("$('#agentClientForm').requestSubmit()");
+    await confirm();
+    await waitForPage(client, "!$('#agentClientName') && !agentSettingsFeature.isBusy()");
+    assert.deepEqual(JSON.parse(fs.readFileSync(registryPath, 'utf8')).clients[dormant.client_id].capability_grants.grants, []);
     console.log('Agent settings browser tests passed: first-use,enable,preference,create,lost-response-recovery,setup,registration-preview,explicit-replace,cancel,double-click,registration-response-loss,reload-query,automatic-read-check,copy,theme,width,unsaved,session-failure,conflict,edit,rotate,revoke,disable,reload');
     console.log(`Screenshots: ${screenshots}`);
   } catch (error) {
-    if (client) console.error('Settings UI failure:', await client.evaluate("({page:currentPage, feedback:$('#agentFeedback')?.textContent, state:$('#agentRuntimeState')?.textContent, dialog:$('#appDialog').open, message:$('#appDialogMessage').textContent})").catch(() => 'page unavailable'));
+    if (client) console.error('Settings UI failure:', await client.evaluate("({page:currentPage, feedback:$('#agentFeedback')?.textContent, state:$('#agentRuntimeState')?.textContent, dialog:$('#appDialog').open, message:$('#appDialogMessage').textContent, form:!!$('#agentClientName'), busy:agentSettingsFeature.isBusy(), calls:window.__dormantCalls})").catch(() => 'page unavailable'));
     if (client) console.error('Overflow:', await client.evaluate("({viewport:innerWidth, doc:document.documentElement.scrollWidth, scroll:scrollX, elements:[...document.querySelectorAll('body *')].filter(node => node.getBoundingClientRect().right > innerWidth + 1).slice(0,12).map(node => ({tag:node.tagName, cls:node.className, right:node.getBoundingClientRect().right, width:node.getBoundingClientRect().width}))})").catch(() => []));
     throw error;
   } finally {

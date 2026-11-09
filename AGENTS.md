@@ -14,7 +14,7 @@ AI Agent 功能文档（实现事实以台账与验收记录为准）：
 
 - 实施方案：[docs/AI_AGENT_PLAN.md](docs/AI_AGENT_PLAN.md)
 - 后续扩展方案：[docs/AI_AGENT_EXTENSION_PLAN.md](docs/AI_AGENT_EXTENSION_PLAN.md)（AG-116 起逐项实施；状态以台账为准）
-- 本机能力扩展方案：[docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md](docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)（AG-127 仅文档；AG-128～143 待开始，等待用户执行指令）
+- 本机能力扩展方案：[docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md](docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)（AG-127 仅文档；AG-128授权基础已完成，AG-129～143待开始）
 - 接入管理 UI 方案：[docs/AGENT_SETTINGS_PLAN.md](docs/AGENT_SETTINGS_PLAN.md)（实现状态以台账为准）
 - 实施台账：[docs/AI_AGENT_PROGRESS.md](docs/AI_AGENT_PROGRESS.md)
 - 接入与使用：[docs/AGENT_INTEGRATION.md](docs/AGENT_INTEGRATION.md)、[docs/AGENT_USAGE.md](docs/AGENT_USAGE.md)
@@ -257,7 +257,8 @@ Markdown
 - 固定诊断在业务锁外等待子进程/HTTP，必须限制时间/输出并回收进程；自检 nonce 不能出现在页面/日志。握手、自检与普通客户端请求分层表达，不能宣称证明当前聊天在线。管理 UI 回归运行 `node test_agent_settings.js`。
 
 - 后续类型、网页批准、提案管理、客户端兼容和远程接入按 `docs/AI_AGENT_EXTENSION_PLAN.md` 逐项实施；规划不等于开工授权。旧凭据不得自动获得新增类型；网页批准不接受 Agent 自报替代；远程入口不得暴露本机管理 API。
-- 2026-11-09 本机能力扩展按 `docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md` 登记 AG-127～143。当前仅授权方案落文档，用户明确“暂不执行，等待我的执行指令”；AG-128～143 不得自动开工。文件读取、附件、概念图、删除、项目创建和分类/工作流配置的拟定契约不是现有能力；下文及旧方案的历史接口限制继续生效，只有相应工作项获后续指令并实现、验收和同步工具规则后才可按新增范围开放。
+- 2026-11-09 本机能力扩展按 `docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md` 登记 AG-127～143。用户已于2026-11-09明确“现在开始执行方案”；AG-128授权基础已完成，后续按依赖交接，历史暂停记录保留。文件读取、附件、概念图、删除、项目创建和分类/工作流配置的拟定契约不是现有能力；下文及旧方案的历史接口限制继续生效，只有相应工作项获后续指令并实现、验收和同步工具规则后才可按新增范围开放。
+- AG-128仅提供严格休眠授权配置；configured不能视为implemented/effective。新增能力未来首次启用必须管理员重新授权，不能随处理器上线自动激活。根registry2/授权3/管理日志3/transport2职责及格式门槛见DATA_FORMAT；失败、abandon及清空grants不能降版，不以删日志回退。具体文件授权留AG-130，后续业务操作仍未开放。
 - Agent 功能按 `docs/AI_AGENT_PLAN.md` 的 `AG-*` 工作项实施；开工和完成必须更新独立台账，不改写已完成 RF 工作项的历史状态。超出已登记边界的重构另行登记。
 - 业务接口不得绑定 Codex、特定模型或聊天 ID。MCP 是协议适配层，必须调用工作台服务，不直接写业务文件或另建 Repository 进程。
 - 整理入库的日志证据按 docs/AGENT_USAGE.md：关键原文摘录至正文代码块，保留必要时间/错误码/上下文并脱敏，省略明确标注，区分事实与推测。外部日志路径仅作来源补充；确认文件已存工作台时才可引用已有文件/附件，关键片段仍优先入正文。未取得原文须标注待补充，不补造摘录或附件链接；维护时同步 MCP 的 AGENT_RULES，不能只依赖本文件约束其他客户端。

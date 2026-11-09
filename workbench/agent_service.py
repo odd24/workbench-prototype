@@ -8,7 +8,7 @@ from datetime import date
 from collections import deque
 from functools import wraps
 
-from .agent_security import AgentError, allows, require_scope, client_kinds, client_confirmation_mode
+from .agent_security import AgentError, allows, require_scope, client_kinds, client_confirmation_mode, client_capability_grants
 from .records import matches_query
 from .markdown_io import normalize_info_fields
 
@@ -91,7 +91,10 @@ class AgentService:
                 "confirmation_modes": ["agent_attested", "local_web"], "default_confirmation_mode": client_confirmation_mode(client),
                 "proposal_schema_versions": [1, 2], "api_version": "1", "workspace_id": self.security.workspace_id, "kinds": kinds,
                 "operations": ["create", "append", "update"], "limits": LIMITS, "scopes": client["scopes"],
-                "project_ids": client["project_ids"], "categories": client["categories"], "confirmation_mode": client_confirmation_mode(client)}
+                "project_ids": client["project_ids"], "categories": client["categories"], "confirmation_mode": client_confirmation_mode(client),
+                "capability_authorization": {"configured": client_capability_grants(client),
+                                             "implemented": [], "effective": [], "activation": "requires_reauthorization"},
+                "authorization_schema_versions": [1, 2, 3], "management_log_schema_versions": [1, 2, 3]}
 
     @service_operation
     def projects(self, client, params):
@@ -111,7 +114,12 @@ class AgentService:
             raise AgentError("invalid_request", "文档分类查询不接受项目工作流")
         if kind not in client_kinds(client) and project_id:
             raise AgentError("not_found", "项目不存在或不可访问", 404)
-        result = {"tags": self.repository.list_tags(), "document_categories": [category for category in self.repository.document_categories()
+        tags = self.repository.list_tags()
+        if client.get("authorization_schema_version") == 3:
+            visible = [item for item in self.repository.list_records() if allows(client, item)] + [item for item in self.repository.list_documents() if allows(client, item)]
+            names = {name for item in visible for name in item.get("tags", [])}
+            tags = [tag for tag in tags if tag["name"] in names]
+        result = {"tags": tags, "document_categories": [category for category in self.repository.document_categories()
                                          if allows(client, {"type": "document", "category": category})]}
         if project_id:
             project = self.repository.project(project_id)
@@ -123,7 +131,7 @@ class AgentService:
             config = self.repository.config()
             workflow = next((item for item in config["workflow_templates"] if item["id"] == project.get("workflow_template", "standard")), None)
             result.update({"project_id": project_id, "statuses": workflow["statuses"][kind] if workflow else config["status_templates"][kind],
-                           "priorities": ["低", "普通", "高", "紧急"], "tags": self.repository.list_tags()})
+                            "priorities": ["低", "普通", "高", "紧急"], "tags": tags})
         return result
 
     @service_operation

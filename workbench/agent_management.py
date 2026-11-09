@@ -11,7 +11,8 @@ import threading
 import uuid
 from contextlib import contextmanager
 
-from .agent_security import AgentError, private_write, read_json, client_kinds, client_confirmation_mode
+from .agent_security import (AgentError, private_write, read_json, client_kinds, client_confirmation_mode,
+                             client_capability_grants, normalize_capability_grants, CAPABILITY_SPECS)
 from .write_coordinator import DataDirectoryLock
 
 
@@ -60,7 +61,10 @@ def client_version(client):
 
 def clean_client(client):
     keys = ("client_id", "name", "enabled", "scopes", "project_ids", "categories")
-    return {**{key: client[key] for key in keys}, "kinds": client_kinds(client), "minimum_confirmation_mode": client_confirmation_mode(client), "version": client_version(client)}
+    return {**{key: client[key] for key in keys}, "kinds": client_kinds(client), "minimum_confirmation_mode": client_confirmation_mode(client),
+            "authorization_schema_version": client.get("authorization_schema_version", 1),
+            "capability_grants": client_capability_grants(client), "capability_grant_state": "dormant",
+            "management_revision": client.get("management_revision", 0), "version": client_version(client)}
 
 
 class CredentialManager:
@@ -85,7 +89,7 @@ class CredentialManager:
             value = read_json(path)
         except (OSError, ValueError):
             raise AgentError("management_recovery_required", "管理日志损坏，请检查备份", 503) from None
-        if not isinstance(value, dict) or value.get("schema_version") not in (1, 2) or value.get("workspace_id") != self.security.workspace_id or value.get("state") not in {"prepared", "completed", "recovery_required", "abandoned"}:
+        if not isinstance(value, dict) or type(value.get("schema_version")) is not int or value.get("schema_version") not in (1, 2, 3) or value.get("workspace_id") != self.security.workspace_id or value.get("state") not in {"prepared", "completed", "recovery_required", "abandoned"}:
             raise AgentError("management_recovery_required", "管理日志版本或工作空间无效", 503)
         try:
             valid_id = str(uuid.UUID(value["client_id"])) == value["client_id"]
@@ -95,6 +99,19 @@ class CredentialManager:
             raise AgentError("management_recovery_required", "管理日志客户端无效", 503)
         if value["state"] in {"prepared", "recovery_required"} and not {"before_config", "after_config", "before_client", "after_client"} <= value.keys():
             raise AgentError("management_recovery_required", "管理日志快照缺失", 503)
+        if value["schema_version"] == 3:
+            if type(value.get("registry_schema")) is not int or value.get("registry_schema") != 2:
+                raise AgentError("management_recovery_required", "管理格式门槛缺失", 503)
+            if value["state"] in {"prepared", "recovery_required"}:
+                try:
+                    after = value["after_client"]
+                    if not isinstance(after, dict) or after.get("client_id") != value["client_id"]:
+                        raise ValueError("授权身份不符")
+                    self.security.validate_client(after["name"], after["scopes"], after["project_ids"], after["categories"],
+                                                  client_kinds(after), client_confirmation_mode(after),
+                                                  client_capability_grants(after) if after.get("authorization_schema_version") == 3 else None)
+                except (ValueError, KeyError, TypeError, AgentError):
+                    raise AgentError("management_recovery_required", "管理授权快照无效，停止恢复", 503) from None
         return value
 
     def blocked_clients(self):
@@ -122,6 +139,9 @@ class CredentialManager:
             value["state"] = "recovery_required"
             self._write(path, value)
             return False
+        if value["schema_version"] == 3:
+            self.security.save_clients(clients, minimum_schema=2)
+            self.checkpoint("format_fence")
         if value["after_config"] is not None and current_config != value["after_config"]:
             private_write(config_path, value["after_config"])
         self.checkpoint("config")
@@ -136,8 +156,11 @@ class CredentialManager:
 
     def _recover(self):
         blocked = []
-        for path in self._logs():
-            value = self._load(path)
+        # Validate every format before applying any older snapshot.
+        logs = [(path, self._load(path)) for path in self._logs()]
+        if any(value["schema_version"] == 3 for _, value in logs) and any(value["schema_version"] < 3 and value["state"] in {"prepared", "recovery_required"} for _, value in logs):
+            raise AgentError("management_recovery_required", "新格式与旧未决日志混合，停止恢复并保留证据", 503)
+        for path, value in logs:
             if value["state"] == "prepared" and not self._finish(path, value):
                 blocked.append(value["client_id"])
             elif value["state"] == "recovery_required":
@@ -173,6 +196,8 @@ class CredentialManager:
             if value["state"] not in {"prepared", "recovery_required"}:
                 raise ValueError("只允许放弃未决管理操作")
             clients = self.security.clients()
+            if value["schema_version"] == 3:
+                self.security.save_clients(clients, minimum_schema=2)
             client = clients.get(value["client_id"])
             if client:
                 clients[value["client_id"]] = {**client, "enabled": False}
@@ -220,8 +245,15 @@ class CredentialManager:
             after = dict(before) if before else {"client_id": client_id, "enabled": True}
             after["management_revision"] = int(after.get("management_revision", 0)) + 1
             if action in {"create", "edit"}:
-                self.security.validate_client(params["name"], params["scopes"], params["project_ids"], params["categories"], params.get("kinds", client_kinds(after) if before else None), params.get("minimum_confirmation_mode", client_confirmation_mode(after)))
-                after.update(minimum_confirmation_mode=params.get("minimum_confirmation_mode", client_confirmation_mode(after)), authorization_schema_version=2, kinds=params.get("kinds", client_kinds(after)), name=params["name"].strip(), scopes=sorted(set(params["scopes"])), project_ids=list(dict.fromkeys(params["project_ids"])), categories=list(dict.fromkeys(params["categories"])))
+                new_authorization = "capability_grants" in params or after.get("authorization_schema_version") == 3
+                grants = normalize_capability_grants(params["capability_grants"]) if "capability_grants" in params else client_capability_grants(after)
+                kinds = params.get("kinds", client_kinds(after))
+                self.security.validate_client(params["name"], params["scopes"], params["project_ids"], params["categories"], kinds, params.get("minimum_confirmation_mode", client_confirmation_mode(after)), grants if new_authorization else None)
+                if action == "create" and not kinds and not grants["grants"]:
+                    raise ValueError("独立客户端至少配置一项休眠授权")
+                after.update(minimum_confirmation_mode=params.get("minimum_confirmation_mode", client_confirmation_mode(after)), authorization_schema_version=3 if new_authorization else 2, kinds=kinds, name=params["name"].strip(), scopes=sorted(set(params["scopes"])), project_ids=list(dict.fromkeys(params["project_ids"])), categories=list(dict.fromkeys(params["categories"])))
+                if new_authorization:
+                    after.update(capability_grants=grants, capability_grant_state="dormant")
             if action in {"create", "rotate", "origin"}:
                 if action != "create" and (not isinstance(before_config, dict) or before_config.get("client_id") != client_id or before_config.get("workspace_id") != self.security.workspace_id or hashlib.sha256(str(before_config.get("token", "")).encode()).hexdigest() != before["token_hash"]):
                     raise AgentError("invalid_configuration", "客户端凭据配置不一致，请核查备份或新建客户端", 503)
@@ -248,6 +280,10 @@ class CredentialManager:
                 result.update(config_file=str(config_path), workspace_id=self.security.workspace_id)
             value = {"schema_version": 2, "workspace_id": self.security.workspace_id, "operation_id": operation_id, "request_id": request_id, "input_digest": signature, "client_id": client_id,
                      "state": "prepared", "before_client": before, "after_client": after, "before_config": before_config, "after_config": after_config, "result": result}
+            if self.security.registry_version() == 2 or after.get("authorization_schema_version") == 3:
+                if blocked:
+                    raise AgentError("management_recovery_required", "升级或写入新格式前须解决全部未决操作", 503)
+                value.update(schema_version=3, registry_schema=2)
             self._write(path, value)
             self.checkpoint("prepared")
             if not self._finish(path, value):
@@ -280,13 +316,14 @@ class AgentManagement:
                           **self.runtime.diagnostics.observed(client["client_id"]),
                           "invalid_project_ids": [key for key in client["project_ids"] if key != "*" and key not in project_ids],
                           "invalid_categories": [key for key in client["categories"] if key != "*" and key not in categories]})
-        return {"items": items, "projects": [{"id": p["id"], "name": p["name"]} for p in self.repository.list_projects()], "categories": list(self.repository.document_categories())}
+        return {"items": items, "projects": [{"id": p["id"], "name": p["name"]} for p in self.repository.list_projects()], "categories": list(self.repository.document_categories()),
+                "capability_catalog": {name: {"operations": list(spec[0]), "resource_types": list(spec[1])} for name, spec in CAPABILITY_SPECS.items()}}
 
     def mutate(self, action, payload, client_id=None):
         fields = {"workspace_id", "request_id"} | ({"name", "scopes", "project_ids", "categories"} if action in {"create", "edit"} else set())
         if action != "create":
             fields.add("expected_version")
-        optional = {"kinds", "minimum_confirmation_mode"} if action in {"create", "edit"} else set()
+        optional = {"kinds", "minimum_confirmation_mode", "capability_grants"} if action in {"create", "edit"} else set()
         if not isinstance(payload, dict) or fields - set(payload) or set(payload) - fields - optional:
             raise AgentError("invalid_request", "客户端管理字段无效")
         if payload["workspace_id"] != self.runtime.status()["workspace_id"]:
@@ -299,11 +336,18 @@ class AgentManagement:
         params = {}
         if action in {"create", "edit"}:
             params = {key: payload[key] for key in ("name", "scopes", "project_ids", "categories")}
-            for key in ("kinds", "minimum_confirmation_mode"):
+            for key in ("kinds", "minimum_confirmation_mode", "capability_grants"):
                 if key in payload:
                     params[key] = payload[key]
-            security.validate_client(**params)
-            if sorted(params["scopes"]) not in (["read"], ["commit", "propose", "read"]) or not (params["project_ids"] or params["categories"]):
+            if "capability_grants" in params:
+                params["capability_grants"] = normalize_capability_grants(params["capability_grants"])
+            current = security.clients().get(client_id, {})
+            validation = {**params, "authorization_schema_version": current.get("authorization_schema_version", 2)}
+            if "capability_grants" not in validation and current.get("authorization_schema_version") == 3:
+                validation["capability_grants"] = client_capability_grants(current)
+            security.validate_client(**validation)
+            configured = validation.get("capability_grants", {}).get("grants", [])
+            if sorted(params["scopes"]) not in (["read"], ["commit", "propose", "read"]) or not (params["project_ids"] or params["categories"] or configured or current.get("authorization_schema_version") == 3):
                 raise ValueError("请选择只读或整理入库，并至少授权一个范围")
             projects = {item["id"] for item in self.repository.list_projects()}
             categories = set(self.repository.document_categories())
@@ -336,10 +380,19 @@ def restrict_categories(repository, old_names):
     manager = security.manager()
     restored = []
     for client in security.clients().values():
-        if not client.get("enabled") or not set(client["categories"]) & set(old_names):
+        grants = client_capability_grants(client)
+        narrowed = []
+        for grant in grants["grants"]:
+            resources = [resource for resource in grant["resources"] if not (resource["type"] == "document_category" and resource["name"] in old_names)]
+            if resources:
+                narrowed.append({**grant, "resources": resources})
+        grant_changed = narrowed != grants["grants"]
+        if not client.get("enabled") or not (set(client["categories"]) & set(old_names) or grant_changed):
             continue
         params = {key: client[key] for key in ("name", "scopes", "project_ids", "categories")}
         params["categories"] = [name for name in client["categories"] if name not in old_names]
+        if grant_changed:
+            params["capability_grants"] = {"schema_version": 1, "grants": narrowed}
         result = manager.run("edit", params, client["client_id"], client_version(client))
         restored.append((manager, client, result["version"]))
     return restored

@@ -17,6 +17,7 @@ async function main() {
   const server = childProcess.spawn(python, ['server.py', '--data-dir', data, '--agent-config-dir', credentials, '--enable-agent', '--seed-demo', '--port', String(port)], {cwd:__dirname, stdio:'ignore', windowsHide:true});
   let browser;
   let client;
+  const pageErrors = [];
   try {
     await waitForHttp(`${baseUrl}/api/health`);
     const provisioned = childProcess.spawnSync(python, ['server.py', '--data-dir', data, '--agent-config-dir', credentials, '--agent-client-add', '浏览器临时验收', '--agent-scope', 'read', '--agent-scope', 'propose', '--agent-scope', 'commit', '--agent-kind', 'issue', '--agent-kind', 'document', '--agent-kind', 'todo', '--agent-kind', 'info', '--agent-project', '*', '--agent-category', '*', '--port', String(port)], {cwd:__dirname, encoding:'utf8', env:{...process.env, PYTHONIOENCODING:'utf-8'}, windowsHide:true});
@@ -60,6 +61,7 @@ async function main() {
     assert.ok(page);
     client = new DevToolsClient(page.webSocketDebuggerUrl);
     await client.connect();
+    client.socket.addEventListener('message', event => { const message = JSON.parse(String(event.data)); if (message.method === 'Runtime.exceptionThrown') pageErrors.push(message.params.exceptionDetails); });
     await client.call('Page.enable');
     await client.call('Runtime.enable');
     const waitOpened = async receipt => waitForPage(client, receipt.kind !== 'document'
@@ -195,6 +197,10 @@ async function main() {
     await waitForPage(client, `apiAvailable && $('.toast strong').textContent === '打开链接无效'`);
     assert.equal(await client.evaluate(`new URLSearchParams(location.search).has('item')`), false);
     console.log('Agent browser workflows passed: previewed writes, deep links/reload, light/dark desktop/narrow, Markdown roundtrip, unsaved cancel, Agent/UI conflicts, missing/invalid links.');
+  } catch (error) {
+    console.error('Agent workflow page errors:', JSON.stringify(pageErrors));
+    if (client) console.error('Agent workflow state:', await client.evaluate("({url:location.href, old:window.__agentOldDocument, api:typeof apiAvailable !== 'undefined' && apiAvailable, record:typeof currentRecord !== 'undefined' && currentRecord?.id, document:typeof currentDocument !== 'undefined' && currentDocument?.id, ready:document.readyState, text:document.body.innerText.slice(0,1500)})").catch(() => 'context unavailable'));
+    throw error;
   } finally {
     client?.close();
     browser?.kill();

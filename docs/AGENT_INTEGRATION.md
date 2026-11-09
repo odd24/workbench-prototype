@@ -1,6 +1,6 @@
 # 通用 Agent 接入
 
-规划提示（2026-11-09）：文件读取、附件上传、概念图、删除、项目创建及分类/工作流变更见 [本机能力扩展执行方案](AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)。当前仅方案落文档，AG-128～143 待开始，等待用户执行指令；下文当前接入命令、能力与限制不因此改变。
+规划提示（2026-11-09）：文件读取、附件上传、概念图、删除、项目创建及分类/工作流变更见 [本机能力扩展执行方案](AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)。AG-128授权基础已完成，AG-129～143待开始；下文当前接入命令、能力与限制不因此改变。
 
 本文说明设置界面和备用 CLI 接入方式。AG-107～110 提供启停、授权管理、配置向导与分层诊断。设计见 [接入管理 UI 方案](AGENT_SETTINGS_PLAN.md)，实际状态见 [实施台账](AI_AGENT_PROGRESS.md)。
 
@@ -196,3 +196,18 @@ WorkBuddy桌面5.9.3(d4692421)已在临时库实测四类型三操作、两确�
 当前核实桌面5.9.3(d4692421)、随附原装CLI2.165.0、stdio MCP2025-11-25。python workbuddy_agent_acceptance.py使用临时环境执行真实mcp list，只证明连接与12工具发现；追加--protocol-faults显式注入固定服务端ping/未知方法，仅观察真实客户端回复，不替代客户端或发起模型。lite-only安装由原装bin的固定CODEBUDDY_FORCE_LITE_WB_BUNDLE=1选择lite-wb，完整安装保持默认入口，无SDK提取或厂商文件修改。桌面矩阵另由用户手动真实任务验证；单次结果不保证任意模型遵规，也不构成现实身份认证。
 
 python workbuddy_agent_acceptance.py --desktop-session只准备临时项目与工作台，不启动桌面或模型；使用已有桌面的任务历史与仅本次临时连接器例外已获用户明确许可，手动额度及实际轮次以台账为准，不读取正式认证、不自动调用模型。桌面与随附CLI配置路径不同，项目候选文件不等于桌面登记成功；本次实际通过用户手工登记临时连接器完成连接。完整步骤、清理责任与剩余矩阵见[客户端兼容验收](AGENT_CLIENT_COMPATIBILITY.md)。
+
+
+### AG-128 休眠能力配置
+
+接入管理可添加后续能力、明确操作及资源，加入休眠配置后完整确认再保存。页面标为“已配置、尚未实现、不可使用”，未来首次启用必须重新授权。没有旧业务权限时仅capabilities/必要诊断可用，不会因连接成功具备文件或业务访问权。具体文件授权待AG-130，当前不能配置files.read。
+
+备用CLI创建独立客户端：`--agent-no-legacy-kinds --agent-grants-json '<严格JSON>'`；此参数接收JSON正文，不接收文件路径。示例JSON：
+
+```json
+{"schema_version":1,"grants":[{"capability":"projects.create","operations":["create"],"resources":[{"type":"workspace"}],"minimum_confirmation_mode":"local_web"}]}
+```
+
+仍需原`--agent-client-add`、隔离或目标空间的data-dir和一致agent-config-dir；旧kinds/project/category默认不被补为通配。此配置只保存休眠意向，不创建项目。管理API沿用clients POST/PATCH，可选capability_grants；edit省略保留、显式空清空。首次新格式保存会建立root2/log3门槛，旧版本拒绝管理；降级前见维护步骤。
+
+capabilities新增capability_authorization.configured/implemented/effective/activation。configured不能当可用权限；当前新增能力implemented/effective均空。新授权schema3的catalog标签只来自可见条目，有权空项目可查工作流但标签为空；legacy catalog兼容行为不变。协议工具数量和原四类型操作不变。

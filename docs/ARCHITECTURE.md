@@ -116,3 +116,12 @@ ProposalManagement 复用 ProposalStore 的只读完整预览构造与取消状�
 当前AG-116～121及AG-126本机扩展已验收交付，含WorkBuddy5.9.3独立真实客户端矩阵；AG-122～125按用户单机范围取消，独立远程适配器未实现。可用边界、限制及恢复入口见[扩展验收](AI_AGENT_EXTENSION_ACCEPTANCE.md)，不能把远程候选架构当成代码事实。
 
 用户用途更新（2026-11-06）：当前交付仅单机本地接入，远程AG-122～125已取消；不新增远程入口或身份基础设施。是否验收其他本机客户端与是否远程使用分别判断。
+
+
+### AG-128 新授权与格式门槛
+
+AgentSecurity在原模块内严格归一化休眠能力，CredentialManager仍是UI/CLI唯一写入和恢复入口，无第二仓储或业务CRUD。新授权3允许空旧kinds/范围；管理页面可配置明确资源的休眠能力，显示尚未实现不可使用，具体文件授权尚未开放。详细grants仅私人注册表/管理快照，桥接transport2不镜像。
+
+capabilities.capability_authorization区分configured配置、静态已实现处理器提供的implemented及有效授权effective；当前新增能力两者均空，原四类型三操作和12个MCP工具保持。持久dormant状态不能被Agent/管理请求激活，后续上线仍须管理员重新授权，AG-129与各业务能力须承接此不变量。新schema的catalog仅返回可见条目使用的标签，分类按范围过滤；有权空项目仍返回工作流，休眠客户端无旧数据元信息。legacy全局标签行为保留。
+
+根registry2/client授权3/log3/transport2职责与落盘顺序见DATA_FORMAT的AG-128节。根/日志双门槛拒绝旧二进制接入管理和鉴权，读取旧库不自动升级。完成/失败/abandon不降格式；未知日志先全量预检再恢复，避免按文件名先应用旧快照。普通网页可在关闭Agent时读取业务内容，这不代表旧版能安全读取新授权。所有后续业务工具仍未开放。

@@ -134,6 +134,21 @@ class MCPBridgeTests(unittest.TestCase):
         self.assertEqual(self.rpc.process.returncode, 0)
         self.rpc = None
 
+    def test_dormant_stdio_uses_existing_tools_and_rejects_new_operations(self):
+        from test_agent_capabilities import grants
+        from workbench.agent_management import client_version
+        client = self.workbench.security.clients()[self.info['client_id']]
+        params = {key: client[key] for key in ('name', 'scopes', 'project_ids', 'categories')}
+        self.workbench.security.manager().run('edit', {**params, 'kinds':[], 'project_ids':[], 'categories':[], 'capability_grants':grants()}, client['client_id'], client_version(client))
+        self.start_bridge()
+        self.assertEqual(len(self.rpc.call('tools/list')['tools']), 12)
+        result = self.tool('capabilities')
+        self.assertFalse(result['isError'])
+        self.assertEqual(result['structuredContent']['capability_authorization']['effective'], [])
+        self.assertEqual(self.tool('get_catalog')['structuredContent'], {'tags':[], 'document_categories':[]})
+        self.assertTrue(self.tool('get_item', {'kind':'issue', 'item_id':'ISSUE-0001'})['isError'])
+        self.assertFalse(any(item['name'] == 'workbench_read_file' for item in self.rpc.call('tools/list')['tools']))
+
     def test_service_down_invalid_config_and_remote_or_identity_changes(self):
         client = LocalAgentClient(self.config_file)
         self.workbench.close()

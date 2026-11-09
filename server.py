@@ -151,6 +151,8 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--agent-scope", action="append", choices=["read", "propose", "commit"], help="允许操作，可重复；默认只读")
     parser.add_argument("--agent-confirmation-mode", choices=["agent_attested", "local_web"], default="agent_attested", help="客户端最低入库确认方式")
     parser.add_argument("--agent-kind", action="append", choices=["issue", "document", "todo", "info"], help="允许类型，可重复；缺省仅 issue/document")
+    parser.add_argument("--agent-grants-json", help="严格休眠能力授权 JSON；不激活业务能力，不接受文件路径")
+    parser.add_argument("--agent-no-legacy-kinds", action="store_true", help="显式无旧业务类型，须配置休眠授权")
     parser.add_argument("--agent-project", action="append", default=[], help="允许项目 ID，可重复；* 表示全部")
     parser.add_argument("--agent-category", action="append", default=[], help="允许文档分类，可重复；* 表示全部")
     return parser
@@ -183,7 +185,10 @@ def main(argv=None):
             elif args.agent_management_abandon:
                 result = security.manager().abandon(args.agent_management_abandon)
             elif args.agent_client_add:
-                result = security.add_client(args.agent_client_add, args.agent_scope or ["read"], args.agent_project, args.agent_category, f"http://{'[::1]' if args.host == '::1' else args.host}:{args.port}", kinds=args.agent_kind, minimum_confirmation_mode=args.agent_confirmation_mode)
+                if args.agent_no_legacy_kinds and args.agent_kind:
+                    raise ValueError("无旧类型不能与指定类型混用")
+                grants = json.loads(args.agent_grants_json) if args.agent_grants_json is not None else None
+                result = security.add_client(args.agent_client_add, args.agent_scope or ["read"], args.agent_project, args.agent_category, f"http://{'[::1]' if args.host == '::1' else args.host}:{args.port}", kinds=[] if args.agent_no_legacy_kinds else args.agent_kind, minimum_confirmation_mode=args.agent_confirmation_mode, capability_grants=grants)
             else:
                 result = security.change_client(args.agent_client_revoke or args.agent_client_rotate, bool(args.agent_client_rotate))
             print(json.dumps(result, ensure_ascii=False))

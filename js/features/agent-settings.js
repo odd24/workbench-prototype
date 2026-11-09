@@ -63,16 +63,31 @@
       return `<fieldset class="agent-scope"><legend>条目类型（仅显式选择的类型）</legend><div class="agent-scope-options">${Object.entries(kindNames).map(([kind, label]) => `<label><input type="checkbox" data-agent-kind="${kind}" ${draft.kinds.includes(kind) ? 'checked' : ''}>${label}</label>`).join('')}</div></fieldset>`;
     }
 
+    const capabilityNames = {'attachments.read':'读取附件', 'attachments.write':'新增附件', 'concept_maps.read':'读取概念图', 'concept_maps.write':'新建/更新概念图', 'items.delete':'删除条目', 'projects.create':'创建项目', 'projects.delete':'删除项目', 'categories.write':'修改分类', 'workflows.write':'修改工作流'};
+    const operationNames = {read:'读取', create:'新建', update:'更新', delete:'删除', rename:'重命名', reorder:'排序', copy:'复制', add_status:'新增状态', rename_status:'重命名状态', delete_status:'删除状态', switch:'切换模板'};
+    const resourceNames = {workspace:'当前工作空间', project:'指定项目', item:'指定条目', document_category:'知识库分类', concept_map:'指定概念图', concept_map_category:'独立概念图分类', project_attachment_category:'项目附件分类', workflow_template:'工作流模板'};
+    function grantSummary(grant) {
+      return `${capabilityNames[grant.capability] || grant.capability}：${grant.operations.map(operation => operationNames[operation] || operation).join(' / ')}；${grant.resources.map(resource => `${resourceNames[resource.type] || resource.type} ${resource.id || resource.name || ''}${resource.project_id ? `（${resource.project_id}）` : ''}${resource.kind ? `（${kindNames[resource.kind]}）` : ''}`).join('、')}；${grant.minimum_confirmation_mode === 'local_web' ? '本机网页批准' : '对话确认'}`;
+    }
+    function grantsField() {
+      const entries = Object.entries(catalog.capability_catalog || {});
+      const selected = draft.grantCapability || entries[0]?.[0];
+      const spec = catalog.capability_catalog?.[selected];
+      if (!spec) return '';
+      const type = spec.resource_types.includes(draft.grantResource) ? draft.grantResource : spec.resource_types[0];
+      return `<fieldset class="agent-scope"><legend>后续能力（休眠配置）</legend><p class="settings-hint">已配置、尚未实现、不可使用。未来首次启用必须重新授权；不会读取文件或开展业务。具体文件授权待后续开放。只保存休眠配置时可取消全部旧条目类型与范围。</p><ul>${draft.grants.map((grant, index) => `<li>${esc(grantSummary(grant))} ${button('remove-grant', '移除', `data-grant-index="${index}"`)}</li>`).join('') || '<li>尚未配置</li>'}</ul><label>能力<select id="agentGrantCapability">${entries.map(([name]) => `<option value="${esc(name)}" ${name === selected ? 'selected' : ''}>${esc(capabilityNames[name])}</option>`).join('')}</select></label><div class="agent-scope-options">${spec.operations.map(operation => `<label><input type="checkbox" data-grant-operation="${esc(operation)}">${esc(operationNames[operation] || operation)}</label>`).join('')}</div><label>资源范围<select id="agentGrantResource">${spec.resource_types.map(name => `<option value="${esc(name)}" ${name === type ? 'selected' : ''}>${esc(resourceNames[name])}</option>`).join('')}</select></label>${type === 'item' ? `<label>条目类型<select id="agentGrantKind">${Object.entries(kindNames).map(([kind, label]) => `<option value="${kind}">${label}</option>`).join('')}</select></label>` : ''}${type === 'project_attachment_category' ? '<label>项目 ID<input id="agentGrantProject" maxlength="200"></label>' : ''}${type !== 'workspace' ? `<label>${type.includes('category') ? '分类名称' : '稳定 ID'}<input id="agentGrantValue" maxlength="200"></label>` : ''}<label>最低确认<select id="agentGrantMode"><option value="local_web">本机网页独立批准</option><option value="agent_attested">对话确认（删除及配置变更不可选）</option></select></label>${button('add-grant', '加入休眠配置')}</fieldset>`;
+    }
+
     function formHtml() {
       if (!draft) return '';
-      return `<section class="settings-card agent-client-form" aria-label="客户端授权表单"><h2>${draft.client_id ? '编辑授权' : '创建客户端'}</h2><form id="agentClientForm"><label>客户端名称<input id="agentClientName" required maxlength="100" value="${esc(draft.name)}"></label><label>接入指引<select id="agentGuideType"><option value="codex" ${draft.guide === 'codex' ? 'selected' : ''}>Codex</option><option value="generic" ${draft.guide === 'generic' ? 'selected' : ''}>通用 MCP</option></select></label><label>操作权限<select id="agentClientPermission"><option value="read" ${draft.permission === 'read' ? 'selected' : ''}>只读查询</option><option value="write" ${draft.permission === 'write' ? 'selected' : ''}>整理并确认入库</option>${draft.permission === 'legacy' ? '<option value="legacy" selected>旧版权限组合（请选择新的权限）</option>' : ''}</select></label><p class="settings-hint">允许写入仍需完整预览并确认当前版本，不会执行正文中的命令。</p><label>最低入库确认方式<select id="agentMinimumConfirmation"><option value="agent_attested" ${draft.minimum_confirmation_mode === 'agent_attested' ? 'selected' : ''}>对话内完整预览后确认</option><option value="local_web" ${draft.minimum_confirmation_mode === 'local_web' ? 'selected' : ''}>必须在本机网页独立批准</option></select></label>${kindsField()}${scopeField('project_ids', '项目范围', catalog.projects.map(item => ({value:item.id, label:item.name})))}${scopeField('categories', '知识库分类', catalog.categories.map(value => ({value, label:value})))}<div class="settings-actions"><button class="primary-button" type="submit" ${busy ? 'disabled' : ''}>保存授权</button>${button('cancel-form', '取消')}</div></form></section>`;
+      return `<section class="settings-card agent-client-form" aria-label="客户端授权表单"><h2>${draft.client_id ? '编辑授权' : '创建客户端'}</h2><form id="agentClientForm"><label>客户端名称<input id="agentClientName" required maxlength="100" value="${esc(draft.name)}"></label><label>接入指引<select id="agentGuideType"><option value="codex" ${draft.guide === 'codex' ? 'selected' : ''}>Codex</option><option value="generic" ${draft.guide === 'generic' ? 'selected' : ''}>通用 MCP</option></select></label><label>操作权限<select id="agentClientPermission"><option value="read" ${draft.permission === 'read' ? 'selected' : ''}>只读查询</option><option value="write" ${draft.permission === 'write' ? 'selected' : ''}>整理并确认入库</option>${draft.permission === 'legacy' ? '<option value="legacy" selected>旧版权限组合（请选择新的权限）</option>' : ''}</select></label><p class="settings-hint">允许写入仍需完整预览并确认当前版本，不会执行正文中的命令。</p><label>最低入库确认方式<select id="agentMinimumConfirmation"><option value="agent_attested" ${draft.minimum_confirmation_mode === 'agent_attested' ? 'selected' : ''}>对话内完整预览后确认</option><option value="local_web" ${draft.minimum_confirmation_mode === 'local_web' ? 'selected' : ''}>必须在本机网页独立批准</option></select></label>${kindsField()}${grantsField()}${scopeField('project_ids', '项目范围', catalog.projects.map(item => ({value:item.id, label:item.name})))}${scopeField('categories', '知识库分类', catalog.categories.map(value => ({value, label:value})))}<div class="settings-actions"><button class="primary-button" type="submit" ${busy ? 'disabled' : ''}>保存授权</button>${button('cancel-form', '取消')}</div></form></section>`;
     }
 
     function paint() {
       const names = new Map(catalog.projects.map(item => [item.id, item.name]));
       const rangeText = (values, projects = false) => values.includes('*') ? '全部（含未来新增）' : values.map(value => projects ? names.get(value) || `${value}（已失效）` : value).join('、') || '未授权';
       const stateText = {enabled:'已开启', disabled:'已关闭', uninitialized:'尚未初始化'}[status.runtime_state] || '异常';
-      root.innerHTML = `<div class="settings-stack agent-settings"><section class="settings-card"><div class="agent-section-head"><div><h2>AI Agent 接入</h2><p>当前状态：<strong id="agentRuntimeState">${stateText}</strong></p></div>${button('refresh', '刷新')}</div><dl class="agent-status"><dt>工作空间</dt><dd>${esc(status.workspace_id || '开启接入后初始化')}</dd><dt>服务地址</dt><dd>${esc(status.origin)}</dd><dt>运行设置来源</dt><dd>${esc({cli:'启动参数（本次覆盖）', preference:'本机启动偏好', ui:'本次界面设置'}[status.effective_source] || status.effective_source)}</dd></dl><div class="settings-actions">${button('toggle', status.enabled ? '关闭接入' : '开启接入')}<label><input id="agentStartupPreference" type="checkbox" ${status.startup_preference ? 'checked' : ''}>下次普通启动时开启</label>${button('preference', '保存启动偏好')}</div><p class="settings-hint">关闭接入保留授权与提案。显式启动参数只影响本次，保存的偏好用于下次普通启动。</p>${status.preference_error ? `<p class="agent-error">${esc(status.preference_error)}</p>` : ''}</section><p id="agentFeedback" class="agent-feedback" role="status" aria-live="polite"></p>${pending ? `<section class="settings-card"><p>上次操作结果尚未确定，请先查询，避免重复创建授权。</p>${button('resolve', '查询上次操作')}</section>` : ''}<section class="settings-card"><div class="agent-section-head"><h2>客户端授权</h2>${button('new', '添加客户端', !status.workspace_id ? 'disabled' : '')}</div><p class="settings-hint">授权只作用于当前工作空间；令牌保存在本机私人目录，页面不显示。</p><div class="agent-client-list">${catalog.items.map(client => `<article class="agent-client"><div><strong>${esc(client.name)}</strong><span class="agent-client-state">${client.recovery_required ? '需要恢复' : client.enabled ? '授权有效' : '已撤销'}</span><small>${esc(client.client_id)}</small><p>权限：${esc(permissionName(client.scopes))}</p><p>最低确认：${client.minimum_confirmation_mode === 'local_web' ? '本机网页独立批准' : '对话确认'}</p><p>类型：${esc((client.kinds || ['issue', 'document']).map(kind => kindNames[kind]).join('、'))}</p><p>项目：${esc(rangeText(client.project_ids, true))}</p><p>知识库：${esc(rangeText(client.categories))}</p><p>最近客户端请求：${esc(client.last_client_request_at ? new Date(client.last_client_request_at).toLocaleString() : "暂无记录")}（来源未独立验证）</p><p>最近自检请求：${esc(client.last_diagnostic_request_at ? new Date(client.last_diagnostic_request_at).toLocaleString() : "暂无记录")}</p>${client.invalid_categories.length || client.invalid_project_ids.length ? '<p class="agent-error">部分授权范围已失效，请编辑后重新核对。</p>' : ''}</div><div class="settings-actions">${client.enabled && !client.recovery_required ? `${button('edit', '编辑', `data-client-id="${esc(client.client_id)}"`)}${button('setup', '接入向导', `data-client-id="${esc(client.client_id)}"`)}${button('diagnose', '检查连接', `data-client-id="${esc(client.client_id)}"`)}${button('rotate', '轮换凭据', `data-client-id="${esc(client.client_id)}"`)}${button('repair', '更新服务地址', `data-client-id="${esc(client.client_id)}"`)}${button('revoke', '撤销', `data-client-id="${esc(client.client_id)}"`)}` : ''}</div></article>`).join('') || '<p class="empty-state">暂无客户端。先开启接入，再添加并选择授权范围。</p>'}</div></section>${formHtml()}<div id="agentSetupPanel"></div><div id="agentDiagnosticsPanel"></div></div>`;
+      root.innerHTML = `<div class="settings-stack agent-settings"><section class="settings-card"><div class="agent-section-head"><div><h2>AI Agent 接入</h2><p>当前状态：<strong id="agentRuntimeState">${stateText}</strong></p></div>${button('refresh', '刷新')}</div><dl class="agent-status"><dt>工作空间</dt><dd>${esc(status.workspace_id || '开启接入后初始化')}</dd><dt>服务地址</dt><dd>${esc(status.origin)}</dd><dt>运行设置来源</dt><dd>${esc({cli:'启动参数（本次覆盖）', preference:'本机启动偏好', ui:'本次界面设置'}[status.effective_source] || status.effective_source)}</dd></dl><div class="settings-actions">${button('toggle', status.enabled ? '关闭接入' : '开启接入')}<label><input id="agentStartupPreference" type="checkbox" ${status.startup_preference ? 'checked' : ''}>下次普通启动时开启</label>${button('preference', '保存启动偏好')}</div><p class="settings-hint">关闭接入保留授权与提案。显式启动参数只影响本次，保存的偏好用于下次普通启动。</p>${status.preference_error ? `<p class="agent-error">${esc(status.preference_error)}</p>` : ''}</section><p id="agentFeedback" class="agent-feedback" role="status" aria-live="polite"></p>${pending ? `<section class="settings-card"><p>上次操作结果尚未确定，请先查询，避免重复创建授权。</p>${button('resolve', '查询上次操作')}</section>` : ''}<section class="settings-card"><div class="agent-section-head"><h2>客户端授权</h2>${button('new', '添加客户端', !status.workspace_id ? 'disabled' : '')}</div><p class="settings-hint">授权只作用于当前工作空间；令牌保存在本机私人目录，页面不显示。</p><div class="agent-client-list">${catalog.items.map(client => `<article class="agent-client"><div><strong>${esc(client.name)}</strong><span class="agent-client-state">${client.recovery_required ? '需要恢复' : client.enabled ? '授权有效' : '已撤销'}</span><small>${esc(client.client_id)}</small><p>权限：${esc(permissionName(client.scopes))}</p><p>最低确认：${client.minimum_confirmation_mode === 'local_web' ? '本机网页独立批准' : '对话确认'}</p><p>类型：${esc((client.kinds || ['issue', 'document']).map(kind => kindNames[kind]).join('、'))}</p><p>后续能力：${esc(client.capability_grants?.grants?.map(grantSummary).join('；') || '未配置')}（尚未实现、不可使用）</p>${!client.kinds.length || !(client.project_ids.length || client.categories.length) ? '<p class="settings-hint">无旧业务数据权限，当前不可开展业务；连接成功仅表示接入可达。</p>' : ''}<p>项目：${esc(rangeText(client.project_ids, true))}</p><p>知识库：${esc(rangeText(client.categories))}</p><p>最近客户端请求：${esc(client.last_client_request_at ? new Date(client.last_client_request_at).toLocaleString() : "暂无记录")}（来源未独立验证）</p><p>最近自检请求：${esc(client.last_diagnostic_request_at ? new Date(client.last_diagnostic_request_at).toLocaleString() : "暂无记录")}</p>${client.invalid_categories.length || client.invalid_project_ids.length ? '<p class="agent-error">部分授权范围已失效，请编辑后重新核对。</p>' : ''}</div><div class="settings-actions">${client.enabled && !client.recovery_required ? `${button('edit', '编辑', `data-client-id="${esc(client.client_id)}"`)}${button('setup', '接入向导', `data-client-id="${esc(client.client_id)}"`)}${button('diagnose', '检查连接', `data-client-id="${esc(client.client_id)}"`)}${button('rotate', '轮换凭据', `data-client-id="${esc(client.client_id)}"`)}${button('repair', '更新服务地址', `data-client-id="${esc(client.client_id)}"`)}${button('revoke', '撤销', `data-client-id="${esc(client.client_id)}"`)}` : ''}</div></article>`).join('') || '<p class="empty-state">暂无客户端。先开启接入，再添加并选择授权范围。</p>'}</div></section>${formHtml()}<div id="agentSetupPanel"></div><div id="agentDiagnosticsPanel"></div></div>`;
       if (setup) paintSetup();
       if (diagnostic) paintDiagnostic();
       if (registrationPending) {
@@ -125,7 +140,7 @@
       if (!await canReplaceForm()) return;
       draft = {client_id:client?.client_id || '', expected_version:client?.version || '', name:client?.name || '', guide:'codex',
         permission:client ? client.scopes.length === 1 && client.scopes[0] === 'read' ? 'read' : client.scopes.length === 3 ? 'write' : 'legacy' : 'read',
-        minimum_confirmation_mode:client?.minimum_confirmation_mode || 'agent_attested', kinds:[...(client?.kinds || ['issue', 'document'])], project_ids:[...(client?.project_ids || [])], categories:[...(client?.categories || [])]};
+        minimum_confirmation_mode:client?.minimum_confirmation_mode || 'agent_attested', kinds:[...(client?.kinds || ['issue', 'document'])], project_ids:[...(client?.project_ids || [])], categories:[...(client?.categories || [])], grants:structuredClone(client?.capability_grants?.grants || []), newAuthorization:client?.authorization_schema_version === 3};
       original = JSON.stringify(draft);
       setup = null;
       paint();
@@ -161,12 +176,12 @@
 
     async function saveClient() {
       if (!draft || busy) return false;
-      if (!draft.name.trim() || draft.permission === 'legacy' || !draft.kinds.length || !(draft.project_ids.length || draft.categories.length)) { message('请填写名称、选择权限并至少授权一个项目或知识库分类。', true); return false; }
-      if (!await confirm({title:'保存当前授权？', message:`${draft.name.trim()}：${draft.permission === 'write' ? '整理并确认入库' : '只读查询'}`, detail:`确认方式：${draft.minimum_confirmation_mode === 'local_web' ? '本机网页独立批准' : '对话确认'}；类型：${draft.kinds.map(kind => kindNames[kind]).join('、')}；项目：${draft.project_ids.join('、') || '未授权'}；分类：${draft.categories.join('、') || '未授权'}。范围变更会对后续请求和提交生效。`, confirmText:'保存授权'})) return false;
+      if (!draft.name.trim() || draft.permission === 'legacy' || (!draft.newAuthorization && !draft.grants.length && (!draft.kinds.length || !(draft.project_ids.length || draft.categories.length)))) { message('请填写名称、选择权限及旧业务范围，或配置休眠能力。', true); return false; }
+      if (!await confirm({title:'保存当前授权？', message:`${draft.name.trim()}：${draft.permission === 'write' ? '整理并确认入库' : '只读查询'}`, detail:`确认方式：${draft.minimum_confirmation_mode === 'local_web' ? '本机网页独立批准' : '对话确认'}；类型：${draft.kinds.map(kind => kindNames[kind]).join('、')}；项目：${draft.project_ids.join('、') || '未授权'}；分类：${draft.categories.join('、') || '未授权'}。休眠配置：${draft.grants.map(grantSummary).join('；') || '无'}。休眠能力尚未实现，不可使用，首次启用需重新授权。保存新格式后旧版不能管理授权，降级须停服恢复匹配备份。范围变更会对后续请求和提交生效。`, confirmText:'保存授权'})) return false;
       const guide = draft.guide;
       const result = await perform(draft.client_id ? `clients/${draft.client_id}` : 'clients', draft.client_id ? 'PATCH' : 'POST', {
         workspace_id:status.workspace_id, ...(draft.client_id ? {expected_version:draft.expected_version} : {}), name:draft.name.trim(),
-        minimum_confirmation_mode:draft.minimum_confirmation_mode, kinds:draft.kinds, scopes:draft.permission === 'write' ? ['read', 'propose', 'commit'] : ['read'], project_ids:draft.project_ids, categories:draft.categories,
+        ...((draft.grants.length || draft.newAuthorization) ? {capability_grants:{schema_version:1, grants:draft.grants}} : {}), minimum_confirmation_mode:draft.minimum_confirmation_mode, kinds:draft.kinds, scopes:draft.permission === 'write' ? ['read', 'propose', 'commit'] : ['read'], project_ids:draft.project_ids, categories:draft.categories,
       });
       if (!result) return false;
       await load();
@@ -286,8 +301,25 @@
       }
     }
 
-    async function action(name, clientId) {
+    async function action(name, clientId, grantIndex) {
       if (busy || registrationConfirming) return;
+      if (name === 'remove-grant' && draft) {
+        draft.grants.splice(Number(grantIndex), 1); paint(); return;
+      }
+      if (name === 'add-grant' && draft) {
+        const capability = find('#agentGrantCapability').value;
+        const type = find('#agentGrantResource').value;
+        const resource = {type};
+        if (type !== 'workspace') resource[type.includes('category') ? 'name' : 'id'] = find('#agentGrantValue').value.trim();
+        if (type === 'item') resource.kind = find('#agentGrantKind').value;
+        if (type === 'project_attachment_category') resource.project_id = find('#agentGrantProject').value.trim();
+        const operations = [...root.querySelectorAll('[data-grant-operation]:checked')].map(node => node.dataset.grantOperation);
+        if (!operations.length || Object.values(resource).some(value => !value)) { message('请选择操作并填写明确资源。', true); return; }
+        const mode = find('#agentGrantMode').value;
+        if (['items.delete', 'projects.create', 'projects.delete', 'categories.write', 'workflows.write'].includes(capability) && mode !== 'local_web') { message('该能力必须在本机网页独立批准。', true); return; }
+        draft.grants.push({capability, operations, resources:[resource], minimum_confirmation_mode:mode});
+        draft.newAuthorization = true; paint(); return;
+      }
       if (name === 'registration-resolve' && registrationPending) {
         const version = epoch;
         try {
@@ -380,7 +412,7 @@
     root.addEventListener('click', event => {
       if (!isActive()) return;
       const trigger = event.target.closest('[data-agent-action]');
-      if (trigger) { event.preventDefault(); action(trigger.dataset.agentAction, trigger.dataset.clientId).catch(error => message(errorText(error), true)); }
+      if (trigger) { event.preventDefault(); action(trigger.dataset.agentAction, trigger.dataset.clientId, trigger.dataset.grantIndex).catch(error => message(errorText(error), true)); }
     });
     root.addEventListener('submit', event => {
       if (isActive() && event.target.id === 'agentClientForm') { event.preventDefault(); saveClient().catch(error => message(errorText(error), true)); }
@@ -415,6 +447,8 @@
         return;
       }
       if (!draft) return;
+      if (node.id === 'agentGrantCapability') { draft.grantCapability = node.value; paint(); return; }
+      if (node.id === 'agentGrantResource') { draft.grantResource = node.value; paint(); return; }
       if (node.id === 'agentMinimumConfirmation') draft.minimum_confirmation_mode = node.value;
       if (node.id === 'agentClientPermission') draft.permission = node.value;
       if (node.id === 'agentGuideType') draft.guide = node.value;

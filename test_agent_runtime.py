@@ -314,6 +314,31 @@ class AgentManagementHTTPTests(unittest.TestCase):
         self.assertFalse(self.request("clients", headers=headers)[1]["items"][0]["enabled"])
         self.assertEqual(self.request("clients", headers={**headers, "Authorization": "Bearer " + config["token"]})[0], 403)
 
+    def test_dormant_client_http_strict_create_edit_clear_and_cas(self):
+        from test_agent_capabilities import grants
+        self.repo.agent_runtime.set_enabled(True)
+        status = self.request("status")[1]
+        headers = {"Origin": self.origin, "X-Workbench-Management-Token": status["management_token"]}
+        create = {"workspace_id": status["workspace_id"], "request_id": "dormant-http", "name": "休眠独立客户端",
+                  "scopes": ["read"], "kinds": [], "project_ids": [], "categories": [], "capability_grants": grants()}
+        for bad in ({"activated": True}, {"capability_grants": None}, {"capability_grants": []}, {"capability_grants": {"schema_version": 99, "grants": []}}):
+            self.assertEqual(self.request("clients", "POST", {**create, **bad}, headers)[0], 400)
+        code, result = self.request("clients", "POST", create, headers)
+        self.assertEqual(code, 200, result)
+        self.assertEqual(self.request("clients", "POST", create, headers)[1], result)
+        client_id = result["client_id"]
+        listing = self.request("clients", headers=headers)[1]
+        self.assertEqual(listing["items"][0]["kinds"], [])
+        self.assertEqual(listing["items"][0]["capability_grant_state"], "dormant")
+        self.assertNotIn("files.read", listing["capability_catalog"])
+        config = read_json(self.repo.agent_runtime.security().config_dir / (client_id + ".json"))
+        self.assertEqual(self.request("clients", "POST", create, {**headers, "Authorization": "Bearer " + config["token"]})[0], 403)
+        edit = {**create, "request_id": "clear", "expected_version": result["version"], "capability_grants": {"schema_version": 1, "grants": []}}
+        code, changed = self.request("clients/" + client_id, "PATCH", edit, headers)
+        self.assertEqual(code, 200, changed)
+        self.assertEqual(self.request("clients/" + client_id, "PATCH", {**edit, "request_id": "stale"}, headers)[0], 409)
+        self.assertEqual(self.request("clients", headers=headers)[1]["items"][0]["capability_grants"]["grants"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

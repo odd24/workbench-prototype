@@ -45,4 +45,17 @@ assert.equal(
   '说明'
 );
 
+for (const name of ['说明[方](圆)%# 空格.png', '字面**星号**.png']) {
+  const source = `../assets/images/${encodeURIComponent(name).replace(/[!'()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`)}`;
+  const html = markdown.markdownToHtml(`![${markdown.escapeLinkLabel(name)}](${source})`, {renderImage:(alt, url) => {
+    assert.equal(alt, name); assert.equal(url, source);
+    return `<img data-name="${name}" data-source="${url}">`;
+  }});
+  assert.ok(html.includes(name));
+  assert.doesNotMatch(html, /<strong>|<em>/);
+}
+assert.match(markdown.markdownToHtml('[**强调** *斜体* `code`](https://example.com)'), /<a[^>]*><strong>强调<\/strong> <em>斜体<\/em> <code>code<\/code><\/a>/);
+assert.match(markdown.markdownToHtml('[\\*\\*字面\\*\\*](https://example.com)'), />\*\*字面\*\*<\/a>/);
+assert.doesNotMatch(markdown.markdownToHtml('[<img src=x onerror=alert(1)>](https://example.com/\" onmouseover=\"x)'), /<img|onmouseover="x"/);
+assert.doesNotMatch(markdown.markdownToHtml('[危险](javascript:alert(1))'), /<a/);
 console.log('Markdown core contract tests passed.');

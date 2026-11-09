@@ -110,17 +110,19 @@ class AgentService:
         from .agent_upload_policy import active_policies
         from .agent_uploads import LIMITS as UPLOAD_LIMITS
         upload_policies = active_policies(self.repository, self.security, client) if SUPPORTED else []
-        return {"kind_operations": {kind: ["create", "append", "update"] for kind in kinds},
+        attachment_policies = [policy for policy in upload_policies if policy.get('attachment_write')]
+        return {"kind_operations": {**{kind: ["create", "append", "update"] for kind in kinds}, **({"attachment":["create"]} if attachment_policies else {})},
                 "kind_fields": {kind: fields[kind] for kind in kinds}, "authorized_kinds": client_kinds(client),
                 "confirmation_modes": ["agent_attested", "local_web"], "default_confirmation_mode": client_confirmation_mode(client),
                 "proposal_schema_versions": [1, 2, 3], "execution_schema_versions": [1], "api_version": "1", "workspace_id": self.security.workspace_id, "kinds": kinds,
                 "operations": ["create", "append", "update"], "limits": LIMITS, "scopes": client["scopes"],
                 "project_ids": client["project_ids"], "categories": client["categories"], "confirmation_mode": client_confirmation_mode(client),
                 "capability_authorization": {"configured": client_capability_grants(client),
-                                             "implemented": ["files.read", "uploads.stage"] if SUPPORTED else [], "effective": (["files.read"] if file_grants else []) + (["uploads.stage"] if upload_policies else []), "activation": "requires_reauthorization"},
-                "upload_staging": {"policies": upload_policies, "limits": UPLOAD_LIMITS, "formal_attachment_write": False,
+                                             "implemented": ["files.read", "uploads.stage", "attachments.write"] if SUPPORTED else [], "effective": (["files.read"] if file_grants else []) + (["uploads.stage"] if upload_policies else []) + (["attachments.write"] if attachment_policies else []), "activation": "requires_reauthorization"},
+                "upload_staging": {"policies": upload_policies, "limits": UPLOAD_LIMITS, "formal_attachment_write": bool(attachment_policies),
                                    "transports": ["approved_file_id", "dedicated_loopback_octet_stream"], "mcp_binary_payload": False,
                                    "authorization": "read scope, existing owner access and fresh staging policy; any client authorization or token change requires reapproval"},
+                "attachment_write": {"policies":attachment_policies, "operations":["create"], "owner_kinds":["project", "issue", "todo", "info"], "confirmation_required":True, "binary_download":False, "document_attachments":False},
                 "file_access": {"grant_required": True, "operations": ["list_file_grants"] + (["get_file_info"] if file_grants else []) + (["read_file"] if any("text_read" in item["purposes"] for item in file_grants) else []),
                                 "raw_chunk_bytes": 65536, "default_max_bytes": 10485760, "max_bytes": 104857600, "default_duration_seconds": 3600, "max_duration_seconds": 86400,
                                 "verification": "each segment rehashes the full approved file; raw byte offsets; use next_offset; attachment_source grants do not permit text reads or uploads",
@@ -344,6 +346,23 @@ class AgentService:
         if existing:
             return existing
         self.store.guard_writes()
+        if payload.get('kind') == 'attachment':
+            from .agent_attachments import AttachmentService
+            attachments = AttachmentService(self)
+            if payload.get('operation') != 'create':
+                raise AgentError('invalid_operation', '附件只支持create')
+            content = payload.get('content')
+            if not isinstance(content, dict) or not isinstance(content.get('upload_id'), str):
+                raise AgentError('invalid_content', '附件需要受控暂存ID')
+            with self.uploads.session_lock(content['upload_id']):
+                normalized, base = attachments.normalize(client, content, payload.get('target_id'), payload.get('base_revision'))
+                policy = attachments.policy(client, content['owner_kind'], content['owner_id'], normalized['policy_id'])
+                if policy['attachment_write']['minimum_confirmation_mode'] == 'local_web':
+                    mode = 'local_web'
+                result = self.store.create(client, payload, normalized, base, mode, dependencies=attachments.dependencies(client, normalized, payload['base_revision']))
+                self.store.checkpoint('attachment_proposal_created')
+                attachments.synchronize_binding(content['upload_id'])
+                return result
         content, base = self.normalize_content(client, payload.get("kind"), payload.get("operation"), payload.get("content"), payload.get("target_id"), payload.get("base_revision"))
         return self.store.create(client, payload, content, base, mode, dependencies=self.execution_dependencies(client, payload["kind"], content))
 
@@ -381,6 +400,26 @@ class AgentService:
         self._enforce_confirmation_policy(client, proposal)
         self.store.editable(proposal, payload.get("expected_version"))
         revision = payload.get("base_revision", proposal["base_revision"])
+        if proposal['kind'] == 'attachment':
+            from contextlib import ExitStack
+            from .agent_attachments import AttachmentService
+            attachments = AttachmentService(self)
+            content = payload.get('content')
+            if not isinstance(content, dict) or not isinstance(content.get('upload_id'), str):
+                raise AgentError('invalid_content', '附件需要完整候选')
+            old_id = proposal['normalized_content']['upload_id']
+            with ExitStack() as locks:
+                for key in sorted({old_id, content['upload_id']}):
+                    locks.enter_context(self.uploads.session_lock(key))
+                normalized, base = attachments.normalize(client, content, proposal['target_id'], revision, proposal)
+                policy = attachments.policy(client, content['owner_kind'], content['owner_id'], normalized['policy_id'])
+                if policy['attachment_write']['minimum_confirmation_mode'] == 'local_web':
+                    proposal['confirmation_mode'] = 'local_web'
+                result = self.store.revise(proposal, payload['expected_version'], normalized, revision, base, client=client, dependencies=attachments.dependencies(client, normalized, revision))
+                self.store.checkpoint('attachment_proposal_revised')
+                for key in {old_id, content['upload_id']}:
+                    attachments.synchronize_binding(key)
+                return result
         # Revisions supply the complete desired candidate, including for append.
         operation = "create" if proposal["operation"] == "create" else "update"
         content, base = self.normalize_content(client, proposal["kind"], operation, payload.get("content"), proposal["target_id"], revision)
@@ -394,8 +433,17 @@ class AgentService:
         self._enforce_confirmation_policy(client, proposal)
         return self.store.preview(proposal)
 
-    @service_operation
     def get_proposal(self, client, proposal_id):
+        require_scope(client, "read")
+        with self.repository.write_lock:
+            proposal = self.store.owned(client, proposal_id)
+        if proposal['kind'] == 'attachment':
+            from .agent_attachments import AttachmentService
+            return AttachmentService(self).get_proposal(client, proposal_id)
+        return self._get_markdown_proposal(client, proposal_id)
+
+    @service_operation
+    def _get_markdown_proposal(self, client, proposal_id):
         require_scope(client, "read")
         self.store.recover()
         proposal = self.store.owned(client, proposal_id)
@@ -428,7 +476,16 @@ class AgentService:
         require_scope(client, "propose")
         if set(payload) - {"expected_version"}:
             raise AgentError("unknown_field", "取消提案包含不支持的字段")
-        return self.store.cancel(self.store.owned(client, proposal_id), payload.get("expected_version"))
+        proposal = self.store.owned(client, proposal_id)
+        if proposal['kind'] == 'attachment':
+            from .agent_attachments import AttachmentService
+            upload_id = proposal['execution_plan']['source_bindings'][0]['upload_id']
+            with self.uploads.session_lock(upload_id):
+                result = self.store.cancel(proposal, payload.get('expected_version'))
+                self.store.checkpoint('attachment_proposal_cancelled')
+                AttachmentService(self).synchronize_binding(upload_id)
+                return result
+        return self.store.cancel(proposal, payload.get("expected_version"))
 
     def _enforce_confirmation_policy(self, client, proposal):
         if client_confirmation_mode(client) == "local_web" and proposal.get("confirmation_mode", "agent_attested") != "local_web" and proposal["state"] in {"draft", "previewed", "conflicted"}:
@@ -439,8 +496,18 @@ class AgentService:
                 proposal["authorization_revision"] = authorization_revision(client)
             self.store._save(proposal)
 
-    @service_operation
     def commit_proposal(self, client, proposal_id, payload):
+        require_scope(client, "read")
+        require_scope(client, "commit")
+        with self.repository.write_lock:
+            proposal = self.store.owned(client, proposal_id)
+        if proposal['kind'] == 'attachment':
+            from .agent_attachment_execution import AttachmentExecution
+            return AttachmentExecution(self).commit(client, proposal_id, payload)
+        return self._commit_markdown_proposal(client, proposal_id, payload)
+
+    @service_operation
+    def _commit_markdown_proposal(self, client, proposal_id, payload):
         require_scope(client, "commit")
         require_scope(client, "read")
         if set(payload) - {"version", "preview_digest", "confirmation"}:
@@ -460,6 +527,9 @@ class AgentService:
         require_scope(client, "read")
         require_scope(client, "propose")
         require_scope(client, "commit")
+        if proposal['kind'] == 'attachment':
+            from .agent_attachments import AttachmentService
+            return AttachmentService(self).prepare_submission(client, proposal)
         saved = proposal["normalized_content"]
         if proposal["schema_version"] == 3:
             if authorization_revision(client) != proposal["authorization_revision"]:

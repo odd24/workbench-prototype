@@ -133,6 +133,8 @@ class ProposalStore:
                     "created_at": stamp(), "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
                     "previewed_version": None, "preview_digest": None,
                     "access_target": {"type": request["kind"], "project_id": content.get("project_id"), "category": content.get("category")}}
+        if proposal['kind'] == 'attachment':
+            proposal['access_target'] = {'project_id':content['project_id']} if content['owner_kind'] == 'project' else {'type':content['owner_kind'], 'project_id':content['project_id']}
         bind_context(proposal, client, dependencies)
         self._save(proposal)
         return self.public(proposal)
@@ -144,6 +146,8 @@ class ProposalStore:
                         base_revision=base_revision, base_content=base_content, previewed_version=None, preview_digest=None,
                         expires_at=(datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
                         access_target={"type": proposal["kind"], "project_id": content.get("project_id"), "category": content.get("category")})
+        if proposal['kind'] == 'attachment':
+            proposal['access_target'] = {'project_id':content['project_id']} if content['owner_kind'] == 'project' else {'type':content['owner_kind'], 'project_id':content['project_id']}
         if proposal["schema_version"] == 3:
             bind_context(proposal, client, dependencies)
         self._save(proposal)
@@ -164,6 +168,8 @@ class ProposalStore:
             preview.update(confirmation_mode=proposal["confirmation_mode"], digest_algorithm=proposal["digest_algorithm"])
         if proposal.get("schema_version") == 3:
             preview.update(**{key: proposal[key] for key in ("authorization_revision", "dependencies", "execution_plan", "plan_digest")})
+        if proposal['kind'] == 'attachment':
+            warnings = ['二进制仅按名称、大小、MIME及SHA-256预览，未解析内容；不执行或解压。', '创建/修改时间显示占位；服务端在接受本次确认时生成实际时间并持久记入执行计划，不使用草稿时间。', '最终名称和相对链接已固定；同名占位必须重新预览。', '请展示完整正文、元数据差异及来源，等待当前版本明确确认。']
         return {**preview, "content": proposal["normalized_content"], "warnings": warnings}
 
     def preview_result(self, proposal):
@@ -193,6 +199,9 @@ class ProposalStore:
         return self.public(proposal)
 
     def _target(self, manifest):
+        if manifest['kind'] == 'attachment':
+            from .agent_attachment_execution import targets
+            return targets(self.repository, self._load(manifest['proposal_id'], expire=False))[1]
         relative = validate_archive_member(manifest["relative_path"])
         target = self.repository.root / relative
         if target.resolve() != target.absolute() or not target.resolve().is_relative_to(self.repository.root):
@@ -220,10 +229,10 @@ class ProposalStore:
         self.checkpoint("proposal")
         manifest["state"] = "committed"
         if manifest["schema_version"] == 3:
-            manifest["step_states"] = ["completed", "completed"]
+            manifest["step_states"] = dict.fromkeys(manifest["step_states"], "completed") if proposal["kind"] == "attachment" else ["completed", "completed"]
         atomic_write_json(self.operations / manifest["operation_id"] / "manifest.json", manifest)
 
-    def commit(self, proposal, version, preview_digest, confirmation, prepared, *, local_approval=None):
+    def check_commit(self, proposal, version, preview_digest, confirmation, *, local_approval=None):
         if proposal["state"] == "committed":
             if type(version) is not int or version != proposal["version"] or preview_digest != proposal["preview_digest"]:
                 raise AgentError("version_conflict", "提交版本与原回执不一致", 409)
@@ -243,6 +252,12 @@ class ProposalStore:
             if not isinstance(confirmation.get("note", ""), str) or len(confirmation.get("note", "")) > 1000:
                 raise AgentError("invalid_confirmation", "确认说明无效")
         self.guard_writes()
+        return None
+
+    def commit(self, proposal, version, preview_digest, confirmation, prepared, *, local_approval=None):
+        previous = self.check_commit(proposal, version, preview_digest, confirmation, local_approval=local_approval)
+        if previous is not None:
+            return previous
         operation_id = f"{proposal['proposal_id']}-{version}"
         directory = self.operations / operation_id
         directory.mkdir(parents=True, exist_ok=True)
@@ -317,6 +332,9 @@ class ProposalStore:
         return path
 
     def _validate_execution(self, manifest, proposal, *, snapshots=False):
+        if proposal['kind'] == 'attachment':
+            from .agent_attachment_execution import validate_execution
+            return validate_execution(self, manifest, proposal, snapshots)
         validate_manifest(manifest, proposal)
         self._target(manifest)
         self._history_path(manifest)
@@ -478,6 +496,12 @@ class ProposalStore:
                     # Later ordinary edits/deletion never replay an already completed operation.
                     if not (self.receipts / f"{proposal['proposal_id']}.json").exists() or proposal["state"] != "committed":
                         self._finish(manifest, proposal)
+                    continue
+                if proposal['kind'] == 'attachment':
+                    # Dedicated entry points recover binary evidence outside all
+                    # caller-owned business/credential/workspace locks.
+                    self.blocked = True
+                    self.recovery_errors.append(manifest['operation_id'])
                     continue
                 target = self._target(manifest)
                 current = target.read_bytes() if target.exists() else None

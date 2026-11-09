@@ -108,5 +108,45 @@ class AttachmentRepositoryTests(unittest.TestCase):
         opener.assert_not_called()
 
 
+    def test_prepared_attachment_preview_is_read_only_and_preserves_info_metadata(self):
+        from workbench.write_coordinator import content_revision
+        info = self.repo.create_record({'type':'info', 'title':'信息', 'project_id':self.project['id'],
+                                        'info_fields':[{'name':'说明', 'value':'  a\n"b"  ', 'note':'末尾 '}]})
+        path = Path(info['file_path'])
+        original = path.read_bytes()
+        original_paths = sorted(str(item) for item in self.repo.root.rglob("*"))
+        draft = self.repo.prepare_attachment_create('info', info['id'], '说明[方](圆)%#&.txt', 1, 'a' * 64, '', True,
+                                                     content_revision(original), 'ASSET-fixed')
+        self.assertEqual(path.read_bytes(), original)
+        self.assertEqual(sorted(str(item) for item in self.repo.root.rglob("*")), original_paths)
+        self.assertEqual(draft.view['metadata_after']['info_fields'], draft.view['metadata_before']['info_fields'])
+        self.assertEqual(draft.view['attachment']['name'], '说明[方](圆)%#&.txt')
+        self.assertIn('%28', draft.view['body'])
+        self.assertIn('%25%23', draft.view['body'])
+        draft.binary_path.parent.mkdir(parents=True, exist_ok=True)
+        draft.binary_path.write_bytes(b'x')
+        draft.record_write.history_version = '20261109-000000-000000-12345678'
+        self.repo.apply_attachment_metadata(draft)
+        reopened = Repository(self.repo.root)
+        self.assertEqual(reopened.get_record(info['id'])[0]['info_fields'], info['info_fields'])
+        self.assertEqual(reopened.attachment_path(info['id'], '说明[方](圆)%#&.txt').read_bytes(), b'x')
+
+    def test_prepared_project_index_has_revision_and_does_not_create_asset_directories(self):
+        from workbench.write_coordinator import content_revision, RevisionConflict
+        draft = self.repo.prepare_attachment_create('project', self.project['id'], '索引.txt', 1, 'a' * 64, '', False,
+                                                     content_revision(b''), 'ASSET-fixed')
+        self.assertFalse(draft.metadata_path.exists())
+        self.assertFalse(draft.binary_path.parent.exists())
+        with self.assertRaises(ValueError):
+            self.repo.prepare_attachment_create('project', self.project['id'], '索引.txt', 1, 'a' * 64, '', True,
+                                                content_revision(b''), 'ASSET-fixed')
+        draft.binary_path.parent.mkdir(parents=True)
+        draft.binary_path.write_bytes(b'x')
+        self.repo.apply_attachment_metadata(draft)
+        self.assertEqual(Repository(self.repo.root).project_assets(self.project['id'])[0]['id'], 'ASSET-fixed')
+        with self.assertRaises(RevisionConflict):
+            self.repo.apply_attachment_metadata(draft)
+
+
 if __name__ == "__main__":
     unittest.main()

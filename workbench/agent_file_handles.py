@@ -176,6 +176,29 @@ class LocalFileHandle:
         if not self.library.SetFileInformationByHandle(self.handle, 4, ctypes.byref(disposition), ctypes.sizeof(disposition)):
             raise AgentError("upload_cleanup_pending", "暂存删除未完成，保留占用供重试", 409)
 
+    def rename_verified(self, destination):
+        """Rename this exact private handle without replacement or copy fallback."""
+        if not self.delete_allowed:
+            raise AgentError('forbidden', '此句柄不允许发布', 403)
+        destination = lexical_path(str(destination))
+        deny_sensitive(destination)
+        if destination[:2].upper() != self.path[:2].upper():
+            raise AgentError('unsupported_volume', '正式附件必须与事务目录位于同一卷', 409)
+        parts = destination[3:].split('\\')
+        for index in range(1, len(parts)):
+            self._open(destination[:3] + '\\'.join(parts[:index]), directory=True)
+        class RenameInformation(ctypes.Structure):
+            _fields_ = [('flags', wintypes.DWORD), ('root', wintypes.HANDLE),
+                        ('length', wintypes.DWORD), ('name', wintypes.WCHAR * 1)]
+        encoded = destination.encode('utf-16-le')
+        size = max(ctypes.sizeof(RenameInformation), RenameInformation.name.offset + len(encoded) + 2)
+        buffer = ctypes.create_string_buffer(size)
+        information = RenameInformation.from_buffer(buffer)
+        information.flags, information.root, information.length = 0, None, len(encoded)
+        ctypes.memmove(ctypes.addressof(buffer) + RenameInformation.name.offset, encoded, len(encoded))
+        if not self.library.SetFileInformationByHandle(self.handle, 3, buffer, size):
+            raise AgentError('attachment_publish_conflict', '正式名称被占用或路径变化，未覆盖任何文件', 409)
+
     def __exit__(self, *_args):
         for handle in reversed(self.handles):
             self.library.CloseHandle(handle)

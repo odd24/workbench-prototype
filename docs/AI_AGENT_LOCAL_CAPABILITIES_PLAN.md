@@ -4,7 +4,7 @@
 
 主方案：[AI_AGENT_PLAN.md](AI_AGENT_PLAN.md)。前期扩展：[AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。实施事实与状态：[AI_AGENT_PROGRESS.md](AI_AGENT_PROGRESS.md)。执行规范：[AGENTS.md](../AGENTS.md)。
 
-**当前执行状态（2026-11-09）：用户最新明确“现在开始执行方案”，AG-128 已完成授权基础，尚未开放新增业务；AG-129执行基础、AG-130文件授权及AG-131私人暂存已完成，AG-132～143待开始，状态以台账为准。此前 AG-127 仅文档和暂停实施是历史事实。方案不等于能力已实现或验收；不得提前开放后续业务工具或操作真实客户端。**
+**当前执行状态（2026-11-09）：用户最新明确“现在开始执行方案”，AG-128 已完成授权基础，尚未开放新增业务；AG-129执行基础、AG-130文件授权、AG-131私人暂存及AG-132记录/项目附件已完成，AG-133～143待开始，状态以台账为准。此前 AG-127 仅文档和暂停实施是历史事实。方案不等于能力已实现或验收；不得提前开放后续业务工具或操作真实客户端。**
 
 ## 1. 目标与交付范围
 
@@ -253,7 +253,7 @@ capabilities 明示 authorized capabilities、kind_operations、kind_fields、�
 
 ## 12. 工作项、文件与独立验收
 
-以下是预计接点，不是要求创建所有候选文件。实施前确定最小变更，不复制现有 CRUD 或另建 Repository 进程。AG-127 为本文档治理；AG-128～131已完成、AG-132～143待开始，实际状态以台账为准。
+以下是预计接点，不是要求创建所有候选文件。实施前确定最小变更，不复制现有 CRUD 或另建 Repository 进程。AG-127 为本文档治理；AG-128～132已完成、AG-133～143待开始，实际状态以台账为准。
 
 | ID | 范围/依赖 | 预计文件或模块 | 独立完成证据 |
 | --- | --- | --- | --- |
@@ -381,3 +381,16 @@ AG-128实际结果见[本机能力验收](AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE
 补充实施边界：1000限制只计未removed会话，墓碑仍供幂等查询；磁盘可用量扣除未物化预留而非重复扣已落字节。短目录锁保护元数据原子替换、目录扫描、part→blob、句柄实际删除及removed发布，hash/流在锁外。在途取消返回409，停止发送或撤销策略后查询原会话，不保证立即中断OS读取。ready历史回执不表示当前可绑定；当前授权、目标及磁盘验证同时通过才返回available_for_binding。
 
 私人路径守卫同时使用原生属性检查失效junction；缺失UUID叶只解析既有祖先并在创建/打开后复验，不能将一次瞬时解析差异当已证明的OS内部根因。清理通过已验证的同一DELETE句柄标记并关闭后确认不存在才释放预算。官方API依据：[GetFileAttributesW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileattributesw)、[SetFileInformationByHandle](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-setfileinformationbyhandle)、[FILE_DISPOSITION_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_disposition_info)。实际junction成功/失效分支已验证；符号链接因权限不足跳过，不能宣称已覆盖原生符号链接创建。
+
+
+## 19. AG-132 正式附件契约（已实现，实际验收见分册）
+
+- AG-LOCAL-DEC-030：具体owner的一次本机完整预览，共同批准uploads.stage和attachments.write/create及最低确认方式。私人policy schema2新增attachment_write（能力、create列表、minimum_confirmation_mode）；旧schema1仍仅stage，转2时旧项显式null，不激活任何dormant。新管理attachment_policy家族与before/after_policies快照复用日志4/CAS，双方绑定同一个批准后的client_version。按共同批准→新暂存→正式提案操作；任何客户端变化或stage-only重批使旧许可失效，不迁移旧ready，无循环授权。旧read/propose/commit和实际目标访问范围仍必须满足，两确认策略取最严格。
+- AG-LOCAL-DEC-031：attachment/create只处理既有project/issue/todo/info；外层target_id为owner，base_revision必填，content严格六字段owner_kind/owner_id/upload_id/display_name/category/insert_link。项目无正文，insert_link=true拒绝；分类仅已有值或空。AttachmentRepository领域准备/应用与旧网页共享metadata/链接助手，记录保留未知meta与info_fields，项目只改独立index。预览固定ASSET-<upload UUID hex>和唯一最终名/相对链接，同名占位409或修订新版本，提交时不静默换后缀；不建正式文件或业务目录作预览。完整候选与base合计最多256KiB，拒绝超限而非截断；原生最终路径最多240字符及敏感名称限制在准备时拒绝。
+- AG-LOCAL-DEC-032：提案source_bindings为事实，session.binding为保护镜像；所有get/complete/cancel/维护/新prepare先预检引用。修改持非阻塞session OS锁，先持久proposal再镜像；缺口重建唯一匹配绑定，多引用/未知版本不释放。修订、取消、过期仅在没有执行manifest时解绑；copy意图也是执行日志。consumption.operation_id保持64hex，唯一映射sha256(proposalUUID-version)，与原operation_id、proposal/version/owner revision、upload_id、receipt交叉校验。
+- AG-LOCAL-DEC-033：保留proposal3/sha256-json-v3和唯一ProposalStore状态机，新增静态attachment@1、execution_schema2及五阶段binary_copy/binary_publish/history_snapshot/metadata_write/upload_consume。确认和固定计划、元数据前后快照、实际接受时刻/唯一history ID先落manifest prepared，再放锁复制，绝不靠临时文件推定确认。预览中updated/created明确为提交时间占位，只有这两个服务端字段在接受确认时定稿，实际after摘要/metadata_time/receipt时间写具体计划；不回填草稿时间。旧Markdown处理器/摘要/日志仍走原分支，新旧混合先全格式预检，旧b7ce3fe拒绝新家族/处理器，不删日志降级。
+- AG-LOCAL-DEC-034：64KiB复制至同卷.agent/operations/<proposal-version>/binary.part，长copy/hash/恢复hash不持空间、业务、凭据或目录配额锁。持session和operation OS锁；write_guard在接受意图后阻止普通写/孤儿清理，但读取、撤销和换库仍可进行。真实SHA/大小/part卷与文件身份持久证据后，以同一READ+DELETE句柄、目标父链属性句柄及FileRenameInfo不覆盖发布，无跨卷copy fallback。同名相同字节但不同身份仍拒绝。最终短锁重验空间/服务、权限/最低确认、owner/index、分类配置及推导集合、来源/固定名称；发布后记录历史与metadata，消费、回执逐步持久。metadata仍before需当前权限，已经after只核既有发布证据后补原消费/回执；receipt存在不重放后来改删。关闭Agent启动可恢复既有已确认事务，不能新建未确认事务。
+- AG-LOCAL-DEC-035：执行中、未知或未完成消费继续保护；只有committed proposal、manifest、receipt、源binding/消费ID/大小/SHA全匹配才允许显式维护退休已消费源blob（不必等24h）。同一已核验DELETE句柄实际关闭删除后持久removed才释放预算；消失但未记账的退出可按回执证明与磁盘不存在完成记账。消费墓碑/原请求/正式回执保留，不能重建源或正式附件；外部篡改字节、未知绑定和未决记录保持保护，不能把所有consumed一概放开。
+- AG-LOCAL-DEC-036：附件正文只允许逐字保留before快照的原始body片段（含CRLF/首尾空格），或公共助手保留原文后追加链接；base_content、base_revision、before快照与候选语义交叉验证。标签转义与相对URL编码共用；共享渲染支持转义文件名、受控相对附件链接并保留原Markdown URL标签的强调/行内code语义，序列化保留data-markdown-src。外部图片先兼容字面百分号路径，再在边界内单次URL解码。知识库仅回归原图片/编辑器能力，不建立133附件格式。
+
+本项100MiB专项为有界内存与真实持久字节场景，不扩展独立performance_acceptance.py/visual_baseline.js，不冒称完整性能/视觉基线或AG-142真实模型矩阵。官方平台依据：[FILE_RENAME_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info)、[SetFileInformationByHandle](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-setfileinformationbyhandle)。不覆盖行为与同身份恢复以原生测试为准；外部文件系统剩余竞态、内核等待和确认许可后迟到响应边界继续保留。

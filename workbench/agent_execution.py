@@ -24,6 +24,9 @@ def authorization_revision(client):
 
 
 def logical_plan(proposal):
+    if proposal['kind'] == 'attachment':
+        from .agent_attachments import logical_plan as attachment_plan
+        return attachment_plan(proposal)
     handler = HANDLERS.get((proposal["kind"], proposal["operation"]))
     if handler is None:
         raise AgentError("unsupported_handler", "执行处理器不受支持", 503)
@@ -53,6 +56,10 @@ def validate_context(proposal):
     binding = proposal.get("authorization_revision")
     if not isinstance(binding, dict) or set(binding) != {"management_revision", "client_version"} or type(binding["management_revision"]) is not int or binding["management_revision"] < 0 or not re.fullmatch(r"[a-f0-9]{64}", str(binding["client_version"])):
         raise ValueError("提案授权版本无效")
+    if proposal['kind'] == 'attachment':
+        from .agent_attachments import validate_dependencies
+        validate_dependencies(proposal)
+        return
     dependencies = proposal.get("dependencies")
     if not isinstance(dependencies, dict) or set(dependencies) != {"schema_version", "owner", "statuses", "tags", "references"} or type(dependencies["schema_version"]) is not int or dependencies["schema_version"] != 1:
         raise ValueError("提案依赖格式无效")
@@ -80,12 +87,18 @@ def validate_context(proposal):
 
 
 def concrete_plan(manifest, proposal):
+    if proposal['kind'] == 'attachment':
+        from .agent_attachment_execution import concrete_plan as attachment_plan
+        return attachment_plan(manifest, proposal)
     return {"handler": "markdown@1", "proposal_plan_digest": proposal["plan_digest"], "steps": STEP_TYPES.copy(),
             "kind": manifest["kind"], "operation": manifest["operation"], "item_id": manifest["item_id"], "relative_path": manifest["relative_path"],
             "before_digest": manifest["before_digest"], "after_digest": manifest["after_digest"], "history_version": manifest["history_version"]}
 
 
 def validate_manifest(manifest, proposal):
+    if proposal['kind'] == 'attachment':
+        from .agent_attachment_execution import validate_manifest as attachment_manifest
+        return attachment_manifest(manifest, proposal)
     validate_context(proposal)
     if proposal.get("content_cleaned") and manifest.get("state") not in {"committed", "abandoned"}:
         raise ValueError("在途执行证据不能标为已清理")

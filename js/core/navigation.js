@@ -43,6 +43,11 @@
       if (!params.has('item') && !params.has('itemId')) return null;
       const kind = params.get('item');
       const itemId = params.get('itemId');
+      if (kind === 'project') {
+        const assetId = params.get('assetId');
+        if (params.getAll('item').length !== 1 || params.getAll('itemId').length !== 1 || params.getAll('assetId').length !== 1 || !itemId || itemId.length > 100 || /[\\/\x00-\x1f]/.test(itemId) || ['.', '..'].includes(itemId) || !/^ASSET-[a-f0-9]{32}$/.test(assetId || '')) return {invalid:true};
+        return {kind, itemId, assetId};
+      }
       if (params.getAll('item').length !== 1 || params.getAll('itemId').length !== 1 ||
           !['issue', 'document', 'todo', 'info'].includes(kind) || !/^(?:ISSUE|TODO|INFO|IDEA|DOC)-\d+$/.test(itemId || '') ||
           (kind === 'document' && !itemId.startsWith('DOC-')) || (kind === 'todo' && !itemId.startsWith('TODO-')) || (kind === 'info' && !itemId.startsWith('INFO-'))) return {invalid:true};
@@ -54,6 +59,7 @@
       if (!params.has('item') && !params.has('itemId')) return false;
       params.delete('item');
       params.delete('itemId');
+      params.delete('assetId');
       const query = params.toString();
       history.replaceState(null, '', `${location.pathname}${query ? `?${query}` : ''}${location.hash || ''}`);
       return true;

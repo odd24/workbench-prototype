@@ -17,7 +17,7 @@
     if (element.matches('.internal-link[data-reference-id]')) return `[[${element.dataset.referenceToken || element.dataset.referenceId}]]`;
     if (element.matches('.after-reference-paragraph')) return '';
     if (element.nodeName === 'INPUT') return '';
-    if (element.nodeName === 'IMG') return `![${element.getAttribute('alt') || ''}](${element.dataset.markdownSrc || element.getAttribute('src') || ''})`;
+    if (element.nodeName === 'IMG') return `![${requireMarkdownCore().escapeLinkLabel(element.getAttribute('alt') || '')}](${element.dataset.markdownSrc || element.getAttribute('src') || ''})`;
     if (element.nodeName === 'BR') return '\n';
     const content = [...element.childNodes].map(inlineNodeToMarkdown).join('');
     if (['STRONG', 'B'].includes(element.nodeName)) return `**${content}**`;
@@ -35,7 +35,7 @@
       if (color || background) return `<span style="${color ? `color:${color}` : ''}${color && background ? ';' : ''}${background ? `background-color:${background}` : ''}">${content}</span>`;
     }
     if (element.nodeName === 'CODE') return `\`${content}\``;
-    if (element.nodeName === 'A') return `[${content}](${element.getAttribute('href') || ''})`;
+    if (element.nodeName === 'A') return element.dataset.markdownSrc ? `[${requireMarkdownCore().escapeLinkLabel(element.textContent)}](${element.dataset.markdownSrc})` : `[${content}](${element.getAttribute('href') || ''})`;
     return content;
   }
 

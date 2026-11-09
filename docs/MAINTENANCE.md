@@ -181,3 +181,16 @@ proposal3/manifest3(execution_schema_version=1)/approval action3保留原独立�
 设置页“查看当前空间暂存状态”只读元数据；“恢复已接受暂存”在重新打开服务后根据sealed/真实磁盘恢复原ID，不重新读取来源或重传。也可由同client get_upload/complete_upload恢复原会话，空间关闭或权限失效不发布新ready。created可继续首次传输，receiving无完整sealed则failed；已记录evidence的已知半成品可在过期安全清理，超出最后证据的未知尾部需人工核查，保留预算。
 
 “清理当前空间过期暂存”先全量预检固定目录/格式，跳过OS锁持有的在途和binding/consumption保护项。只删通过同句柄大小/hash证明的已知对象，实际关闭DELETE句柄并持久removed后才释放预算。长hash在目录配额锁外，物理rename/delete和预算状态在同一短锁，避免统计重复/缺失；断言materialized在0到used之间，不用截零掩盖竞态。清理失败/第三方对象/未知版本保留现场，不递归删私人目录，不修改正式附件。终结墓碑保留request幂等而不占活跃1000会话限制。外部进程耗盘仍会导致写失败，不能把预检余量说成文件系统原子空间预留。
+
+
+### AG-132 附件事务维护
+
+共同policy为私人schema2，新管理attachment_policy家族；旧schema1/休眠配置不自动升级成正式权。业务提案仍3，新执行attachment@1/schema2；旧b7ce3fe遇新处理器/管理家族拒绝，匹配备份恢复前停服解决未决，不删除日志/快照/part降级。正式附件新增兼容id/sha256字段，记录front matter与项目独立index仍原事实源；知识库无新增附件格式。
+
+已确认意图先保存manifest prepared/copy pending，再在.agent/operations固定part中有界复制。此期间普通写/孤儿清理被write_guard阻止，读取/撤销/切换仍可进行；不要手动删除被引用源或把part当正式附件。服务启动（包括--disable-agent）和停服--agent-recovery-report使用匹配私人配置恢复已接受事务；Agent查询及本机批准action查询走专用锁外hash路径。缺少授权、未知/篡改或partial不足证据时保留现场，report/显式abandon表示接受现盘，不回滚或接管其他文件；被保护的残留需按证据人工核查，不能直接释放源预算。
+
+同名相同字节也不代表本操作发布，须卷/文件身份和摘要证据一致；恢复不会覆盖外部占位。metadata仍before需重查权限/目标/类别；已经after才只补消费与原回执，历史证据仍必须存在。receipt持久后只查询原结果，不重放后来改删。正式时间在接受确认时固定，携时区/唯一history ID跨重启校验；不回填草稿日期。
+
+维护按钮现在可立即退休正式提交已完整完成的源blob：先证明proposal、manifest、receipt及binding/消费映射/SHA大小匹配，再同一DELETE句柄校验删除并记removed，保留墓碑。删除后未记账的崩溃可在磁盘确实不存在且原回执匹配时完成记账；未知/第三方内容不删。在途或未完成消费不能以consumed标签跳过证据。业务ZIP包含正式附件与原索引/Markdown，排除私人授权/上传及.agent快照/part；灾难恢复仍须复制匹配私人状态，不能把旧源权限带入新空间。
+
+本项浏览器专项node test_agent_attachment_workflows.js使用临时库，覆盖共同授权、两主题两宽度、完整批准、项目结果/下载和两个编辑器特殊文件名往返；普通URL标签格式/代码/引用随共享编辑器回归。100MiB专项在test_agent_attachments中验证有界内存和磁盘事实，不替代独立性能/视觉基线。

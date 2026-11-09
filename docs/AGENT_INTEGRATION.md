@@ -238,3 +238,16 @@ capabilities区分Windows实现、当前具体授权与用途操作；configured
 传输在途cancel返回upload_busy，未即时停止；客户端停止连接后查询/取消，或管理员撤销policy阻止发布ready。已接受取消不复活，不重传原会话；失败先查原upload_id。MCP不要求所有客户端具备HTTP字节能力，未实测客户端不宣称支持原始流；原始HTTP和stdio文件来源分别验收，仍不替代AG-142真实模型客户端矩阵。
 
 同源管理clients/{client_id}/upload-policy GET/DELETE、preview/confirm POST；确认仅票据/摘要/CAS和approved，不接替换policy。uploads/maintenance GET只读报告，POST {workspace_id,cleanup:false|true}恢复/安全过期清理，管理凭据不可作上传凭据，Agent不可调用管理路由。新capability uploads.stage及upload_staging明示有效policy/来源/配额，formal_attachment_write=false。
+
+
+### AG-132 正式附件工具与提案
+
+固定MCP目录20项，新增workbench_get_attachment_target（GET attachment-targets/{owner_kind}/{owner_id}），只对当前共同附件许可的具体既有project/issue/todo/info返回revision、附件元数据及已有分类，不提供Agent二进制下载、路径、替换或删除。原prepare/revise/preview/commit/get/cancel_proposal增量支持attachment/create；旧四类型三操作不变。
+
+先由本机管理在上传暂存面板勾选共同attachments.write/create并完整批准，再以同policy建立新ready暂存；随后get_attachment_target取最新revision。prepare外层target_id=owner_id、base_revision必填，content严格{owner_kind,owner_id,upload_id,display_name,category,insert_link}；project的insert_link=false，分类仅已有或空。MCP schema可列两类content字段，服务端按kind拒绝混合/未知字段；正文/路径/元数据不能由Agent自报替换。返回固定最终名称、ID、真实size/SHA/MIME、来源、完整before/after与正文差异；二进制未解析，不能声称看过内容。
+
+完整预览后按最严格的client/共同policy/request确认策略提交。local_web不能自报，需本机完整预览票据和持久action；Agent提交只引用version/digest/确认，不接受临时内容。一次upload仅一有效提案；修订/取消/过期在无执行日志时同步解绑。失败查询原proposal/原网页action，不能换ID重建。copy意图是已接受事务，部分写入可能需恢复或人工核查，不是多文件原子事务。
+
+receipt含owner_kind/id、固定asset ID、upload_id、64hex消费映射、真实受理时间、metadata revision与计划摘要；原响应丢失或后来正式改删仍返回原回执，current_item单列当前状态。记录结果用原条目链接；项目结果为/?item=project&itemId=<encoded ID>&assetId=ASSET-<32hex>，打开附件页并聚焦，不自动下载或执行。21项Node与原始MCP证据见验收，真实模型新功能矩阵仍留AG-142。
+
+旧转换为todo但仍保留ISSUE ID的记录沿用既有receipt.web_path=null契约；可在项目/记录UI查看附件，不重编ID或扩大旧深链语法。

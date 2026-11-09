@@ -141,7 +141,7 @@ def dispatch_policy(handler, parts, runtime, payload):
         manager = management.security.manager()
         operation_id = hashlib.sha256(payload["request_id"].encode()).hexdigest()
         if (manager.directory / (operation_id + ".json")).exists():
-            return manager.run("upload_policy", {"policy": None, "approval_digest": payload["preview_digest"]}, client_id, payload["expected_version"], payload["request_id"])
+            return manager.run(manager._load(manager.directory / (operation_id + ".json"))["operation_family"], {"policy": None, "approval_digest": payload["preview_digest"]}, client_id, payload["expected_version"], payload["request_id"])
         return management.approve(client_id, payload)
     if len(parts) == 3 and handler.command == "DELETE":
         if not isinstance(payload, dict) or set(payload) != {"workspace_id", "expected_version", "request_id"} or payload["workspace_id"] != management.security.workspace_id:

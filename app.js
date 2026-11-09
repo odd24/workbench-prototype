@@ -29,12 +29,12 @@ const editorHostCore = window.Workbench.editorHost;
 const recordEditorHost = editorHostCore.create({
   editor:$('.editor'),
   onChange:() => markEditorChanged(),
-  renderOptions:() => ({renderReference:referenceTokenToHtml, renderImage:markdownImageHtml}),
+  renderOptions:() => ({renderReference:referenceTokenToHtml, renderLink:markdownAttachmentLinkHtml, renderImage:markdownImageHtml}),
 });
 const documentEditorHost = editorHostCore.create({
   editor:$('#documentVisualEditor'),
   onChange:() => markDocumentChanged(),
-  renderOptions:() => ({renderReference:referenceTokenToHtml, renderImage:(alt, source) => markdownImageHtml(alt, source, currentDocument)}),
+  renderOptions:() => ({renderReference:referenceTokenToHtml, renderLink:(label, source) => markdownAttachmentLinkHtml(label, source, currentDocument), renderImage:(alt, source) => markdownImageHtml(alt, source, currentDocument)}),
 });
 const editorHosts = new Map([[recordEditorHost.editor, recordEditorHost], [documentEditorHost.editor, documentEditorHost]]);
 const recordSession = editorSessionCore.create({storage:localStorage, prefix:'workbench-editor-draft'});
@@ -606,7 +606,7 @@ function typeIcon(record) {
 }
 
 function inlineMarkdownToHtml(text) {
-  return markdownCore.inlineMarkdownToHtml(text, {renderReference:referenceTokenToHtml, renderImage:markdownImageHtml});
+  return markdownCore.inlineMarkdownToHtml(text, {renderReference:referenceTokenToHtml, renderLink:markdownAttachmentLinkHtml, renderImage:markdownImageHtml});
 }
 
 function parseReferenceToken(token = '') {
@@ -628,15 +628,32 @@ function referenceTokenToHtml(token) {
   return markdownCore.referenceTokenToHtml(token, referenceTarget);
 }
 
+function markdownAttachmentForSource(source, resource = currentRecord) {
+  if (!resource || !['issue', 'todo', 'info'].includes(resource.type) || /^(?:[a-z][a-z0-9+.-]*:|\/)/i.test(source)) return null;
+  let normalized = String(source).replace(/[?#].*$/, '');
+  try { normalized = decodeURIComponent(normalized); } catch { /* Preserve legacy literal percent names. */ }
+  const filename = normalized.split(/[\\/]/).at(-1);
+  return (resource.attachments || []).map(item => {
+    if (typeof item !== 'string') return item;
+    try { return JSON.parse(item); } catch { return null; }
+  }).find(item => item && (item.path === normalized || item.name === filename)) || null;
+}
+
+function markdownAttachmentLinkHtml(label, source, resource = currentRecord) {
+  const attachment = markdownAttachmentForSource(source, resource);
+  if (!attachment) return null;
+  const url = `/api/attachments/${encodeURIComponent(resource.id)}/${encodeURIComponent(attachment.name)}`;
+  return `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer" data-markdown-src="${escapeHtml(source)}">${escapeHtml(label)}</a>`;
+}
+
 function markdownImageHtml(alt, source, resource = currentRecord) {
   const normalized = String(source || '').trim().replace(/^<|>$/g, '');
-  let filename = normalized.split(/[\\/]/).at(-1) || '';
-  try { filename = decodeURIComponent(filename); } catch { /* 保留包含不完整百分号的原始文件名 */ }
-  filename = filename.replace(/[?#].*$/, '');
-  const attachment = resource === currentRecord && currentRecord && parsedAttachments().find(item => item.name === filename || item.path === normalized);
+  const attachment = markdownAttachmentForSource(normalized, resource);
   let url = normalized;
-  if (attachment) url = `/api/attachments/${encodeURIComponent(currentRecord.id)}/${encodeURIComponent(attachment.name)}`;
-  else if (resource && normalized && !/^(?:[a-z][a-z0-9+.-]*:|\/)/i.test(normalized)) url = `/api/markdown-images/${encodeURIComponent(resource.id)}?path=${encodeURIComponent(normalized)}`;
+  if (attachment) url = `/api/attachments/${encodeURIComponent(resource.id)}/${encodeURIComponent(attachment.name)}`;
+  else if (resource && normalized && !/^(?:[a-z][a-z0-9+.-]*:|\/)/i.test(normalized)) {
+    url = `/api/markdown-images/${encodeURIComponent(resource.id)}?path=${encodeURIComponent(normalized)}`;
+  }
   else if (!/^(?:https?:\/\/|\/api\/attachments\/|\.{0,2}\/)/i.test(normalized)) return `![${escapeHtml(alt)}](${escapeHtml(normalized)})`;
   return `<img class="editor-inline-image" src="${escapeHtml(url)}" alt="${escapeHtml(alt)}" data-markdown-src="${escapeHtml(normalized)}">`;
 }
@@ -662,11 +679,11 @@ function markdownTableAlignment(cell) {
 }
 
 function markdownTableHtml(lines, startIndex) {
-  return markdownCore.markdownTableHtml(lines, startIndex, {renderReference:referenceTokenToHtml, renderImage:markdownImageHtml});
+  return markdownCore.markdownTableHtml(lines, startIndex, {renderReference:referenceTokenToHtml, renderLink:markdownAttachmentLinkHtml, renderImage:markdownImageHtml});
 }
 
 function markdownToHtml(markdown = '', interactive = false, resource = currentRecord) {
-  return markdownCore.markdownToHtml(markdown, {interactive, renderReference:referenceTokenToHtml, renderImage:(alt, source) => markdownImageHtml(alt, source, resource)});
+  return markdownCore.markdownToHtml(markdown, {interactive, renderReference:referenceTokenToHtml, renderLink:(label, source) => markdownAttachmentLinkHtml(label, source, resource), renderImage:(alt, source) => markdownImageHtml(alt, source, resource)});
 }
 
 function cssColorToHex(value = '') {
@@ -687,7 +704,7 @@ function editorToMarkdown(editor) {
 
 function renderMarkdownEditor(editor, markdown, interactive = true) {
   return editorHosts.get(editor)?.render(markdown, interactive)
-    || documentModelCore.render(editor, markdown, {interactive, renderReference:referenceTokenToHtml, renderImage:markdownImageHtml});
+    || documentModelCore.render(editor, markdown, {interactive, renderReference:referenceTokenToHtml, renderLink:markdownAttachmentLinkHtml, renderImage:markdownImageHtml});
 }
 
 const slashCommands = [
@@ -5326,7 +5343,7 @@ document.addEventListener('change', async event => {
 
 async function openItemLink(link = navigationFeature.readItemLink()) {
   if (!link) return false;
-  if (link.invalid || !['issue', 'document', 'todo', 'info'].includes(link.kind)) {
+  if (link.invalid || !['issue', 'document', 'todo', 'info', 'project'].includes(link.kind)) {
     navigationFeature.clearItemLink();
     notify('打开链接无效', '请检查条目类型和编号', true);
     return false;
@@ -5334,9 +5351,9 @@ async function openItemLink(link = navigationFeature.readItemLink()) {
   const request = requestRegistry.begin('item-link', link.itemId);
   try {
     const resource = link.kind === 'document' ? 'documents' : 'records';
-    const item = await api(`/${resource}/${encodeURIComponent(link.itemId)}`);
+    const item = link.kind === 'project' ? {...projects.find(project => project.id === link.itemId), type:'project'} : await api(`/${resource}/${encodeURIComponent(link.itemId)}`);
     if (!requestRegistry.isCurrent(request)) return false;
-    if (!item || item.type !== link.kind) throw new Error('链接类型与条目不符');
+    if (!item || item.type !== link.kind || (link.kind === 'project' && !item.id)) throw new Error('链接类型与条目不符或目标不存在');
     if (recordConflict.current || hasUnsavedProjectEdit() || recordSession.saving || documentSession.saving) {
       notify('请先处理当前编辑', '保存或处理当前冲突后再打开链接', true);
       return false;
@@ -5345,6 +5362,19 @@ async function openItemLink(link = navigationFeature.readItemLink()) {
     if ($('#documentDialog').open && !await closeDocumentEditor({preserveItemLink:true})) return false;
     if (detailDrawer.classList.contains('visible') && !await closeDrawer({preserveItemLink:true})) return false;
     if (!requestRegistry.isCurrent(request)) return false;
+    if (link.kind === 'project') {
+      if (!item.id) throw new Error('链接中的项目不存在');
+      selectedProjectId = item.id;
+      projectTab = 'assets';
+      projectAssetCategoryFilter = ''; projectAssetSearch = '';
+      await loadProjectAssets(item.id, {force:true});
+      if (!requestRegistry.isCurrent(request)) return false;
+      setPage('project', {preserveItemLink:true});
+      const button = document.querySelector(`[data-open-project-asset="${CSS.escape(link.assetId)}"]`);
+      if (button) { button.scrollIntoView({block:'center'}); button.focus({preventScroll:true}); }
+      else notify('附件已不存在', '当前项目仍可查看；原入库回执不会重建附件。', true);
+      return Boolean(button);
+    }
     if (link.kind === 'document') {
       documents = [...documents.filter(document => document.id !== item.id), item];
       setPage('documents', {preserveItemLink:true});

@@ -176,3 +176,18 @@ root3/authorization4/transport2保留，管理日志4新增严格operation_famil
 单文件100MiB/client500MiB/workspace1GiB，1000个仍占资源的会话，24h保留；removed终结墓碑不占活跃会话数，仍保留幂等不让旧request重建。目录跨进程短锁保护预留、物理重命名/删除和removed预算发布；每session OS锁防重复I/O，2/client、4/workspace并发。磁盘free仅再扣未落盘预留（声明总量-真实part/blob占用）和新会话，留16MiB，不将已落盘字节重复扣算。所有内容切换同配额锁，断言0≤materialized≤used；流/hash不持该全局锁。外部进程耗盘仍可能失败，失败或删除未完成不释放预算。
 
 清理仅已知、过期、未绑定且非在途对象，先终结后同一已验证DELETE+READ句柄hash/标删除，短配额锁内关闭句柄实际删除并持久removed；源读取句柄无DELETE权。未知/篡改对象不删，不能仅按路径先验后unlink。处于保护/在途的维护返回protected/busy，不声称已清理。凭据/策略/暂存备份均私人；正文不进普通ZIP、Git、搜索、历史或正式附件索引。
+
+
+### AG-132 正式附件与执行格式
+
+私人upload-policies schema2在每项增加attachment_write:null或{capability:attachments.write,operations:[create],minimum_confirmation_mode:agent_attested|local_web}，且每client最多一个enabled策略；owner沿用同项具体owner_kind/id。共同授权使用管理日志4新attachment_policy家族，快照before/after_policies可为旧1和新2；原root3/auth4/transport2不变，写后不自动降级。省略或旧schema1没有正式写权限，既有休眠grants仍不生效；schema2下stage-only预览显式显示null并撤销旧共同许可。CAS绑定批准后完整client_version，旧ready不迁移。
+
+提案仍schema3，新kind=attachment/operation=create，target_id为既有owner，base_revision为记录原始Markdown SHA或项目assets/index.json原始字节SHA（缺失取空字节SHA，损坏索引拒绝）。content仅六项owner_kind/id、upload_id、display_name、category、insert_link。项目/issue/todo/info之外拒绝，项目不插正文，分类不自动创建。normalization由附件领域产生固定ASSET-<upload UUID hex>、最终name/path/size/mime/category/id/sha256（项目另有created）、binary_relative/metadata_relative、完整metadata_before/after、body、source与policy等依据；不给Agent机器绝对路径。记录仍使用原attachments列表，项目仍原index列表，新id/sha256是兼容的额外元数据，旧读写保留；没有知识库附件新格式。
+
+依赖schema2包含owner快照、owner_revision、category_revision、upload_id、policy_id、source_sha256。category_revision绑定类别配置原始摘要和从项目索引/当前记录推导的现有名称集合；目标内容/索引及相关集合最终重验。执行计划attachment@1包含固定五步骤及source_bindings（upload/owner revision/bytes/SHA）。source与binding保护先持久proposal再镜像，不以session.binding为空证明无引用。binding仍schema1/proposal_id/version/owner_revision，consumption仍schema1/operation_id=sha256(proposalUUID-version)，不放宽为任意字符串。
+
+新manifest保持外层schema3、独立execution_schema_version=2，位于原operations/<proposalUUID-version>/manifest.json；静态handler attachment@1，字段绑定metadata相对路径及前后摘要、binary_relative、固定asset ID、upload ID/消费ID、authorization_revision、依赖、预览/批准、history_version、metadata_time、copy_evidence、五步骤状态及原receipt。before.md/after.md仅保存元数据快照（项目为JSON字节）；binary.part只在.agent流程目录。确认及固定计划先落prepared/copy pending，再复制；copy_evidence含真实bytes/SHA及volume/index/size/created/written/changed，最终同身份不覆盖rename。没有manifest的残留不是已接受确认，不自动发布。已接受partial证据不足保留；完整part可重验补证据；同名相同SHA但不同身份不接管。
+
+预览的record.updated/project-asset.created显示“提交确认时由服务端生成”，只在受理当前确认时定稿；实际after摘要与metadata_time、真实committed_at、原有格式的唯一history ID记入manifest，重试沿用，不使用草稿时间。时间校验按明确时区的同一时刻进行，不因恢复机器时区不同改写原时间。正文无插链接时原body片段逐字保留，插入时经公共助手只追加，不允许把任意正文改写伪装附件创建；未知meta/info_fields保持。
+
+完成源消费不立即等同可清理。维护仅在committed proposal/manifest/receipt及binding/消费映射/源SHA大小全匹配后退休已消费blob；不需等待24h，但仍须同一已验证句柄安全删除并记removed，失败保留预算。墓碑与receipt供幂等、留原结果，不重建后来删改的附件。未知/在途/未完成消费仍protected。所有私人策略、暂存和.agent意图/快照/part不进可移植ZIP；正式附件及原Markdown/index按原导出规则进入。

@@ -135,6 +135,15 @@ class Repository:
         domain = self._document_repository if kind == "document" else self._record_repository
         return (domain.apply_document_write if kind == "document" else domain.apply_record_write)(prepared, checkpoint)
 
+    def prepare_attachment_create(self, *args, **kwargs):
+        return self._attachment_repository.prepare_attachment_create(*args, prepare_record_update=self._record_repository.prepare_record_update, **kwargs)
+
+    def attachment_target(self, kind, owner_id):
+        return self._attachment_repository.attachment_target(kind, owner_id)
+
+    def apply_attachment_metadata(self, prepared, checkpoint=None):
+        return self._attachment_repository.apply_attachment_metadata(prepared, self._record_repository.apply_record_write, checkpoint)
+
     def _ensure_config(self):
         settings = self.config_dir / "settings.json"
         atomic_write_json(settings, {"version": 1, "data_dir": str(self.root)})

@@ -50,7 +50,7 @@ class ProposalManagement:
     def list(self, params):
         if set(params) - {"limit", "cursor", "client_id", "kind", "state", "operation"}:
             raise AgentError("unknown_parameter", "提案筛选参数无效")
-        if params.get("kind") and params["kind"] not in {"issue", "todo", "info", "document"} or params.get("state") and params["state"] not in STATES or params.get("operation") and params["operation"] not in {"create", "append", "update"}:
+        if params.get("kind") and params["kind"] not in {"issue", "todo", "info", "document", "attachment"} or params.get("state") and params["state"] not in STATES or params.get("operation") and params["operation"] not in {"create", "append", "update"}:
             raise AgentError("invalid_filter", "提案筛选值无效")
         clients = self._clients()
         items = []
@@ -70,6 +70,15 @@ class ProposalManagement:
         authorized = bool(client and client.get("enabled") and {"read", "propose", "commit"} <= set(client.get("scopes", [])) and allows(client, proposal["access_target"]))
         if authorized:
             authorized = client["client_id"] not in self.runtime.security().manager().blocked_clients()
+        if authorized and proposal['kind'] == 'attachment' and not proposal.get('content_cleaned'):
+            try:
+                from .agent_attachments import AttachmentService
+                attachment = AttachmentService(AgentService(self.repository, self.runtime.security()))
+                view = proposal['normalized_content']
+                attachment.policy(client, view['owner_kind'], view['owner_id'], view['policy_id'])
+                authorized = proposal['authorization_revision']['client_version'] == client_version(client)
+            except AgentError:
+                authorized = False
         return {**self._summary(proposal, clients), "authorization_available": authorized,
                 "confirmation_mode": proposal.get("confirmation_mode", "agent_attested"),
                 "preview_digest": proposal.get("preview_digest"), "source_note": proposal.get("source_note", ""),
@@ -95,7 +104,7 @@ class ProposalManagement:
             self.store.preview(proposal)
             ticket = secrets.token_urlsafe(32)
             now = time.monotonic()
-            self.runtime.preview_tickets = {key: value for key, value in self.runtime.preview_tickets.items() if value["expires"] > now}
+            self.runtime.preview_tickets = {key: value for key, value in self.runtime.preview_tickets.items() if value.get("expires", value.get("file_expiry", float("inf"))) > now}
             if len(self.runtime.preview_tickets) >= 1000:
                 raise AgentError("preview_limit", "管理预览过多，请稍后重试", 429)
             self.runtime.preview_tickets[ticket] = {"workspace_id": self.workspace_id, "proposal_id": proposal_id, "version": proposal["version"],
@@ -155,7 +164,7 @@ class ProposalManagement:
         return result
 
     @service_operation
-    def approve(self, proposal_id, payload):
+    def approval_intent(self, proposal_id, payload):
         self._require_store().preflight()
         fields = {"workspace_id", "version", "preview_digest", "preview_ticket", "request_id"}
         if not isinstance(payload, dict) or set(payload) != fields or payload["workspace_id"] != self.workspace_id or type(payload["version"]) is not int or not isinstance(payload["preview_ticket"], str):
@@ -170,7 +179,7 @@ class ProposalManagement:
             action = self._load_approval(path)
             if action["input_digest"] != signature:
                 raise AgentError("request_conflict", "请求编号已用于其他批准内容", 409)
-            return self.action(payload["request_id"])
+            return {"previous": True, "request_id": payload["request_id"]}
         store = self._require_store()
         proposal = store._load(proposal_id)
         ticket = self.runtime.preview_tickets.get(payload["preview_ticket"])
@@ -202,12 +211,47 @@ class ProposalManagement:
             proposal["approval"] = approval
             store._save(proposal)
             self.checkpoint("approval_proposal")
-            receipt = store.commit(proposal, payload["version"], payload["preview_digest"], {"mode": "local_web"}, prepared, local_approval=approval)
-            self.checkpoint("approval_committed")
-            action.update(state="completed", result=receipt)
-            atomic_write_json(path, action)
-            self.runtime.preview_tickets.pop(payload["preview_ticket"], None)
-            return {"request_id": action["request_id"], "state": "completed", "receipt": receipt, "proposal_id": proposal_id}
+            return {"previous":False, "service":service, "proposal":proposal, "prepared":prepared, "action":action, "path":path, "approval":approval}
+
+    @service_operation
+    def approve(self, proposal_id, payload):
+        with credential_lock(self.runtime.security().config_dir):
+            intent = self.approval_intent(proposal_id, payload)
+            if intent['previous']:
+                return self.action(payload['request_id'])
+            proposal = intent['proposal']
+            if proposal['kind'] == 'attachment':
+                raise AgentError('unlocked_dispatch_required', '附件批准必须使用专用流式协调入口', 503)
+            receipt = self.store.commit(proposal, payload['version'], payload['preview_digest'], {'mode':'local_web'}, intent['prepared'], local_approval=intent['approval'])
+            return self.finish_approval(intent, payload, receipt)
+
+
+    @service_operation
+    def finish_approval(self, intent, payload, receipt):
+        self.checkpoint('approval_committed')
+        action = intent['action']
+        action.update(state='completed', result=receipt)
+        atomic_write_json(intent['path'], action)
+        self.runtime.preview_tickets.pop(payload['preview_ticket'], None)
+        return {'request_id':action['request_id'], 'state':'completed', 'receipt':receipt, 'proposal_id':action['proposal_id']}
+
+    def approve_attachment(self, proposal_id, payload, guard):
+        intent = guard(lambda:self.approval_intent(proposal_id, payload))
+        if intent['previous']:
+            return self.attachment_action(payload['request_id'], guard)
+        from .agent_attachment_execution import AttachmentExecution
+        execution = AttachmentExecution(intent['service'])
+        receipt = execution.commit(intent['service'].security.clients()[intent['proposal']['client_id']], proposal_id,
+                                    {'version':payload['version'], 'preview_digest':payload['preview_digest'], 'confirmation':{'mode':'local_web'}}, guard=guard, local_approval=intent['approval'])
+        return guard(lambda:self.finish_approval(intent, payload, receipt))
+
+    def attachment_action(self, request_id, guard):
+        action = guard(lambda:self._load_approval(self._action_path(request_id)))
+        if action['state'] == 'approved' and (self.store.operations / action['business_operation_id'] / 'manifest.json').exists():
+            from .agent_attachment_execution import AttachmentExecution
+            service = AgentService(self.repository, self.runtime.security())
+            AttachmentExecution(service).recover(action['proposal_id'], guard)
+        return guard(lambda:self.action(request_id))
 
     def _load_approval(self, path):
         action = read_json(path)

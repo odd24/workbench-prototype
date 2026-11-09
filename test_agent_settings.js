@@ -220,7 +220,7 @@ async function main() {
     assert.notEqual(JSON.parse(fs.readFileSync(path.join(credentials, workspace, `${clientId}.json`), 'utf8')).token, previousToken);
     await click('[data-agent-action="diagnose"]');
     await waitForPage(client, "document.querySelector('.agent-diagnostic')?.textContent.includes('自检 capabilities 只读请求成功')");
-    assert.equal(await client.evaluate("document.querySelector('.agent-diagnostic').textContent.includes('19 个工具')"), true);
+    assert.equal(await client.evaluate("document.querySelector('.agent-diagnostic').textContent.includes('20 个工具')"), true);
     await click('[data-agent-action="refresh"]');
     await waitForPage(client, "!agentSettingsFeature.isBusy() && document.querySelector('.agent-client')?.textContent.includes('最近自检请求：')");
     assert.equal(await client.evaluate("document.querySelector('.agent-client').textContent.includes('最近客户端请求：暂无记录')"), true);

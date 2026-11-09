@@ -19,16 +19,25 @@ def policy_path(security):
 
 def validate_policies(value, security):
     try:
-        if set(value) != {"schema_version", "workspace_id", "policies"} or type(value["schema_version"]) is not int or value["schema_version"] != 1 or value["workspace_id"] != security.workspace_id or not isinstance(value["policies"], dict):
+        if set(value) != {"schema_version", "workspace_id", "policies"} or type(value["schema_version"]) is not int or value["schema_version"] not in (1, 2) or value["workspace_id"] != security.workspace_id or not isinstance(value["policies"], dict):
             raise ValueError()
+        enabled_clients = set()
         for key, item in value["policies"].items():
-            if file_id(key) != item["policy_id"] or set(item) != {"policy_id", "client_id", "client_version", "owner_kind", "owner_id", "stream", "files", "max_bytes", "expires_at", "enabled"}:
+            if file_id(key) != item["policy_id"] or set(item) != {"policy_id", "client_id", "client_version", "owner_kind", "owner_id", "stream", "files", "max_bytes", "expires_at", "enabled"} | ({"attachment_write"} if value["schema_version"] == 2 else set()):
                 raise ValueError()
             file_id(item["client_id"])
             if not re.fullmatch("[a-f0-9]{64}", item["client_version"]) or item["owner_kind"] not in {"issue", "todo", "info", "document", "project"} or not isinstance(item["owner_id"], str) or not 1 <= len(item["owner_id"]) <= 100 or type(item["stream"]) is not bool or type(item["enabled"]) is not bool or type(item["max_bytes"]) is not int or not 1 <= item["max_bytes"] <= 104857600 or type(item["expires_at"]) is not int or item["expires_at"] <= 0 or not isinstance(item["files"], list) or len(item["files"]) > 100:
                 raise ValueError()
             if not item["stream"] and not item["files"]:
                 raise ValueError()
+            if value["schema_version"] == 2:
+                grant = item["attachment_write"]
+                if grant is not None and (not isinstance(grant, dict) or set(grant) != {"capability", "operations", "minimum_confirmation_mode"} or grant["capability"] != "attachments.write" or grant["operations"] != ["create"] or grant["minimum_confirmation_mode"] not in {"agent_attested", "local_web"} or item["owner_kind"] == "document"):
+                    raise ValueError()
+            if item["enabled"]:
+                if item["client_id"] in enabled_clients:
+                    raise ValueError()
+                enabled_clients.add(item["client_id"])
             ids = set()
             for source in item["files"]:
                 if set(source) != {"file_id", "source_revision"} or file_id(source["file_id"]) in ids or not re.fullmatch("[a-f0-9]{64}", source["source_revision"]):
@@ -129,14 +138,24 @@ class UploadPolicyManagement:
         return client
 
     def preview(self, key, payload):
-        if not isinstance(payload, dict) or set(payload) != {"workspace_id", "expected_version", "owner_kind", "owner_id", "stream", "files", "max_bytes", "duration_seconds"} or payload["workspace_id"] != self.security.workspace_id or type(payload["duration_seconds"]) is not int or not 1 <= payload["duration_seconds"] <= 86400:
+        if not isinstance(payload, dict) or set(payload) - {"attachment_write", "minimum_confirmation_mode"} != {"workspace_id", "expected_version", "owner_kind", "owner_id", "stream", "files", "max_bytes", "duration_seconds"} or payload["workspace_id"] != self.security.workspace_id or type(payload["duration_seconds"]) is not int or not 1 <= payload["duration_seconds"] <= 86400:
             raise AgentError("invalid_request", "暂存授权预览字段无效")
         with self.runtime.repository.write_lock, credential_lock(self.security.config_dir):
             client = self.client(key, payload["expected_version"])
             owner = authorized_owner(self.runtime.repository, client, payload["owner_kind"], payload["owner_id"])
             after = {**client, "authorization_schema_version": 4, "management_revision": int(client.get("management_revision", 0)) + 1}
             policy = {"policy_id": str(uuid.uuid4()), "client_id": key, "client_version": client_version(after), "owner_kind": payload["owner_kind"], "owner_id": payload["owner_id"], "stream": payload["stream"], "files": payload["files"], "max_bytes": payload["max_bytes"], "expires_at": int(time.time()) + payload["duration_seconds"], "enabled": True}
-            validate_policies({"schema_version": 1, "workspace_id": self.security.workspace_id, "policies": {policy["policy_id"]: policy}}, self.security)
+            if "attachment_write" in payload:
+                if payload["attachment_write"] is not True or payload.get("minimum_confirmation_mode") not in {"agent_attested", "local_web"}:
+                    raise AgentError("invalid_request", "正式附件许可需明确操作和最低确认策略")
+                for scope in ("propose", "commit"):
+                    require_scope(client, scope)
+                policy["attachment_write"] = {"capability": "attachments.write", "operations": ["create"], "minimum_confirmation_mode": payload["minimum_confirmation_mode"]}
+            elif "minimum_confirmation_mode" in payload:
+                raise AgentError("invalid_request", "最低确认策略只用于共同附件许可")
+            if "attachment_write" not in policy and load_policies(self.security)["schema_version"] == 2:
+                policy["attachment_write"] = None
+            validate_policies({"schema_version": 2 if "attachment_write" in policy else 1, "workspace_id": self.security.workspace_id, "policies": {policy["policy_id"]: policy}}, self.security)
             names = []
             for source in policy["files"]:
                 grant = get_authorized(self.security, client, source["file_id"], "attachment_source")
@@ -145,6 +164,8 @@ class UploadPolicyManagement:
                 names.append({"file_id": grant["file_id"], "display_name": grant["display_name"], "source_revision": grant["source_revision"]})
         preview = {"workspace_id": self.security.workspace_id, "client_id": key, "client_name": client["name"], "expected_version": client_version(client), "policy": policy, "owner": owner, "sources": names,
                    "disclosure": "仅授权上传暂存，不创建正式附件或写入正文。替代本客户端旧暂存策略；任何客户端授权或凭据变化均需重新批准。来源文件须另有有效附件来源授权；内容仅存本机私人暂存，24小时后按安全规则清理。"}
+        if policy.get("attachment_write"):
+            preview["disclosure"] = "共同授权具体目标的uploads.stage与attachments.write/create。暂存后仍须正式提案完整预览及按最低策略明确确认；不授权其他目标、文档、替换或删除。任何客户端变动使两许可同时失效，须重新共同批准并建立新暂存；不迁移旧ready。"
         ticket = secrets.token_hex(32)
         for ticket_id, value in list(self.runtime.preview_tickets.items()):
             if "upload_preview" in value and value.get("expires", 0) < time.monotonic():
@@ -165,7 +186,7 @@ class UploadPolicyManagement:
             self.client(key, payload["expected_version"])
             if owner_snapshot(self.runtime.repository, preview["owner"]["kind"], preview["owner"]["id"]) != preview["owner"]:
                 raise AgentError("owner_changed", "目标变化，请重新预览", 409)
-            return self.security.manager().run("upload_policy", {"policy": preview["policy"], "approval_digest": payload["preview_digest"]}, key, payload["expected_version"], payload["request_id"])
+            return self.security.manager().run("attachment_policy" if preview["policy"].get("attachment_write") else "upload_policy", {"policy": preview["policy"], "approval_digest": payload["preview_digest"]}, key, payload["expected_version"], payload["request_id"])
 
     def list(self, key):
         client = self.security.clients().get(file_id(key))

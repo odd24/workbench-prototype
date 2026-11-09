@@ -8,7 +8,7 @@
 
 后续扩展详见 [AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。AG-115仅文档；AG-116～121、AG-126已完成；用户已明确仅本机使用，AG-122～125已取消当前实施、远程未实现。当前WorkBuddy5.9.3与本机最终交付证据见末尾及扩展验收，不影响首期历史状态。
 
-2026-11-09 用户在监督对话明确“现在开始执行方案”，解除此前暂停实施限制。AG-128～130及独立POST锁修复已通过监督审查，AG-131已完成待交接审查，AG-132～143待开始。历史 AG-127 的仅文档授权和暂停事实保留。
+2026-11-09 用户在监督对话明确“现在开始执行方案”，解除此前暂停实施限制。AG-128～130及独立POST锁修复已通过监督审查，AG-131已通过监督审查，AG-132已完成待交接审查，AG-133～143待开始。历史 AG-127 的仅文档授权和暂停事实保留。
 
 ## 工作项
 
@@ -46,7 +46,7 @@
 | AG-129 | 新提案格式与多步骤持久恢复基础 | 已完成 | 2026-11-09 | 2026-11-09 | AG-128；监督已接受f6463db并派发 |
 | AG-130 | 本机文件授权与分段读取 | 已完成 | 2026-11-09 | 2026-11-09 | AG-128；具体文件独立批准，Windows固定NTFS |
 | AG-131 | 流式暂存、上传会话、配额与清理 | 已完成 | 2026-11-09 | 2026-11-09 | AG-129；监督接受eeeaf86后派发；实际结果见末节 |
-| AG-132 | 记录与项目附件提案入库 | 待开始 | — | — | AG-130、131 |
+| AG-132 | 记录与项目附件提案入库 | 已完成 | 2026-11-09 | 2026-11-09 | AG-130、131；监督接受b7ce3fe后派发；实际结果见末节 |
 | AG-133 | 知识库附件领域能力与网页接入 | 待开始 | — | — | AG-131、132 |
 | AG-134 | 概念图版本、历史与准备写入 | 待开始 | — | — | AG-129 |
 | AG-135 | 概念图 Agent 提案与完整预览 | 待开始 | — | — | AG-128、134 |
@@ -985,3 +985,28 @@ AG-131开工发现130验证缺口：虽然专用文件管理dispatcher在hash外
 - 决策AG-LOCAL-DEC-024～029。保留本机同步OS等待、许可后响应可迟到、未知磁盘证据需人工核查、墓碑增长及保守client版本失效边界；无阻塞本项遗留。下一项AG-132等待监督审查派发，本项不顺带开始132～143。
 
 AG-131提交前最终检查：71Python/46JavaScript全文件语法通过（编译输出临时目录），10份修改Markdown UTF-8/围栏/74相对链接通过；最终目标diff、后续AG-132～143待开始及git diff --check通过，无业务数据、私人凭据、日志或截图夹带。
+
+
+### 2026-11-09 / AG-132 / 开始
+
+- 授权：用户总体执行授权持续，监督接受AG-131/b7ce3fe后派发；git status --short干净，唯一执行写入，监督只读。
+- 精确范围：新的明确attachments.write资源授权；既有issue/todo/info及项目独立附件的attachment/create提案、完整预览/两确认路径、领域准备/应用、binary/历史/正文或索引/暂存绑定消费/回执的分阶段恢复；最小只读附件元数据及既有网页显示下载/导出验证。只处理既有目标，知识库、新建归属、替换/删除附件留后续，不激活旧休眠grant。
+- 预计文件：assets/repository领域准备应用；agent_attachment相关静态处理器、execution/proposals/service/security/management/HTTP/tool契约，uploads绑定保护与协调；agent-settings/proposals UI/index；附件领域、授权、恢复、HTTP/MCP/浏览器专项及既有回归；方案/台账/验收/架构/格式/接入使用维护/README/AGENTS。
+- 计划检查：旧授权不扩权、CAS/撤销与stage授权顺序、owner/index/category/source/filename依赖、确认前零正式写入、同名409、同upload单有效绑定、修订取消过期解绑、未知日志保护、逐阶段真实os._exit及磁盘重读、第三方修改/权限变化、长流期间换库/关闭/普通网页写入/孤儿清理、100MiB有界复制、原始MCP、必要全量Python/Node/全文件语法、真实Edge浅深桌面窄屏/显示下载备份导出；全部临时数据/隔离配置。
+- 主要风险：client_version批准循环、暂存与正式提案跨日志恢复、文件发布和metadata不同步、未索引binary被孤儿清理、长I/O持锁、旧客户端或旧格式误恢复新处理器。先定稿持久授权/具体计划/锁序，不以长全局锁或新状态机绕过；133～143保持待开始。
+
+AG-132开工补充：100MiB专项采用test_agent_attachments临时文件验证有界复制/真实磁盘，独立performance_acceptance.py和visual_baseline.js本项不扩展、不据此宣称完整性能/视觉基线。记录/知识库共享Markdown适配是本项特殊文件名正确性所需，两个编辑器均验证保存重开；文件票据与提案票据期限混合及新项目深链双重load互相取消在端到端暴露，登记为本项贯通缺陷修复，保留失败与复验事实。
+
+
+### 2026-11-09 / AG-132 / 完成
+
+- 实际文件：新增attachment_prepared、agent_attachments、agent_attachment_execution、agent_attachment_http及Python/Node附件专项；修改assets/repository、execution/proposals/service/proposal_management/management、upload_policy/uploads/upload_http/management_http/http_api/file_handles、server生命周期；agent-settings/proposals、共享Markdown/document-model/navigation/app及index缓存；相关assets/Agent/capabilities/diagnostics/MCP/settings/Markdown/入口测试及两个客户端目录预期；同步AGENTS/README、本机方案/台账/验收、架构/格式/接入使用维护。
+- 数据/API：具体owner共同policy2/新attachment_policy日志家族，root3/auth4/log4/transport2及dormant不变；一次明确批准后新暂存，client_version同绑定无循环，不迁移旧ready。attachment/create/静态attachment@1与execution_schema2仍用唯一ProposalStore/领域Prepared；20工具新增get_attachment_target仅元数据。记录/项目附件事实源不变，兼容额外id/sha256；无文档附件格式。正式名称/ID固定，时间明确占位后在受理确认时定稿。APP_VERSION2026.11.09.6，所有涉及JS缓存20261109-6。
+- 恢复/安全：确认与固定计划先manifest，锁外64KiB复制/校验与同句柄不覆盖发布；15提交、3镜像缺口、7共同许可、4退休阶段真实退出。source引用事实与保护镜像、严格消费映射、权限前后/类别集合/原生身份/历史/元数据重读及回执恢复；未知/partial/外部同名保留，消费完整回执后才允许安全退休源，预算实际删除后释放。原始body（含CRLF/首尾空格）只保留或公共助手追加，info字段/未知meta保留；旧转换todo ID仍可写附件，沿用既有无深链限制、不改ID。
+- 自动实际：全量python -m unittest -v 337项256.901秒通过（1原生符号链接权限skip），发生在最后四个附件边界补测前；后续22附件专项50.952/51.737秒、相关93项144.534秒（1skip）通过；旧损坏metadata补测+assets10项1.448秒、最后assets+23附件32项74.179秒、API+23附件36项92.497秒及转换todo/旧二进制1项4.137秒通过。100MiB复制各样本<8MiB（最新36组1290746B/2.73秒）；只称有界字节场景，不称性能基线。原始stdio20工具正式附件流程/重放/拒path通过；真实Codex0.163.0-alpha.10.2/MCP2025-11-25/20工具原四类型两确认与故障回归通过，0模型turn、用户配置未改，不替代142。
+- 浏览器/Node：21项分批全部通过，首3附件/提案/设置，后17项（含Agent/编辑器/概念图等），最后timestamp独立复验exit=0并清理完成；不写一次整组全绿。新端到端共同授权/取消/完整预览/网页批准、项目结果聚焦/下载、特殊[]()%#中文空格文件名，以及记录与知识库各视觉→Markdown→保存→重开通过，八张浅深×1440/390截图已目视。普通URL粗斜体对比b7ce3fe baseline相同，代码/引用/原外部图片/XSS及原编辑器保存冲突回归通过，无新增CSS。
+- 失败保留：121相关首轮1失败/1错误（旧19工具预期与未知绑定应保护）定向复验关闭；夹具目录/历史ID/不完整edit/中文HTTP编码/网页误带Agent头已修正。端到端暴露文件/提案票据期限共存400、项目深链双load互相取消，已按当前正确性修复；初始化及第二次共同批准测试等待命中旧状态，改等真实初始化/新owner行，不放宽断言或超时。全Node首轮Agent刷新domCore未加载、后批timestamp120条断言false，分别独立复验通过且exit=0，根因未证明，保留观察，不归责OS。详情见本机验收132。
+- 决策AG-LOCAL-DEC-030～036；当前原生能力仅已验证Windows本机NTFS，其他平台拒绝；保守授权失效/同步内核等待/外部文件系统与磁盘竞争/许可后迟到/未知partial人工核查边界保留。普通CLI/UI/MCP复用现有权限和状态机，正式字节/metadata后重读，不宣称多文件原子事务。没有真实数据、私人配置或模型任务操作，无本项清理遗留/审批拒绝。
+- 完成后交监督审查，不自动推进AG-133～143。
+
+AG-132提交前最终检查：76个Python/47个JavaScript全文件语法、10份修改Markdown UTF-8/围栏/76个相对链接及git diff --check通过；AG-132已完成、AG-133～143待开始。目标测试进程检查无匹配残留，diff不含业务数据、凭据、日志或评审截图。

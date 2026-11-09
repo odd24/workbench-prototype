@@ -546,7 +546,7 @@ class FileHTTPTests(unittest.TestCase):
             rpc.call("initialize", INITIALIZE)
             rpc.notify("notifications/initialized")
             tools = rpc.call("tools/list")["tools"]
-            self.assertEqual(len(tools), 19)
+            self.assertEqual(len(tools), 20)
             files = rpc.call("tools/call", {"name": "workbench_list_file_grants", "arguments": {}})["structuredContent"]
             item = files["items"][0]
             metadata = rpc.call("tools/call", {"name": "workbench_get_file_info", "arguments": {"file_id": result["file_id"]}})["structuredContent"]

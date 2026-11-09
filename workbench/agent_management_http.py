@@ -34,6 +34,9 @@ def dispatch(handler):
                 raise AgentError("invalid_request", "筛选参数不能重复")
             params = {key: values[0] for key, values in raw.items()}
         parts = route.split("/")
+        from .agent_attachment_http import dispatch_management as dispatch_attachments
+        if dispatch_attachments(handler, parts, origin):
+            return True
         if route == "uploads/maintenance":
             from .agent_upload_http import dispatch_maintenance
             dispatch_maintenance(handler, origin)

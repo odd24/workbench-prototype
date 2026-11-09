@@ -125,15 +125,22 @@
     return 'left';
   }
 
-  function inlineMarkdownToHtml(text, options = {}) {
-    const renderReference = options.renderReference || (token => `[[${escapeHtml(token)}]]`);
-    const renderImage = options.renderImage || ((alt, source) => `![${escapeHtml(alt)}](${escapeHtml(source)})`);
+  function escapeLinkLabel(value = '') {
+    return String(value).replace(/([\\`*{}_\[\]<>!])/g, '\\$1');
+  }
+
+  function unescapeLinkLabel(value) {
+    return unescapeHtml(value).replace(/\\([\\`*{}_\[\]<>!])/g, '$1');
+  }
+
+  function inlineFormatting(text) {
     let output = String(text);
-    output = output.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
-    output = output.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, source) => renderImage(unescapeHtml(alt), unescapeHtml(source)));
-    output = output.replace(/\[\[([A-Za-z]+-\d+)(?:#(body|attachment)(?::([^\]]+))?)?\]\]/g, (_, id, kind = '', payload = '') => renderReference(`${id.toUpperCase()}${kind ? `#${kind}${payload ? `:${payload}` : ''}` : ''}`));
-    output = output.replace(/\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
-    output = output.replace(/`([^`]+)`/g, '<code>$1</code>');
+    const literals = [];
+    let prefix = '\uE002WB_LITERAL';
+    while (output.includes(prefix)) prefix += '_';
+    const preserve = value => { const key = `${prefix}${literals.length}\uE003`; literals.push(value); return key; };
+    output = output.replace(/\\([\\`*{}_\[\]<>!])/g, (_, value) => preserve(value));
+    output = output.replace(/`([^`]+)`/g, (_, value) => preserve(`<code>${value}</code>`));
     output = output.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     output = output.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
     output = output.replace(/~~([^~]+)~~/g, '<s>$1</s>');
@@ -143,6 +150,31 @@
       if (next === output) break;
       output = next;
     }
+    for (let index = literals.length - 1; index >= 0; index--) output = output.replace(`${prefix}${index}\uE003`, () => literals[index]);
+    return output;
+  }
+
+  function inlineMarkdownToHtml(text, options = {}) {
+    const renderReference = options.renderReference || (token => `[[${escapeHtml(token)}]]`);
+    const renderImage = options.renderImage || ((alt, source) => `![${escapeHtml(alt)}](${escapeHtml(source)})`);
+    let output = String(text);
+    output = output.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
+    const fragments = [];
+    let prefix = '\uE000WB_LINK';
+    while (output.includes(prefix)) prefix += '_';
+    const preserve = html => { const token = `${prefix}${fragments.length}\uE001`; fragments.push(html); return token; };
+    output = output.replace(/!\[((?:\\.|[^\]\\])*)\]\(([^)]+)\)/g, (_, alt, source) => preserve(renderImage(unescapeLinkLabel(alt), unescapeHtml(source))));
+    output = output.replace(/\[\[([A-Za-z]+-\d+)(?:#(body|attachment)(?::([^\]]+))?)?\]\]/g, (_, id, kind = '', payload = '') => renderReference(`${id.toUpperCase()}${kind ? `#${kind}${payload ? `:${payload}` : ''}` : ''}`));
+    output = output.replace(/\[((?:\\.|[^\]\\])+)\]\(([^)]+)\)/g, (original, label, source) => {
+      const text = unescapeLinkLabel(label);
+      const target = unescapeHtml(source);
+      const rendered = options.renderLink?.(text, target);
+      if (rendered) return preserve(rendered);
+      if (/^(?:https?:\/\/|mailto:)/i.test(target)) return preserve(`<a href="${escapeHtml(target)}" target="_blank" rel="noreferrer">${inlineFormatting(escapeHtml(unescapeHtml(label)))}</a>`);
+      return original;
+    });
+    output = inlineFormatting(output);
+    fragments.forEach((html, index) => { output = output.replace(`${prefix}${index}\uE001`, () => html); });
     return output;
   }
 
@@ -263,7 +295,7 @@
   const api = {
     cssColorToHex,
     escapeHtml,
-    inlineMarkdownToHtml,
+    escapeLinkLabel, inlineMarkdownToHtml,
     markdownTableAlignment,
     markdownTableHtml,
     markdownToHtml,

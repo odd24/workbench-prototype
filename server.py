@@ -168,6 +168,8 @@ def main(argv=None):
             if store is not None:
                 from workbench.agent_security import AgentSecurity
                 store.security = AgentSecurity(data_root, args.agent_config_dir)
+                from workbench.agent_attachment_execution import recover_attachments
+                recover_attachments(repository)
             result = ({"blocked": False, "operations": []} if store is None else store.abandon(args.agent_recovery_abandon) if args.agent_recovery_abandon else store.recovery_report())
             print(json.dumps(result, ensure_ascii=False))
         return
@@ -213,6 +215,8 @@ def main(argv=None):
         repository.agent_runtime = AgentRuntime(repository, args.host, args.port, args.agent_config_dir, "cli" if override is not None else "preference")
         if getattr(repository, "agent_proposals", None):
             repository.agent_proposals.recover()
+            from workbench.agent_attachment_execution import recover_attachments
+            recover_attachments(repository)
         if enabled:
             repository.agent_runtime.set_enabled(True)
         WorkbenchHandler.repository = repository

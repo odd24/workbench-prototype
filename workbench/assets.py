@@ -9,6 +9,7 @@ import os
 import re
 import time
 from pathlib import Path
+from urllib.parse import quote, unquote
 
 from workbench.markdown_io import now_iso
 from workbench.persistence import atomic_write_json
@@ -16,6 +17,22 @@ from workbench.security import validate_category_name, validate_portable_filenam
 
 
 class AttachmentRepository:
+    @staticmethod
+    def attachment_metadata(candidate, relative, size, category=""):
+        return {"name": candidate.name, "path": relative, "size": size,
+                "mime": mimetypes.guess_type(candidate.name)[0] or "application/octet-stream", "category": category}
+
+    @staticmethod
+    def attachment_link(attachment):
+        label = re.sub(r"([\\`*{}_\[\]<>!])", r"\\\1", attachment["name"])
+        target = quote(attachment["path"], safe="/.-_")
+        return ("!" if attachment["mime"].startswith("image/") else "") + f"[{label}]({target})"
+
+    @staticmethod
+    def append_attachment_link(body, attachment):
+        separator = '' if body.endswith('\n\n') else '\n' if body.endswith('\n') else '\n\n'
+        return body + separator + AttachmentRepository.attachment_link(attachment) + '\n'
+
     def markdown_image_path(self, markdown_path: Path, source: str, allowed_roots: tuple[Path, ...]) -> Path | None:
         """Resolve external-editor images without exposing arbitrary local files."""
         source = str(source).replace("\\", "/")
@@ -27,6 +44,21 @@ class AttachmentRepository:
                 raise ValueError("图片路径超出允许目录")
             if not (mimetypes.guess_type(candidate.name)[0] or "").startswith("image/"):
                 raise ValueError("仅允许读取图片")
+            if candidate.is_file():
+                return candidate
+            # Literal legacy percent names take precedence. New Markdown links
+            # encode URL punctuation; decode once, then repeat the same boundary.
+            try:
+                decoded = unquote(source, errors="strict")
+            except UnicodeError:
+                return None
+            if decoded == source:
+                return None
+            if decoded.startswith("/") or ":" in decoded or "\x00" in decoded:
+                raise ValueError("图片路径必须是相对路径")
+            candidate = (markdown_path.parent / decoded).resolve()
+            if not any(candidate.is_relative_to(root.resolve()) for root in allowed_roots) or not (mimetypes.guess_type(candidate.name)[0] or "").startswith("image/"):
+                raise ValueError("图片路径超出允许目录或不是图片")
             return candidate if candidate.is_file() else None
         except (OSError, RuntimeError) as exc:
             raise ValueError("图片路径无效") from exc
@@ -68,6 +100,28 @@ class AttachmentRepository:
     def list_projects(self):
         return self._list_projects()
 
+    def attachment_target(self, kind, owner_id):
+        from .attachment_prepared import attachment_target
+        return attachment_target(self, kind, owner_id)
+
+    def prepare_attachment_create(self, *args, **kwargs):
+        from .attachment_prepared import prepare_attachment_create
+        return prepare_attachment_create(self, *args, **kwargs)
+
+    def apply_attachment_metadata(self, prepared, apply_record_write, checkpoint=None):
+        from .persistence import atomic_write_bytes
+        from .write_coordinator import RevisionConflict
+        if prepared.record_write:
+            return apply_record_write(prepared.record_write, checkpoint)
+        current = prepared.metadata_path.read_bytes() if prepared.metadata_path.exists() else None
+        if current != prepared.before:
+            raise RevisionConflict('项目附件索引已变化，请重新预览')
+        atomic_write_bytes(prepared.metadata_path, prepared.after)
+        if prepared.metadata_path.read_bytes() != prepared.after:
+            raise RevisionConflict('项目附件索引在提交过程中变化，请核查恢复证据')
+        if checkpoint:
+            checkpoint('target')
+
     def add_attachment(self, record_id: str, filename: str, encoded_content: str) -> dict:
         record, record_path = self.get_record(record_id)
         if not record:
@@ -101,13 +155,11 @@ class AttachmentRepository:
     def _register_record_attachment(self, record: dict, record_path: Path, candidate: Path, size: int, append_to_body: bool = True) -> dict:
         relative = Path(os.path.relpath(candidate, record_path.parent)).as_posix()
         attachments = list(record.get("attachments") or [])
-        attachment = {"name": candidate.name, "path": relative, "size": size, "mime": mimetypes.guess_type(candidate.name)[0] or "application/octet-stream", "category": ""}
+        attachment = self.attachment_metadata(candidate, relative, size)
         attachments.append(json.dumps(attachment, ensure_ascii=False, separators=(",", ":")))
         changes = {"attachments": attachments}
         if append_to_body:
-            image = attachment["mime"].startswith("image/")
-            label = f"![{candidate.name}]({relative})" if image else f"[{candidate.name}]({relative})"
-            changes["body"] = record["body"].rstrip() + f"\n\n{label}\n"
+            changes["body"] = self.append_attachment_link(record["body"], attachment)
         self.update_record(record["id"], changes)
         return attachment
 
@@ -289,12 +341,9 @@ class AttachmentRepository:
         while asset_id in known_ids:
             asset_id = f"ASSET-{int(time.time() * 1000)}-{counter}"
             counter += 1
-        item = {
-            "id": asset_id, "name": candidate.name,
-            "path": candidate.relative_to(self.projects_dir / project_id).as_posix(),
-            "size": size, "mime": mimetypes.guess_type(candidate.name)[0] or "application/octet-stream",
-            "category": self.ensure_project_asset_category(project_id, category), "created": now_iso(),
-        }
+        item = self.attachment_metadata(candidate, candidate.relative_to(self.projects_dir / project_id).as_posix(), size,
+                                        self.ensure_project_asset_category(project_id, category))
+        item.update(id=asset_id, created=now_iso())
         items = self.project_assets(project_id)
         items.append(item)
         self._save_project_assets(project_id, items)

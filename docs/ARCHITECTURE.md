@@ -143,3 +143,12 @@ files HTTP单独捕获原repository/service及授权版本，长I/O不持业务/
 agent_upload_policy管理独立的具体目标/来源策略，复用CredentialManager的日志4新upload_policy家族；agent_uploads仅管理私人暂存字节和会话，不是附件仓储，不写业务事实源。agent_upload_http为专用控制/字节通道及管理维护，源file_id复用130安全句柄。Agent分派在外层serialized_write锁外，各dispatcher仍显式短锁；普通网页锁不变，相关修复5abd6f2见验收补充。
 
 持空间/业务/凭据锁的授权检查和ready元数据发布，与锁外流/hash分离；单会话OS锁持I/O，短目录配额锁只保护预留、part/blob切换、已验证句柄删除和预算发布。quota扫描与物理变化同锁，长hash在外；原始流header/body/socket发送不持业务锁。未知对象全量预检保留，原历史收据与当前可绑定性分开，正式消费接口占位拒绝，132/133承接正式附件。
+
+
+### AG-132 附件正式提案边界
+
+assets/attachment_prepared与Repository门面提供无写prepare和metadata apply；旧网页上传与Agent共享附件元数据/Markdown链接构造，记录复用原PreparedMarkdownWrite/历史，项目只改独立索引。agent_attachments负责严格候选、具体owner许可/依赖与source绑定；agent_attachment_execution是ProposalStore内静态attachment@1处理器，不建立第二套提案状态机或CRUD；agent_attachment_http只负责捕获会话/空间和锁外执行分派。
+
+ProposalStore原预检/确认/版本/批准/回执复用，新增execution_schema2；普通Markdown恢复仍原短元数据路径，新二进制恢复从专用Agent查询/管理批准或action查询/服务启动/停服CLI进入，hash不会被旧外层业务/凭据/切换锁包住。copy接受意图后write_guard阻止普通写与孤儿清理，operation/session OS锁持IO；空间→业务→凭据仅最终短检查/原子发布/有界metadata，socket发送在锁外。源保护始终查询提案事实再修复镜像，未知引用不释放；退休另核完整正式回执。新项目结果链接只打开既有附件页并聚焦，不自动执行/打开文件。
+
+共享Markdown仅增加受控相对附件链接和转义标签/URL往返，保留普通URL强调、行内code、引用及代码块。record/doc继续同一内核；知识库本项只回归已有外部图片能力，正式文档附件留133。

@@ -190,3 +190,54 @@ root3/auth4/log4/transport2保持，新增严格upload_policy操作家族和外�
 APP_VERSION2026.11.09.5、agent-settings缓存20261109-5，决策024～029。同步OS读取仍可能超过块间截止，已获许可响应可迟到；未知磁盘证据需人工核查，ready历史回执不等于当前可绑定权限，任何客户端变动保守失效需重批。不开放正式附件/绑定消费，无真实新增模型turn、跨客户端新能力矩阵、独立性能或视觉基线。131完成后交监督审查，132～143继续待开始。
 
 AG-131提交前最终检查：71Python/46JavaScript全文件语法通过（编译输出临时目录），10份修改Markdown UTF-8/围栏/74相对链接通过；最终目标diff、后续AG-132～143待开始及git diff --check通过，无业务数据、私人凭据、日志或截图夹带。
+
+
+## AG-132：记录与项目独立附件正式提案
+
+2026-11-09完成。监督接受AG-131/b7ce3fe后派发，起始Git干净，唯一执行写入；本节不代表知识库附件AG-133或真实模型客户端矩阵AG-142完成。
+
+### 实现与兼容事实
+
+新增attachment_prepared领域准备、agent_attachments候选/来源保护、agent_attachment_execution静态执行和agent_attachment_http锁外传输；仍由唯一ProposalStore协调提案/确认/恢复，AttachmentRepository和原PreparedMarkdownWrite执行正式写入。旧网页和Agent共享metadata/链接助手，记录仍front matter、项目仍独立index，新增id/sha256是兼容额外字段；info有序字段、未知meta及原始body片段保留。知识库没有附件新格式，本项仅验证原外部图片/共享编辑器不退化。
+
+一次明确本机预览共同批准具体owner的uploads.stage+attachments.write/create及最低确认方式，policy schema2/新attachment_policy管理家族以日志4私人快照/CAS持久恢复，root3/auth4/transport2不变。旧schema1只有stage，旧项转2显式null，dormant不激活。双方绑定同一批准后client_version；共同批准→新ready→正式提案，无旧ready迁移。旧read/propose/commit/目标范围继续必要，两确认取最严格。get_attachment_target是第20工具，仅当前许可owner元数据/revision/已有分类，不提供Agent二进制下载/替换/删除。
+
+attachment/create严格六content字段，既有project/issue/todo/info、固定ASSET-<upload UUID hex>及唯一名称、outer target_id/base_revision；分类只已有或空，project不插正文。完整候选/base合计≤256KiB，超限拒绝不截断，最终名称/原生路径约束在准备时检查。完整预览显示来源、真实SHA/size/MIME、before/after元数据、正文/差异及未解析二进制警告，确认前零正式文件/新业务目录。updated/created明确占位，实际接受当前确认时生成真实时间/唯一历史ID并绑定具体after摘要/metadata_time，不使用草稿时间。
+
+原proposal3/v3摘要与两确认状态机保留，新增attachment@1/execution_schema2五阶段。固定意图、确认/网页action、快照先落prepared/copy pending再锁外复制；part在.agent下，不在普通孤儿扫描根。session/operation OS锁持I/O，业务/凭据/空间只在短校验/发布/metadata阶段持有；接受意图后write_guard阻止普通写/孤儿清理，读取/授权撤销/换库可完成。copy真实bytes/SHA与part卷/文件身份持久后以同一READ+DELETE句柄、父链属性句柄、不覆盖FileRenameInfo发布，无跨卷fallback。相同SHA的外部同名对象也不收编。
+
+来源引用以proposal为事实，session镜像缺口在各入口保护/重建，未知绑定继续保护；一源仅一有效提案，取消/修订/过期无执行日志时才能解绑。consumption保持64hex=sha256(proposalUUID-version)，与原操作、版本、owner revision、upload及回执交叉校验。metadata before需当前权限/目标/类别集合，after只核实际发布/历史证据补消费和原回执；receipt持久后不重放后来改删。已完整committed的proposal/manifest/receipt及消费证明允许维护立即退休源blob并释放预算，仍验证同一删除句柄，保留墓碑/原回执；未完成、未知、篡改或在途不释放。
+
+### 已运行自动与原生验证
+
+| 检查 | 实际结果 |
+| --- | --- |
+| python -m unittest -v | 337项256.901秒通过，1项原生符号链接创建权限不足跳过；是最后四个附件边界测试补入前的全量，不冒称当前全量一次通过 |
+| 早期相关组 | 121项150.694秒，1失败/1错误/1跳过：131的19工具旧预期与合成未知绑定需保护，见失败段 |
+| python -m unittest test_agent_attachments -q | 后续22项50.952秒及51.737秒通过；包含新增联合策略/同身份/类别与权限边界 |
+| python -m unittest test_agent_attachments test_assets test_agent_uploads test_agent_web_approval test_agent_execution test_mcp_stdio -q | 最后93项144.534秒通过，1项符号链接权限跳过；源保护/旧Markdown/两确认/MCP/新旧格式均回归 |
+| 100MiB正式复制 | 真实私人blob→正式file并流式重读SHA，最初峰值1870978B/0.734秒；后续93组样本1524717B/0.795秒，均<8MiB；只证明有界内存/字节持久，不冒称独立性能基线 |
+| python codex_agent_acceptance.py | Codex0.163.0-alpha.10.2、MCP2025-11-25、20工具、原四类型三操作/两确认与重试取消重启撤销通过，0模型turn、user_config_changed=false；新附件原始stdio另外测试，不替代AG-142 |
+
+真实os._exit覆盖15提交断点：快照无manifest、prepared而proposal仍previewed、committing、copy partial、完整fsync未记证据、copy证据前后、applying、binary发布前后、history、metadata、consumed、receipt、proposal。无manifest不自动发布；partial不足保留阻塞，完整已接受part可重验续原计划，重启后固定ID/一份历史/原回执。另有3处proposal→session镜像间隙（prepare/cancel/revise）真实退出，cancel/get/维护保护或修复绑定；7个共同policy快照/日志/门槛/ledger/registry/终结断点真实退出，旧stage schema1不隐含正式权，schema2恢复与幂等/快照回收通过；4个退休断点（证明、已验、真实删除、记账）真实退出，正式附件及回执不重建/丢失。
+
+原生不覆盖rename探针、预览后同名相同/不同bytes占位409、已发布对象被同SHA/不同bytes替换后拒绝收编，真实子进程退出后按volume/index/created/written/SHA保护；普通孤儿清理仍503，外部内容不被覆盖。具体类别配置与推导集合变化拒绝，实际受理时间与模拟2000年草稿区分并稳定重放；body无链接逐字保留含CRLF/首尾空格和未知meta，有链接仅公共助手追加，任意改写重算摘要仍拒。info字段顺序/换行/引号/首尾空格、todo状态/截止日及旧Markdown/新附件混合日志通过。真实归档b7ce3fe拒绝新处理器/管理家族且前后JSON逐字不变，未知执行版本cleanup零写保留。
+
+真实HTTP agent commit长Native读取期间可读取普通项目、拒普通孤儿清理、及时撤销；管理approve长读取期间关闭接入/切换可完成（并发操作整段<2秒），旧请求零正式发布；不是只测内部helper。真实--disable-agent服务启动可恢复既有已确认事务。synthetic binary发布后撤销且metadata仍before保持阻塞，metadata已after则完成原消费/回执，不重新发布。原始stdio真正调用get_attachment_target和既有prepare/preview/commit/get/cancel完成正式附件及重放，并拒path；合成user_confirmed不等于真实模型/人类身份验收。
+
+### 浏览器与失败复验
+
+新test_agent_attachment_workflows在真实Edge临时服务通过：共同许可完整预览/取消/明确批准、local_web完整附件预览、固定元数据/执行依据、项目附件结果深链/聚焦、下载真实PNG、源file_id导入、特殊文件名方/圆括号/%/#/中文空格。记录与知识库各完成可视化→Markdown→保存→重开，源URL/alt和info字段不变、真实图片仍可加载；知识库使用原外部图片目录，未新增附件格式。浅深×1440/390共同许可和正式预览八图已目视，长中文/空列表、固定头尾/滚动正文、焦点/disabled与无横向页面溢出，截图仅Temp评审。原test_editor_workflows也通过保存/重试/关闭/切换/草稿/历史/外部刷新/两编辑器冲突；普通URL粗斜体与b7ce3fe baseline对比相同，新行内code/转义符号及XSS/属性逃逸断言通过。
+
+失败事实：最初领域9项的“目录不存在”断言误把项目预建images目录当预览副作用，改为前后全路径快照；另一夹具history_version不合法，改既有合法格式后9项通过。最初附件专项导入UploadTests导致重复发现旧项、编辑夹具漏完整name等字段，改模块引用和持久管理入参后通过，不放宽授权。HTTP测试未编码中文project ID导致urllib ASCII错误，按协议对称编码后通过；普通网页并发测试携Agent Authorization被正确403拒绝，移除该头后证明真实网页读取/503写保护。
+
+121相关组中的未知binding缺失proposal改为继续保护，绝不因缺失释放源；旧MCP19预期同步20，两定向2项2.565秒通过。浏览器首轮尚未等application.start完成就切页，被初始化改回home，测试等待真实初始化结束；随后实际file_expiry与expires票据共存导致管理预览400，修兼容清理并补混合票据回归。新项目深链同时触发隐式/显式load，迟到回调互相取消致无限加载，改先加载再切页。之后第二次共同授权的测试等待条件匹配旧有效policy，提前用旧policy遭403，改等待新owner有效行、预览/待决消失并核能力返回owner；未放宽时间或业务断言。最后端到端通过；共享Markdown普通URL标签内格式潜在退化经baseline和专项关闭，文件名字面星号与普通强调语义分开。
+
+本项没有自动审批拒绝或未清理测试目录遗留；测试服务/浏览器/子进程均按fixture关闭，截图仅评审不入Git。未读取真实用户源/认证材料、迁移真实库或更改真实客户端配置。部分未知/partial、外部磁盘竞争、同步OS等待、许可后迟到响应及保守client版本失效仍是明确边界；显式abandon不回滚文件，被保护残留需按现盘证据核查。决策030～036，APP_VERSION2026.11.09.6及修改JS缓存20261109-6；后续AG-133～143不在本项开工。
+
+
+最终补充：所有21项Node分批通过，首3新附件/提案/设置通过，随后Agent刷新曾出现domCore undefined和等待超时，后17项中该项及其余通过；最后timestamp120条断言先false，独立复验通过并确认进程清理完成、exit=0。两者根因尚未证明，未调整应用导航、超时或断言来掩盖，保留观察。实际浏览器结果均为临时库，不把该批写成一次全绿。
+
+收口又验证旧损坏附件metadata在创建proposal之前拒绝、记录字节不变/无非法提案（连assets10项1.448秒）；项目metadata原子写后重读与新23附件连assets32项74.179秒通过；正式get/commit在AgentService按handler分流且HTTP只作协议/空间guard，API+23附件36项92.497秒通过。旧转换todo ID附件写入保持稳定ID和原无深链限制，旧二进制/混合日志专项1项4.137秒通过。最后36组100MiB样本1290746B/2.73秒，仍仅有界内存证据。其他平台在正式policy使用前明确503拒绝，未宣称非Windows原生验证。
+
+AG-132提交前最终检查：76个Python/47个JavaScript全文件语法、10份修改Markdown UTF-8/围栏/76个相对链接及git diff --check通过；AG-132已完成、AG-133～143待开始。目标测试进程检查无匹配残留，diff不含业务数据、凭据、日志或评审截图。

@@ -70,6 +70,7 @@ node test_editor_workflows.js
 node test_timestamp_workflows.js
 node test_agent_workflows.js
 node test_agent_settings.js
+node test_agent_attachment_workflows.js
 python codex_agent_acceptance.py
 python performance_acceptance.py
 ```
@@ -87,7 +88,7 @@ AG-119：设置 → AI Agent 接入 → 提案管理，可按客户端/类型/�
 
 AG-120：客户端可设置最低确认方式为“本机网页独立批准”（CLI --agent-confirmation-mode local_web）。Agent 可请求同等或更严格策略，网页完整预览后点击批准入库；Agent自报确认不能绕过。批准响应丢失先查询原操作，不重复创建。
 
-WorkBuddy桌面5.9.3(d4692421)已在临时库实测四类型新建/追加/更新、两确认路径、权限拒绝、分页/分段、幂等取消、丢响应查询、服务重启及轮换/撤销等故障。原装CLI2.165.0可运行python workbuddy_agent_acceptance.py验证连接/12工具，追加--protocol-faults显式测试固定服务端ping/未知方法响应（不调用模型、不写业务数据）；lite-only安装由原装入口自动选择固定lite开关。桌面和CLI证据分别记录，旧5.1.5历史不改写；结果和限制见[客户端兼容验收](docs/AGENT_CLIENT_COMPATIBILITY.md)。
+WorkBuddy桌面5.9.3(d4692421)已在临时库实测四类型新建/追加/更新、两确认路径、权限拒绝、分页/分段、幂等取消、丢响应查询、服务重启及轮换/撤销等故障。原装CLI2.165.0可运行python workbuddy_agent_acceptance.py核对连接与当前工具目录（旧12工具桌面证据不代表新能力矩阵），追加--protocol-faults显式测试固定服务端ping/未知方法响应（不调用模型、不写业务数据）；lite-only安装由原装入口自动选择固定lite开关。桌面和CLI证据分别记录，旧5.1.5历史不改写；结果和限制见[客户端兼容验收](docs/AGENT_CLIENT_COMPATIBILITY.md)。
 
 按单机本地用途，远程接入已移出当前实施范围；不需要准备TLS/IdP/代理。[远程设计](docs/AGENT_REMOTE_DESIGN.md)仅保留历史参考，远程未实现。
 
@@ -95,8 +96,11 @@ WorkBuddy桌面5.9.3(d4692421)已在临时库实测四类型新建/追加/更新
 
 AG-128已支持后续能力的休眠授权管理和能力协商；休眠配置尚不可使用，未来启用必须重新授权。实际测试和兼容边界见[本机能力验收](docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md)。
 
-AG-129已增加新提案保存计划与逐步持久恢复，旧提案摘要兼容保留；新增业务能力仍未开放。执行依据、故障复验和边界见[本机能力验收](docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md)。
+AG-129已增加新提案保存计划与逐步持久恢复，旧提案摘要兼容保留；该阶段未开放新增业务能力。执行依据、故障复验和边界见[本机能力验收](docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md)。
 
 AG-130增加具体本机文件授权：设置→AI Agent接入→具体文件授权，先完整预览属性、再明确批准。可创建无旧业务范围的文件专用客户端。仅Windows固定NTFS普通文件，默认10MiB/1小时；Agent凭file_id分段只读，父路径不外传，文件不会自动入库。客户端可能把内容发往外部模型服务；附件来源本身只是意向。用法和限制见[接入使用](docs/AGENT_USAGE.md)。AG-130阶段固定工具15项；历史客户端12工具验收记录不代表新文件能力已由该客户端验收。
 
-AG-131增加独立“上传暂存授权”：按客户端、具体目标、来源文件或原始流完整预览批准，旧意向不自动生效。普通MCP可用批准file_id让服务流式暂存，具备HTTP认证能力的客户端可用专用原始字节通道；不传整文件base64。单文件100MiB/client500MiB/空间1GiB，24h保留与安全恢复/清理。当前固定19工具，formal_attachment_write=false，正式附件、索引和正文写入仍留后续。见[接入使用](docs/AGENT_USAGE.md)及[本机验收](docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md)。
+AG-131增加独立“上传暂存授权”：按客户端、具体目标、来源文件或原始流完整预览批准，旧意向不自动生效。普通MCP可用批准file_id让服务流式暂存，具备HTTP认证能力的客户端可用专用原始字节通道；不传整文件base64。单文件100MiB/client500MiB/空间1GiB，24h保留与安全恢复/清理。AG-131阶段固定19工具且不正式写入；正式附件于AG-132按独立共同许可开放。见[接入使用](docs/AGENT_USAGE.md)及[本机验收](docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md)。
+
+
+AG-132支持既有问题/待办/信息及项目独立附件创建：在暂存面板明确共同批准具体目标的暂存+附件创建及最低确认方式，再新建ready暂存、生成正式附件提案并完整预览确认；旧授权不自动扩权。当前20工具，get_attachment_target仅元数据，不下载字节；知识库附件、替换/删除仍未开放。支持有界复制、逐阶段恢复、正式回执后安全退休源暂存及原回执幂等查询。详见[使用步骤](docs/AGENT_USAGE.md)、[本机能力验收](docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md)。

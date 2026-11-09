@@ -33,7 +33,7 @@ def filename(value):
 
 def public_session(value, available=False):
     keys = ("upload_id", "request_id", "state", "policy_id", "owner", "filename", "source", "declared_bytes", "declared_sha256", "created_at", "expires_at", "sealed", "binding", "consumption", "removed", "error")
-    return {key: value[key] for key in keys} | {"available_for_binding": available, "formal_attachment_created": False}
+    return {key: value[key] for key in keys} | {"available_for_binding": available, "formal_attachment_created": value["state"] == "consumed"}
 
 
 def bindable(value):
@@ -381,6 +381,7 @@ class UploadStore:
             if handle.identity() != handle.initial or count != expected["bytes"] or checksum.hexdigest() != expected["sha256"]:
                 raise AgentError("upload_recovery_required", "暂存磁盘摘要或身份不匹配，保留现场", 503)
             if delete:
+                self.checkpoint("disposal_verified")
                 with self.quota_lock():
                     if self.load(value["upload_id"]) != value:
                         raise AgentError("upload_recovery_required", "删除前暂存记录变化，保留现场", 503)
@@ -388,8 +389,10 @@ class UploadStore:
                     handle.__exit__(None, None, None)  # Close/delete under quota lock.
                     if path.exists():
                         raise AgentError("upload_cleanup_pending", "暂存仍占用磁盘，保留预算", 409)
+                    self.checkpoint("disposal_removed")
                     value["removed"] = True
                     self.write(value)
+                    self.checkpoint("disposal_metadata")
 
     def complete(self, key, permit):
         with self.session_lock(key):
@@ -398,7 +401,7 @@ class UploadStore:
             if value["state"] == "ready":
                 self.verify(value)
                 permit(value, False)
-                return public_session(value, bindable(value))
+                return public_session(value, self.available(value))
             if value["state"] == "created" and value["source"]["mode"] == "file":
                 self._begin(value)
                 try:
@@ -419,7 +422,7 @@ class UploadStore:
             # and publishes this tiny metadata transition before releasing it.
             permit(value, True)
             self.checkpoint("ready")
-            return public_session(value, bindable(value))
+            return public_session(value, self.available(value))
 
     def publish_ready(self, value):
         current = self.load(value["upload_id"])
@@ -428,12 +431,48 @@ class UploadStore:
         value["state"] = "ready"
         self.write(value)
 
+    def protected(self, value):
+        # All callers own the nonblocking session OS lock. The proposal is the
+        # durable source of truth even if a crash preceded its mirror write.
+        store = getattr(self.repository, 'agent_proposals', None)
+        if store is not None:
+            from .agent_attachments import upload_references
+            references = upload_references(store, value['upload_id'])
+            if references:
+                proposal = references[0]
+                expected = {'schema_version':1, 'proposal_id':proposal['proposal_id'], 'version':proposal['version'], 'owner_revision':proposal['base_revision']}
+                if proposal['client_id'] != value['client_id'] or value['binding'] is not None and value['binding']['proposal_id'] != proposal['proposal_id']:
+                    raise AgentError('recovery_required', '暂存与提案身份不一致，保留现场', 503)
+                if value['binding'] != expected:
+                    value['binding'] = expected
+                    self.write(value)
+                return True
+            if value['binding'] is not None and value['consumption'] is None:
+                try:
+                    proposal = store._load(value['binding']['proposal_id'], expire=False)
+                except AgentError as error:
+                    if error.code == 'not_found':
+                        return True  # Unknown binding is protected, never released.
+                    raise
+                if list(store.operations.glob(proposal['proposal_id'] + '-*/manifest.json')):
+                    return True
+                sources = proposal['execution_plan']['source_bindings']
+                if proposal['state'] not in {'cancelled', 'expired'} and any(source['upload_id'] == value['upload_id'] for source in sources):
+                    raise AgentError('recovery_required', '暂存绑定镜像无法解释，保留现场', 503)
+                value['binding'] = None
+                self.write(value)
+        return value['binding'] is not None or value['consumption'] is not None
+
+    def available(self, value):
+        protected = self.protected(value)
+        return bindable(value) and not protected
+
     def cancel(self, key, client):
         with self.session_lock(key):
             value = self.load(key)
             if value["client_id"] != client["client_id"]:
                 raise AgentError("not_found", "暂存会话不可访问", 404)
-            if value["binding"] is not None or value["consumption"] is not None:
+            if self.protected(value):
                 raise AgentError("upload_in_use", "暂存已被受控消费流程保护", 409)
             if value["state"] not in {"failed", "expired"}:
                 value.update(state="failed", error="cancelled")
@@ -464,7 +503,7 @@ class UploadStore:
                 if value["state"] == "ready":
                     self.verify(value)
                     permit(value, False)
-                    return public_session(value, bindable(value))
+                    return public_session(value, self.available(value))
                 return public_session(value)
         except AgentError as error:
             if error.code == "upload_busy":
@@ -473,6 +512,35 @@ class UploadStore:
 
     def consumer_contract(self, *_args, **_kwargs):
         raise AgentError("unsupported_operation", "正式附件绑定和消费尚未实现", 409)
+
+    def retirable(self, value):
+        if value['state'] != 'consumed' or value['binding'] is None or value['consumption'] is None:
+            return False
+        store = getattr(self.repository, 'agent_proposals', None)
+        if store is None:
+            raise AgentError('recovery_required', '消费提案缺失，不能回收暂存', 503)
+        store.preflight()
+        try:
+            proposal = store._load(value['binding']['proposal_id'], expire=False)
+        except AgentError as error:
+            if error.code == 'not_found':
+                return False
+            raise
+        if proposal['state'] != 'committed':
+            return False
+        operation_id = proposal['proposal_id'] + '-' + str(value['binding']['version'])
+        from .agent_attachments import consumption_id
+        manifest_path = store.operations / operation_id / 'manifest.json'
+        receipt_path = store.receipts / (proposal['proposal_id'] + '.json')
+        if not manifest_path.exists() or not receipt_path.exists():
+            return False
+        manifest = read_json(manifest_path)
+        if manifest['state'] != 'committed':
+            return False
+        receipt = read_json(receipt_path)
+        if proposal['state'] != 'committed' or manifest['state'] != 'committed' or manifest['receipt'] != receipt or proposal.get('receipt') != receipt or receipt.get('upload_id') != value['upload_id'] or receipt.get('consumption_id') != consumption_id(operation_id) or value['consumption'] != {'schema_version':1, 'operation_id':consumption_id(operation_id)} or proposal['version'] != value['binding']['version'] or proposal['base_revision'] != value['binding']['owner_revision'] or receipt['attachment']['sha256'] != value['declared_sha256'] or receipt['attachment']['size'] != value['declared_bytes']:
+            raise AgentError('recovery_required', '正式回执与源消费证据不一致，保留暂存', 503)
+        return True
 
     def recover_and_cleanup(self, permit, cleanup=False):
         # Full metadata/path preflight, then nonblocking per-session ownership.
@@ -485,10 +553,25 @@ class UploadStore:
             try:
                 with self.session_lock(original["upload_id"]):
                     value = self.load(original["upload_id"])
-                    if value["binding"] is not None or value["consumption"] is not None:
+                    protected = self.protected(value)
+                    retired = cleanup and self.retirable(value)
+                    if protected and not retired:
                         results.append(public_session(value) | {"maintenance": "protected"})
                         continue
                     key = value["upload_id"]
+                    if retired:
+                        self.checkpoint('retirement_proven')
+                        path = self.path(key, 'blob.bin')
+                        if self.path(key, 'part.bin').exists():
+                            raise AgentError('upload_recovery_required', '已消费暂存出现未知半成品，保留现场', 503)
+                        if path.exists():
+                            self.verify(value, evidence=value['sealed'], delete=True)
+                        elif not value['removed']:
+                            with self.quota_lock():
+                                value['removed'] = True
+                                self.write(value)
+                        results.append(public_session(value) | {'maintenance':'retired'})
+                        continue
                     if value["state"] == "receiving":
                         if value["sealed"] is not None:
                             if self.path(key, "part.bin").exists() and not self.path(key, "blob.bin").exists():

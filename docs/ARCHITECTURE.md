@@ -137,3 +137,9 @@ agent_execution.py是ProposalStore内部的静态契约/校验模块，仅markdo
 agent_file_handles使用标准库ctypes封装Windows句柄属性/最终路径/卷类型/文件身份，元数据句柄不能读正文；agent_files负责管理票据、私人授权表、用途交集、流式hash与编码/原始字节分段。无任意路径MCP、目录授权或源文件写入。agent_management复用跨进程锁、CAS及日志4快照恢复，不另建凭据或业务仓储。
 
 files HTTP单独捕获原repository/service及授权版本，长I/O不持业务/凭据/换库锁；结束短锁重验仍是原空间与服务、当前授权/期限后授予响应许可，socket限时写在锁外。撤销与许可的先后决定结果，无法撤回先获许可的数据。管理批准hash同样锁外，发布前重查同管理会话/票据/CAS；源内容不进入提案、草稿、搜索、历史、普通导出或管理日志。
+
+### AG-131 暂存边界
+
+agent_upload_policy管理独立的具体目标/来源策略，复用CredentialManager的日志4新upload_policy家族；agent_uploads仅管理私人暂存字节和会话，不是附件仓储，不写业务事实源。agent_upload_http为专用控制/字节通道及管理维护，源file_id复用130安全句柄。Agent分派在外层serialized_write锁外，各dispatcher仍显式短锁；普通网页锁不变，相关修复5abd6f2见验收补充。
+
+持空间/业务/凭据锁的授权检查和ready元数据发布，与锁外流/hash分离；单会话OS锁持I/O，短目录配额锁只保护预留、part/blob切换、已验证句柄删除和预算发布。quota扫描与物理变化同锁，长hash在外；原始流header/body/socket发送不持业务锁。未知对象全量预检保留，原历史收据与当前可绑定性分开，正式消费接口占位拒绝，132/133承接正式附件。

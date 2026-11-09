@@ -20,6 +20,19 @@
     let files = null;
     let filePreview = null;
     let filePending = null;
+    let fileRequest = 0;
+    let uploadPanel = null;
+    let uploadPreview = null;
+    let uploadPending = null;
+    let uploadRequest = 0;
+    function rememberUpload(value) {
+      uploadPending = value;
+      try {
+        const key = `workbench.agentUploadPolicy.pending.${status.workspace_id}`;
+        if (value) global.sessionStorage.setItem(key, JSON.stringify(value));
+        else global.sessionStorage.removeItem(key);
+      } catch { /* The on-page original-operation query remains available. */ }
+    }
     function rememberFile(value) {
       filePending = value;
       try {
@@ -41,7 +54,7 @@
     const errorText = error => error.payload?.message || error.message;
     const permissionName = scopes => scopes.length === 1 && scopes[0] === 'read' ? '只读查询' : scopes.length === 3 ? '整理并确认入库' : `旧版权限：${scopes.join(' / ')}`;
     const isDirty = () => Boolean(draft && JSON.stringify(draft) !== original);
-    const isBusy = () => busy || registrationConfirming || Boolean(pending) || Boolean(registrationPending) || Boolean(filePending);
+    const isBusy = () => busy || registrationConfirming || Boolean(pending) || Boolean(registrationPending) || Boolean(filePending) || Boolean(uploadPending);
     const valid = version => isActive() && version === epoch;
 
     async function request(path, options = {}) {
@@ -105,8 +118,10 @@
       root.querySelectorAll('.agent-client').forEach((node, index) => {
         const client = catalog.items[index];
         if (client.enabled && !client.recovery_required) node.querySelector('.settings-actions')?.insertAdjacentHTML('beforeend', button('files', '具体文件授权', `data-client-id="${esc(client.client_id)}"`));
+        if (client.enabled && !client.recovery_required) node.querySelector('.settings-actions')?.insertAdjacentHTML('beforeend', button('upload-policy', '上传暂存授权', `data-client-id="${esc(client.client_id)}"`));
       });
       if (files) root.querySelector('.agent-settings').insertAdjacentHTML('beforeend', filePanelHtml());
+      if (uploadPanel) root.querySelector('.agent-settings').insertAdjacentHTML('beforeend', uploadPanelHtml());
       if (diagnostic) paintDiagnostic();
       if (registrationPending) {
         const panel = global.document.createElement('section');
@@ -127,12 +142,16 @@
         if (status && status.workspace_id !== loaded.workspace_id) {
           draft = null; original = ''; setup = null; pending = null; diagnostic = null;
           files = null; filePreview = null; filePending = null;
+          uploadPanel = null; uploadPreview = null; uploadPending = null;
           registration = null; registrationResult = null; registrationPending = null;
           root.innerHTML = '<div class="empty-state">工作空间已变化，正在重新加载授权…</div>';
         }
         status = loaded;
         if (!filePending && status.workspace_id) {
           try { filePending = JSON.parse(global.sessionStorage.getItem(`workbench.agentFiles.pending.${status.workspace_id}`) || 'null'); } catch { filePending = null; }
+        }
+        if (!uploadPending && status.workspace_id) {
+          try { uploadPending = JSON.parse(global.sessionStorage.getItem(`workbench.agentUploadPolicy.pending.${status.workspace_id}`) || 'null'); } catch { uploadPending = null; }
         }
         if (!registrationPending && status.workspace_id) {
           try { registrationPending = JSON.parse(global.sessionStorage.getItem(pendingKey()) || 'null'); } catch { registrationPending = null; }
@@ -144,6 +163,7 @@
         busy = false;
         paint();
         if (filePending && !files) await fileAction('files', filePending.client_id);
+        if (uploadPending && !uploadPanel) await uploadAction('upload-policy', uploadPending.client_id);
         return true;
       } catch (error) {
         if (valid(version)) {
@@ -224,21 +244,86 @@
       return `<div id="agentFilePreview"><h3>完整授权预览</h3><dl class="agent-status">${Object.entries(fields).map(([name, content]) => `<dt>${esc(name)}</dt><dd>${esc(content)}</dd>`).join('')}</dl><p>${esc(value.disclosure)}</p><details><summary>文件身份与授权版本依据</summary><pre>${esc(JSON.stringify({identity:value.identity, expected_version:value.expected_version, preview_digest:value.preview_digest}, null, 2))}</pre></details>${button('file-confirm', '明确批准当前文件授权')}${button('file-cancel', '取消预览')}</div>`;
     }
 
+    function uploadPanelHtml() {
+      const preview = uploadPreview;
+      const stateNames = {created:'待传输', receiving:'传输/校验中', ready:'暂存已校验', consumed:'已消费', expired:'已过期', failed:'已终结'};
+      const errorNames = {interrupted:'传输中断', cancelled:'已取消', expired:'已过期', verification_failed:'校验未通过', authorization_changed:'授权已变化', recovery_required:'需核查'};
+      const sources = uploadPanel.files.filter(item => item.status === 'active' && item.purposes.includes('attachment_source') && item.expires_at * 1000 > Date.now());
+      return `<section class="settings-card agent-setup" id="agentUploadPanel"><h2>上传暂存授权 · ${esc(uploadPanel.name)}</h2><p>仅允许私人暂存，不创建正式附件、不改正文或附件索引。旧附件来源意向和休眠配置不会自动获得权限。客户端必须同时已有具体目标的业务读取范围。</p><p>每客户端仅一个有效策略；新批准替代旧策略。任何客户端权限修改或凭据轮换都会使策略失效，需重新批准。</p><label>目标类型<select id="agentUploadOwnerKind">${Object.entries({project:'项目独立附件', issue:'问题', todo:'待办', info:'结构化信息', document:'知识文档'}).map(([value, label]) => `<option value="${value}">${label}</option>`).join('')}</select></label><label>目标稳定ID<input id="agentUploadOwner" maxlength="100" placeholder="填写已有项目或条目的稳定ID"></label><label><input id="agentUploadStream" type="checkbox" checked>允许专用loopback原始字节流（客户端须具备HTTP认证能力）</label><fieldset class="agent-scope"><legend>再次明确允许的本机附件来源</legend>${sources.map(item => `<label><input type="checkbox" data-agent-upload-source="${esc(item.file_id)}">${esc(item.display_name)}（${esc(item.file_id)}）</label>`).join('') || '<p>无有效附件来源。可先逐文件批准attachment_source用途；text_read不属于此用途。</p>'}</fieldset><label>单文件上限（MiB，最高100）<input id="agentUploadMax" type="number" min="1" max="100" value="100"></label><label>策略期限（小时，最长24）<input id="agentUploadDuration" type="number" min="1" max="24" value="1"></label>${button('upload-preview', '预览暂存授权')}${preview ? `<div id="agentUploadPreview"><h3>完整暂存授权预览</h3><p>客户端：${esc(preview.client_name)}（${esc(preview.client_id)}）</p><p>目标：${esc(preview.owner.title)}（${esc(preview.owner.kind)} / ${esc(preview.owner.id)}）</p><p>字节流：${preview.policy.stream ? '允许' : '不允许'}；大小上限：${preview.policy.max_bytes / 1048576} MiB；到期：${esc(new Date(preview.policy.expires_at * 1000).toLocaleString())}</p><p>本机来源：${esc(preview.sources.map(item => `${item.display_name} / ${item.file_id} / ${item.source_revision}`).join('；') || '未授权')}</p><p>${esc(preview.disclosure)}</p><details><summary>完整字段和版本依据</summary><pre>${esc(JSON.stringify({policy:preview.policy, owner:preview.owner, expected_version:preview.expected_version, preview_digest:preview.preview_digest}, null, 2))}</pre></details>${button('upload-confirm', '明确批准此暂存策略')}${button('upload-cancel-preview', '取消预览')}</div>` : ''}${uploadPending ? `<p>原操作结果待查询：${esc(uploadPending.request_id)}</p>${button('upload-resolve', '查询原暂存授权结果')}` : ''}<h3>已登记策略</h3>${uploadPanel.items.map(policy => `<p>${esc(policy.policy_id)} · ${esc(policy.owner_kind)} / ${esc(policy.owner_id)} · ${policy.enabled && policy.client_version === uploadPanel.expected_version && policy.expires_at * 1000 > Date.now() ? '当前有效' : '已失效'} · ${esc(new Date(policy.expires_at * 1000).toLocaleString())}</p>`).join('') || '<p>尚无策略。</p>'}${button('upload-revoke', '撤销此客户端暂存策略')}<p>单文件100MiB、客户端500MiB、空间1GiB；并发2/客户端、4/空间。会话保留24小时；失败或删除未完成的占用不提前释放。原始流空闲5秒、总60秒；本机源仍有操作系统等待边界。</p><div class="settings-actions">${button('upload-report', '查看当前空间暂存状态')}${button('upload-recover', '恢复已接受暂存')}${button('upload-cleanup', '清理当前空间过期暂存')}</div>${uploadPanel.sessions ? `<div id="agentUploadSessions">${uploadPanel.sessions.map(item => `<p>${esc(item.filename)} · ${esc(item.upload_id)} · ${esc(stateNames[item.state] || item.state)} · ${item.sealed?.bytes ?? 0}/${item.declared_bytes} 字节 · ${item.binding ? '已绑定，受保护' : '未绑定'} · ${item.removed ? '已安全回收字节' : '仍计入预算'}${item.error ? ` · ${esc(errorNames[item.error] || item.error)}` : ''}</p>`).join('') || '<p>没有暂存会话。</p>'}</div>` : ''}${button('upload-close', '关闭暂存授权')}</section>`;
+    }
+
+    async function uploadAction(name, key) {
+      const version = epoch;
+      const panel = uploadPanel;
+      if (name === 'upload-close') { if (!uploadPending) { uploadRequest += 1; uploadPanel = null; uploadPreview = null; paint(); } return; }
+      if (name === 'upload-cancel-preview') { uploadPreview = null; paint(); return; }
+      const clientId = name === 'upload-policy' ? key : uploadPanel?.client_id;
+      if (!clientId) return;
+      if (uploadPending && !['upload-policy', 'upload-resolve'].includes(name)) { message('请先查询原暂存授权操作。', true); return; }
+      try {
+        if (name === 'upload-policy') {
+          const requestVersion = ++uploadRequest;
+          if (uploadPending && uploadPending.client_id !== clientId) { message('请先查询原客户端的暂存授权操作。', true); return; }
+          uploadPanel = null; uploadPreview = null; paint();
+          const [value, fileList] = await Promise.all([request(`clients/${clientId}/upload-policy`), request(`clients/${clientId}/files`)]);
+          if (!valid(version) || requestVersion !== uploadRequest) return;
+          uploadPanel = {...value, files:fileList.items, client_id:clientId, name:catalog.items.find(item => item.client_id === clientId)?.name || clientId}; uploadPreview = null; paint();
+        } else if (name === 'upload-preview') {
+          const ids = [...root.querySelectorAll('[data-agent-upload-source]:checked')].map(node => node.dataset.agentUploadSource);
+          const payload = {workspace_id:status.workspace_id, expected_version:uploadPanel.expected_version, owner_kind:find('#agentUploadOwnerKind').value, owner_id:find('#agentUploadOwner').value.trim(), stream:find('#agentUploadStream').checked,
+            files:uploadPanel.files.filter(item => ids.includes(item.file_id)).map(item => ({file_id:item.file_id, source_revision:item.source_revision})), max_bytes:Number(find('#agentUploadMax').value) * 1048576, duration_seconds:Number(find('#agentUploadDuration').value) * 3600};
+          const preview = await request(`clients/${clientId}/upload-policy/preview`, {method:'POST', body:JSON.stringify(payload)});
+          if (valid(version) && uploadPanel === panel) { uploadPreview = preview; paint(); }
+        } else if (name === 'upload-confirm' && uploadPreview) {
+          const preview = uploadPreview;
+          if (!await confirm({title:'明确批准这个暂存策略？', message:`${preview.client_name} → ${preview.owner.title}`, detail:JSON.stringify({policy:preview.policy, sources:preview.sources, disclosure:preview.disclosure}, null, 2), confirmText:'批准暂存策略'})) return;
+          if (!valid(version) || uploadPreview !== preview) return;
+          const payload = {workspace_id:status.workspace_id, expected_version:preview.expected_version, preview_id:preview.preview_id, preview_digest:preview.preview_digest, request_id:id(), approved:true};
+          rememberUpload({client_id:clientId, request_id:payload.request_id}); busy = true; paint();
+          await request(`clients/${clientId}/upload-policy/confirm`, {method:'POST', body:JSON.stringify(payload)});
+          if (!valid(version)) return;
+          rememberUpload(null); uploadPreview = null; busy = false; await load(); await uploadAction('upload-policy', clientId);
+        } else if (name === 'upload-resolve' && uploadPending) {
+          const result = await request(`operations/${encodeURIComponent(uploadPending.request_id)}`);
+          if (!valid(version)) return;
+          if (['completed', 'abandoned'].includes(result.state)) { rememberUpload(null); uploadPreview = null; await load(); await uploadAction('upload-policy', clientId); }
+          else message('原策略操作需要恢复，请保留日志按维护说明核查。', true);
+        } else if (name === 'upload-revoke') {
+          if (!await confirm({title:'撤销此客户端暂存策略？', message:'旧会话不能再发布ready或用于后续正式消费，已暂存字节仍按安全清理规则保留。', confirmText:'撤销暂存策略', danger:true})) return;
+          if (!valid(version) || uploadPanel !== panel) return;
+          const payload = {workspace_id:status.workspace_id, expected_version:uploadPanel.expected_version, request_id:id()};
+          rememberUpload({client_id:clientId, request_id:payload.request_id});
+          await request(`clients/${clientId}/upload-policy`, {method:'DELETE', body:JSON.stringify(payload)});
+          if (!valid(version)) return;
+          rememberUpload(null); uploadPreview = null; await load(); await uploadAction('upload-policy', clientId);
+        } else if (['upload-report', 'upload-recover', 'upload-cleanup'].includes(name)) {
+          if (name === 'upload-cleanup' && !await confirm({title:'清理当前空间过期暂存？', message:'仅处理已知、过期、未绑定且不在传输的私人暂存。未知对象和第三方字节保留核查；删除未完成不释放预算。此操作覆盖当前空间所有客户端。', confirmText:'安全清理过期暂存'})) return;
+          const result = await request('uploads/maintenance', name === 'upload-report' ? {} : {method:'POST', body:JSON.stringify({workspace_id:status.workspace_id, cleanup:name === 'upload-cleanup'})});
+          if (valid(version) && uploadPanel === panel) { uploadPanel.sessions = result.items; paint(); }
+        }
+      } catch (error) {
+        if (valid(version)) { if (name === 'upload-resolve' && error.status === 404) { rememberUpload(null); uploadPreview = null; } busy = false; paint(); message(`${errorText(error)}${uploadPending ? '；请查询原操作。' : ''}`, true); }
+      }
+    }
+
     function filePanelHtml() {
-      return `<section class="settings-card agent-setup" id="agentFilesPanel"><h2>具体文件授权 · ${esc(files.name)}</h2><p>仅支持Windows固定NTFS卷上的普通文件。确认前只查看文件属性，不读取正文。客户端可能把读取内容发送到外部模型服务；文件不会自动入库。附件来源仅记录意向，当前不提供上传。</p><label>本机文件绝对路径<input id="agentFilePath" placeholder="输入盘符开头的完整文件路径" maxlength="240"></label><label>用途<select id="agentFilePurpose"><option value="text_read">读取文本</option><option value="attachment_source">仅作为后续附件来源</option></select></label><label>编码<select id="agentFileEncoding">${['auto', 'utf-8', 'utf-16-le', 'utf-16-be', 'ascii', 'gb18030', 'cp1252', 'binary'].map(value => `<option>${value}</option>`).join('')}</select></label><label>最大大小（MiB，默认10，最高100）<input id="agentFileMax" type="number" min="1" max="100" value="10"></label><label>期限（小时，默认1，最长24）<input id="agentFileDuration" type="number" min="1" max="24" value="1"></label>${button('file-preview', '检查文件属性并预览授权')}${filePreview ? filePreviewHtml() : ''}${filePending ? `<p>结果待查询，请勿重复授权。请求编号：${esc(filePending.request_id)}</p>${button('file-resolve', '查询文件授权结果')}` : ''}<p>每段最多读取64KiB原始字节，每段都会重新校验完整文件。5秒截止在读块之间检查，操作系统同步等待可能更长。撤销前已获发布许可的响应可能延后到达，已发送内容不能收回。</p>${files.items.map(item => `<article><p>${esc(item.path)} · ${esc(item.purposes.join(' / '))} · ${esc(item.status)} · ${esc(new Date(item.expires_at * 1000).toLocaleString())}</p><small>${esc(item.file_id)} / ${esc(item.source_revision)}</small>${item.status === 'active' ? button('file-revoke', '撤销文件授权', `data-client-id="${esc(item.file_id)}"`) : ''}</article>`).join('') || '<p>尚无具体文件授权。</p>'}${button('files-close', '关闭文件授权')}</section>`;
+      return `<section class="settings-card agent-setup" id="agentFilesPanel"><h2>具体文件授权 · ${esc(files.name)}</h2><p>仅支持Windows固定NTFS卷上的普通文件。确认前只查看文件属性，不读取正文。客户端可能把读取内容发送到外部模型服务；文件不会自动入库。附件来源本身仅是意向；上传暂存需另行明确批准，正式附件尚未开放。</p><label>本机文件绝对路径<input id="agentFilePath" placeholder="输入盘符开头的完整文件路径" maxlength="240"></label><label>用途<select id="agentFilePurpose"><option value="text_read">读取文本</option><option value="attachment_source">仅作为后续附件来源</option></select></label><label>编码<select id="agentFileEncoding">${['auto', 'utf-8', 'utf-16-le', 'utf-16-be', 'ascii', 'gb18030', 'cp1252', 'binary'].map(value => `<option>${value}</option>`).join('')}</select></label><label>最大大小（MiB，默认10，最高100）<input id="agentFileMax" type="number" min="1" max="100" value="10"></label><label>期限（小时，默认1，最长24）<input id="agentFileDuration" type="number" min="1" max="24" value="1"></label>${button('file-preview', '检查文件属性并预览授权')}${filePreview ? filePreviewHtml() : ''}${filePending ? `<p>结果待查询，请勿重复授权。请求编号：${esc(filePending.request_id)}</p>${button('file-resolve', '查询文件授权结果')}` : ''}<p>每段最多读取64KiB原始字节，每段都会重新校验完整文件。5秒截止在读块之间检查，操作系统同步等待可能更长。撤销前已获发布许可的响应可能延后到达，已发送内容不能收回。</p>${files.items.map(item => `<article><p>${esc(item.path)} · ${esc(item.purposes.join(' / '))} · ${esc(item.status)} · ${esc(new Date(item.expires_at * 1000).toLocaleString())}</p><small>${esc(item.file_id)} / ${esc(item.source_revision)}</small>${item.status === 'active' ? button('file-revoke', '撤销文件授权', `data-client-id="${esc(item.file_id)}"`) : ''}</article>`).join('') || '<p>尚无具体文件授权。</p>'}${button('files-close', '关闭文件授权')}</section>`;
     }
 
     async function fileAction(name, key) {
       const version = epoch;
-      if (name === 'files-close') { if (!filePending) { files = null; filePreview = null; paint(); } return; }
+      if (name === 'files-close') { if (!filePending) { fileRequest += 1; files = null; filePreview = null; paint(); } return; }
       if (name === 'file-cancel') { filePreview = null; paint(); return; }
       const clientId = name === 'files' ? key : files?.client_id;
       if (!clientId) return;
       const client = catalog.items.find(item => item.client_id === clientId);
       try {
         if (name === 'files') {
+          if (filePending && filePending.client_id !== clientId) { message('请先查询原客户端的文件授权操作。', true); return; }
+          const requestVersion = ++fileRequest;
+          files = null; filePreview = null; paint();
           const value = await request(`clients/${clientId}/files`);
-          if (!valid(version)) return;
+          if (!valid(version) || requestVersion !== fileRequest) return;
           files = {...value, client_id:clientId, name:client.name}; filePreview = null; paint();
         } else if (name === 'file-preview' && !filePending) {
           const payload = {workspace_id:status.workspace_id, expected_version:files.expected_version, path:find('#agentFilePath').value, purposes:[find('#agentFilePurpose').value], encoding:find('#agentFileEncoding').value, max_bytes:Number(find('#agentFileMax').value) * 1048576, duration_seconds:Number(find('#agentFileDuration').value) * 3600};
@@ -384,6 +469,8 @@
 
     async function action(name, clientId, grantIndex) {
       if (busy || registrationConfirming) return;
+      if (name.startsWith('upload-')) return uploadAction(name, clientId);
+      if (uploadPending && name !== 'refresh') { message('请先查询原暂存授权操作。', true); return; }
       if (name === 'files' || name.startsWith('file-') || name === 'files-close') return fileAction(name, clientId);
       if (filePending && name !== 'refresh') { message('请先查询文件授权原请求结果。', true); return; }
       if (name === 'new-file') {

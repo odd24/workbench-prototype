@@ -34,6 +34,10 @@ def dispatch(handler):
                 raise AgentError("invalid_request", "筛选参数不能重复")
             params = {key: values[0] for key, values in raw.items()}
         parts = route.split("/")
+        if route == "uploads/maintenance":
+            from .agent_upload_http import dispatch_maintenance
+            dispatch_maintenance(handler, origin)
+            return True
         if len(parts) in (3, 4) and parts[0] == "clients" and parts[2] == "files":
             dispatch_files(handler, parts, origin)
             return True
@@ -60,7 +64,10 @@ def dispatch(handler):
                 from .agent_management import AgentManagement
                 management = AgentManagement(runtime)
                 parts = route.split("/")
-                if parts[0] in {"proposals", "proposal-actions"}:
+                if len(parts) in (3, 4) and parts[0] == "clients" and parts[2] == "upload-policy":
+                    from .agent_upload_http import dispatch_policy
+                    result = dispatch_policy(handler, parts, runtime, payload)
+                elif parts[0] in {"proposals", "proposal-actions"}:
                     from .agent_proposal_management import ProposalManagement
                     proposals = ProposalManagement(runtime)
                     if handler.command == "GET" and len(parts) == 2 and parts[0] == "proposal-actions":

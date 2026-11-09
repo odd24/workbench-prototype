@@ -164,3 +164,15 @@ capability_grant_state=dormant持久保存；当前实现验证该状态，篡�
 快照先写、prepared尚未写即退出时，没有发布任何授权；重启预检后为该intent持久化abandoned（orphaned_before_prepare），再回收快照。completed/abandoned落盘后清理失败标记snapshot_cleanup_pending，可查询原operation并在恢复时重试。终结记录始终先于删除，不删日志绕过。根3下普通凭据操作也使用日志4外置私人快照。
 
 批准预览仅元数据，10分钟、同管理会话/进程/空间/客户端CAS绑定；confirm只收票据/摘要及approved=true，不接替换path。批准后有界流式hash，不缓存全文；长hash后再次校验会话/票据期限/CAS才发布授权。响应丢失查原request，不能换ID重新授权。读取需source_revision，offset/length为原始字节，8～65536；返回end_offset/next_offset保证编码边界，BOM仅首段移除。每段同遍捕获并重算完整文件hash与前后句柄版本，源变更拒绝，不返回混版。
+
+### AG-131 私人暂存策略与会话
+
+root3/authorization4/transport2保留，管理日志4新增严格operation_family=upload_policy和before/after_policies私人快照；旧eeeaf86遇未知家族先拒绝管理/鉴权，不写其他已知日志。私人upload-policies.json为schema1/workspace_id/policies映射，项含policy_id/client_id、批准事务后的client_version、owner_kind/id、stream、files（file_id/source_revision）、max_bytes/expires_at/enabled。每client新批准禁用旧policy；read scope、当前业务目标访问范围及有效policy交集，不能扩权正式业务。任何client编辑/轮换均使旧policy失效。旧attachments.write休眠及attachment_source意向不激活；file模式还需新policy逐文件再批准，且旧具体grant仍有效。
+
+私人uploads/<UUID>/session.json为schema1，UUID=uuid5(workspace, client_id+":"+request_id)，input_digest绑定完整创建输入，相同request不同输入409。固定part.bin/blob.bin，不接受路径。字段含workspace/client/client_version/policy、owner（kind/id/title/revision）、filename、source（stream或file_id/source_revision）、declared_bytes/sha256、created_at/expires_at、state、evidence、sealed、binding/consumption、removed/error。filename仅安全basename；file来源名称/长度/SHA来自具体批准记录，stream名称/长度/SHA为发送方声明，实际字节另验。项目版本仅id/name，不因排序/颜色冲突；记录/文档按内容revision绑定。隐藏、缺失、跨类型目标统一404，不返回当前不可见标题或版本。
+
+状态created/receiving/ready/consumed/expired/failed与提案分开。创建预留声明字节；receiving先落盘，part逐块写，首块/每MiB/终结fsync后写evidence累计真实bytes/hash；完整声明匹配才sealed，固定重命名blob，重读真实字节与当前权限后ready。未知尾部/格式/第三方对象保留核查，未sealed完整part保守failed不自动重传。binding保留schema1/proposal_id/version/owner_revision、consumption保留schema1/operation_id，仅未来受控内部消费使用；131不开放绑定/消费入口。可绑定须ready且未removed/error/binding/consumption，并重验当前授权/目标/字节。策略失效后可查询原持久历史收据，available_for_binding=false，不返回当前目标新元信息。
+
+单文件100MiB/client500MiB/workspace1GiB，1000个仍占资源的会话，24h保留；removed终结墓碑不占活跃会话数，仍保留幂等不让旧request重建。目录跨进程短锁保护预留、物理重命名/删除和removed预算发布；每session OS锁防重复I/O，2/client、4/workspace并发。磁盘free仅再扣未落盘预留（声明总量-真实part/blob占用）和新会话，留16MiB，不将已落盘字节重复扣算。所有内容切换同配额锁，断言0≤materialized≤used；流/hash不持该全局锁。外部进程耗盘仍可能失败，失败或删除未完成不释放预算。
+
+清理仅已知、过期、未绑定且非在途对象，先终结后同一已验证DELETE+READ句柄hash/标删除，短配额锁内关闭句柄实际删除并持久removed；源读取句柄无DELETE权。未知/篡改对象不删，不能仅按路径先验后unlink。处于保护/在途的维护返回protected/busy，不声称已清理。凭据/策略/暂存备份均私人；正文不进普通ZIP、Git、搜索、历史或正式附件索引。

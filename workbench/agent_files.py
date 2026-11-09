@@ -227,7 +227,7 @@ class FileManagement:
         if identity["size"] > payload["max_bytes"]:
             raise AgentError("file_too_large", "源文件超过所选大小上限", 413)
         public = {"workspace_id": self.security.workspace_id, "client_id": client_id, "client_name": client["name"], "expected_version": payload["expected_version"], "path": path, "display_name": path.rsplit("\\", 1)[-1], "identity": identity, "purposes": sorted(payload["purposes"]), "encoding": payload["encoding"], "max_bytes": payload["max_bytes"], "duration_seconds": payload["duration_seconds"],
-                  "disclosure": "确认后才读取并校验源文件。授权客户端可将读取内容发往外部模型服务；内容不会自动入库。每段读取都会重新校验完整文件，撤销不能收回已获发布许可的数据。附件来源仅记录意向，当前不能上传。"}
+                  "disclosure": "确认后才读取并校验源文件。授权客户端可将读取内容发往外部模型服务；内容不会自动入库。每段读取都会重新校验完整文件，撤销不能收回已获发布许可的数据。附件来源本身不能上传；暂存还须另行明确批准，正式附件尚未开放。"}
         ticket = secrets.token_hex(32)
         tickets = self.runtime.preview_tickets
         for key in list(tickets):

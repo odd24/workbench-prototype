@@ -8,7 +8,7 @@
 
 后续扩展详见 [AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。AG-115仅文档；AG-116～121、AG-126已完成；用户已明确仅本机使用，AG-122～125已取消当前实施、远程未实现。当前WorkBuddy5.9.3与本机最终交付证据见末尾及扩展验收，不影响首期历史状态。
 
-2026-11-09 用户在监督对话明确“现在开始执行方案”，解除此前暂停实施限制。AG-128/129已通过监督审查，AG-130已完成待交接审查，AG-131～143待开始。历史 AG-127 的仅文档授权和暂停事实保留。
+2026-11-09 用户在监督对话明确“现在开始执行方案”，解除此前暂停实施限制。AG-128～130及独立POST锁修复已通过监督审查，AG-131已完成待交接审查，AG-132～143待开始。历史 AG-127 的仅文档授权和暂停事实保留。
 
 ## 工作项
 
@@ -45,7 +45,7 @@
 | AG-128 | 新能力授权、管理 UI/CLI 与能力协商 | 已完成 | 2026-11-09 | 2026-11-09 | AG-127；用户已授权执行 |
 | AG-129 | 新提案格式与多步骤持久恢复基础 | 已完成 | 2026-11-09 | 2026-11-09 | AG-128；监督已接受f6463db并派发 |
 | AG-130 | 本机文件授权与分段读取 | 已完成 | 2026-11-09 | 2026-11-09 | AG-128；具体文件独立批准，Windows固定NTFS |
-| AG-131 | 流式暂存、上传会话、配额与清理 | 进行中 | 2026-11-09 | — | AG-129；监督接受eeeaf86后派发 |
+| AG-131 | 流式暂存、上传会话、配额与清理 | 已完成 | 2026-11-09 | 2026-11-09 | AG-129；监督接受eeeaf86后派发；实际结果见末节 |
 | AG-132 | 记录与项目附件提案入库 | 待开始 | — | — | AG-130、131 |
 | AG-133 | 知识库附件领域能力与网页接入 | 待开始 | — | — | AG-131、132 |
 | AG-134 | 概念图版本、历史与准备写入 | 待开始 | — | — | AG-129 |
@@ -971,3 +971,17 @@ AG-130提交前最终检查：67Python/46JS语法、10份修改Markdown编码/�
 AG-131开工发现130验证缺口：虽然专用文件管理dispatcher在hash外释放短锁，do_POST/PUT等外层serialized_write仍持空间/业务锁；此前GET长读并发测试未覆盖该外层POST。监督要求先独立修复提交，历史130结果保留原范围。修复只使Agent与本机Agent管理分派在外层锁外执行，由各dispatcher既有短锁协调；普通网页写入和换库仍保留装饰器锁与guard。上传策略草稿不夹入本修复提交；131保持进行中。
 
 独立锁缺陷修复验证：python -m unittest test_agent_files test_agent_api test_agent_runtime test_agent_execution test_server -q，107项83.793秒通过；新增真实POST文件确认hash在途HTTP撤销/关闭及换库锁均<2秒完成，最终零文件授权发布。node test_agent_settings.js通过原设置与130全流程；http_api/test_agent_files/server/test_server编译及git diff --check通过。APP_VERSION2026.11.09.4，前端资源未变；源数据/API格式/普通网页锁未变。独立修复与130补充验收一起提交，131未完成、上传新代码不入本提交。
+
+
+### 2026-11-09 / AG-131 / 完成
+
+- 实际文件：新增agent_upload_policy/agent_uploads/agent_upload_http与test_agent_uploads；修改agent_file_handles/files/management/management_http/service/tools/http_api、agent-settings/index及相关capabilities/diagnostics/files/MCP/settings测试和两个客户端固定目录预期；同步AGENTS/README、本机方案/台账/验收、架构/格式/接入使用维护。
+- 契约：独立uploads.stage完整预览批准，具体owner、stream或显式file_id/source_revision、批准后client_version；旧read/propose、attachment_source意向和休眠grants均不自动授权暂存。root3/auth4/log4/transport2保留，严格新upload_policy家族及私人快照、policy/session各schema1，真实旧eeeaf86拒绝且JSON零变化。新增4控制工具合计19，正式附件/索引/正文/绑定消费仍未开放，业务Markdown、草稿、历史无格式变化。APP_VERSION2026.11.09.5、设置JS缓存20261109-5。
+- 持久化与边界：100MiB/文件、500MiB/client、1GiB/空间、2/4并发、1000活跃会话、24小时、16MiB磁盘余量；跨进程预留、实际物化预算、短目录锁协调原子元数据/rename/DELETE关闭/removed，长流/hash在锁外。真实长度/SHA、fsync/sealed/blob恢复、未知对象保留、在途/绑定/消费保护，墓碑供幂等不占活跃数。取消在途409而非承诺立即中断；ready旧回执不等于当前可消费许可。
+- 自动：全量Python311项231.587秒通过发生在最终边界补测前，不冒充当前全量；后续上传23项28.218秒通过，相关70项71.210秒通过；失效junction补测暴露缺口后原生属性修复，最终python -m unittest test_agent_uploads test_agent_files test_agent_capabilities test_mcp_stdio -q，71项85.775秒通过（1项符号链接创建因WinError1314权限不足跳过）。最终100MiB样本Python峰值3199815字节、2.767秒，低于测试8MiB上限，只是有界内存样本、不冒充性能基线。20Node分批通过（19串行、设置独立且最终再通过）；真实Codex0.163.0-alpha.10.2/MCP2025-11-25/19工具既有四类型两确认路径回归通过，0模型turn、用户配置未修改，不替代AG-142。
+- UI：真实Edge显式暂存策略预览/取消/批准/撤销、丢响应刷新查原操作、状态/恢复/清理及真实ready行通过；长中文/120项目、空数据、focus/disabled/error与浅深×1440/390四张最终截图已目视，无新增CSS/横向页面溢出。原设置/编辑器保存冲突随既有Node通过。
+- 失败保留：跨进程配额首轮69项1失败，5成功加1次路径别名拒绝，未出现超卖；只解析既有祖先/创建后复验并将元数据原子写与扫描共用短锁后18轮独立并发及相关复验通过，不宣称已证明OS内部原因。失效junction专项24项出现2错误/1跳过，补GetFileAttributesW与fixture恢复自身空目标后最终71通过；权限不足符号链接保持跳过。UI先后修正旧panel迟到/版本竞态、响应丢失测试等待早于实际提交、刷新仍匹配旧DOM，未放宽断言/超时。详情及其他真实中断证据见验收分册。
+- 清理：失效junction失败fixture遗留一处本轮合成Temp目录；自动审批以blocked by policy拒绝清理，未换工具或命令绕过。用户回复“已删除”，执行和监督只读Test-Path均False，相关原测试进程已结束、子进程回收/线程join；该清理遗留关闭。没有读取真实用户源文件、修改真实工作台数据或凭据配置，没有提高系统权限。
+- 决策AG-LOCAL-DEC-024～029。保留本机同步OS等待、许可后响应可迟到、未知磁盘证据需人工核查、墓碑增长及保守client版本失效边界；无阻塞本项遗留。下一项AG-132等待监督审查派发，本项不顺带开始132～143。
+
+AG-131提交前最终检查：71Python/46JavaScript全文件语法通过（编译输出临时目录），10份修改Markdown UTF-8/围栏/74相对链接通过；最终目标diff、后续AG-132～143待开始及git diff --check通过，无业务数据、私人凭据、日志或截图夹带。

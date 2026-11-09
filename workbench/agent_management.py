@@ -99,7 +99,7 @@ class CredentialManager:
         if not valid_id or value.get("operation_id") != path.stem or not isinstance(value.get("request_id"), str) or hashlib.sha256(value["request_id"].encode()).hexdigest() != path.stem:
             raise AgentError("management_recovery_required", "管理日志客户端无效", 503)
         if value["schema_version"] == 4:
-            if value.get("registry_schema") != 3 or value.get("operation_family") not in {"credential", "file"}:
+            if value.get("registry_schema") != 3 or value.get("operation_family") not in {"credential", "file", "upload_policy"}:
                 raise AgentError("management_recovery_required", "管理文件授权格式门槛无效", 503)
             if value["state"] in {"prepared", "recovery_required"}:
                 try:
@@ -109,7 +109,8 @@ class CredentialManager:
                 if not isinstance(snapshot, dict) or set(snapshot) != {"schema_version", "operation_id", "workspace_id", "client_id", "values", "intent"} or snapshot.get("schema_version") != 1 or snapshot.get("operation_id") != path.stem or snapshot.get("workspace_id") != self.security.workspace_id or snapshot.get("client_id") != value["client_id"] or value.get("private_snapshot_id") != path.stem or digest(snapshot) != value.get("private_snapshot_digest") or not isinstance(snapshot.get("values"), dict) or any(not key.startswith(("before_", "after_")) for key in snapshot["values"]):
                     raise AgentError("management_recovery_required", "管理私人快照校验失败", 503)
                 value.update(snapshot["values"])
-        required = {"before_client", "after_client"} | ({"before_files", "after_files"} if value.get("operation_family") == "file" else {"before_config", "after_config"})
+        snapshot_kind = {"file": "files", "upload_policy": "policies"}.get(value.get("operation_family"), "config")
+        required = {"before_client", "after_client", "before_" + snapshot_kind, "after_" + snapshot_kind}
         if value["state"] in {"prepared", "recovery_required"} and not required <= value.keys():
             raise AgentError("management_recovery_required", "管理日志快照缺失", 503)
         if value["schema_version"] in (3, 4):
@@ -129,6 +130,10 @@ class CredentialManager:
             from .agent_files import validate_ledger
             validate_ledger(value["before_files"], self.security)
             validate_ledger(value["after_files"], self.security)
+        if value.get("operation_family") == "upload_policy" and value["state"] in {"prepared", "recovery_required"}:
+            from .agent_upload_policy import validate_policies
+            validate_policies(value["before_policies"], self.security)
+            validate_policies(value["after_policies"], self.security)
         return value
 
     def blocked_clients(self):
@@ -182,6 +187,8 @@ class CredentialManager:
         return path
 
     def _finish(self, path, value):
+        if value.get("operation_family") == "upload_policy":
+            return self._finish_policy(path, value)
         if value.get("operation_family") == "file":
             return self._finish_file(path, value)
         config_path = self._config(value["client_id"])
@@ -205,6 +212,53 @@ class CredentialManager:
         self.security.save_clients(clients)
         self.checkpoint("registry")
         completed = {key: item for key, item in value.items() if key not in {"before_config", "after_config", "before_client", "after_client"}}
+        completed["state"] = "completed"
+        self._write(path, completed)
+        self.checkpoint("completed")
+        return True
+
+    def _run_policy(self, path, action, params, before, client_id, request_id, signature):
+        from copy import deepcopy
+        from .agent_upload_policy import load_policies, validate_policies
+        before_policies = load_policies(self.security)
+        after_policies = deepcopy(before_policies)
+        after = {**before, "authorization_schema_version": 4, "management_revision": int(before.get("management_revision", 0)) + 1}
+        for policy in after_policies["policies"].values():
+            if policy["client_id"] == client_id:
+                policy["enabled"] = False
+        policy_id = None
+        if action == "upload_policy":
+            policy = deepcopy(params["policy"])
+            if policy["client_id"] != client_id or policy["client_version"] != client_version(after) or policy["expires_at"] <= time.time() or not policy["enabled"] or policy["policy_id"] in after_policies["policies"]:
+                raise ValueError("暂存策略身份或批准版本无效")
+            policy_id = policy["policy_id"]
+            after_policies["policies"][policy_id] = policy
+        validate_policies(after_policies, self.security)
+        result = {"operation_id": path.stem, "client_id": client_id, "policy_id": policy_id, "version": client_version(after)}
+        value = {"schema_version": 4, "registry_schema": 3, "operation_family": "upload_policy", "workspace_id": self.security.workspace_id, "client_id": client_id,
+                 "operation_id": path.stem, "request_id": request_id, "input_digest": signature, "state": "prepared", "before_client": before, "after_client": after,
+                 "before_policies": before_policies, "after_policies": after_policies, "result": result}
+        self._write(path, value)
+        self.checkpoint("prepared")
+        if not self._finish_policy(path, value):
+            raise AgentError("management_recovery_required", "暂存策略发生外部变化，停止覆盖", 503)
+        return result
+
+    def _finish_policy(self, path, value):
+        from .agent_upload_policy import load_policies, save_policies
+        clients = self.security.clients()
+        if clients.get(value["client_id"]) not in (value["before_client"], value["after_client"]) or load_policies(self.security) not in (value["before_policies"], value["after_policies"]):
+            value["state"] = "recovery_required"
+            self._write(path, value)
+            return False
+        self.security.save_clients(clients, minimum_schema=3)
+        self.checkpoint("format_fence")
+        save_policies(self.security, value["after_policies"])
+        self.checkpoint("upload_policy")
+        clients[value["client_id"]] = value["after_client"]
+        self.security.save_clients(clients, minimum_schema=3)
+        self.checkpoint("registry")
+        completed = {key: item for key, item in value.items() if not key.startswith(("before_", "after_"))}
         completed["state"] = "completed"
         self._write(path, completed)
         self.checkpoint("completed")
@@ -278,7 +332,7 @@ class CredentialManager:
                 if not isinstance(snapshot, dict) or not isinstance(snapshot.get("intent"), dict):
                     raise ValueError()
                 intent = snapshot["intent"]
-                if set(snapshot) != {"schema_version", "operation_id", "workspace_id", "client_id", "values", "intent"} or snapshot["schema_version"] != 1 or snapshot["workspace_id"] != self.security.workspace_id or snapshot["operation_id"] != snapshot_path.stem or not isinstance(snapshot["values"], dict) or intent.get("schema_version") != 4 or intent.get("registry_schema") != 3 or intent.get("operation_family") not in {"credential", "file"} or intent.get("state") not in {"prepared", "recovery_required"} or intent.get("client_id") != snapshot["client_id"] or intent.get("workspace_id") != self.security.workspace_id or intent.get("operation_id") != snapshot_path.stem or hashlib.sha256(intent["request_id"].encode()).hexdigest() != snapshot_path.stem or str(uuid.UUID(snapshot["client_id"])) != snapshot["client_id"]:
+                if set(snapshot) != {"schema_version", "operation_id", "workspace_id", "client_id", "values", "intent"} or snapshot["schema_version"] != 1 or snapshot["workspace_id"] != self.security.workspace_id or snapshot["operation_id"] != snapshot_path.stem or not isinstance(snapshot["values"], dict) or intent.get("schema_version") != 4 or intent.get("registry_schema") != 3 or intent.get("operation_family") not in {"credential", "file", "upload_policy"} or intent.get("state") not in {"prepared", "recovery_required"} or intent.get("client_id") != snapshot["client_id"] or intent.get("workspace_id") != self.security.workspace_id or intent.get("operation_id") != snapshot_path.stem or hashlib.sha256(intent["request_id"].encode()).hexdigest() != snapshot_path.stem or str(uuid.UUID(snapshot["client_id"])) != snapshot["client_id"]:
                     raise ValueError()
                 if snapshot_path.stem in known:
                     if known[snapshot_path.stem].get("private_snapshot_digest") != digest(snapshot):
@@ -353,7 +407,7 @@ class CredentialManager:
             raise ValueError("客户端标识无效")
         operation_id = hashlib.sha256(request_id.encode()).hexdigest()
         path = self.directory / f"{operation_id}.json"
-        signature = digest([action, params.get("approval_digest") if action == "file_grant_create" else params, client_id, expected_version])
+        signature = digest([action, params.get("approval_digest") if action in {"file_grant_create", "upload_policy"} else params, client_id, expected_version])
         with credential_lock(self.security.config_dir):
             blocked = self._recover()
             if path.exists():
@@ -375,9 +429,13 @@ class CredentialManager:
             if expected_version is not None and client_version(before) != expected_version:
                 raise AgentError("configuration_conflict", "客户端授权已变化，请重新核对", 409)
             if before and not before.get("enabled"):
-                if action not in {"revoke", "file_grant_revoke"}:
+                if action not in {"revoke", "file_grant_revoke", "upload_policy_revoke"}:
                     raise ValueError("已撤销客户端不能重新启用，请新建客户端")
             client_id = client_id or str(uuid.uuid4())
+            if action in {"upload_policy", "upload_policy_revoke"}:
+                if blocked:
+                    raise AgentError("management_recovery_required", "先解决全部未决管理操作", 503)
+                return self._run_policy(path, action, params, before, client_id, request_id, signature)
             if action in {"file_grant_create", "file_grant_revoke"}:
                 if blocked:
                     raise AgentError("management_recovery_required", "先解决全部未决管理操作", 503)

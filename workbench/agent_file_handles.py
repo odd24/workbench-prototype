@@ -43,8 +43,10 @@ def _kernel():
         "CreateFileW": ([wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE], wintypes.HANDLE),
         "CloseHandle": ([wintypes.HANDLE], wintypes.BOOL),
         "GetFileType": ([wintypes.HANDLE], wintypes.DWORD),
+        "GetFileAttributesW": ([wintypes.LPCWSTR], wintypes.DWORD),
         "GetFileInformationByHandle": ([wintypes.HANDLE, ctypes.POINTER(FileInformation)], wintypes.BOOL),
         "GetFileInformationByHandleEx": ([wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD], wintypes.BOOL),
+        "SetFileInformationByHandle": ([wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD], wintypes.BOOL),
         "GetFinalPathNameByHandleW": ([wintypes.HANDLE, wintypes.LPWSTR, wintypes.DWORD, wintypes.DWORD], wintypes.DWORD),
         "GetDriveTypeW": ([wintypes.LPCWSTR], wintypes.UINT),
         "QueryDosDeviceW": ([wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD], wintypes.DWORD),
@@ -55,6 +57,17 @@ def _kernel():
         function = getattr(library, name)
         function.argtypes, function.restype = arguments, result
     return library
+
+
+def native_attributes(path):
+    if not SUPPORTED:
+        return None
+    attributes = _kernel().GetFileAttributesW(str(path))
+    if attributes == 0xFFFFFFFF:
+        if ctypes.get_last_error() in {2, 3}:
+            return None
+        raise AgentError("unsupported_file", "无法核查本机对象属性", 503)
+    return attributes
 
 
 def lexical_path(value):
@@ -78,10 +91,11 @@ def deny_sensitive(path, denied_roots=()):
 
 
 class LocalFileHandle:
-    def __init__(self, path, *, read=False, denied_roots=()):
+    def __init__(self, path, *, read=False, denied_roots=(), delete=False):
         self.path = lexical_path(path)
         deny_sensitive(self.path, denied_roots)
         self.read_allowed = read
+        self.delete_allowed = delete and read
         self.denied_roots = denied_roots
         self.library = _kernel()
         self.handles = []
@@ -90,6 +104,8 @@ class LocalFileHandle:
     def _open(self, path, directory=False):
         flags = 0x00200000 | (0x02000000 if directory else 0)  # OPEN_REPARSE_POINT / BACKUP_SEMANTICS
         access = 0x80 if directory or not self.read_allowed else 0x80000000
+        if not directory and self.delete_allowed:
+            access |= 0x10000  # DELETE, for verified private staging cleanup only.
         handle = self.library.CreateFileW(path, access, 1, None, 3, flags, None)  # SHARE_READ only, OPEN_EXISTING
         if handle == ctypes.c_void_p(-1).value:
             raise AgentError("source_unavailable", "文件暂不可用或被其他进程占用", 409, True)
@@ -152,6 +168,13 @@ class LocalFileHandle:
             if not count.value:
                 break
             yield buffer.raw[:count.value]
+
+    def delete_verified(self):
+        if not self.delete_allowed:
+            raise AgentError("forbidden", "此句柄不允许删除", 403)
+        disposition = ctypes.c_ubyte(1)
+        if not self.library.SetFileInformationByHandle(self.handle, 4, ctypes.byref(disposition), ctypes.sizeof(disposition)):
+            raise AgentError("upload_cleanup_pending", "暂存删除未完成，保留占用供重试", 409)
 
     def __exit__(self, *_args):
         for handle in reversed(self.handles):

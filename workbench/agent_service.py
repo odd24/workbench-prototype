@@ -63,6 +63,8 @@ class AgentService:
             repository.write_guard = repository.agent_proposals.guard_writes
         self.store = repository.agent_proposals
         self.store.security = security
+        from .agent_uploads import UploadStore
+        self.uploads = UploadStore(repository, security)
 
     def list_file_grants(self, client):
         from .agent_files import authorized_files, public_info
@@ -105,6 +107,9 @@ class AgentService:
         from .agent_files import authorized_files
         from .agent_file_handles import SUPPORTED
         file_grants = list(authorized_files(self.security, client).values()) if SUPPORTED else []
+        from .agent_upload_policy import active_policies
+        from .agent_uploads import LIMITS as UPLOAD_LIMITS
+        upload_policies = active_policies(self.repository, self.security, client) if SUPPORTED else []
         return {"kind_operations": {kind: ["create", "append", "update"] for kind in kinds},
                 "kind_fields": {kind: fields[kind] for kind in kinds}, "authorized_kinds": client_kinds(client),
                 "confirmation_modes": ["agent_attested", "local_web"], "default_confirmation_mode": client_confirmation_mode(client),
@@ -112,7 +117,10 @@ class AgentService:
                 "operations": ["create", "append", "update"], "limits": LIMITS, "scopes": client["scopes"],
                 "project_ids": client["project_ids"], "categories": client["categories"], "confirmation_mode": client_confirmation_mode(client),
                 "capability_authorization": {"configured": client_capability_grants(client),
-                                             "implemented": ["files.read"] if SUPPORTED else [], "effective": ["files.read"] if file_grants else [], "activation": "requires_reauthorization"},
+                                             "implemented": ["files.read", "uploads.stage"] if SUPPORTED else [], "effective": (["files.read"] if file_grants else []) + (["uploads.stage"] if upload_policies else []), "activation": "requires_reauthorization"},
+                "upload_staging": {"policies": upload_policies, "limits": UPLOAD_LIMITS, "formal_attachment_write": False,
+                                   "transports": ["approved_file_id", "dedicated_loopback_octet_stream"], "mcp_binary_payload": False,
+                                   "authorization": "read scope, existing owner access and fresh staging policy; any client authorization or token change requires reapproval"},
                 "file_access": {"grant_required": True, "operations": ["list_file_grants"] + (["get_file_info"] if file_grants else []) + (["read_file"] if any("text_read" in item["purposes"] for item in file_grants) else []),
                                 "raw_chunk_bytes": 65536, "default_max_bytes": 10485760, "max_bytes": 104857600, "default_duration_seconds": 3600, "max_duration_seconds": 86400,
                                 "verification": "each segment rehashes the full approved file; raw byte offsets; use next_offset; attachment_source grants do not permit text reads or uploads",

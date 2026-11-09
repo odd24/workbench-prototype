@@ -228,3 +228,13 @@ capabilities新增capability_authorization.configured/implemented/effective/acti
 文件批准只能在同源本机管理会话clients/{client_id}/files/{preview|confirm}执行，Agent凭据不能调用；confirm不接受path，仅当前票据/摘要、expected_version、稳定request_id、approved=true。管理GET files与DELETE files/{file_id}用于查看/撤销，具体完整契约见DATA_FORMAT。文件专用创建使用file_access_only=true及空旧类型/范围；已有客户端的文件ID由服务端批准流程维护，不允许通用编辑自报active_file_ids。
 
 capabilities区分Windows实现、当前具体授权与用途操作；configured休眠列表仍不生效。file_access明示大小/期限/分段上限、每段全文件校验、5秒块间截止及撤销许可边界。传输配置仍schema2，新授权4/根3/日志4建立旧版拒绝门槛；支持范围和管理员操作见AGENT_USAGE。原12工具和四类型三操作保留，此次原始MCP实测不代替AG-142真实模型客户端新增业务矩阵。
+
+### AG-131 暂存控制与原始流
+
+固定MCP19项，新增create_upload/get_upload/complete_upload/cancel_upload，仍保留原15项；只控制私人暂存，不正式入库。create_upload接受稳定request_id、policy_id、source、owner_kind/id、filename、bytes、sha256；source为{mode:stream}或{mode:file,file_id,source_revision}，无路径/URL/base64。get允许查询同client原收据，ready不等于当前可消费，须看available_for_binding。file模式由complete在服务内同遍复制/hash，普通stdio无需也不得自行读文件或提供原始流。
+
+具备独立HTTP认证能力的客户端可POST /api/agent/v1/uploads建会话，PUT uploads/{id}/content传application/octet-stream，再POST complete（空JSON），GET同ID查询，POST cancel（空JSON）终结。PUT必须Bearer与X-Workbench-Workspace，不仅凭ID；正确单一Content-Length、无TE/重复header/query，仅loopback与正确Host/Origin。缺失/重复/非法长度400/411，超限413，短读/摘要409，idle/total超时408。每块64KiB、idle5s/total60s逐读收紧；错误或PUT完成均关闭连接。已缓冲超额拒绝，之后迟到多余字节由强制关闭丢弃，不作下一请求。
+
+传输在途cancel返回upload_busy，未即时停止；客户端停止连接后查询/取消，或管理员撤销policy阻止发布ready。已接受取消不复活，不重传原会话；失败先查原upload_id。MCP不要求所有客户端具备HTTP字节能力，未实测客户端不宣称支持原始流；原始HTTP和stdio文件来源分别验收，仍不替代AG-142真实模型客户端矩阵。
+
+同源管理clients/{client_id}/upload-policy GET/DELETE、preview/confirm POST；确认仅票据/摘要/CAS和approved，不接替换policy。uploads/maintenance GET只读报告，POST {workspace_id,cleanup:false|true}恢复/安全过期清理，管理凭据不可作上传凭据，Agent不可调用管理路由。新capability uploads.stage及upload_staging明示有效policy/来源/配额，formal_attachment_write=false。

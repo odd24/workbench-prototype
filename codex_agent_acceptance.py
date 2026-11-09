@@ -187,7 +187,7 @@ def run_acceptance(codex=None):
             thread_id = thread["thread"]["id"]
             status = rpc.call("mcpServerStatus/list", {"threadId": thread_id, "serverName": "workbench", "detail": "toolsAndAuthOnly"})
             inventory = next(item for item in status["data"] if item["name"] == "workbench")
-            assert len(inventory["tools"]) == 15 and inventory["serverCapabilities"] == {"tools": {}}
+            assert len(inventory["tools"]) == 19 and inventory["serverCapabilities"] == {"tools": {}}
             def call(name, args=None, error=False):
                 result = rpc.call("mcpServer/tool/call", {"threadId": thread_id, "server": "workbench", "tool": "workbench_" + name, "arguments": args or {}})
                 if bool(result.get("isError")) != error:

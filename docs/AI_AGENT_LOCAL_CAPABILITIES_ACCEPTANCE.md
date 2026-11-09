@@ -144,3 +144,49 @@ Windows固定本机NTFS/普通文件句柄，逐层拒重解析/目录联接，�
 独立修复将Agent与同源Agent管理的分派从外层锁中豁免，继续使用各dispatcher自己的短锁；普通网页变更仍由原装饰器与guard协调。新增真实HTTP POST文件确认长hash测试，期间客户端撤销HTTP、关闭接入HTTP及换库锁均在2秒内完成，hash结束后拒绝发布、私人file-grants仍空。APP_VERSION2026.11.09.4，不改前端、数据/API格式或旧网页锁。
 
 python -m unittest test_agent_files test_agent_api test_agent_runtime test_agent_execution test_server -q：107项83.793秒通过；node test_agent_settings.js原设置及130文件全流程通过；四个涉及Python入口/测试编译及git diff --check通过。此为独立缺陷修复，不包含未验证上传代码；AG-131仍进行中。
+
+
+## AG-131：私人流式暂存、配额与恢复
+
+2026-11-09完成。起始eeeaf86工作区干净，整体执行授权和监督派发持续；期间独立POST外锁修复5abd6f2另提交，见前节。本节只验收131，AG-132～143未开始。
+
+### 实现、数据与授权
+
+新agent_upload_policy、agent_uploads和agent_upload_http分别承载明确策略、私人会话与专用传输；既有管理日志/领域权限/原子写复用。uploads.stage必须同源本机管理会话完整预览并明确批准，绑定批准后的完整client_version、owner及相关版本、stream开关或具体file_id/source_revision、大小与期限；客户端改动保守失效，重批准替代旧policy。既有read/propose、attachment_source意向、text_read与休眠attachments.write均不自动生效；file来源同时要求有效attachment_source及新策略逐文件批准。目标范围仍用旧业务读取访问规则，不因此得到正式写入。
+
+root3/auth4/log4/transport2保持，新增严格upload_policy操作家族和外置私人before/after_policies；policy/session各schema1，全部未知格式先预检，旧eeeaf86真实归档二进制拒绝且相关私人JSON逐字不变，不能删除日志降级。私人上传UUID由workspace/client/request确定，完整输入digest拒同请求换内容；原始basename无任意path/URL/base64。正式附件、资产索引、正文、导出格式、草稿和历史不变；consumer_contract固定拒绝，binding/consumption只预留并保护，不提供Agent消费入口。
+
+单文件100MiB、client500MiB、空间1GiB、I/O并发2/client与4/空间、1000未removed会话、24小时、16MiB磁盘余量。预留按声明，真实长度/SHA独立校验；可用磁盘只扣未物化预留，已占用内容不重复扣减。墓碑保留幂等但不计活跃上限，未来墓碑增长仍需治理，131不自动删除幂等证据。跨进程短目录锁协调配额、原子元数据/扫描、rename、同一已核验DELETE句柄关闭及removed发布；长hash/流不持空间/业务/凭据/目录锁。每session OS锁保护传输与维护，在途取消409，停止发送或撤销策略后查询原会话，不承诺立即中断OS调用。
+
+固定loopback PUT octet-stream，Bearer/空间及Host/Origin校验；拒TE、重复身份/Host/Origin/CL、缺失/非法长度、超限、query。64KiB块、idle5秒/total60秒逐块收紧；已缓存多余body拒绝，迟到余字节由必关连接丢弃，不作为下一请求。fsync证据→sealed→blob rename→磁盘重读→当前服务/空间/权限/owner复验→ready。未sealed中断保守failed；完整证据可重启恢复，无需重读源；未知尾部/对象/版本及篡改保留，不能当可用ready。清理只处理已过期、非在途、未绑定/消费且字节证据匹配对象，真正消失才释放预算。
+
+### 实际检查
+
+| 检查 | 实际结果 |
+| --- | --- |
+| python -m unittest -q | 较早全量311项231.587秒通过；发生在最后边界补测前，不声称当前全量一次通过 |
+| python -m unittest test_agent_uploads -q | 修复并发路径与元数据扫描后23项28.218秒通过；随后失效junction新增分支曾失败，见下文 |
+| python -m unittest test_agent_uploads test_agent_files test_agent_capabilities test_mcp_stdio -q | 前轮70项71.210秒通过；最终原生属性修复后71项85.775秒通过，1项原生符号链接因WinError1314权限不足跳过 |
+| 100MiB临时来源/真实blob | 最终样本Python峰值3199815字节，2.767秒，断言低于8MiB；此前多个样本亦通过，仅有界内存证据，不是性能基线 |
+| 20个Node契约 | 其余19串行通过、设置独立通过；设置最终包含真实ready状态行及token不进入DOM的断言再次通过，不称一次整组全绿 |
+| python codex_agent_acceptance.py | Codex0.163.0-alpha.10.2/MCP2025-11-25/19工具、原四类型三操作与两确认路径及重试/取消/重启/撤销通过；0模型turn、user_config_changed=false，不替代AG-142新能力模型矩阵 |
+
+上传测试实际覆盖明确授权/持久重载/越权/隐藏与不存在同404、来源用途/版本、owner/client/policy变动、重复请求与不同输入、完成重放与丢响应查询；零字节/边界/截断/超长/错SHA/取消后不复活；500MiB与1GiB精确边界、多线程/真实跨进程竞争、磁盘不足/已物化预算、1000活跃与墓碑幂等；未知/混合元数据零写、第三方改动、已绑定/消费/在途保护；目录锁确定性交错验证rename/删除与预算统计一致、长hash不阻塞统计，元数据原子写时目录扫描不会误报未知临时文件。
+
+独立临时进程在receiving、partial_evidence、part_fsynced、sealed、blob_renamed、ready真实退出并重启查询；policy私人快照/日志/格式门槛/策略/registry/终结阶段真实退出、孤儿及清理失败恢复均有断言。原始HTTP真实流、慢速/idle/total/header异常、撤销/关闭/换库期间旧请求不能发布ready；原始stdio真正调用新4工具及file来源复制，拒path字段，旧工具继续可用。这里HTTP客户端和stdio测试分列，不声称MCP JSON能携带原始流或已有真实模型新能力矩阵。
+
+真实Windows普通文件与多硬链接、有效及失效目录junction守卫覆盖；失效junction由GetFileAttributesW在Python缺失路径分支前拒绝，避免将链接当可创建叶。符号链接创建权限不足的分支明确跳过，未开启开发者模式或提高权限。安全清理使用同一已验证句柄的SetFileInformationByHandle/FileDispositionInfo标记及关闭，不重新按路径删除已验证内容；来源读取默认不申请DELETE。官方依据见方案第18节，行为以本节实际断言为准。
+
+真实Edge设置浏览器覆盖完整中文预览、取消/明确批准、丢响应刷新查询原request、撤销、当前空间报告/恢复/清理及真实ready行。旧文件panel迟到结果不覆盖当前client；待决批准禁止无关写入。浅深×1440/390最终四图已目视，长中文与120项目、空数据、focus/disabled/error、无页面横向溢出，图片只在Temp用于评审，不提交；无新增CSS。原编辑器/Agent保存冲突工作流随既有Node通过。
+
+### 失败、清理与交付边界
+
+首轮相关69项出现1个并发失败：5次成功和1次非预期路径别名拒绝，未超卖；即时再次解析与先前不一致只是观测，不能宣称证明Python/OS内部原因。改为只解析既有祖先、服务派生UUID创建/打开后复验，并将元数据原子写与扫描纳入同一短锁；18轮独立跨进程竞争复验及后续70/71项通过，未放宽配额断言。
+
+扩展真实失效junction测试后24项出现2错误、1跳过：守卫未拒绝失效对象，fixture随后rmdir清理也失败。补原生GetFileAttributesW与fixture仅恢复自身空target再移除链接；两个定向分支1通过/1权限跳过，最终71项通过。浏览器失败先暴露旧panel/版本竞态，后暴露响应丢失测试仅等待pending早于实际提交及刷新仍匹配旧DOM；分别清空旧panel并校验请求序号、等待实际丢响应反馈、用窗口标记确认新执行上下文后通过，不放宽业务断言/超时。
+
+原失效junction失败fixture留一处本轮合成Temp目录（后缀tmp0u2oav7r），清理命令遭自动审批blocked by policy拒绝；未换工具/命令重试绕过。用户随后回复“已删除”，执行与监督均只读Test-Path=False；原fixture无HTTP服务，测试进程已退出、相关子进程等待回收和线程join已完成，该清理遗留关闭。后续夹具自身清理通过；无真实用户来源/认证文件读取、真实工作台数据迁移或系统权限修改。
+
+APP_VERSION2026.11.09.5、agent-settings缓存20261109-5，决策024～029。同步OS读取仍可能超过块间截止，已获许可响应可迟到；未知磁盘证据需人工核查，ready历史回执不等于当前可绑定权限，任何客户端变动保守失效需重批。不开放正式附件/绑定消费，无真实新增模型turn、跨客户端新能力矩阵、独立性能或视觉基线。131完成后交监督审查，132～143继续待开始。
+
+AG-131提交前最终检查：71Python/46JavaScript全文件语法通过（编译输出临时目录），10份修改Markdown UTF-8/围栏/74相对链接通过；最终目标diff、后续AG-132～143待开始及git diff --check通过，无业务数据、私人凭据、日志或截图夹带。

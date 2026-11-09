@@ -171,3 +171,13 @@ proposal3/manifest3(execution_schema_version=1)/approval action3保留原独立�
 停服匹配私人备份须包含clients根3、file-grants、management-operations日志4及management-snapshots，与原workspace身份保持一致；不能把私人目录复制到业务ZIP或Git。源文件不在业务备份里，恢复授权不会重新hash或读取源，后续读取仍按批准版本验证。批准或撤销结果不确定先查原operation；prepared/recovery_required保留现场，先report，再核对是否继续恢复或显式abandon。
 
 快照首写后未prepared即退出，重启在完整预检后先持久abandoned再清理，不发布授权。completed/abandoned后清理失败可由operation查询snapshot_cleanup_pending，重启恢复会重试，不能手动删日志或先删未决快照。根3下凭据轮换/编辑/撤销也使用同一日志4，完成后才清除秘密快照；不确定先查询，不重放。旧9b6924d必须拒绝新根/日志，降级只能停服恢复匹配旧备份，不能删除格式门槛。三文件工具的原始MCP实测不是AG-142真实模型客户端矩阵。
+
+### AG-131 暂存维护与回退
+
+运行python -m unittest -v test_agent_uploads、node test_agent_settings.js及相应Agent/HTTP/MCP门禁；100MiB真实临时文件专项只证明有界流式，不是完整性能基线。新工具目录19项，既有真实CLI无模型回归与AG-142新模型客户端矩阵分开。Windows固定NTFS为当前实际支持边界；源文件拒重解析/多硬链接/SUBST/秘密位置，私有暂存验证与同句柄DELETE也遵守普通文件身份核查。
+
+停服私人备份新增upload-policies.json和uploads（session.json、part.bin/blob.bin、锁文件）并保留workspace/clients/management-operations及未决snapshots的一致副本。业务ZIP不含这些私人数据，不能移入静态资源或Git。根/授权/transport保留3/4/2；日志4新增upload_policy家族，eeeaf86因未知家族拒绝，降级只用匹配备份，不删日志绕过。
+
+设置页“查看当前空间暂存状态”只读元数据；“恢复已接受暂存”在重新打开服务后根据sealed/真实磁盘恢复原ID，不重新读取来源或重传。也可由同client get_upload/complete_upload恢复原会话，空间关闭或权限失效不发布新ready。created可继续首次传输，receiving无完整sealed则failed；已记录evidence的已知半成品可在过期安全清理，超出最后证据的未知尾部需人工核查，保留预算。
+
+“清理当前空间过期暂存”先全量预检固定目录/格式，跳过OS锁持有的在途和binding/consumption保护项。只删通过同句柄大小/hash证明的已知对象，实际关闭DELETE句柄并持久removed后才释放预算。长hash在目录配额锁外，物理rename/delete和预算状态在同一短锁，避免统计重复/缺失；断言materialized在0到used之间，不用截零掩盖竞态。清理失败/第三方对象/未知版本保留现场，不递归删私人目录，不修改正式附件。终结墓碑保留request幂等而不占活跃1000会话限制。外部进程耗盘仍会导致写失败，不能把预检余量说成文件系统原子空间预留。

@@ -4,7 +4,7 @@
 
 主方案：[AI_AGENT_PLAN.md](AI_AGENT_PLAN.md)。前期扩展：[AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。实施事实与状态：[AI_AGENT_PROGRESS.md](AI_AGENT_PROGRESS.md)。执行规范：[AGENTS.md](../AGENTS.md)。
 
-**当前执行状态（2026-11-09）：用户最新明确“现在开始执行方案”，AG-128 已完成授权基础，尚未开放新增业务；AG-129执行基础已完成、AG-130～143待开始，状态以台账为准。此前 AG-127 仅文档和暂停实施是历史事实。方案不等于能力已实现或验收；不得提前开放后续业务工具或操作真实客户端。**
+**当前执行状态（2026-11-09）：用户最新明确“现在开始执行方案”，AG-128 已完成授权基础，尚未开放新增业务；AG-129执行基础、AG-130文件授权及AG-131私人暂存已完成，AG-132～143待开始，状态以台账为准。此前 AG-127 仅文档和暂停实施是历史事实。方案不等于能力已实现或验收；不得提前开放后续业务工具或操作真实客户端。**
 
 ## 1. 目标与交付范围
 
@@ -253,7 +253,7 @@ capabilities 明示 authorized capabilities、kind_operations、kind_fields、�
 
 ## 12. 工作项、文件与独立验收
 
-以下是预计接点，不是要求创建所有候选文件。实施前确定最小变更，不复制现有 CRUD 或另建 Repository 进程。AG-127 为本文档治理；AG-128/129已完成、AG-130～143待开始，实际状态以台账为准。
+以下是预计接点，不是要求创建所有候选文件。实施前确定最小变更，不复制现有 CRUD 或另建 Repository 进程。AG-127 为本文档治理；AG-128～131已完成、AG-132～143待开始，实际状态以台账为准。
 
 | ID | 范围/依赖 | 预计文件或模块 | 独立完成证据 |
 | --- | --- | --- | --- |
@@ -365,3 +365,19 @@ AG-128实际结果见[本机能力验收](AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE
 平台规范依据（仅官方，行为须实测）：[CreateFileW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)、[GetFileInformationByHandle](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle)、[GetFinalPathNameByHandleW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfinalpathnamebyhandlew)、[GetDriveTypeW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getdrivetypew)、[GetFileType](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfiletype)、[FILE_BASIC_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_basic_info)。
 
 [QueryDosDeviceW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-querydosdevicew)用于检查当前DOS设备映射。快照首写未prepared的孤儿只持久abandoned再回收，不代替用户hash或发布；管理session、runtime版本与票据期限在长I/O后再次核查。批准预览披露受控display_name，Agent元信息只返回该名称，不返回父路径。实际测试见[本机能力验收](AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md)。
+
+## 18. AG-131 暂存具体契约（已实现）
+
+- AG-LOCAL-DEC-024：新增独立uploads.stage，不使用休眠attachments.write或130的attachment_source意向。管理同源会话预览/明确批准一client一个有效policy：具体owner_kind/id、stream开关、file_id/source_revision清单、大小/期限；替代旧policy，read scope及现有目标业务访问范围同时满足。绑定批准事务后的完整client_version，任何授权或凭据修改都保守失效，需重新批准；policy不扩大正式业务读取/写入。
+- AG-LOCAL-DEC-025：复用root3/auth4/transport2及管理日志4，新增严格operation_family=upload_policy、before/after_policies快照及私人upload-policies.json schema1。旧eeeaf86在管理全量预检因未知family拒绝，不盲升全部格式。旧已知家族兼容；未知格式全部先预检后恢复，终结后才清快照。独立上传session schema1在私人目录，UUID由workspace/client/request稳定派生，input_digest拒同request不同输入。
+- AG-LOCAL-DEC-026：session绑定client/policy/client_version、具体owner与相关版本、原始安全basename、来源file_id/revision或stream、声明size/sha、24小时期限。created/receiving/ready/consumed/expired/failed与提案分开；binding/consumer受控保护字段预留，131无Agent绑定/消费入口。ready必须真实私有blob对应size/hash，不能自报；正式文件/索引/正文和消费留132/133。
+- AG-LOCAL-DEC-027：created预留声明大小，单文件100MiB/client500MiB/workspace1GiB，并发2/client4/global，磁盘额外保留16MiB；失败/过期未真正删除占用不释放预算。跨进程元数据短锁与单session OS锁分离，64KiB有界I/O；socket idle5秒/total60秒逐块收紧，file源仍有OS同步等待边界。file源限额/期限与policy取严，同遍复制/hash并核前后身份，不重新开源路径复制。
+- AG-LOCAL-DEC-028：固定PUT octet-stream、认证与空间header、固定upload_id，无URL抓取/任意路径/base64。重复/缺失/非法Content-Length、TE、超限、query等拒绝，剩余body或错误关闭连接。loopback/Host/Origin校验，全部socket长I/O与源复制不持空间/业务/凭据锁，ready发布前短锁重验policy/目标/服务/空间，响应锁外发送。
+- AG-LOCAL-DEC-029：receiving→part写入fsync→sealed真实size/hash→固定blob rename→ready；各断点从磁盘证据恢复。partial终结failed，完整sealed/blob需重读验证和当前权限才ready；第三方/未知文件或版本保留核查，不能当可用ready。安全清理只固定未绑定且非在途对象，不能删除未知/引用中/消费中对象；先持久终结、真正删除后才释放配额，已ready历史状态不等于当前可消费权限。
+
+开工另发现Agent POST外层serialized_write锁覆盖130批准hash，先独立缺陷提交及真实POST并发回归；普通网页写入/换库原协调不变。实际检查、失败复验及边界见本机能力验收AG-131和台账。
+
+
+补充实施边界：1000限制只计未removed会话，墓碑仍供幂等查询；磁盘可用量扣除未物化预留而非重复扣已落字节。短目录锁保护元数据原子替换、目录扫描、part→blob、句柄实际删除及removed发布，hash/流在锁外。在途取消返回409，停止发送或撤销策略后查询原会话，不保证立即中断OS读取。ready历史回执不表示当前可绑定；当前授权、目标及磁盘验证同时通过才返回available_for_binding。
+
+私人路径守卫同时使用原生属性检查失效junction；缺失UUID叶只解析既有祖先并在创建/打开后复验，不能将一次瞬时解析差异当已证明的OS内部根因。清理通过已验证的同一DELETE句柄标记并关闭后确认不存在才释放预算。官方API依据：[GetFileAttributesW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileattributesw)、[SetFileInformationByHandle](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-setfileinformationbyhandle)、[FILE_DISPOSITION_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_disposition_info)。实际junction成功/失效分支已验证；符号链接因权限不足跳过，不能宣称已覆盖原生符号链接创建。

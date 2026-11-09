@@ -75,7 +75,11 @@ class AttachmentRepositoryTests(unittest.TestCase):
             "attachments": [json.dumps({"name": "unindexed.txt", "path": "../assets/library/unindexed.txt"})],
         })
         orphan_paths = {Path(item["path"]).resolve() for item in self.repo.orphan_assets()}
-        self.assertIn(unindexed.resolve(), orphan_paths)
+        # Unknown/malicious metadata no longer proves lack of references.
+        self.assertNotIn(unindexed.resolve(), orphan_paths)
+        self.assertTrue(self.repo.orphan_asset_report()['warnings'])
+        self.assertEqual(self.repo.cleanup_orphan_assets()['removed'], 0)
+        self.assertTrue(unindexed.exists())
 
     def test_incomplete_stream_upload_removes_partial_files(self):
         with self.assertRaisesRegex(ValueError, "上传不完整"):

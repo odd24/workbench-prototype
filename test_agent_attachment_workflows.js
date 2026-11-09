@@ -23,7 +23,8 @@ async function main() {
     const managementHeaders = {'X-Workbench-Management':'1', 'X-Workbench-Management-Token':status.management_token};
     const local = (route, method = 'GET', body) => json('/api/local/agent-management/' + route, method, body, managementHeaders);
     const project = await json('/api/projects', 'POST', {name:'附件完整预览中文项目'.repeat(6)});
-    const provisioned = await local('clients', 'POST', {workspace_id:status.workspace_id, request_id:crypto.randomUUID(), name:'正式附件专项客户端', scopes:['read', 'propose', 'commit'], kinds:['issue', 'todo', 'info'], project_ids:[project.id], categories:[], minimum_confirmation_mode:'agent_attested'});
+    const formalDocument = await json('/api/documents', 'POST', {title:'正式文档附件', category:'文档附件分类', body:'文档原始正文'});
+    const provisioned = await local('clients', 'POST', {workspace_id:status.workspace_id, request_id:crypto.randomUUID(), name:'正式附件专项客户端', scopes:['read', 'propose', 'commit'], kinds:['issue', 'todo', 'info', 'document'], project_ids:[project.id], categories:['文档附件分类'], minimum_confirmation_mode:'agent_attested'});
     const config = JSON.parse(fs.readFileSync(path.join(credentials, status.workspace_id, `${provisioned.client_id}.json`), 'utf8'));
     const agentHeaders = {Authorization:`Bearer ${config.token}`, 'X-Workbench-Workspace':status.workspace_id};
     const agent = (route, method = 'GET', body) => json('/api/agent/v1/' + route, method, body, agentHeaders);
@@ -88,7 +89,7 @@ async function main() {
       const upload = await agent('uploads', 'POST', {request_id:crypto.randomUUID(), policy_id:policy.policy_id, source:{mode:'file', file_id:grant.file_id, source_revision:grant.source_revision}, owner_kind:kind, owner_id:ownerId, filename:grant.display_name, bytes:bytes.length, sha256:crypto.createHash('sha256').update(bytes).digest('hex')});
       await agent(`uploads/${upload.upload_id}/complete`, 'POST', {});
       const target = await agent(`attachment-targets/${kind}/${encodeURIComponent(ownerId)}`);
-      return agent('proposals', 'POST', {request_id:crypto.randomUUID(), kind:'attachment', operation:'create', target_id:ownerId, base_revision:target.revision, content:{owner_kind:kind, owner_id:ownerId, upload_id:upload.upload_id, display_name:displayName, category:'', insert_link:kind !== 'project'}});
+      return agent('proposals', 'POST', {request_id:crypto.randomUUID(), kind:'attachment', operation:'create', target_id:ownerId, base_revision:target.revision, content:{owner_kind:kind, owner_id:ownerId, upload_id:upload.upload_id, display_name:displayName, category:kind === 'document' ? target.categories[0] : '', insert_link:kind !== 'project'}});
     };
     const approveProposal = async (proposal, shots = false) => {
       await client.evaluate("setPage('agent_proposals')");
@@ -135,6 +136,15 @@ async function main() {
     await client.evaluate("(async () => { documentMarkdownContent(); markDocumentChanged(); await saveDocument({readAfterSave:false, notifyUser:false}); await closeDocumentEditor(); documents = await api('/documents'); openDocument(" + JSON.stringify(document.id) + "); setDocumentMode('visual'); return true; })()");
     await waitForPage(client, "Boolean($('#documentVisualEditor img')?.naturalWidth)");
     assert.equal((await json(`/api/documents/${document.id}`)).body.trim(), documentMarkdown);
+    await client.evaluate('closeDocumentEditor()');
+    const documentPolicy = await authorize('document', formalDocument.id);
+    const documentProposal = await stageProposal('document', formalDocument.id, '文档[方](圆)%# 空格.png', documentPolicy);
+    const documentReceipt = await approveProposal(documentProposal);
+    await client.call('Page.navigate', {url:origin + documentReceipt.web_path});
+    await waitForPage(client, `currentDocument?.id === ${JSON.stringify(formalDocument.id)} && $('#documentDialog').open`);
+    await client.evaluate("setDocumentMode('visual')");
+    await waitForPage(client, "Boolean($('#documentVisualEditor img')?.naturalWidth)");
+    assert.deepEqual(Buffer.from(await fetch(`${origin}/api/attachments/${formalDocument.id}/${encodeURIComponent(documentReceipt.attachment.name)}`).then(response => response.arrayBuffer())), bytes);
     console.log('Attachment browser workflow passed: joint-consent,cancel,complete-preview,local-web,project-result,download,special-filenames,record-and-document-roundtrip,light/dark,1440/390');
     console.log(`Screenshots: ${screenshots}`);
   } catch (error) {

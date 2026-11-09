@@ -241,3 +241,54 @@ attachment/create严格六content字段，既有project/issue/todo/info、固定
 收口又验证旧损坏附件metadata在创建proposal之前拒绝、记录字节不变/无非法提案（连assets10项1.448秒）；项目metadata原子写后重读与新23附件连assets32项74.179秒通过；正式get/commit在AgentService按handler分流且HTTP只作协议/空间guard，API+23附件36项92.497秒通过。旧转换todo ID附件写入保持稳定ID和原无深链限制，旧二进制/混合日志专项1项4.137秒通过。最后36组100MiB样本1290746B/2.73秒，仍仅有界内存证据。其他平台在正式policy使用前明确503拒绝，未宣称非Windows原生验证。
 
 AG-132提交前最终检查：76个Python/47个JavaScript全文件语法、10份修改Markdown UTF-8/围栏/76个相对链接及git diff --check通过；AG-132已完成、AG-133～143待开始。目标测试进程检查无匹配残留，diff不含业务数据、凭据、日志或评审截图。
+
+
+## AG-133：知识库附件领域与普通网页接入
+
+2026-11-09完成实施与验收，起始6c28f12工作区干净，监督接受132后派发，唯一执行写入；本节不代表AG-134以后或AG-142模型矩阵完成。
+
+### 数据与执行事实
+
+文档仅有原type=document与分类，正式附件目录是原Markdown front matter有序attachments。写出JSON字符串项，读取兼容JSON字符串/既有对象项；轻量解析器会将部分JSON字串归一化为dict，故专门复验写盘仍为带引号JSON字串，普通保存/历史/Agent往返与带boolean/未知字段的旧对象均可读。字节位于全局assets/images或files，path相对原documents文件，稳定ASSET ID/真实size/SHA及文档原category。未知meta（包括非业务project_id）保留但不改变文档归属；原body/换行由共享准备助手保留或追加链接，不建新文档类型、附件分类索引或编辑器。
+
+Agent仅通过新鲜共同policy的document owner生效，旧stage/schema1/schema2-null/休眠grant/attachment_source不扩权。复用attachment@1/schema2、同一ProposalStore和Prepared领域/历史、两确认/绑定/发布/消费/源退休/回执恢复；category/权限/版本变更在metadata前重查。当前仍20工具、无任意路径/二进制下载，capabilities如实列执行版本1/2。原始MCP对project及document实际完成取消旧提案、prepare/preview/commit/get/replay及拒绝path；合成确认不冒充真实模型新能力验收。
+
+普通网页不依赖Agent开启/凭据：保存前失败不发流，等已有saving完成再条件保存；上传阶段暂停autosave、持续草稿、关闭/切文档等待。完成仅当前空间/doc/base一致才合并metadata/revision和一次链接，再独立保存当前输入，不用响应旧body覆盖；丢响应刷新后先查询原UUID，未接收404与损坏/空初始化503区分，409保留输入并进入原冲突选择。稳定UUID/过程证据位于私人.workbench-document-uploads，不是业务事实源；原生NTFS/目标路径在收源前验证，100MiB/64KiB、1GiB未释放预算、1000活跃、空闲5秒/总60秒、16MiB磁盘余量。长流/hash持单操作OS锁，不持业务/空间/凭据锁。
+
+双向接受前屏障：Agent已受理长copy时，先前receiving网页不能再prepared；web已prepared/applying时，Agent Markdown和attachment必须在第二manifest之前拒绝。执行仅绕过当前web operation ID，不能绕过别的未决。真实HTTP确定性交错中普通GET和另一客户端撤销<2秒，后来者409/503、无第二计划/发布，原事务继续完成。最初FileExists型屏障被通用Agent路由映射500，改为明确document_upload_pending/503后通过。
+
+全目录report/recover/cleanup/明确abandon可在设置页发现其他浏览器/丢失存储/重启留下的UUID；未知全量预检先于恢复写。receiving中断只失败封存，prepared/applying按固定before/after、源身份/SHA、历史和回执恢复。completed先固定精简墓碑再校验/同句柄DELETE快照；已知失败part按创建device/inode+原生版本+真实SHA删除，实际消失后removed才释放预算。历史终结墓碑不耗尽1000活跃名额，1001份合成终结日志后仍可新真实上传及查原回执（不称1001次端到端或性能基线）。终结源重新出现认未知503，不删、不继续新上传。空初始化真实退出可报告并明确转为不可重用墓碑，未知/含文件初始化不可借此删除。abandon不回滚已发布文件，仍有计划的残留保持保护、人工核查。迁移拒绝未决及未回收failed/abandoned源；回收后真实迁移保持原UUID回执和正式字节。
+
+三层路径：metadata/计划是原始相对路径，不URL解码；文档Markdown URL恰好解码一次；HTTP路由入口一次unquote后名称下游不再解码。字面%3A/%253A/%2F/%25/#/中文的不同文件、错层404、下载/图片/ZIP/历史/孤儿保护已测；实际冒号、问号、斜线/绝对路径仍按Windows规则拒绝。文档附件仅按完整metadata路径匹配，另一目录同basename外部图不被遮蔽；外部图两个百分号相近文件实字节验证。下载按Doc ID+实际metadata受控解析并有界发送，不提供任意文件读取。HTML/SVG主动类型下载+CSP sandbox/nosniff；原被动图片/PDF及audio/video MIME/inline保留。合成PCM WAV与浏览器MediaRecorder产生的VP8 WebM经旧record和project四个端点，在真实Edge原生媒体页加载/播放请求、audio duration=1、videoWidth=16验证，未新增播放器或转码依赖。
+
+孤儿候选仅受控全局/项目assets，库存覆盖正式文档/记录/项目meta/body、历史/回收站按原owner目录及在途/保留操作。操作库存复用各自严格preflight，不维护弱第二解析器；任一共享引用保留，未知/损坏/重解析/硬链接保守不删并脱敏警告。补了旧实现遗漏正文/历史/回收站及恶意索引仍判孤儿的问题，并验证真实无引用文件仍会清理。文档删除/恢复/历史恢复不删除共享文件。已有明确永久删除流程仍按其原契约，不借本项开放Agent删除。
+
+知识ZIP平铺MD+assets/<规范路径摘要>-<原名>，选中文档实际metadata/body/既有附件token受控解析、共享去重与同名分离；只改副本路径和metadata，不写回原MD。临时解压逐引用核对真实字节，缺失/越界/重解析/硬链接/未支持本地HTML或定义式引用拒绝不完整包。裸.md仍单文件；完整ZIP含正式assets并排除私人web/Agent证据。未迁移、清理或压力测试真实workbench-data，未读真实来源/认证文件。
+
+### 自动与浏览器实测批次
+
+| 检查 | 实际结果与范围 |
+| --- | --- |
+| 冻结全量 python -m unittest -v | 366项544.997秒通过，1项原生符号链接因权限不足跳过；在最后补充边界之前，不冒称当前发现数全量一次通过 |
+| 相关领域/HTTP/MCP批次 | 95项223.548秒通过；当时web100MiB峰值440287B、Agent复制1141018B，仅有界样本 |
+| 尾审文档/资产/Agent HTTP/capabilities | 52项78.571秒通过；当时web100MiB峰值441179B |
+| 百分号/旧资产/HTTP | 24项11.077秒通过；外部图与旧HTTP另14项8.434秒通过 |
+| 真实退出/回收/未知/大流及web+Agent HTTP/MCP | 14项31.548秒通过，web100MiB峰值447944B；真实11个接收/提交退出点、3个终结回收退出点，Agent原15阶段对issue/document各验 |
+| 双向屏障与迁移/源重现 | 两方向屏障定向1项3.719秒；最后迁移/真实回收/屏障3项6.437秒通过，晚到候选严格字段4项6.256秒通过 |
+| 未知meta与序列化 | 文档/Agent保留非业务project_id的2项1.098秒；JSON字串磁盘/普通保存/历史/原始MCP的5项7.119秒；旧对象boolean及真实重启/Agent的3项7.737秒通过 |
+| 媒体与HTTP收口 | 19项13.071秒通过；MIME扩展契约1项0.882秒，接收前平台/路径与web HTTP最后7项4.963秒通过 |
+| 22项Node | 分批全部通过：首3、余17、Agent与Editor各独立复验；最终document专项还通过保存失败不发流、409/维护、百分号/同名外图及四个原生音视频预览。不是一次整组全绿 |
+| 真实Codex隔离CLI | 0.163.0-alpha.10.2 / MCP2025-11-25 / 20工具，旧四类型/两确认/重试取消重启撤销通过；0模型turn，user_config_changed=false；不替代AG-142 |
+| 语法与交付 | 82 Python/48 JavaScript全文件语法通过，编译输出临时目录；提交前再核对最终文档/资源版本/diff与工作区 |
+
+真实Edge使用临时库/临时浏览器profile，既有两编辑器往返与Agent document共同授权/local_web、完整预览和下载已通过；普通文档浅深×1440/390的visual/read八图已逐张目视，长中文、窄屏首个上传按钮、无横向页面溢出，深色附件链接使用既有token提高可读性。截图只在Temp，不提交；不据此称独立visual_baseline或performance_acceptance已执行。
+
+### 失败、复验与保留边界
+
+首轮362项524.413秒3失败/1错误：运行期间仍修改持久字段，父进程旧partial与子进程新字段不匹配，另1处fixture重复mkdir；该轮不能当最终门禁。冻结后366全量通过，后续新增边界各按上表定向复验。初期body误进front matter候选被严格回读暴露并修正，补原始换行/未知meta/历史；特殊转义括号的孤儿误报、测试HTTP预期201/200及错误长度、负向URL未编码和GBK批次输出异常均如实纠正，不以放宽断言规避。磁盘JSON字串/对象归一化最后统一写JSON字串，旧boolean字典兼容并补恢复验证。
+
+浏览器曾出现已有Agent刷新模块缺失/Editor初始化超时及新文档刷新apiAvailable未定义，根因未证明；独立复验通过，保留有限网络/异常诊断、未改超时或业务断言掩盖。文档列表惰性加载、刷新旧上下文标记及旧报告DOM早于维护完成的等待条件只按真实状态修正。原模型未透传renderLink导致附件显示原Markdown、普通URL编码遗漏括号、全局helper媒体MIME回归风险均已本项修复并实际复验。
+
+边界仍为Windows固定本机NTFS；不支持分支仅模拟验证收源前503/零读取/零operation，不宣称非Windows原生验收。保留O(历史日志数)元数据预检成本、墓碑增长、未知/已放弃残留人工核查、同步OS等待与外部文件系统竞态；不承诺多文件原子事务、任意客户端/视频编解码矩阵或独立性能基线。本项无自动审批拒绝或清理遗留；最终进程/生成物检查见提交前记录。AG-134～143仍待开始。
+
+AG-133提交前最终检查：82个Python/48个JavaScript全文件语法通过（编译输出临时目录），10份修改Markdown UTF-8/围栏/78个相对链接通过；git diff --check通过，39个目标文件无业务数据、凭据、日志、截图或用户既有修改。按本轮测试前缀筛查Python/Node/Edge进程无匹配残留；AG-133已完成、AG-134～143待开始。用户报告删除的历史合成目录已只读确认不存在。

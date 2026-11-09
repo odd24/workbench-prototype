@@ -8,7 +8,7 @@
 
 后续扩展详见 [AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。AG-115仅文档；AG-116～121、AG-126已完成；用户已明确仅本机使用，AG-122～125已取消当前实施、远程未实现。当前WorkBuddy5.9.3与本机最终交付证据见末尾及扩展验收，不影响首期历史状态。
 
-2026-11-09 用户在监督对话明确“现在开始执行方案”，解除此前暂停实施限制。AG-128～130及独立POST锁修复已通过监督审查，AG-131已通过监督审查，AG-132已完成待交接审查，AG-133～143待开始。历史 AG-127 的仅文档授权和暂停事实保留。
+2026-11-09 用户在监督对话明确“现在开始执行方案”，解除此前暂停实施限制。AG-128～130及独立POST锁修复已通过监督审查，AG-131已通过监督审查，AG-132已通过监督审查，AG-133已完成待交接审查，AG-134～143待开始。历史 AG-127 的仅文档授权和暂停事实保留。
 
 ## 工作项
 
@@ -47,7 +47,7 @@
 | AG-130 | 本机文件授权与分段读取 | 已完成 | 2026-11-09 | 2026-11-09 | AG-128；具体文件独立批准，Windows固定NTFS |
 | AG-131 | 流式暂存、上传会话、配额与清理 | 已完成 | 2026-11-09 | 2026-11-09 | AG-129；监督接受eeeaf86后派发；实际结果见末节 |
 | AG-132 | 记录与项目附件提案入库 | 已完成 | 2026-11-09 | 2026-11-09 | AG-130、131；监督接受b7ce3fe后派发；实际结果见末节 |
-| AG-133 | 知识库附件领域能力与网页接入 | 待开始 | — | — | AG-131、132 |
+| AG-133 | 知识库附件领域能力与网页接入 | 已完成 | 2026-11-09 | 2026-11-09 | AG-131、132；监督接受6c28f12后派发；实测见末节 |
 | AG-134 | 概念图版本、历史与准备写入 | 待开始 | — | — | AG-129 |
 | AG-135 | 概念图 Agent 提案与完整预览 | 待开始 | — | — | AG-128、134 |
 | AG-136 | 条目删除与回收站持久恢复 | 待开始 | — | — | AG-129、135 |
@@ -1010,3 +1010,30 @@ AG-132开工补充：100MiB专项采用test_agent_attachments临时文件验证�
 - 完成后交监督审查，不自动推进AG-133～143。
 
 AG-132提交前最终检查：76个Python/47个JavaScript全文件语法、10份修改Markdown UTF-8/围栏/76个相对链接及git diff --check通过；AG-132已完成、AG-133～143待开始。目标测试进程检查无匹配残留，diff不含业务数据、凭据、日志或评审截图。
+
+### 2026-11-09 / AG-133 / 开始
+
+- 起始HEAD 6c28f12，git status --short干净；监督接受132并派发133，总体执行授权持续，唯一写入。本项为AG功能实施，不改已完成RF历史；134～143待开始。
+- 精确范围：文档front matter有序attachments JSON字符串列表，复用记录元数据语义；全局assets/images、assets/files，路径相对documents原文件。旧无attachments、未知meta、正文与唯一document类型保持兼容；category使用原文档分类，不建立附件分类事实源。先在DATA_FORMAT登记并往返验证。
+- 网页链路：已有文档选择文件/流式上传并插入链接，共享editor/session/API；先保存草稿，再按expected_revision完成附件元数据及链接写入，上传期间输入持续写草稿，完成只合并附件/版本/链接到当前输入，不用返回body覆盖编辑器；切文档/刷新/中断/外部修改/409保留输入，具体并发保护随实现记录。
+- Agent：复用共同policy、ProposalStore、attachment@1、PreparedMarkdownWrite、历史与五阶段恢复；只新增明确document归属，新鲜共同批准，旧category权限及休眠grant不扩权；分类/权限变动在正式写入前重查。
+- 引用与清理：按document ID+实际metadata受控下载/图片，保持外部编辑器相对图片；接入现有[[ID#attachment:...]]和反链。补孤儿识别对正式文档/正文相对资源、历史原owner目录、回收站及在途提案保护；共享任一引用保留，未知或损坏保守报告，不扫描受控roots外文件。既有清理仅识别record metadata/project index，缺少正文/历史/回收站证据，本项按必要正确性补齐并回归。
+- ZIP：保留平铺Markdown文件，包含所选文档受控实际引用附件，去重映射assets/...；只改导出副本body及metadata的相对路径，不写回源；成员校验、同名冲突与解压真实读取测试。裸.md仍为不带二进制的单文件。
+- 预计文件：workbench/assets/documents/repository/attachment_prepared/agent_attachments/agent_attachment_execution/agent_upload_policy/http_api及引用、安全、历史必要接点；共享Markdown/文档保存宿主与app/index；test_document_attachments及现有资产/Agent/HTTP/浏览器回归；DATA_FORMAT/ARCHITECTURE/README/使用/维护/计划/台账/验收。
+- 计划验证：临时目录格式往返、真实重载、路径/MIME/大小/流中断/冲突与有界内存；共同授权和两确认/取消/并发/分类迁移/各写阶段故障及os._exit恢复；共享引用/历史/回收站/孤儿旧行为；ZIP临时解压字节；真实Edge两编辑器往返和上传持续输入/切换/草稿/外部修改，两主题×桌面窄屏；相应Node、必要全量Python、全文件语法及diff/文档检查。未执行不写通过。
+- 风险：旧清理缺失引用会误删，先补保护再开放文档上传；长流不能持业务/凭据锁，正式写入需版本复查；二进制与Markdown非单文件事务，Agent沿用持久恢复，普通网页中断可能留下保守保护/可报告孤儿，不发布伪链接；外部文件竞态及未知格式需fail closed，不迁移真实库或更改真实客户端。
+
+### 2026-11-09 / AG-133 / 完成
+
+- 完成范围：知识库front matter有序attachments，写盘JSON字符串/兼容既有对象读取，单一文档分类及稳定ID；全局受控字节与相对链接；普通网页流式上传/保存草稿保护/完整操作发现恢复回收，Agent document共同授权及attachment@1；引用/反链/历史/回收站/共享孤儿保护；带附件的知识ZIP副本。没有第二索引/文档类型/编辑器、任意文件路径或Agent二进制下载。
+- 数据/API兼容：旧无attachments文档及未知meta可读，非业务project_id不参与文档归属；普通保存/历史同时保持附件项、顺序、原字段/换行/引用。旧record/project附件格式与policy2其它owner不变，旧null/stage/休眠grant不扩权。新普通路由不依赖Agent，Agent Authorization仍被拒；私有过程目录不是事实源，不进静态/ZIP，终结墓碑保留幂等。迁移要求未决或未释放来源先恢复/回收；未知/放弃残留保守人工核查，不回滚文件。
+- 自动实际：冻结全量366项544.997秒通过（1原生符号链接权限skip），发生在最后补充边界前；相关95项223.548秒、尾审52项78.571秒、旧HTTP/资产及百分号24项11.077秒、真实退出/回收/100MiB与web+Agent HTTP/MCP14项31.548秒通过。后续迁移/源重现/真实回收/屏障3项6.437秒、未知meta2项1.098秒、JSON字串/保存/历史/MCP5项7.119秒、旧boolean对象/真实退出/Agent3项7.737秒、媒体与HTTP19项13.071秒、平台/路径与web HTTP7项4.963秒、媒体扩展契约1项0.882秒通过。当前新增发现数不冒称整组一次全绿，完整批次见本机验收。
+- 22Node分批全部通过，最新普通文档浏览器还验证保存失败不发流、持续输入/暂停及恢复autosave、切doc/关闭、丢响应/刷新/草稿/原ID查询、409保留输入/冲突选择、维护UI实际compacted、%3A等合法字面名/同名不同目录图片、两编辑器往返、浅深/1440/390；原record/project的WAV及VP8 WebM四个原生媒体页真实加载/播放请求、duration/尺寸通过，无新增播放器/转码依赖。原Agent文档共同批准/local_web与下载也通过。八张文档visual/read主题宽度截图已逐张目视，仅Temp评审不提交。
+- 真实Codex0.163.0-alpha.10.2/MCP2025-11-25/20工具，旧四类型/两确认/重试取消重启撤销通过，0模型turn、真实用户配置未改；原始MCP正式附件project/document实际prepare/preview/commit/get/replay/拒path通过，不替代142。capabilities执行版本如实列1/2。
+- 100MiB真实字节各样本Python峰值<8MiB（最后关闭组447944B），仅有界流/字节场景，不称性能基线；1001合成终结日志后仍可真实新上传/查询原回执，不称1001端到端。真实web11退出点、终结3退出点及Agent15阶段×issue/document、同字节换身份不删、1GiB精确声明预算与回收已覆盖。
+- 失败保留：初轮362项524.413秒3失败1错误，父/子进程在运行期间加载了不同partial字段，另fixture重复mkdir；不能用作最终门禁，冻结后366通过。初期body误入metadata、旧对象JSON读写类型、renderLink未透传、URL括号/百分号歧义、孤儿转义括号误报、屏障异常映射500及媒体全局helper影响均修复复验。浏览器既有Agent刷新/Editor启动及一次新文档刷新失败根因仍未证明，独立复验通过；GBK批次输出中断、测试长度/HTTP状态和负向URL编码错误均记录，不改超时/业务断言掩盖。
+- 关键决定AG-LOCAL-DEC-037～042。APP_VERSION2026.11.09.7，修改JS/CSS缓存20261109-7。82Python/48JS全文件语法、文档UTF-8/围栏/相对链接及最终diff收口核对；详细证据见本机能力验收AG-133。
+- 保留边界：仅Windows固定NTFS（不支持分支仅模拟），O(历史操作数)元数据预检/墓碑成本，未知/放弃残留人工核查、同步OS等待及外部FS竞态；不是多文件原子事务，不宣称独立性能/视觉基线或142真实模型矩阵。本项无自动审批拒绝或清理遗留，不读取真实来源/认证材料、迁移真实库或修改真实客户端配置。完成后交监督审查，134～143不自动开工。
+- 实际修改文件：`AGENTS.md`、`README.md`、`app.js`、`css/knowledge-base.css`、`docs/AGENT_INTEGRATION.md`、`docs/AGENT_USAGE.md`、`docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md`、`docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md`、`docs/AI_AGENT_PROGRESS.md`、`docs/ARCHITECTURE.md`、`docs/DATA_FORMAT.md`、`docs/MAINTENANCE.md`、`index.html`、`js/editor/document-model.js`、`js/features/agent-settings.js`、`test_agent_attachment_workflows.js`、`test_agent_attachments.py`、`test_agent_workflows.js`、`test_assets.py`、`test_document_attachment_workflows.js`、`test_document_attachments.py`、`workbench/agent_attachment_execution.py`、`workbench/agent_attachments.py`、`workbench/agent_proposals.py`、`workbench/agent_service.py`、`workbench/agent_tools.py`、`workbench/agent_upload_policy.py`、`workbench/asset_references.py`、`workbench/assets.py`、`workbench/attachment_prepared.py`、`workbench/document_attachment_http.py`、`workbench/document_attachments.py`、`workbench/document_export.py`、`workbench/document_uploads.py`、`workbench/documents.py`、`workbench/http_api.py`、`workbench/paths.py`、`workbench/repository.py`、`workbench/write_coordinator.py`。
+
+AG-133提交前最终检查：82个Python/48个JavaScript全文件语法通过（编译输出临时目录），10份修改Markdown UTF-8/围栏/78个相对链接通过；git diff --check通过，39个目标文件无业务数据、凭据、日志、截图或用户既有修改。按本轮测试前缀筛查Python/Node/Edge进程无匹配残留；AG-133已完成、AG-134～143待开始。用户报告删除的历史合成目录已只读确认不存在。

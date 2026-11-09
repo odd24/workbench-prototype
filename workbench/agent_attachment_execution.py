@@ -69,7 +69,7 @@ def validate_manifest(manifest, proposal):
         raise ValueError('附件缺少对话确认')
     receipt = manifest['receipt']
     receipt_fields = {'proposal_id', 'version', 'kind', 'item_id', 'revision', 'upload_id', 'consumption_id', 'committed_at', 'title', 'project_id', 'owner_kind', 'owner_id', 'attachment', 'web_path', 'plan_digest', 'execution_plan_digest'} | ({'approval'} if manifest['approval'] is not None else set())
-    if not isinstance(receipt, dict) or set(receipt) != receipt_fields or receipt['owner_id'] != proposal['target_id'] or receipt['owner_kind'] != proposal['access_target'].get('type', 'project') or receipt['project_id'] != proposal['access_target']['project_id']:
+    if not isinstance(receipt, dict) or set(receipt) != receipt_fields or receipt['owner_id'] != proposal['target_id'] or receipt['owner_kind'] != proposal['access_target'].get('type', 'project') or receipt['project_id'] != proposal['access_target'].get('project_id'):
         raise ValueError('附件回执字段或归属无效')
     for key, expected in {'proposal_id':proposal['proposal_id'], 'version':proposal['version'], 'kind':'attachment',
                           'item_id':manifest['item_id'], 'revision':manifest['after_digest'], 'upload_id':manifest['upload_id'],

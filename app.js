@@ -629,14 +629,14 @@ function referenceTokenToHtml(token) {
 }
 
 function markdownAttachmentForSource(source, resource = currentRecord) {
-  if (!resource || !['issue', 'todo', 'info'].includes(resource.type) || /^(?:[a-z][a-z0-9+.-]*:|\/)/i.test(source)) return null;
+  if (!resource || !['issue', 'todo', 'info', 'document'].includes(resource.type) || /^(?:[a-z][a-z0-9+.-]*:|\/)/i.test(source)) return null;
   let normalized = String(source).replace(/[?#].*$/, '');
   try { normalized = decodeURIComponent(normalized); } catch { /* Preserve legacy literal percent names. */ }
   const filename = normalized.split(/[\\/]/).at(-1);
-  return (resource.attachments || []).map(item => {
+  return (Array.isArray(resource.attachments) ? resource.attachments : []).map(item => {
     if (typeof item !== 'string') return item;
     try { return JSON.parse(item); } catch { return null; }
-  }).find(item => item && (item.path === normalized || item.name === filename)) || null;
+  }).find(item => item && (item.path === normalized || (resource.type !== 'document' && item.name === filename))) || null;
 }
 
 function markdownAttachmentLinkHtml(label, source, resource = currentRecord) {
@@ -1375,6 +1375,7 @@ function browserCanPreviewAttachment(mime = '', name = '') {
 }
 
 async function openRecordAttachment(recordId, name, mime = '') {
+  if (recordId.startsWith('DOC-')) { window.open(`/api/attachments/${encodeURIComponent(recordId)}/${encodeURIComponent(name)}`, '_blank'); return; }
   if (browserCanPreviewAttachment(mime, name)) {
     window.open(`/api/attachments/${encodeURIComponent(recordId)}/${encodeURIComponent(name)}`, '_blank');
     return;
@@ -2034,7 +2035,7 @@ async function loadReferenceTargets() {
   return [
     ...documentItems.map(item => ({
       id:item.id, type:'document', title:item.title,
-      category:item.category || '未分类', attachments:[],
+      category:item.category || '未分类', attachments:browserReferenceAttachments(item.attachments || []),
     })),
     ...recordItems.filter(item => ['issue', 'todo'].includes(item.type)).map(item => ({
       id:item.id, type:item.type, title:item.title, project_id:item.project_id,
@@ -2089,7 +2090,7 @@ function renderDocumentBacklinks(items = []) {
     return;
   }
   host.hidden = false;
-  $('#documentBacklinkList').innerHTML = items.map(item => `<button type="button" data-document-backlink="${escapeHtml(item.id)}"><span class="type-icon ${escapeHtml(item.type)}">${escapeHtml(typeIcons[item.type] || '•')}</span><span><strong>${escapeHtml(item.title || item.id)}</strong><small>${escapeHtml(item.project_name || projectName(item.project_id))} · ${escapeHtml(typeNames[item.type] || item.type)} · ${escapeHtml(item.id)}</small></span></button>`).join('');
+  $('#documentBacklinkList').innerHTML = items.map(item => `<button type="button" data-document-backlink="${escapeHtml(item.id)}"><span class="type-icon ${escapeHtml(item.type)}">${escapeHtml(typeIcons[item.type] || '•')}</span><span><strong>${escapeHtml(item.title || item.id)}</strong><small>${escapeHtml(item.project_name || projectName(item.project_id))} · ${escapeHtml(typeNames[item.type] || (item.type === 'document' ? '知识文档' : item.type))} · ${escapeHtml(item.id)}</small></span></button>`).join('');
 }
 
 async function refreshDocumentBacklinks(documentId) {
@@ -2256,7 +2257,7 @@ async function renderManagePage(page) {
   }
   if (page === 'settings') {
     $('#manageEyebrow').textContent = '本地数据'; $('#manageTitle').textContent = '设置与数据'; $('#manageDescription').textContent = '查看数据位置，导入 Markdown 或导出完整备份。'; $('#manageActions').innerHTML = '';
-    $('#manageContent').innerHTML = `<div class="settings-stack"><section class="settings-card"><h2>AI Agent 接入</h2><p>管理客户端授权，生成 Codex 接入命令并查看连接检查。</p><button type="button" class="secondary-button" data-page="agent_settings">管理 AI Agent 接入</button></section><section class="settings-card"><h2>Markdown 数据目录</h2><p>可修改为当前电脑上的其他目录。切换成功后，新记录会自动保存到新位置。</p><label class="data-directory-field"><span>完整目录路径</span><input id="dataDirectoryInput" value="${escapeHtml(configData.data_dir)}" spellcheck="false" placeholder="例如 E:\\WorkBenchData"></label><div class="data-directory-actions"><select id="dataDirectoryMode"><option value="migrate">复制当前全部数据并切换（推荐）</option><option value="existing">直接使用已有工作台目录</option></select><button class="primary-button" id="saveDataDirectory">应用新目录</button></div><small class="settings-hint">复制模式要求目标目录为空，原目录会保留作为备份；直接使用模式不会删除或覆盖已有文件。</small></section><section class="settings-card"><h2>导入与导出</h2><p>导入单个 Markdown 文件、完整项目目录，或将整个工作台打包成 ZIP。</p><div class="settings-actions"><button class="primary-button" id="importMarkdown">导入 Markdown</button><input type="file" id="importMarkdownInput" accept=".md,text/markdown" hidden><button class="secondary-button" id="importDirectory">导入项目目录</button><input type="file" id="importDirectoryInput" accept=".md,text/markdown" webkitdirectory multiple hidden><button class="secondary-button" id="exportAll">导出全部数据</button></div></section><section class="settings-card"><h2>附件清理</h2><p>扫描没有被任何记录引用的附件，确认后再从磁盘删除。</p><div class="settings-actions"><button class="secondary-button" id="scanOrphanAssets">扫描无引用附件</button><span id="orphanAssetResult"></span></div></section><section class="settings-card"><h2>当前数据</h2><div class="stat-grid"><div class="stat-card"><strong>${projects.length}</strong><span>项目</span></div><div class="stat-card"><strong>${records.filter(item=>item.type==='issue').length}</strong><span>问题</span></div><div class="stat-card"><strong>${records.filter(item=>item.type==='todo').length}</strong><span>待办</span></div><div class="stat-card"><strong>${records.filter(item=>item.type==='info').length}</strong><span>信息</span></div></div></section></div>`;
+    $('#manageContent').innerHTML = `<div class="settings-stack"><section class="settings-card"><h2>AI Agent 接入</h2><p>管理客户端授权，生成 Codex 接入命令并查看连接检查。</p><button type="button" class="secondary-button" data-page="agent_settings">管理 AI Agent 接入</button></section><section class="settings-card"><h2>Markdown 数据目录</h2><p>可修改为当前电脑上的其他目录。切换成功后，新记录会自动保存到新位置。</p><label class="data-directory-field"><span>完整目录路径</span><input id="dataDirectoryInput" value="${escapeHtml(configData.data_dir)}" spellcheck="false" placeholder="例如 E:\\WorkBenchData"></label><div class="data-directory-actions"><select id="dataDirectoryMode"><option value="migrate">复制当前全部数据并切换（推荐）</option><option value="existing">直接使用已有工作台目录</option></select><button class="primary-button" id="saveDataDirectory">应用新目录</button></div><small class="settings-hint">复制模式要求目标目录为空，原目录会保留作为备份；直接使用模式不会删除或覆盖已有文件。</small></section><section class="settings-card"><h2>导入与导出</h2><p>导入单个 Markdown 文件、完整项目目录，或将整个工作台打包成 ZIP。</p><div class="settings-actions"><button class="primary-button" id="importMarkdown">导入 Markdown</button><input type="file" id="importMarkdownInput" accept=".md,text/markdown" hidden><button class="secondary-button" id="importDirectory">导入项目目录</button><input type="file" id="importDirectoryInput" accept=".md,text/markdown" webkitdirectory multiple hidden><button class="secondary-button" id="exportAll">导出全部数据</button></div></section><section class="settings-card"><h2>附件清理</h2><p>扫描记录、文档、正文、历史和回收站的受控引用，确认后再从磁盘删除。</p><div class="settings-actions"><button class="secondary-button" id="reportDocumentUploads">查看文档上传操作</button><button class="secondary-button" id="recoverDocumentUploads">恢复文档上传</button><button class="secondary-button" id="cleanupDocumentUploads">回收终结上传暂存</button></div><div id="documentUploadReport" role="status"></div><div class="settings-actions"><button class="secondary-button" id="scanOrphanAssets">扫描无引用附件</button><span id="orphanAssetResult"></span></div></section><section class="settings-card"><h2>当前数据</h2><div class="stat-grid"><div class="stat-card"><strong>${projects.length}</strong><span>项目</span></div><div class="stat-card"><strong>${records.filter(item=>item.type==='issue').length}</strong><span>问题</span></div><div class="stat-card"><strong>${records.filter(item=>item.type==='todo').length}</strong><span>待办</span></div><div class="stat-card"><strong>${records.filter(item=>item.type==='info').length}</strong><span>信息</span></div></div></section></div>`;
     captureManageSnapshot(page);
   }
 }
@@ -2740,6 +2741,7 @@ function persistDocumentDraft() {
     tags:selectedDocumentTags(),
     body:documentMarkdownContent(),
     savedAt:new Date().toISOString(),
+    attachmentOperation:readDocumentUpload(),
   });
 }
 
@@ -2753,7 +2755,9 @@ function updateDocumentSaveState(message = '') {
   if (state) state.textContent = message || (documentSession.dirty ? '● 有未保存的修改' : '✓ 已保存');
   if (state) state.classList.toggle('saving', documentSession.dirty || documentSession.saving || /正在|失败/.test(message));
   const button = $('#saveDocument');
-  if (button) button.disabled = !documentSession.dirty || documentSession.saving;
+  if (button) button.disabled = !documentSession.dirty || documentSession.saving || documentUploadBlocked();
+  if ($('#uploadDocumentAttachment')) $('#uploadDocumentAttachment').disabled = Boolean(documentUploadActive) || Boolean(readDocumentUpload());
+  if ($('#resolveDocumentUpload')) $('#resolveDocumentUpload').style.display = readDocumentUpload() ? '' : 'none';
 }
 
 function markDocumentChanged() {
@@ -2764,7 +2768,7 @@ function markDocumentChanged() {
   updateDocumentToolbarState();
   scheduleDocumentOutlineUpdate();
   documentSession.cancel();
-  if (currentDocument) documentSession.schedule(() => saveDocument({readAfterSave:false, notifyUser:false}));
+  if (currentDocument && !documentUploadBlocked()) documentSession.schedule(() => saveDocument({readAfterSave:false, notifyUser:false}));
 }
 
 function updateDocumentToolbarState() {
@@ -2814,6 +2818,7 @@ function updateDocumentSelectionToolbar() {
 }
 
 function openDocument(documentId = '', initialCategory = '', options = {}) {
+  if (documentUploadActive) { notify('附件正在上传', '请等待上传结束后再切换文档'); return; }
   if (!options.fromItemLink) requestRegistry.invalidate('item-link');
   requestRegistry.invalidate('document-save');
   requestRegistry.invalidate('document-refresh');
@@ -2821,6 +2826,7 @@ function openDocument(documentId = '', initialCategory = '', options = {}) {
   documentSession.dirty = false;
   documentSession.saving = false;
   const draft = readDocumentDraft(currentDocument?.id || 'new');
+  if (draft?.attachmentOperation && draft.attachmentOperation.directory === configData.data_dir) localStorage.setItem(documentUploadStorageKey(currentDocument?.id), JSON.stringify(draft.attachmentOperation));
   const base = {title:currentDocument?.title || '', category:currentDocument?.category || '', tags:currentDocument?.tags || [], body:currentDocument?.body || ''};
   const hasRecoveryDraft = Boolean(draft && (draft.title !== base.title || draft.category !== base.category || draft.body !== base.body || JSON.stringify(draft.tags || []) !== JSON.stringify(base.tags || [])));
   const content = hasRecoveryDraft ? {...base, ...draft} : base;
@@ -2853,8 +2859,115 @@ function documentEditorPayload() {
   return {title:$('#documentTitle').value.trim(), category:$('#documentCategory').value.trim() || '未分类', tags:selectedDocumentTags(), body:documentMarkdownContent()};
 }
 
+let documentUploadActive = null;
+const documentUploadStorageKey = id => `workbench-document-upload:${configData?.data_dir || ''}:${id || 'new'}`;
+
+function readDocumentUpload() {
+  try { return JSON.parse(localStorage.getItem(documentUploadStorageKey(currentDocument?.id)) || 'null'); }
+  catch { return null; }
+}
+
+function documentUploadBlocked() {
+  return Boolean(documentUploadActive && documentUploadActive.phase !== 'saving') || Boolean(readDocumentUpload());
+}
+
+function documentAttachmentMarkdown(attachment) {
+  const label = markdownCore.escapeLinkLabel(attachment.name);
+  const path = attachment.path.split('/').map(part => encodeURIComponent(part).replace(/[!'()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`)).join('/');
+  return `${attachment.mime.startsWith('image/') ? '!' : ''}[${label}](${path})`;
+}
+
+async function finishDocumentUpload(operation, result) {
+  if (currentDocument?.id !== operation.documentId || configData.data_dir !== operation.directory) return;
+  if (['failed', 'abandoned'].includes(result.state)) {
+    localStorage.removeItem(documentUploadStorageKey(operation.documentId));
+    notify('附件上传未完成', '未插入链接，当前输入仍保留。可重新选择文件上传。', true);
+    return;
+  }
+  if (result.state !== 'completed' || !result.receipt) throw new Error('上传仍在进行，请稍后查询原操作');
+  const receipt = result.receipt;
+  const latest = await api(`/documents/${encodeURIComponent(operation.documentId)}`);
+  if (currentDocument?.id !== operation.documentId || configData.data_dir !== operation.directory) return;
+  if (![operation.baseRevision, receipt.revision].includes(currentDocument.revision) || latest.revision !== receipt.revision) {
+    persistDocumentDraft();
+    localStorage.removeItem(documentUploadStorageKey(operation.documentId));
+    showDocumentConflict(latest);
+    notify('附件已存入，文档还有其他修改', '请在冲突窗口核对正文及附件链接，当前输入没有被覆盖', true);
+    return;
+  }
+  const link = documentAttachmentMarkdown(receipt.attachment);
+  let body = documentMarkdownContent();
+  if (!body.includes(link)) body += `${body.endsWith('\n\n') ? '' : body.endsWith('\n') ? '\n' : '\n\n'}${link}\n`;
+  // Only the current editor body is merged. The server's older body is never
+  // used as the current editor payload or declared saved.
+  currentDocument = {...currentDocument, attachments:latest.attachments, revision:receipt.revision, file_mtime:latest.file_mtime};
+  $('#documentBody').value = body;
+  renderMarkdownEditor($('#documentVisualEditor'), body, true);
+  if (documentMode === 'read') $('#documentReadPane').innerHTML = markdownToHtml(body, false, currentDocument);
+  documentSession.dirty = true;
+  persistDocumentDraft();
+  localStorage.removeItem(documentUploadStorageKey(operation.documentId));
+  notify('附件已存入', receipt.attachment.name);
+}
+
+async function resolveDocumentUpload() {
+  const operation = readDocumentUpload();
+  if (!operation || documentUploadActive) return;
+  documentUploadActive = {...operation, phase:'query'};
+  updateDocumentSaveState('正在查询原上传…');
+  try { await finishDocumentUpload(operation, await api(operation.path)); }
+  catch (error) {
+    persistDocumentDraft();
+    if (error.status === 404 && error.payload?.code === 'document_upload_not_found' && currentDocument?.id === operation.documentId && configData.data_dir === operation.directory) {
+      localStorage.removeItem(documentUploadStorageKey(operation.documentId));
+      const latest = await api(`/documents/${encodeURIComponent(operation.documentId)}`);
+      if (currentDocument?.id === operation.documentId) showDocumentConflict(latest);
+      notify('原上传未被接收', '当前输入仍保留，请处理文档冲突后重新选择附件', true);
+    } else notify('上传结果待查询', `${error.message}。请保留当前操作，不要重复上传。`, true);
+  }
+  finally {
+    documentUploadActive = null;
+    updateDocumentSaveState(readDocumentUpload() ? '上传结果待查询 · 输入已保留草稿' : '');
+    if (documentSession.dirty && !readDocumentUpload()) documentSession.schedule(() => saveDocument({readAfterSave:false, notifyUser:false}));
+  }
+}
+
+async function uploadDocumentAttachment(file) {
+  if (!file || documentUploadActive || readDocumentUpload()) return;
+  if (file.size > 100 * 1024 * 1024) { notify('附件过大', '单文件上限100 MiB', true); return; }
+  documentUploadActive = {phase:'saving'};
+  const originalId = currentDocument?.id;
+  const directory = configData.data_dir;
+  let operation;
+  try {
+    const deadline = Date.now() + 60_000;
+    while (documentSession.saving && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
+    if (documentSession.saving || originalId !== currentDocument?.id) throw new Error('请等待当前保存完成');
+    const saved = await saveDocument({readAfterSave:false, notifyUser:false});
+    if (!saved) throw new Error('请先处理文档保存或冲突，附件尚未上传');
+    documentSession.cancel();
+    const operationId = crypto.randomUUID();
+    operation = {operationId, documentId:saved.id, baseRevision:saved.revision, directory,
+      path:`/documents/${encodeURIComponent(saved.id)}/attachments/uploads/${operationId}`};
+    localStorage.setItem(documentUploadStorageKey(saved.id), JSON.stringify(operation));
+    documentUploadActive = {...operation, phase:'uploading'};
+    persistDocumentDraft();
+    updateDocumentSaveState('附件正在上传 · 可继续输入，自动保存暂停');
+    const response = await fetch(`/api${operation.path}?name=${encodeURIComponent(file.name)}&expected_revision=${encodeURIComponent(saved.revision)}`, {method:'POST', headers:{'Content-Type':'application/octet-stream'}, body:file});
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || '附件上传失败');
+    await finishDocumentUpload(operation, result);
+  } catch (error) { persistDocumentDraft(); notify(operation ? '上传结果待查询' : '附件尚未上传', error.message, true); }
+  finally {
+    documentUploadActive = null;
+    updateDocumentSaveState(readDocumentUpload() ? '上传结果待查询 · 输入已保留草稿' : '');
+    if (documentSession.dirty && !readDocumentUpload()) documentSession.schedule(() => saveDocument({readAfterSave:false, notifyUser:false}));
+  }
+}
+
 async function saveDocument({readAfterSave = false, notifyUser = true} = {}) {
   documentSession.cancel();
+  if (documentUploadBlocked()) { persistDocumentDraft(); return null; }
   if (documentSession.saving) return null;
   if (!documentSession.dirty && currentDocument) return currentDocument;
   const title = $('#documentTitle').value.trim();
@@ -2929,6 +3042,7 @@ function documentHasUnsavedChanges() {
 }
 
 async function closeDocumentEditor(options = {}) {
+  if (documentUploadActive) { persistDocumentDraft(); notify('附件正在上传', '当前输入已保留草稿，请等待上传结束'); return false; }
   documentSession.cancel();
   if (documentHasUnsavedChanges()) {
     const choice = await askUnsavedChanges(`文档「${$('#documentTitle').value.trim() || '未命名文档'}」`);
@@ -3310,6 +3424,7 @@ async function saveTemplates() {
 }
 
 async function applyDataDirectory() {
+  if (documentUploadActive) { notify('附件正在上传', '请等待上传结束后切换目录'); return false; }
   const path = $('#dataDirectoryInput')?.value.trim() || '';
   const mode = $('#dataDirectoryMode')?.value || 'migrate';
   if (!path) { $('#dataDirectoryInput')?.focus(); notify('目录不能为空', '请输入当前电脑上的完整目录路径', true); return false; }
@@ -4688,8 +4803,21 @@ document.addEventListener('click', async event => {
   if (event.target.closest('#exportAll')) await exportArchive();
   if (event.target.closest('#importMarkdown')) $('#importMarkdownInput').click();
   if (event.target.closest('#importDirectory')) $('#importDirectoryInput').click();
-  if (event.target.closest('#scanOrphanAssets')) api('/orphan-assets').then(items => { $('#orphanAssetResult').innerHTML = items.length ? `发现 ${items.length} 个，共 ${Math.max(1,Math.round(items.reduce((sum,item)=>sum+item.size,0)/1024))} KB　<button class="secondary-button danger-button" id="cleanupOrphanAssets">确认清理</button>` : '未发现无引用附件'; }).catch(error => notify('附件扫描失败', error.message, true));
-  if (event.target.closest('#cleanupOrphanAssets') && await appConfirm({title:'永久清理无引用附件？', message:'这些附件当前没有被任何记录引用。', detail:'清理后文件将从磁盘永久删除，无法通过回收站恢复。', confirmText:'确认清理', danger:true})) api('/orphan-assets', {method:'DELETE'}).then(result => { $('#orphanAssetResult').textContent = `已清理 ${result.removed} 个附件`; notify('无引用附件已清理'); }).catch(error => notify('清理失败', error.message, true));
+  if (event.target.closest('#reportDocumentUploads,#recoverDocumentUploads,#cleanupDocumentUploads')) {
+    const route = event.target.closest('#recoverDocumentUploads') ? '/document-uploads/recover' : event.target.closest('#cleanupDocumentUploads') ? '/document-uploads/cleanup' : '/document-uploads';
+    try {
+      const report = await api(route, route === '/document-uploads' ? {} : {method:'POST', body:'{}'});
+      const uploadStates = {receiving:'接收中', failed:'上传失败', prepared:'已受理待提交', applying:'提交中', completed:'已完成', abandoned:'已放弃'};
+      $('#documentUploadReport').innerHTML = [...report.items.map(item => `<p>${escapeHtml(item.operation_id)} · ${escapeHtml(item.document_id)} · <span data-document-upload-state="${escapeHtml(item.state)}">${escapeHtml(uploadStates[item.state] || item.state)}</span>${!['completed','abandoned'].includes(item.state) ? ` <button class="secondary-button" data-abandon-document-upload="${escapeHtml(item.operation_id)}" data-document-id="${escapeHtml(item.document_id)}">放弃此操作</button>` : ''}</p>`), ...report.errors.map(item => `<p>${escapeHtml(item.operation_id)} · ${escapeHtml(item.message)}${item.operation_id !== '(未知条目)' ? ` <button class="secondary-button" data-abandon-document-upload="${escapeHtml(item.operation_id)}">放弃空初始化</button>` : ''}</p>`)].join('') || '暂无文档上传操作';
+    } catch (error) { notify('文档上传维护未完成', error.message, true); }
+  }
+  const abandonUpload = event.target.closest('[data-abandon-document-upload]');
+  if (abandonUpload && await appConfirm({title:'放弃此文档上传？', message:abandonUpload.dataset.abandonDocumentUpload, detail:'不回滚已发布文件。未知或含文件的初始化目录需人工核查；空初始化可保留标识墓碑。', confirmText:'明确放弃'})) {
+    try { await api('/document-uploads/abandon', {method:'POST', body:JSON.stringify({operation_id:abandonUpload.dataset.abandonDocumentUpload, document_id:abandonUpload.dataset.documentId || null, approved:true})}); $('#reportDocumentUploads').click(); }
+    catch (error) { notify('放弃操作未完成', error.message, true); }
+  }
+  if (event.target.closest('#scanOrphanAssets')) api('/orphan-assets?report=1').then(report => { const items = report.orphans; if (report.warnings.length) { $('#orphanAssetResult').textContent = report.warnings.join('；'); return; } $('#orphanAssetResult').innerHTML = items.length ? `发现 ${items.length} 个，共 ${Math.max(1,Math.round(items.reduce((sum,item)=>sum+item.size,0)/1024))} KB　<button class="secondary-button danger-button" id="cleanupOrphanAssets">确认清理</button>` : '未发现无引用附件'; }).catch(error => notify('附件扫描失败', error.message, true));
+  if (event.target.closest('#cleanupOrphanAssets') && await appConfirm({title:'永久清理无引用附件？', message:'已核对记录、文档、正文、历史、回收站及在途操作的受控引用。', detail:'清理后文件将从磁盘永久删除，无法通过回收站恢复。', confirmText:'确认清理', danger:true})) api('/orphan-assets', {method:'DELETE'}).then(result => { $('#orphanAssetResult').textContent = result.warnings?.length ? result.warnings.join('；') : `已清理 ${result.removed} 个附件`; notify('无引用附件已清理'); }).catch(error => notify('清理失败', error.message, true));
   if (event.target.closest('#exportProject')) {
     const project = projects.find(item => item.id === selectedProjectId);
     if (project) await exportArchive({project});
@@ -4723,7 +4851,7 @@ document.addEventListener('click', async event => {
   const openReference = event.target.closest('[data-open-reference]');
   if (openReference) { await openReferenceToken(openReference.dataset.openReference); return; }
   const documentBacklink = event.target.closest('[data-document-backlink]');
-  if (documentBacklink) { await openReferenceToken(`${documentBacklink.dataset.documentBacklink}#body`); return; }
+  if (documentBacklink) { await openReferenceToken(documentBacklink.dataset.documentBacklink.startsWith('DOC-') ? documentBacklink.dataset.documentBacklink : `${documentBacklink.dataset.documentBacklink}#body`); return; }
   const removeReference = event.target.closest('[data-remove-reference]');
   if (removeReference && currentRecord) {
     const token = removeReference.dataset.removeReference;
@@ -4890,6 +5018,9 @@ $('#clearRelationFilters').addEventListener('click', () => {
   $('#relationSearch').value = '';
   renderReferenceFilters(); renderRelationResults(); $('#relationSearch').focus();
 });
+$('#uploadDocumentAttachment').addEventListener('click', () => $('#documentAttachmentInput').click());
+$('#documentAttachmentInput').addEventListener('change', event => { uploadDocumentAttachment(event.target.files[0]); event.target.value = ''; });
+$('#resolveDocumentUpload').addEventListener('click', resolveDocumentUpload);
 $('#addAttachment').addEventListener('click', () => $('#attachmentInput').click());
 $('#attachmentInput').addEventListener('change', event => { uploadAttachment(event.target.files[0]); event.target.value = ''; });
 $('#drawerStatus').addEventListener('change', event => { if (currentRecord) { const statusMeta = statusesFor(currentRecord.type, currentRecord.project_id).find(item => item.name === event.target.value); updateRecord(currentRecord.id, {status:event.target.value, completed:Boolean(statusMeta?.completed)}, '状态已保存'); } });
@@ -5450,7 +5581,7 @@ async function initialize() {
             else if (!detailDrawer.classList.contains('visible')) notify('检测到外部 Markdown 修改', '工作台内容已重新载入');
           }
         }
-        if (!documentSession.saving && ($('#documentDialog').open || activeManagePage === 'documents')) {
+        if (!documentSession.saving && !documentUploadBlocked() && ($('#documentDialog').open || activeManagePage === 'documents')) {
           const openDocumentId = currentDocument?.id || '';
           const documentPollRequest = requestRegistry.begin('document-refresh', openDocumentId);
           const signatures = await api('/document-signatures');
@@ -5532,7 +5663,7 @@ function handleBeforeUnload(event) {
       keepalive:true
     }).catch(() => {});
   }
-  if (!(recordSession.dirty && !autoSaveOnLeaveEnabled()) && !documentSession.dirty && !hasUnsavedManageChanges() && !hasUnsavedProjectEdit()) return;
+  if (!documentUploadActive && !readDocumentUpload() && !(recordSession.dirty && !autoSaveOnLeaveEnabled()) && !documentSession.dirty && !hasUnsavedManageChanges() && !hasUnsavedProjectEdit()) return;
   event.preventDefault();
   event.returnValue = '';
 }

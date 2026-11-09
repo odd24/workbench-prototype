@@ -34,6 +34,8 @@ def raw_markdown_body(content):
 
 
 def serialize_record_metadata(meta, body):
+    from .document_attachments import metadata_for_write
+    meta = metadata_for_write(meta)
     header = dump_markdown(meta, '').split('\n---\n', 1)[0] + '\n---\n'
     return (header + body).encode('utf-8')
 
@@ -51,8 +53,10 @@ def attachment_target(domain, kind, owner_id):
         if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
             raise ValueError('附件索引损坏，保留现场')
         return project, path, before, items
-    record, path = domain.get_record(owner_id)
-    if not record or record['type'] != kind or kind not in {'issue', 'todo', 'info'}:
+    if kind == 'document' and (not isinstance(owner_id, str) or not re.fullmatch(r'DOC-\d+', owner_id)):
+        raise FileNotFoundError(owner_id)
+    record, path = domain.get_document(owner_id) if kind == 'document' else domain.get_record(owner_id)
+    if not record or record['type'] != kind or kind not in {'issue', 'todo', 'info', 'document'}:
         raise FileNotFoundError(owner_id)
     before = path.read_bytes()
     if len(before) > 1048576:
@@ -84,6 +88,13 @@ def categories(domain, project_id, items):
     return names, revision
 
 
+def document_categories(domain, owner):
+    path = domain.root / 'config' / 'document-categories.json'
+    raw = path.read_bytes() if path.exists() else b''
+    value = {'category':owner.get('category', '未分类'), 'configured_digest':content_revision(raw)}
+    return [value['category']], content_revision(json.dumps(value, ensure_ascii=False, sort_keys=True).encode('utf-8'))
+
+
 def prepare_attachment_create(domain, kind, owner_id, name, size, sha256, category, insert_link,
                               base_revision, asset_id, prepare_record_update, reserved=(), managed_time=None):
     managed_time = managed_time or now_iso()
@@ -91,12 +102,17 @@ def prepare_attachment_create(domain, kind, owner_id, name, size, sha256, catego
     owner, metadata_path, before, items = attachment_target(domain, kind, owner_id)
     if content_revision(before or b'') != base_revision:
         raise RevisionConflict('附件目标已变化，请重新预览')
-    project_id = owner['id'] if kind == 'project' else owner['project_id']
-    project_root = domain.projects_dir / project_id
-    project_items = attachment_target(domain, 'project', project_id)[3]
-    category_names, category_revision = categories(domain, project_id, project_items + ([] if kind == 'project' else items))
-    if not isinstance(category, str) or category != domain._asset_category(category, allow_empty=True) or category and category not in category_names:
-        raise ValueError('只能使用已有附件分类或空分类')
+    project_id = owner['id'] if kind == 'project' else None if kind == 'document' else owner.get('project_id')
+    project_root = domain.projects_dir / project_id if project_id else domain.root
+    if kind == 'document':
+        category_names, category_revision = document_categories(domain, owner)
+        if not isinstance(category, str) or category != owner.get('category', '未分类'):
+            raise ValueError('文档附件分类必须等于文档原分类')
+    else:
+        project_items = attachment_target(domain, 'project', project_id)[3]
+        category_names, category_revision = categories(domain, project_id, project_items + ([] if kind == 'project' else items))
+        if not isinstance(category, str) or category != domain._asset_category(category, allow_empty=True) or category and category not in category_names:
+            raise ValueError('只能使用已有附件分类或空分类')
     if kind == 'project' and insert_link:
         raise ValueError('项目独立附件不支持插入记录正文')
     image = (domain.attachment_metadata(Path(name), '', size)['mime']).startswith('image/')
@@ -122,7 +138,12 @@ def prepare_attachment_create(domain, kind, owner_id, name, size, sha256, catego
         body = domain.append_attachment_link(raw_body, attachment) if insert_link else raw_body
         if insert_link:
             changes['body'] = body
-        record_write = prepare_record_update(owner_id, {**changes, 'expected_revision': base_revision})
+        if kind == 'document':
+            from .write_coordinator import PreparedMarkdownWrite
+            metadata, _ = load_markdown_text(before.decode('utf-8'))
+            record_write = PreparedMarkdownWrite(metadata_path, owner_id, serialize_record_metadata({**metadata, 'attachments':changes['attachments']}, body).decode('utf-8'), before)
+        else:
+            record_write = prepare_record_update(owner_id, {**changes, 'expected_revision': base_revision})
         after = record_write.after
         metadata_before, before_body = load_markdown_text(before.decode('utf-8'))
         metadata_after, _body = load_markdown_text(after.decode('utf-8'))

@@ -55,6 +55,9 @@ class ProposalStore:
         """Fault-injection seam; production has no callback or remote commands."""
 
     def guard_writes(self):
+        uploads = getattr(self.repository, "document_uploads", None)
+        if uploads:
+            uploads.guard()
         if self.blocked and not self.executing:
             raise AgentError("recovery_required", "存在未解决的 Agent 写入，请先检查恢复日志", 503, False)
 
@@ -134,7 +137,7 @@ class ProposalStore:
                     "previewed_version": None, "preview_digest": None,
                     "access_target": {"type": request["kind"], "project_id": content.get("project_id"), "category": content.get("category")}}
         if proposal['kind'] == 'attachment':
-            proposal['access_target'] = {'project_id':content['project_id']} if content['owner_kind'] == 'project' else {'type':content['owner_kind'], 'project_id':content['project_id']}
+            proposal['access_target'] = {'project_id':content['project_id']} if content['owner_kind'] == 'project' else {'type':'document', 'category':content['metadata_before'].get('category', '未分类')} if content['owner_kind'] == 'document' else {'type':content['owner_kind'], 'project_id':content['project_id']}
         bind_context(proposal, client, dependencies)
         self._save(proposal)
         return self.public(proposal)
@@ -147,7 +150,7 @@ class ProposalStore:
                         expires_at=(datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
                         access_target={"type": proposal["kind"], "project_id": content.get("project_id"), "category": content.get("category")})
         if proposal['kind'] == 'attachment':
-            proposal['access_target'] = {'project_id':content['project_id']} if content['owner_kind'] == 'project' else {'type':content['owner_kind'], 'project_id':content['project_id']}
+            proposal['access_target'] = {'project_id':content['project_id']} if content['owner_kind'] == 'project' else {'type':'document', 'category':content['metadata_before'].get('category', '未分类')} if content['owner_kind'] == 'document' else {'type':content['owner_kind'], 'project_id':content['project_id']}
         if proposal["schema_version"] == 3:
             bind_context(proposal, client, dependencies)
         self._save(proposal)

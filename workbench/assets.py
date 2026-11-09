@@ -84,6 +84,9 @@ class AttachmentRepository:
         self._list_records = list_records
         self._list_projects = list_projects
         self.open_file_external = open_file_external
+        self.get_document = lambda key: (None, None)
+        self.document_upload_inventory = None
+        self.agent_operation_inventory = None
 
     def get_record(self, record_id: str):
         return self._get_record(record_id)
@@ -502,47 +505,18 @@ class AttachmentRepository:
                 deleted += 1
         return {"deleted": deleted}
 
+    def orphan_asset_report(self):
+        from .asset_references import orphan_report
+        return orphan_report(self)
+
     def orphan_assets(self) -> list[dict]:
-        referenced = set()
-        for record in self.list_records():
-            record_path = Path(record["file_path"])
-            roots = self._record_attachment_roots(record)
-            for raw in record.get("attachments") or []:
-                try:
-                    attachment = json.loads(raw) if isinstance(raw, str) else raw
-                    candidate = (record_path.parent / attachment["path"]).resolve()
-                    if any(candidate.is_relative_to(root) for root in roots):
-                        referenced.add(candidate)
-                except (json.JSONDecodeError, KeyError, OSError, TypeError, ValueError):
-                    continue
-        for project in self.list_projects():
-            index = self.projects_dir / project["id"] / "assets" / "index.json"
-            categories = self.projects_dir / project["id"] / "assets" / "categories.json"
-            referenced.add(index.resolve())
-            referenced.add(categories.resolve())
-            for item in self.project_assets(project["id"]):
-                referenced.add((self.projects_dir / project["id"] / item["path"]).resolve())
-        roots = [self.global_assets_dir, *self.projects_dir.glob("*/assets")]
-        orphaned = []
-        for root in roots:
-            if not root.exists():
-                continue
-            resolved_root = root.resolve()
-            for path in root.rglob("*"):
-                try:
-                    candidate = path.resolve()
-                except (OSError, RuntimeError):
-                    continue
-                if path.is_symlink() or not candidate.is_relative_to(resolved_root):
-                    continue
-                if path.is_file() and candidate not in referenced:
-                    orphaned.append({"path": str(path), "name": path.name, "size": path.stat().st_size})
-        return orphaned
+        return self.orphan_asset_report()['orphans']
 
     def cleanup_orphan_assets(self) -> dict:
-        orphaned = self.orphan_assets()
+        report = self.orphan_asset_report()
+        orphaned = report['orphans']
         for item in orphaned:
             path = Path(item["path"]).resolve()
             if path.is_relative_to(self.root.resolve()) and path.is_file():
                 path.unlink()
-        return {"removed": len(orphaned), "bytes": sum(item["size"] for item in orphaned)}
+        return {"removed": len(orphaned), "bytes": sum(item["size"] for item in orphaned), "warnings":report["warnings"]}

@@ -152,3 +152,13 @@ assets/attachment_prepared与Repository门面提供无写prepare和metadata appl
 ProposalStore原预检/确认/版本/批准/回执复用，新增execution_schema2；普通Markdown恢复仍原短元数据路径，新二进制恢复从专用Agent查询/管理批准或action查询/服务启动/停服CLI进入，hash不会被旧外层业务/凭据/切换锁包住。copy接受意图后write_guard阻止普通写与孤儿清理，operation/session OS锁持IO；空间→业务→凭据仅最终短检查/原子发布/有界metadata，socket发送在锁外。源保护始终查询提案事实再修复镜像，未知引用不释放；退休另核完整正式回执。新项目结果链接只打开既有附件页并聚焦，不自动执行/打开文件。
 
 共享Markdown仅增加受控相对附件链接和转义标签/URL往返，保留普通URL强调、行内code、引用及代码块。record/doc继续同一内核；知识库本项只回归已有外部图片能力，正式文档附件留133。
+
+### AG-133：文档附件与普通网页上传
+
+DocumentRepository继续拥有唯一document Markdown；AttachmentRepository的PreparedAttachment支持document，以全局assets/images或files承载字节，Markdown有序attachments为唯一目录。历史恢复同时恢复附件元数据；分类迁移更新附件category，未知meta保留。document_attachments提供严格metadata解析、受控路径和引用清单，现有/api/attachments按DOC-ID+真实metadata查找，无通用文件路径接口。共享document-model透传renderLink，两编辑器仍用同一Markdown/序列化宿主；文档附件链接不暴露原始Markdown标记。
+
+DocumentUploads是普通网页操作证据组件，不是第二业务仓储或附件索引，独立于Agent启用/凭据。稳定UUID、stream身份与真实SHA、固定Prepared候选/快照/历史版本及幂等receipt驱动接收、提交、恢复、回收；复用132的native流验证/同句柄无覆盖rename与领域PreparedMarkdownWrite应用。单操作OS锁覆盖长流/hash，repository_switch/write锁仅短检查/预留与最终发布；receiving允许其他编辑，prepared/applying阻止冲突正式写。先验证平台/卷再读body，前端上传阶段独立于documentSession.saving，暂停autosave但持续草稿，成功仅合并新metadata/revision与当前body的一次链接，后续保存独立判断dirty，不把旧签名标为已保存。
+
+普通上传全目录报告/预检/恢复/回收/明确放弃由document_attachment_http协议适配，未知先保留，无Agent依赖。completed墓碑先于快照DELETE，partial身份/SHA验证及实际DELETE先于预算释放；同UUID只回原结果。私人.workbench-document-uploads不进静态、业务搜索或ZIP，迁移未决拒绝；终结日志随本机目录迁移保留幂等。旧外部编辑器图片入口保持兼容，新metadata下载以受控原生句柄流式发送、主动内容强制下载及nosniff/sandbox。
+
+asset_references只枚举白名单roots，扫描正式记录/文档/项目正文与meta、history及trash按原owner语义、在途manifest；共享任一有效引用保留，未知/损坏/别名报告并保守不删。document_export生成平铺MD及去重assets副本，解析metadata/body/现有附件token，严格成员/路径/链接校验和句柄流读；不修改源文件或创建新引用语法。

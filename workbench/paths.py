@@ -33,6 +33,8 @@ def save_data_location(data_dir: Path, location_file: Path = LOCATION_FILE):
 
 
 def relocate_repository(current: Any, raw_path: str, migrate: bool, location_file: Path = LOCATION_FILE):
+    if getattr(current, "document_uploads", None):
+        current.document_uploads.guard_relocation()
     if getattr(current, "agent_proposals", None):
         current.agent_proposals.recover()
         current.agent_proposals.guard_writes()

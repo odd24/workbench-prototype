@@ -191,3 +191,30 @@ root3/authorization4/transport2保留，管理日志4新增严格operation_famil
 预览的record.updated/project-asset.created显示“提交确认时由服务端生成”，只在受理当前确认时定稿；实际after摘要与metadata_time、真实committed_at、原有格式的唯一history ID记入manifest，重试沿用，不使用草稿时间。时间校验按明确时区的同一时刻进行，不因恢复机器时区不同改写原时间。正文无插链接时原body片段逐字保留，插入时经公共助手只追加，不允许把任意正文改写伪装附件创建；未知meta/info_fields保持。
 
 完成源消费不立即等同可清理。维护仅在committed proposal/manifest/receipt及binding/消费映射/源SHA大小全匹配后退休已消费blob；不需等待24h，但仍须同一已验证句柄安全删除并记removed，失败保留预算。墓碑与receipt供幂等、留原结果，不重建后来删改的附件。未知/在途/未完成消费仍protected。所有私人策略、暂存和.agent意图/快照/part不进可移植ZIP；正式附件及原Markdown/index按原导出规则进入。
+
+## AG-133文档附件序列化与普通网页操作证据
+
+文档仍只有type: document与原category。新增可选attachments，采用与记录一致的有序列表，每项为JSON字符串，字段name/path/size/mime/category及服务生成id/sha256；path相对documents中的原Markdown文件，指向全局assets/images或assets/files。category记录所属文档分类，不建立附件分类索引。没有attachments的旧文档按空列表读取，不批量改写；未知元数据及原正文保留。历史和回收站引用按原owner路径解释。当前实施与实测状态见AI_AGENT_PROGRESS及本机能力验收，不据方案推断验收完成。
+
+服务落盘示例（轻量解析器兼容既有字典读取，写出仍为列表JSON字符串）：
+
+```text
+attachments:
+  - "{\"name\":\"说明.txt\",\"path\":\"../assets/files/说明.txt\",\"size\":4,\"mime\":\"text/plain\",\"category\":\"原文档分类\",\"id\":\"ASSET-<32位十六进制>\",\"sha256\":\"<64位十六进制>\"}"
+```
+
+document正式Agent提案仍schema3/attachment@1，category必须等于文档当前原分类，project_id为null，access_target为type=document及原category，目标revision是原MD字节SHA。使用相同binary_copy/publish、history_snapshot、metadata_write、upload_consume。正文只保留原raw body或公共助手追加链接；旧其它owner的policy2语义不变。
+
+普通网页使用POST /api/documents/<DOC-ID>/attachments/uploads/<UUID>?name=<编码文件名>&expected_revision=<SHA>的原始流及同路径GET查询。UUID不可重用，重放只返回原操作结果，绝不宣称接受另一份请求字节；POST无论是否重放均关闭连接，重复CL/TE拒绝。单文件100MiB、64KiB块、空闲5秒/总60秒、16MiB磁盘余量；先证明目标Windows固定NTFS再接收。documents/Markdown及正式assets仍可移植，原文档读取不依赖Agent或新上传开关。
+
+私人.workbench-document-uploads/<UUID>/operation.json schema_version=1（严格整数），状态receiving/failed/prepared/applying/completed/abandoned。字段包含文档ID、文件名、声明size/base_revision、实际SHA、stream_identity(device/inode)、partial(size/SHA/原生身份)、固定领域view、after_revision、history_version、receipt、removed/compacted及原生发布identity。before.md/after.md为完整快照，binary.part是唯一过程字节。receiving中断只封存失败，不自动发布；prepared/applying使用实际before/after判定恢复，第三方版本停止；completed回执绑定attachment/revision/base_revision/document_id，后续编辑/删除不重放写入。
+
+completed先持久化保留回执的compacted墓碑，再验证摘要/同句柄DELETE精简快照；失败字节先核对创建时设备/文件身份和真实partial SHA/版本，实际消失后removed才释放预算。只有未释放的非完成操作计1GiB预算，receiving/prepared/applying计1000活跃名额，历史墓碑不耗尽名额。abandoned保留证据，不回滚正式文件；未开始写日志的纯空UUID目录可明确放弃为DOC-0000占位墓碑（不是业务文档），未知或含文件目录不可借此清除。全目录格式/路径预检先于维护写；终结证据不进入静态、业务搜索、引用或ZIP。操作日志的相对路径不含机器绝对路径。
+
+GET /api/document-uploads返回全部可发现操作和脱敏错误/操作ID；POST /recover、/cleanup对应恢复及证据回收，POST /abandon要求operation_id/document_id/approved=true。无Agent前置；这些普通网页业务入口不会加入MCP工具，带Agent Authorization访问仍403。原操作尚未接收返回404/document_upload_not_found；损坏或空初始化返回503/document_upload_recovery_required，不能当作无操作重传。
+
+知识ZIP成员为原文件名.md及assets/<规范相对路径摘要前24位>-<原文件名>，不同路径同名不会覆盖，同一规范路径共享一份。副本metadata.path与正文链接同步为ZIP相对路径；内部附件引用在副本中转为普通附件链接，不改正式body或稳定ID。受控来源以原文件目录解释，逐文件原生句柄流式归档；缺失/越界/未知本地HTML或定义式资源明确拒包，不从任意机器路径补齐。裸MD保持原相对路径与metadata，不声称完整备份。
+
+三层路径解释：持久metadata.path及私有计划路径都是原始文件系统相对路径，不进行URL解码；文档Markdown source是URL，恰好解码一次；HTTP route由协议入口unquote一次，附件名称下游不再解码。字面%3A、%253A、%2F、%25、#及中文可作为合法文件名的一部分，正文/HTTP分别编码后解析；真实冒号、问号、斜线等仍按Windows可移植规则拒绝。文档元数据只按完整路径匹配正文附件，不用basename遮蔽另一目录的同名外部图片。原文档中的非业务project_id等未知meta保留，但不参与文档附件归属，正式字节始终在全局assets。
+
+原record/project音视频继续保留audio/*、video/*的正确Content-Type与inline语义，光栅图片/PDF同样按既有可预览类型内联，nosniff保留；HTML、SVG等主动内容采用octet-stream+attachment及CSP sandbox。被动媒体不施加改变其文档origin的sandbox，避免破坏原生浏览器媒体预览；实际兼容范围以HTTP契约和临时合成WAV/WebM真实浏览器验收为准，不引入转码或播放器。

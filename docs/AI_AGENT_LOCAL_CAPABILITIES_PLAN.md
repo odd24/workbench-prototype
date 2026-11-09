@@ -4,7 +4,7 @@
 
 主方案：[AI_AGENT_PLAN.md](AI_AGENT_PLAN.md)。前期扩展：[AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。实施事实与状态：[AI_AGENT_PROGRESS.md](AI_AGENT_PROGRESS.md)。执行规范：[AGENTS.md](../AGENTS.md)。
 
-**当前执行状态（2026-11-09）：用户最新明确“现在开始执行方案”，AG-128 已完成授权基础，尚未开放新增业务；AG-129执行基础、AG-130文件授权、AG-131私人暂存及AG-132记录/项目附件已完成，AG-133～143待开始，状态以台账为准。此前 AG-127 仅文档和暂停实施是历史事实。方案不等于能力已实现或验收；不得提前开放后续业务工具或操作真实客户端。**
+**当前执行状态（2026-11-09）：用户最新明确“现在开始执行方案”，AG-128 已完成授权基础，尚未开放新增业务；AG-129执行基础、AG-130文件授权、AG-131私人暂存及AG-132记录/项目附件已完成，AG-133已完成、AG-134～143待开始，状态以台账为准。此前 AG-127 仅文档和暂停实施是历史事实。方案不等于能力已实现或验收；不得提前开放后续业务工具或操作真实客户端。**
 
 ## 1. 目标与交付范围
 
@@ -253,7 +253,7 @@ capabilities 明示 authorized capabilities、kind_operations、kind_fields、�
 
 ## 12. 工作项、文件与独立验收
 
-以下是预计接点，不是要求创建所有候选文件。实施前确定最小变更，不复制现有 CRUD 或另建 Repository 进程。AG-127 为本文档治理；AG-128～132已完成、AG-133～143待开始，实际状态以台账为准。
+以下是预计接点，不是要求创建所有候选文件。实施前确定最小变更，不复制现有 CRUD 或另建 Repository 进程。AG-127 为本文档治理；AG-128～132已完成、AG-133已完成、AG-134～143待开始，实际状态以台账为准。
 
 | ID | 范围/依赖 | 预计文件或模块 | 独立完成证据 |
 | --- | --- | --- | --- |
@@ -394,3 +394,12 @@ AG-128实际结果见[本机能力验收](AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE
 - AG-LOCAL-DEC-036：附件正文只允许逐字保留before快照的原始body片段（含CRLF/首尾空格），或公共助手保留原文后追加链接；base_content、base_revision、before快照与候选语义交叉验证。标签转义与相对URL编码共用；共享渲染支持转义文件名、受控相对附件链接并保留原Markdown URL标签的强调/行内code语义，序列化保留data-markdown-src。外部图片先兼容字面百分号路径，再在边界内单次URL解码。知识库仅回归原图片/编辑器能力，不建立133附件格式。
 
 本项100MiB专项为有界内存与真实持久字节场景，不扩展独立performance_acceptance.py/visual_baseline.js，不冒称完整性能/视觉基线或AG-142真实模型矩阵。官方平台依据：[FILE_RENAME_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info)、[SetFileInformationByHandle](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-setfileinformationbyhandle)。不覆盖行为与同身份恢复以原生测试为准；外部文件系统剩余竞态、内核等待和确认许可后迟到响应边界继续保留。
+
+## 20. AG-133实施决定（2026-11-09，已完成）
+
+- AG-LOCAL-DEC-037：文档仅新增可选有序attachments，磁盘条目复用记录JSON字符串序列化和宽容字典读取；path相对原documents/*.md指向全局assets/images或assets/files，id/sha256由服务生成，category为原文档分类。无第二文档类型、附件分类索引或编辑器；旧无字段按空读取，未知meta与原始body保留，历史恢复含附件列表。
+- AG-LOCAL-DEC-038：document共同许可由管理页面重新完整预览批准；旧stage/schema1或schema2的null许可、休眠grant与attachment_source意向均不扩权。继续attachment@1及现有五阶段/Prepared领域/消费回执，document access_target绑定原分类，分类改名/删除/迁移与授权变化在发布前拒绝旧提案，after只补原结果。
+- AG-LOCAL-DEC-039：普通网页流不走Agent批准。浏览器稳定UUID先持久化，等待已有saving并先条件保存；上传时autosave暂停，继续输入持续进草稿，关闭/切文档等待上传结束。完成仅当前doc/空间/base匹配才合并附件/新revision/一次链接并条件保存，旧响应body从不覆盖当前输入；丢响应先查询原UUID，未接收的404与损坏/空初始化503区分，外部变化进入原冲突流程。使用既有共享renderer/host/session，补document-model透传renderLink。
+- AG-LOCAL-DEC-040：普通网页日志.workbench-document-uploads只存操作证据，不是附件事实源；先NTFS/路径验证再收流，64KiB、100MiB、1GiB未释放预算、1000活跃操作、5秒空闲/60秒总截止及16MiB磁盘余量。prepared后短锁保护、锁外hash与同句柄无覆盖rename、历史/元数据重读；已接受的合法操作有全量发现/恢复/明确放弃入口，未知全量预检停止写入。completed先固定回执再精简快照，失败partial按创建身份/真实SHA证据同句柄删除后removed；终结墓碑不占活跃名额、不删除UUID绕过幂等。abandon不回滚已发布文件，含未知文件的初始化需人工核查，只有空初始化可明确放弃为墓碑。
+- AG-LOCAL-DEC-041：孤儿候选只来自全局assets及项目assets，引用库存覆盖正式文档/记录/项目正文与meta、历史及回收站按原owner目录、在途Agent/web操作，任一共享引用保留；未知/损坏/链接对象使候选保守清空并返回脱敏警告。已证实旧实现漏正文/历史/回收站并在恶意索引下仍判孤儿，属于133必要正确性修复；不扫描全盘、执行文件或以索引取代MD。
+- AG-LOCAL-DEC-042：知识ZIP保留平铺MD，受控真实引用文件按规范相对路径摘要+原名映射assets/...并去重，只改导出副本body及metadata。内部附件token转换为导出副本相对链接，裸.md仍单文件不附二进制；缺资源/越界/重解析/硬链接/尚不支持的本地HTML或定义式引用拒绝不完整ZIP。完整工作台ZIP含正式全局assets，排除私人web/Agent操作证据；迁移未决拒绝，终结日志按原相对布局保留幂等。

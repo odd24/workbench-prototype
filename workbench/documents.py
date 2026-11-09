@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-import io
 import json
 import re
-import zipfile
+
 from pathlib import Path
+
+from .document_attachments import reference_summary, metadata_for_write
 
 from .markdown_io import dump_markdown, load_markdown, load_markdown_text, now_iso, slugify
 from .persistence import atomic_write_text
 from .write_coordinator import check_revision, PreparedMarkdownWrite, read_versioned_markdown
-from .security import validate_archive_member, validate_portable_filename, validate_zip_bytes
+from .security import validate_portable_filename
 
 
 class DocumentRepository:
@@ -76,7 +77,7 @@ class DocumentRepository:
                 "id": document.get("id"), "type": "document",
                 "title": document.get("title", ""),
                 "category": document.get("category", "未分类"),
-                "attachments": [],
+                "attachments": reference_summary(document, self.documents_dir),
             }
             for document in self.list_documents()
         ]
@@ -105,15 +106,15 @@ class DocumentRepository:
         return targets
 
     def list_document_backlinks(self, document_id: str) -> list[dict]:
-        """Return issue and todo records that reference a knowledge document."""
+        """Return existing record/document references, including attachment tokens."""
         document, _ = self.get_document(document_id)
         if not document:
             raise FileNotFoundError(document_id)
         normalized_id = str(document_id).upper()
         project_names = {str(item.get("id")): str(item.get("name", item.get("id", ""))) for item in self.list_projects()}
         backlinks = []
-        for record in self.list_records():
-            if record.get("type") not in {"issue", "todo"}:
+        for record in [*self.list_records(), *self.list_documents()]:
+            if record.get("type") not in {"issue", "todo", "document"} or record.get("id") == document_id:
                 continue
             tokens = re.findall(r"\[\[([A-Za-z]+-\d+(?:#[^\]]+)?)\]\]", str(record.get("body", "")))
             links = record.get("links", [])
@@ -130,7 +131,7 @@ class DocumentRepository:
                 "type": record.get("type"),
                 "title": record.get("title", ""),
                 "project_id": project_id,
-                "project_name": project_names.get(project_id, project_id or "未归属项目"),
+                "project_name": record.get("category", "未分类") if record.get("type") == "document" else project_names.get(project_id, project_id or "未归属项目"),
                 "updated": record.get("updated", ""),
             })
         return sorted(backlinks, key=lambda item: item.get("updated", ""), reverse=True)
@@ -161,12 +162,12 @@ class DocumentRepository:
         meta = {"id": document_id, "type": "document", "title": title, "category": category, "tags": tags, "created": stamp, "updated": stamp}
         body = str(payload.get("body", "")).strip() or f"# {title}\n\n"
         path = self.documents_dir / f"{document_id}-{slugify(title)}.md"
-        return PreparedMarkdownWrite(path, document_id, dump_markdown(meta, body), None)
+        return PreparedMarkdownWrite(path, document_id, dump_markdown(metadata_for_write(meta), body), None)
 
     def update_document(self, document_id: str, payload: dict) -> dict:
         return self.apply_document_write(self.prepare_document_update(document_id, payload))
 
-    def prepare_document_update(self, document_id: str, payload: dict):
+    def prepare_document_update(self, document_id: str, payload: dict, restore_attachments=False):
         document, path = self.get_document(document_id)
         if not document or not path:
             raise FileNotFoundError(document_id)
@@ -179,9 +180,18 @@ class DocumentRepository:
         tags = list(dict.fromkeys(str(tag).strip() for tag in tags_payload if str(tag).strip())) if isinstance(tags_payload, list) else document.get("tags", [])
         meta.pop("document_type", None)
         category = self.ensure_document_category(str(payload.get("category", document.get("category", "未分类"))))
+        if restore_attachments:
+            from .document_attachments import attachment_items, safe_local_path
+            values = payload.get('attachments', [])
+            for item in attachment_items(values):
+                safe_local_path(path.parent, item['path'], (self.documents_dir.parent / 'assets' / 'images', self.documents_dir.parent / 'assets' / 'files'), decode=False)
+            meta['attachments'] = values
+        if category != document.get('category', '未分类') and meta.get('attachments'):
+            from .document_attachments import attachment_items
+            meta['attachments'] = [json.dumps({**item, 'category':category}, ensure_ascii=False, separators=(',', ':')) for item in attachment_items(meta['attachments'])]
         meta.update({"title": title, "category": category, "tags": tags, "updated": now_iso()})
         body = str(payload.get("body", document.get("body", "")))
-        return PreparedMarkdownWrite.for_update(path, document_id, dump_markdown(meta, body), document["revision"])
+        return PreparedMarkdownWrite.for_update(path, document_id, dump_markdown(metadata_for_write(meta), body), document["revision"])
 
     def open_document_external(self, document_id: str) -> dict:
         document, path = self.get_document(document_id)
@@ -218,16 +228,8 @@ class DocumentRepository:
         if not document or not path:
             raise FileNotFoundError(document_id)
         meta = {key: value for key, value in document.items() if key not in {"body", "file_path", "file_mtime", "revision", "document_type"}}
-        return dump_markdown(meta, document.get("body", "")).encode("utf-8"), f"{document_id}.md"
+        return dump_markdown(metadata_for_write(meta), document.get("body", "")).encode("utf-8"), f"{document_id}.md"
 
     def export_documents_zip(self, document_ids: list[str] | None = None) -> bytes:
-        selected = set(document_ids or [])
-        memory = io.BytesIO()
-        with zipfile.ZipFile(memory, "w", zipfile.ZIP_DEFLATED) as archive:
-            for path in sorted(self.documents_dir.glob("*.md")):
-                meta, body = load_markdown(path)
-                if meta.get("type") != "document" or (selected and str(meta.get("id", "")) not in selected):
-                    continue
-                meta.pop("document_type", None)
-                archive.writestr(validate_archive_member(path.name), dump_markdown(meta, body))
-        return validate_zip_bytes(memory.getvalue())
+        from .document_export import export_documents
+        return export_documents(self, set(document_ids or []))

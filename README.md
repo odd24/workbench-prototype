@@ -60,7 +60,7 @@ python server.py
 
 前期 AI 接入扩展见 [详细执行方案](docs/AI_AGENT_EXTENSION_PLAN.md)：AG-116～121、AG-126 已完成，覆盖待办/结构化信息、提案管理、网页独立批准和本机客户端兼容；远程 AG-122～125 已取消且未实现。当前状态以 [实施台账](docs/AI_AGENT_PROGRESS.md) 和 [扩展验收](docs/AI_AGENT_EXTENSION_ACCEPTANCE.md) 为准。
 
-附件上传、本机文件读取、概念图、删除、项目创建及分类/工作流变更已另行形成 [本机能力扩展执行方案](docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)。AG-127 仅为文档规划；用户已于2026-11-09授权执行，AG-128授权基础与AG-129执行基础已完成，AG-130～143待开始。这些能力目前尚未通过 Agent 接口开放。
+附件上传、本机文件读取、概念图、删除、项目创建及分类/工作流变更已另行形成 [本机能力扩展执行方案](docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)。AG-127 仅为文档规划；用户已于2026-11-09授权执行，AG-128授权基础与AG-129执行基础已完成，AG-130～132已完成，AG-133已完成、AG-134～143待开始。各能力按对应工作项实际验收范围开放。
 
 项目没有包管理器或构建步骤。架构和模块职责见 [架构说明](docs/ARCHITECTURE.md)，日常修改、测试和发布步骤见 [维护说明](docs/MAINTENANCE.md)。重构执行事实记录在 [进度台账](docs/REFACTORING_PROGRESS.md)。
 
@@ -103,4 +103,6 @@ AG-130增加具体本机文件授权：设置→AI Agent接入→具体文件授
 AG-131增加独立“上传暂存授权”：按客户端、具体目标、来源文件或原始流完整预览批准，旧意向不自动生效。普通MCP可用批准file_id让服务流式暂存，具备HTTP认证能力的客户端可用专用原始字节通道；不传整文件base64。单文件100MiB/client500MiB/空间1GiB，24h保留与安全恢复/清理。AG-131阶段固定19工具且不正式写入；正式附件于AG-132按独立共同许可开放。见[接入使用](docs/AGENT_USAGE.md)及[本机验收](docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md)。
 
 
-AG-132支持既有问题/待办/信息及项目独立附件创建：在暂存面板明确共同批准具体目标的暂存+附件创建及最低确认方式，再新建ready暂存、生成正式附件提案并完整预览确认；旧授权不自动扩权。当前20工具，get_attachment_target仅元数据，不下载字节；知识库附件、替换/删除仍未开放。支持有界复制、逐阶段恢复、正式回执后安全退休源暂存及原回执幂等查询。详见[使用步骤](docs/AGENT_USAGE.md)、[本机能力验收](docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md)。
+AG-132支持既有问题/待办/信息及项目独立附件创建：在暂存面板明确共同批准具体目标的暂存+附件创建及最低确认方式，再新建ready暂存、生成正式附件提案并完整预览确认；旧授权不自动扩权。当前20工具，get_attachment_target仅元数据，不下载字节；知识库附件由AG-133补齐，替换/删除仍未开放。支持有界复制、逐阶段恢复、正式回执后安全退休源暂存及原回执幂等查询。详见[使用步骤](docs/AGENT_USAGE.md)、[本机能力验收](docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md)。
+
+AG-133新增知识库附件：文档内“上传附件”先保存当前内容，再流式上传并插入受控相对链接；上传期间可继续输入，当前输入保留草稿，结果待定时先“查询附件结果”，不要重复上传。设置页“查看文档上传操作 / 恢复文档上传 / 回收终结上传暂存”可发现其他浏览器或重启留下的操作。Agent需为具体document重新共同批准，category使用文档原分类；仍是当前20工具，无任意二进制下载。文档导出单个.md不带附件；选择文档ZIP包含受控资源且只改副本路径，完整数据ZIP包含正式全局assets，操作证据不进入可移植ZIP。详见[数据格式](docs/DATA_FORMAT.md)与[维护](docs/MAINTENANCE.md)。

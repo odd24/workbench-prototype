@@ -27,7 +27,7 @@ from .paths import (
 
 
 APP_DIR = Path(__file__).resolve().parent.parent
-APP_VERSION = "2026.11.09.6"
+APP_VERSION = "2026.11.09.7"
 MAX_JSON_BODY_BYTES = 15_000_000
 
 
@@ -39,6 +39,9 @@ def serialized_write(method):
             # Agent dispatchers coordinate their short mutations explicitly.
             # Wrapping dispatch itself also locks streaming IO and file hashes.
             return method(self)
+        from .document_attachment_http import dispatch as dispatch_document_upload
+        if dispatch_document_upload(self):
+            return
         with self.repository_switch_lock, self.repository.write_lock:
             return method(self)
     return call
@@ -194,14 +197,33 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         return unquote(parsed.path), parse_qs(parsed.query)
 
-    def _inline_file(self, file_path: Path):
-        content = file_path.read_bytes()
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", mimetypes.guess_type(file_path.name)[0] or "application/octet-stream")
-        self.send_header("Content-Length", str(len(content)))
-        self.send_header("Content-Disposition", f"inline; filename*=UTF-8''{quote(file_path.name)}")
-        self.end_headers()
-        self.wfile.write(content)
+    def _inline_file(self, file_path: Path, secure=False):
+        from contextlib import ExitStack
+        content_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
+        passive_type = content_type.lower().split(";", 1)[0].strip()
+        inline = passive_type.startswith(("audio/", "video/")) or passive_type.startswith("image/") and "svg" not in passive_type or passive_type == "application/pdf"
+        with ExitStack() as stack:
+            if secure:
+                from .agent_file_handles import LocalFileHandle
+                import time
+                source = stack.enter_context(LocalFileHandle(str(file_path), read=True))
+                length = source.initial['size']
+                chunks = source.chunks(time.monotonic() + 60)
+            else:
+                source = stack.enter_context(file_path.open('rb'))
+                import os
+                length = os.fstat(source.fileno()).st_size
+                chunks = iter(lambda:source.read(65536), b'')
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", content_type if inline else "application/octet-stream")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            if not inline:
+                self.send_header("Content-Security-Policy", "sandbox")
+            self.send_header("Content-Length", str(length))
+            self.send_header("Content-Disposition", f"{'inline' if inline else 'attachment'}; filename*=UTF-8''{quote(file_path.name)}")
+            self.end_headers()
+            for chunk in chunks:
+                self.wfile.write(chunk)
 
     def _get_document_resource(self, path: str) -> bool:
         parts = path.strip("/").split("/")
@@ -287,7 +309,7 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                 self._json({"error": "附件路径无效"}, HTTPStatus.BAD_REQUEST)
             else:
                 file_path = self.repository.attachment_path(parts[2], parts[3])
-                self._inline_file(file_path) if file_path else self._json({"error": "附件不存在"}, HTTPStatus.NOT_FOUND)
+                self._inline_file(file_path, secure=parts[2].startswith('DOC-')) if file_path else self._json({"error": "附件不存在"}, HTTPStatus.NOT_FOUND)
         elif path == "/api/search":
             self._json([record for record in self.repository.search((query.get("q") or [""])[0]) if record.get("type") != "idea"])
         else:
@@ -295,6 +317,9 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
         return True
 
     def do_GET(self):
+        from .document_attachment_http import dispatch as dispatch_document_upload
+        if dispatch_document_upload(self):
+            return
         if self._dispatch_agent():
             return
         path, query = self._route()
@@ -324,7 +349,7 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                 project_id = (query.get("project") or [None])[0]
                 return self._bytes(self.repository.export_zip(project_id), "application/zip", "workbench-export.zip")
             if path == "/api/orphan-assets":
-                return self._json(self.repository.orphan_assets())
+                return self._json(self.repository.orphan_asset_report() if (query.get("report") or [""])[0] == "1" else self.repository.orphan_assets())
             if self._get_project_asset_resource(path) or self._get_record_resource(path, query):
                 return
             return self._json({"error": "接口不存在"}, HTTPStatus.NOT_FOUND)

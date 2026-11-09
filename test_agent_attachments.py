@@ -48,8 +48,44 @@ class AttachmentTests(AgentFixture, unittest.TestCase):
         target = self.attachments.target(self.client, kind, owner_id)
         payload = {'request_id':uuid.uuid4().hex, 'kind':'attachment', 'operation':'create', 'target_id':owner_id,
                    'base_revision':target['revision'], 'content':{'owner_kind':kind, 'owner_id':owner_id,
-                    'upload_id':upload_id, 'display_name':'正式附件.txt', 'category':'', 'insert_link':kind != 'project' if insert_link is None else insert_link}}
+                    'upload_id':upload_id, 'display_name':'正式附件.txt', 'category':self.repo.get_document(owner_id)[0]['category'] if kind == 'document' else '', 'insert_link':kind != 'project' if insert_link is None else insert_link}}
         return self.service.prepare_proposal(self.client, payload), upload_id, payload
+
+    def test_document_joint_policy_commit_history_and_retirement(self):
+        document = self.repo.create_document({'title':'文档附件', 'category':'允许', 'body':'保留正文'})
+        path = Path(document['file_path'])
+        path.write_text(path.read_text(encoding='utf-8').replace('type: "document"\n', 'type: "document"\nproject_id: "legacy-unknown-project-field"\n'), encoding='utf-8')
+        proposal, upload_id, payload = self.proposal('document', document['id'])
+        self.assertEqual(proposal['access_target'], {'type':'document', 'category':'允许'})
+        preview = self.service.preview_proposal(self.client, proposal['proposal_id'])
+        receipt = self.commit(preview)
+        self.assertEqual(receipt['owner_kind'], 'document')
+        self.assertIsNone(receipt['project_id'])
+        self.assertIn('item=document', receipt['web_path'])
+        self.assertEqual(self.repo.attachment_path(document['id'], receipt['attachment']['name']).read_bytes(), b'formal bytes')
+        saved, _ = self.repo.get_document(document['id'])
+        self.assertIn('保留正文', saved['body'])
+        self.assertEqual(saved['project_id'], 'legacy-unknown-project-field')
+        self.assertEqual(len(saved['attachments']), 1)
+        self.assertEqual(len(self.repo.list_document_history(document['id'])), 1)
+        target = next(x for x in self.repo.list_reference_targets() if x['id'] == document['id'])
+        self.assertEqual(target['attachments'][0]['name'], receipt['attachment']['name'])
+        self.uploads.recover_and_cleanup(self.permit, cleanup=True)
+        self.assertTrue(self.uploads.load(upload_id)['removed'])
+        self.assertEqual(self.commit(preview), receipt)
+
+    def test_document_stage_only_and_category_change_never_expand_access(self):
+        document = self.repo.create_document({'title':'文档类别', 'category':'允许'})
+        self.policy_id = self.policy(owner_kind='document', owner_id=document['id'])
+        with self.assertRaises(AgentError):
+            self.attachments.target(self.client, 'document', document['id'])
+        proposal, upload_id, payload = self.proposal('document', document['id'])
+        preview = self.service.preview_proposal(self.client, proposal['proposal_id'])
+        self.repo.rename_document_category('允许', '改名')
+        with self.assertRaises((AgentError, FileExistsError)):
+            self.commit(preview)
+        self.assertFalse(self.repo.get_document(document['id'])[0].get('attachments'))
+        self.assertFalse((self.repo.global_assets_dir / 'files' / '正式附件.txt').exists())
 
     def test_joint_policy_has_no_revision_loop_and_preview_has_no_formal_writes(self):
         proposal, upload_id, payload = self.proposal()
@@ -454,12 +490,17 @@ AttachmentExecution(service).commit(security.clients()[sys.argv[3]],sys.argv[4],
                     case.tearDown()
 
     def test_real_process_exit_recovers_fixed_plan_copy_publish_metadata_consume_and_receipt(self):
+        for kind in ('issue', 'document'):
+            with self.subTest(owner_kind=kind):
+                self._assert_real_attachment_exit(kind)
+
+    def _assert_real_attachment_exit(self, kind):
         from server import Repository
         from workbench.agent_security import AgentSecurity
         from workbench.agent_service import AgentService
         from workbench.agent_attachment_execution import AttachmentExecution
-        record = self.repo.create_record({'type':'issue', 'title':'故障恢复', 'body':'不可丢失的原文', 'project_id':self.project['id']})
-        proposal, upload_id, payload = self.proposal('issue', record['id'], data=b'x' * 131072)
+        record = self.repo.create_document({'title':'故障恢复文档', 'body':'不可丢失的原文', 'category':'允许'}) if kind == 'document' else self.repo.create_record({'type':'issue', 'title':'故障恢复', 'body':'不可丢失的原文', 'project_id':self.project['id']})
+        proposal, upload_id, payload = self.proposal(kind, record['id'], data=b'x' * 131072)
         preview = self.service.preview_proposal(self.client, proposal['proposal_id'])
         request = {'version':1, 'preview_digest':preview['preview_digest'], 'confirmation':{'mode':'agent_attested', 'user_confirmed':True}}
         worker = '''
@@ -504,7 +545,7 @@ AttachmentExecution(service).commit(security.clients()[sys.argv[4]],sys.argv[5],
                     self.assertFalse(report['blocked'], report)
                     self.assertEqual(reopened['state'], 'committed')
                     self.assertEqual((root / preview['content']['binary_relative']).read_bytes(), b'x' * 131072)
-                    self.assertEqual(len(repo.list_history(record['id'])), 1)
+                    self.assertEqual(len(repo.list_document_history(record['id']) if kind == 'document' else repo.list_history(record['id'])), 1)
                     self.assertEqual(service.uploads.load(upload_id)['state'], 'consumed')
                     self.assertEqual(AttachmentExecution(service).commit(security.clients()[self.client['client_id']], proposal['proposal_id'], request), reopened['receipt'])
 
@@ -616,11 +657,16 @@ class AttachmentHTTPTests(unittest.TestCase):
     def tearDown(self):
         upload_tests.UploadHTTPTests.tearDown(self)
 
-    def proposal(self, mode='agent_attested'):
+    def proposal(self, mode='agent_attested', kind='project', owner_id=None):
         from workbench.agent_management import client_version
+        if kind == 'document':
+            owner_id = owner_id or self.repo.create_document({'title':'MCP文档附件', 'category':'原分类', 'body':'保留正文'})['id']
+            client = self.security.clients()[self.client_id]
+            self.security.manager().run('edit', {**{key:client[key] for key in ('name', 'scopes', 'project_ids')}, 'kinds':['issue', 'document'], 'categories':['原分类']}, self.client_id, client_version(client))
+        owner_id = owner_id or self.project['id']
         prefix = f'/api/local/agent-management/clients/{self.client_id}/upload-policy'
         code, preview = self.request(prefix + '/preview', {'workspace_id':self.security.workspace_id, 'expected_version':client_version(self.security.clients()[self.client_id]),
-                                      'owner_kind':'project', 'owner_id':self.project['id'], 'stream':True, 'files':[], 'max_bytes':104857600,
+                                      'owner_kind':kind, 'owner_id':owner_id, 'stream':True, 'files':[], 'max_bytes':104857600,
                                       'duration_seconds':3600, 'attachment_write':True, 'minimum_confirmation_mode':mode}, 'POST', True)
         self.assertEqual(code, 200, preview)
         confirm = {key:preview[key] for key in ('workspace_id', 'expected_version', 'preview_id', 'preview_digest')}
@@ -629,14 +675,14 @@ class AttachmentHTTPTests(unittest.TestCase):
         self.assertEqual(code, 200, approved)
         self.assertEqual(self.request(prefix + '/confirm', confirm, 'POST', True), (code, approved))
         self.policy_id = approved['policy_id']
-        upload_id = self.create()
+        upload_id = self.create(owner_kind=kind, owner_id=owner_id)
         self.assertEqual(self.put(upload_id)[0], 200)
         self.assertEqual(self.request(f'/api/agent/v1/uploads/{upload_id}/complete', {}, 'POST')[0], 200)
-        code, target = self.request('/api/agent/v1/attachment-targets/project/' + quote(self.project['id']))
+        code, target = self.request(f'/api/agent/v1/attachment-targets/{kind}/' + quote(owner_id))
         self.assertEqual(code, 200, target)
         code, proposal = self.request('/api/agent/v1/proposals', {'request_id':uuid.uuid4().hex, 'kind':'attachment', 'operation':'create',
-                                         'target_id':self.project['id'], 'base_revision':target['revision'],
-                                         'content':{'owner_kind':'project', 'owner_id':self.project['id'], 'upload_id':upload_id, 'display_name':'原始附件.txt', 'category':'', 'insert_link':False}}, 'POST')
+                                         'target_id':owner_id, 'base_revision':target['revision'],
+                                         'content':{'owner_kind':kind, 'owner_id':owner_id, 'upload_id':upload_id, 'display_name':'原始附件.txt', 'category':target['categories'][0] if kind == 'document' else '', 'insert_link':kind != 'project'}}, 'POST')
         self.assertEqual(code, 200, proposal)
         return proposal, upload_id
 
@@ -676,20 +722,28 @@ class AttachmentHTTPTests(unittest.TestCase):
         self.assertEqual(self.request(f'/api/local/agent-management/proposals/{key}/approve', payload, 'POST', True), (200, result))
 
     def test_real_stdio_formal_attachment_uses_existing_proposal_tools(self):
+        for kind in ('project', 'document'):
+            with self.subTest(owner_kind=kind):
+                self._assert_stdio_formal_attachment(kind)
+
+    def _assert_stdio_formal_attachment(self, kind):
         from codex_agent_acceptance import RpcProcess
         from test_mcp_stdio import INITIALIZE
-        proposal, upload_id = self.proposal()
+        proposal, upload_id = self.proposal(kind=kind)
+        owner_id = proposal['normalized_content']['owner_id']
+        category = proposal['normalized_content']['category']
         rpc = RpcProcess([sys.executable, 'agent_bridge.py', '--config', self.info['config_file']], Path(__file__).resolve().parent, {**os.environ, 'PYTHONIOENCODING':'utf-8'})
         try:
             rpc.call('initialize', INITIALIZE); rpc.notify('notifications/initialized')
             self.assertEqual(len(rpc.call('tools/list')['tools']), 20)
             def tool(name, arguments):
                 return rpc.call('tools/call', {'name':'workbench_' + name, 'arguments':arguments})
+            self.assertEqual(tool('capabilities', {})['structuredContent']['execution_schema_versions'], [1, 2])
             self.assertFalse(tool('cancel_proposal', {'proposal_id':proposal['proposal_id'], 'expected_version':1})['isError'])
-            target = tool('get_attachment_target', {'owner_kind':'project', 'owner_id':self.project['id']})
+            target = tool('get_attachment_target', {'owner_kind':kind, 'owner_id':owner_id})
             self.assertFalse(target['isError'], target)
-            request = {'request_id':uuid.uuid4().hex, 'kind':'attachment', 'operation':'create', 'target_id':self.project['id'], 'base_revision':target['structuredContent']['revision'],
-                       'content':{'owner_kind':'project', 'owner_id':self.project['id'], 'upload_id':upload_id, 'display_name':'MCP[文件](1)%#.txt', 'category':'', 'insert_link':False}}
+            request = {'request_id':uuid.uuid4().hex, 'kind':'attachment', 'operation':'create', 'target_id':owner_id, 'base_revision':target['structuredContent']['revision'],
+                       'content':{'owner_kind':kind, 'owner_id':owner_id, 'upload_id':upload_id, 'display_name':'MCP[文件](1)%#.txt', 'category':category, 'insert_link':kind != 'project'}}
             prepared = tool('prepare_proposal', request)
             self.assertFalse(prepared['isError'], prepared)
             key = prepared['structuredContent']['proposal_id']
@@ -700,9 +754,9 @@ class AttachmentHTTPTests(unittest.TestCase):
             self.assertFalse(result['isError'], result)
             self.assertEqual(tool('commit_proposal', commit)['structuredContent'], result['structuredContent'])
             self.assertTrue(tool('get_proposal', {'proposal_id':key})['structuredContent']['current_item']['exists'])
-            self.assertFalse(tool('get_attachment_target', {'owner_kind':'project', 'owner_id':self.project['id']})['structuredContent']['binary_download'])
+            self.assertFalse(tool('get_attachment_target', {'owner_kind':kind, 'owner_id':owner_id})['structuredContent']['binary_download'])
             with self.assertRaises(RuntimeError):
-                tool('get_attachment_target', {'owner_kind':'project', 'owner_id':self.project['id'], 'path':'C:\\synthetic'})
+                tool('get_attachment_target', {'owner_kind':kind, 'owner_id':owner_id, 'path':'C:\\synthetic'})
         finally:
             rpc.close()
 
@@ -764,6 +818,83 @@ class AttachmentHTTPTests(unittest.TestCase):
                     self.assertNotEqual(case.repo.agent_service.uploads.load(upload_id)['state'] if case.repo.agent_service else 'disabled', 'consumed')
                 finally:
                     case.workbench.server.RequestHandlerClass.repository = case.repo
+                    case.tearDown()
+
+    def test_web_and_agent_acceptance_barriers_precede_second_manifest_in_both_directions(self):
+        import http.client
+        from workbench.agent_file_handles import LocalFileHandle
+        from workbench.agent_management import client_version
+        for first in ('agent', 'web'):
+            with self.subTest(first=first):
+                case = AttachmentHTTPTests(self._testMethodName); case.setUp()
+                connection = None
+                try:
+                    document = case.repo.create_document({'title':'接受屏障文档', 'body':'原正文'})
+                    proposal, upload_id = case.proposal()
+                    code, preview = case.request(f'/api/agent/v1/proposals/{proposal["proposal_id"]}/preview')
+                    self.assertEqual(code, 200)
+                    commit_path = f'/api/agent/v1/proposals/{proposal["proposal_id"]}/commit'
+                    commit_body = {'version':1, 'preview_digest':preview['preview_digest'], 'confirmation':{'mode':'agent_attested', 'user_confirmed':True}}
+                    code, markdown = case.request('/api/agent/v1/proposals', {'request_id':uuid.uuid4().hex, 'kind':'issue', 'operation':'create', 'content':{'title':'另一正式计划', 'project_id':case.project['id'], 'body':'正文'}}, 'POST')
+                    self.assertEqual(code, 200)
+                    code, markdown_preview = case.request(f'/api/agent/v1/proposals/{markdown["proposal_id"]}/preview')
+                    self.assertEqual(code, 200)
+                    markdown_body = {'version':1, 'preview_digest':markdown_preview['preview_digest'], 'confirmation':{'mode':'agent_attested', 'user_confirmed':True}}
+                    key = str(uuid.uuid4())
+                    route = f'/api/documents/{document["id"]}/attachments/uploads/{key}?name=web.txt&expected_revision={document["revision"]}'
+                    connection = http.client.HTTPConnection('127.0.0.1', case.workbench.server.server_address[1], timeout=5)
+                    if first == 'agent':
+                        connection.putrequest('POST', route); connection.putheader('Content-Length', '10'); connection.endheaders(); connection.send(b'a')
+                        deadline = time.monotonic() + 3
+                        while time.monotonic() < deadline and not case.repo.document_uploads.report()['items']:
+                            time.sleep(0.01)
+                        self.assertEqual(case.repo.document_uploads.report()['items'][0]['state'], 'receiving')
+                    entered, release, output = threading.Event(), threading.Event(), []
+                    original = LocalFileHandle.chunks
+                    def slow(handle, deadline):
+                        match = str(handle.path).endswith('blob.bin') if first == 'agent' else '.workbench-document-uploads' in str(handle.path) and str(handle.path).endswith('binary.part')
+                        if match and not entered.is_set():
+                            entered.set()
+                            if not release.wait(8): raise AssertionError('test failed to release upload')
+                        yield from original(handle, deadline)
+                    def web():
+                        connection.request('POST', route, body=b'web bytes')
+                        response = connection.getresponse(); output.append((response.status, response.read()))
+                    with patch.object(LocalFileHandle, 'chunks', slow):
+                        worker = threading.Thread(target=(lambda:output.append(case.request(commit_path, commit_body, 'POST'))) if first == 'agent' else web)
+                        worker.start()
+                        try:
+                            self.assertTrue(entered.wait(3))
+                            start = time.monotonic()
+                            self.assertEqual(case.request('/api/documents', extra={'Authorization':''})[0], 200)
+                            # Revoking another explicit client must remain possible
+                            # without changing the accepted operation's credentials.
+                            other = case.security.manager().run('create', {'name':'可撤销客户端', 'scopes':['read'], 'kinds':[], 'project_ids':[], 'categories':[], 'base_url':case.workbench.base_url, 'file_access_only':True})
+                            other_id = other['client_id']
+                            revoke = {'workspace_id':case.security.workspace_id, 'expected_version':client_version(case.security.clients()[other_id]), 'request_id':uuid.uuid4().hex}
+                            self.assertEqual(case.request(f'/api/local/agent-management/clients/{other_id}/revoke', revoke, 'POST', True)[0], 200)
+                            if first == 'agent':
+                                connection.send(b'b' * 9); response = connection.getresponse(); response.read()
+                                self.assertIn(response.status, (409, 503))
+                                self.assertEqual(case.repo.document_uploads.load(key)['state'], 'failed')
+                                self.assertFalse((case.repo.document_uploads.folder(key) / 'before.md').exists())
+                                self.assertEqual(len(list(case.repo.agent_service.store.operations.glob('*/manifest.json'))), 1)
+                            else:
+                                self.assertIn(case.request(commit_path, commit_body, 'POST')[0], (409, 503))
+                                self.assertIn(case.request(f'/api/agent/v1/proposals/{markdown["proposal_id"]}/commit', markdown_body, 'POST')[0], (409, 503))
+                                self.assertEqual(list(case.repo.agent_service.store.operations.glob('*/manifest.json')), [])
+                            self.assertLess(time.monotonic() - start, 2)
+                        finally:
+                            release.set(); worker.join(12)
+                    self.assertFalse(worker.is_alive())
+                    self.assertEqual(output[0][0], 200 if first == 'agent' else 201, output)
+                    if first == 'web':
+                        self.assertEqual(case.request(commit_path, commit_body, 'POST')[0], 200)
+                        self.assertEqual(case.repo.get_document(document['id'])[0]['attachments'][0]['name'], 'web.txt')
+                    else:
+                        self.assertEqual(case.repo.agent_service.uploads.load(upload_id)['state'], 'consumed')
+                finally:
+                    if connection: connection.close()
                     case.tearDown()
 
 

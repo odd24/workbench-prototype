@@ -48,3 +48,5 @@
 .document-dialog-actions>*{flex-shrink:0}
 
 .document-save-status{margin-left:auto;min-width:0;text-align:right}.document-save-status .entity-times-detail{margin:0;flex-direction:column;align-items:flex-end;gap:0}.document-save-status .document-save-state{display:block}.document-workspace{position:relative}
+
+.document-visual-editor a,.document-read-pane a{color:color-mix(in srgb,var(--accent) 70%,var(--text));text-decoration:underline;text-underline-offset:3px;overflow-wrap:anywhere}.document-visual-editor a:hover,.document-read-pane a:hover{text-decoration-thickness:2px}.document-visual-editor a:focus-visible,.document-read-pane a:focus-visible{outline:2px solid var(--accent);outline-offset:3px}

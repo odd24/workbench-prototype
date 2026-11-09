@@ -12,7 +12,7 @@ from .agent_security import AgentError, require_scope
 from .agent_upload_policy import authorized_owner, active_policies
 from .agent_execution import fingerprint, authorization_revision
 from .write_coordinator import content_revision, PreparedMarkdownWrite
-from .attachment_prepared import PreparedAttachment, categories, serialize_attachment_candidate as serialized, raw_markdown_body, COMMIT_TIME
+from .attachment_prepared import PreparedAttachment, categories, serialize_attachment_candidate as serialized, raw_markdown_body, COMMIT_TIME, document_categories
 from .security import validate_archive_member, validate_portable_filename
 
 
@@ -29,11 +29,16 @@ def relative_paths(view):
     metadata = Path(validate_archive_member(view['metadata_relative']))
     kind = view['owner_kind']
     expected = ('projects', view['project_id'], 'assets', 'library' if kind == 'project' else 'images' if view['attachment']['mime'].startswith('image/') else 'files', view['attachment']['name'])
+    if kind == 'document':
+        expected = ('assets', 'images' if view['attachment']['mime'].startswith('image/') else 'files', view['attachment']['name'])
     if binary.parts != expected:
         raise ValueError('附件二进制目标不属于指定归属')
     if kind == 'project':
         valid = metadata.parts == ('projects', view['owner_id'], 'assets', 'index.json') and view['owner_id'] == view['project_id']
         relative = binary.relative_to(Path('projects') / view['project_id']).as_posix()
+    elif kind == 'document':
+        valid = len(metadata.parts) == 2 and metadata.parts[0] == 'documents' and metadata.name.startswith(view['owner_id'] + '-') and metadata.suffix == '.md' and view['project_id'] is None
+        relative = Path(os.path.relpath(binary, metadata.parent)).as_posix()
     else:
         valid = len(metadata.parts) == 4 and metadata.parts[:3] == ('projects', view['project_id'], {'issue':'issues', 'todo':'todos', 'info':'infos'}[kind]) and metadata.name.startswith(view['owner_id'] + '-') and metadata.suffix == '.md'
         relative = Path(os.path.relpath(binary, metadata.parent)).as_posix()
@@ -77,7 +82,7 @@ def validate_dependencies(proposal):
     expected = {'owner_kind', 'owner_id', 'project_id', 'title', 'attachment', 'binary_relative', 'metadata_relative',
                 'metadata_before', 'metadata_after', 'body', 'insert_link', 'category_revision', 'unparsed_binary',
                 'upload_id', 'policy_id', 'display_name', 'category', 'source'}
-    if set(view) != expected or view['owner_kind'] not in {'project', 'issue', 'todo', 'info'} or view['owner_id'] != proposal['target_id'] or type(view['insert_link']) is not bool or view['unparsed_binary'] is not True:
+    if set(view) != expected or view['owner_kind'] not in {'project', 'issue', 'todo', 'info', 'document'} or view['owner_id'] != proposal['target_id'] or type(view['insert_link']) is not bool or view['unparsed_binary'] is not True:
         raise ValueError('附件候选字段无效')
     if view['upload_id'] != deps['upload_id'] or view['policy_id'] != deps['policy_id'] or view['attachment']['sha256'] != deps['source_sha256'] or view['category_revision'] != deps['category_revision']:
         raise ValueError('附件候选依赖无效')
@@ -98,7 +103,7 @@ def validate_dependencies(proposal):
             raise ValueError('附件来源身份无效')
     if asset['id'] != 'ASSET-' + uuid.UUID(view['upload_id']).hex or asset['category'] != view['category'] or not isinstance(asset['name'], str) or type(asset['size']) is not int or not 0 <= asset['size'] <= 104857600:
         raise ValueError('附件身份无效')
-    expected_access = {'project_id':view['project_id']} if view['owner_kind'] == 'project' else {'type':view['owner_kind'], 'project_id':view['project_id']}
+    expected_access = {'project_id':view['project_id']} if view['owner_kind'] == 'project' else {'type':'document', 'category':view['metadata_before'].get('category', '未分类')} if view['owner_kind'] == 'document' else {'type':view['owner_kind'], 'project_id':view['project_id']}
     if proposal['access_target'] != expected_access:
         raise ValueError('附件访问范围无效')
     if view['owner_kind'] == 'project':
@@ -106,7 +111,7 @@ def validate_dependencies(proposal):
             raise ValueError('项目附件索引候选无效')
     else:
         meta = view['metadata_after']
-        if meta.get('id') != view['owner_id'] or meta.get('type') != view['owner_kind'] or meta.get('project_id') != view['project_id']:
+        if meta.get('id') != view['owner_id'] or meta.get('type') != view['owner_kind'] or view['owner_kind'] != 'document' and meta.get('project_id') != view['project_id']:
             raise ValueError('记录附件候选无效')
         previous = view['metadata_before']
         base = proposal['base_content']
@@ -148,8 +153,8 @@ class AttachmentService:
         if not SUPPORTED:
             raise AgentError('unsupported_platform', '正式附件仅支持已验证的Windows本机NTFS', 503)
         require_scope(client, 'read')
-        if kind not in {'project', 'issue', 'todo', 'info'}:
-            raise AgentError('invalid_owner', '正式附件仅支持既有记录和项目')
+        if kind not in {'project', 'issue', 'todo', 'info', 'document'}:
+            raise AgentError('invalid_owner', '正式附件仅支持既有文档、记录和项目')
         authorized_owner(self.repository, client, kind, key)
         policies = active_policies(self.repository, self.security, client)
         for policy in policies:
@@ -160,9 +165,12 @@ class AttachmentService:
     def target(self, client, kind, key):
         policy = self.policy(client, kind, key)
         owner, _path, before, items = self.repository.attachment_target(kind, key)
-        project_id = key if kind == 'project' else owner['project_id']
-        project_items = self.repository.attachment_target('project', project_id)[3]
-        names, _revision = categories(self.repository._attachment_repository, project_id, project_items + ([] if kind == 'project' else items))
+        project_id = key if kind == 'project' else None if kind == 'document' else owner.get('project_id')
+        if kind == 'document':
+            names, _revision = document_categories(self.repository._attachment_repository, owner)
+        else:
+            project_items = self.repository.attachment_target('project', project_id)[3]
+            names, _revision = categories(self.repository._attachment_repository, project_id, project_items + ([] if kind == 'project' else items))
         return {'owner_kind':kind, 'owner_id':key, 'title':owner.get('title', owner.get('name')),
                 'revision':content_revision(before or b''), 'attachments':items, 'categories':names,
                 'policy_id':policy['policy_id'], 'binary_download':False}
@@ -241,8 +249,11 @@ class AttachmentService:
         owner, path, before, items = self.repository.attachment_target(view['owner_kind'], view['owner_id'])
         if content_revision(before or b'') != proposal['base_revision']:
             raise AgentError('revision_conflict', '目标正文或索引已变化', 409)
-        project_items = self.repository.attachment_target('project', view['project_id'])[3]
-        _names, category_revision = categories(self.repository._attachment_repository, view['project_id'], project_items + ([] if view['owner_kind'] == 'project' else items))
+        if view['owner_kind'] == 'document':
+            _names, category_revision = document_categories(self.repository._attachment_repository, owner)
+        else:
+            project_items = self.repository.attachment_target('project', view['project_id'])[3]
+            _names, category_revision = categories(self.repository._attachment_repository, view['project_id'], project_items + ([] if view['owner_kind'] == 'project' else items))
         if view['category'] and view['category'] not in _names or category_revision != view['category_revision'] or self.dependencies(client, view, proposal['base_revision']) != proposal['dependencies']:
             raise AgentError('dependency_changed', '目标或分类依赖已变化', 409)
         target = self.repository.root / view['binary_relative']

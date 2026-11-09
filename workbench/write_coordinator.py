@@ -41,6 +41,9 @@ def coordinated(method):
     @wraps(method)
     def call(self, *args, **kwargs):
         with self.write_lock:
+            uploads = getattr(self, "document_uploads", None)
+            if uploads:
+                uploads.guard()
             guard = getattr(self, "write_guard", None)
             if guard:
                 guard()

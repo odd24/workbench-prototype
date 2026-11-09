@@ -18,6 +18,7 @@ async function main() {
   let browser;
   let client;
   const pageErrors = [];
+  const scriptResponses = [];
   try {
     await waitForHttp(`${baseUrl}/api/health`);
     const provisioned = childProcess.spawnSync(python, ['server.py', '--data-dir', data, '--agent-config-dir', credentials, '--agent-client-add', '浏览器临时验收', '--agent-scope', 'read', '--agent-scope', 'propose', '--agent-scope', 'commit', '--agent-kind', 'issue', '--agent-kind', 'document', '--agent-kind', 'todo', '--agent-kind', 'info', '--agent-project', '*', '--agent-category', '*', '--port', String(port)], {cwd:__dirname, encoding:'utf8', env:{...process.env, PYTHONIOENCODING:'utf-8'}, windowsHide:true});
@@ -64,6 +65,8 @@ async function main() {
     client.socket.addEventListener('message', event => { const message = JSON.parse(String(event.data)); if (message.method === 'Runtime.exceptionThrown') pageErrors.push(message.params.exceptionDetails); });
     await client.call('Page.enable');
     await client.call('Runtime.enable');
+    await client.call('Network.enable');
+    client.socket.addEventListener('message', event => { const message = JSON.parse(String(event.data)); if (message.method === 'Network.responseReceived' && message.params.type === 'Script') scriptResponses.push({url:message.params.response.url, status:message.params.response.status, length:message.params.response.encodedDataLength}); if (message.method === 'Network.loadingFailed') scriptResponses.push({failed:message.params}); });
     const waitOpened = async receipt => waitForPage(client, receipt.kind !== 'document'
       ? `!window.__agentOldDocument && apiAvailable && currentRecord?.id === ${JSON.stringify(receipt.item_id)} && detailDrawer.classList.contains('visible')`
       : `!window.__agentOldDocument && apiAvailable && currentDocument?.id === ${JSON.stringify(receipt.item_id)} && $('#documentDialog').open`);
@@ -198,6 +201,7 @@ async function main() {
     assert.equal(await client.evaluate(`new URLSearchParams(location.search).has('item')`), false);
     console.log('Agent browser workflows passed: previewed writes, deep links/reload, light/dark desktop/narrow, Markdown roundtrip, unsaved cancel, Agent/UI conflicts, missing/invalid links.');
   } catch (error) {
+    console.error('Agent workflow script responses:', JSON.stringify(scriptResponses.slice(-100)));
     console.error('Agent workflow page errors:', JSON.stringify(pageErrors));
     if (client) console.error('Agent workflow state:', await client.evaluate("({url:location.href, old:window.__agentOldDocument, api:typeof apiAvailable !== 'undefined' && apiAvailable, record:typeof currentRecord !== 'undefined' && currentRecord?.id, document:typeof currentDocument !== 'undefined' && currentDocument?.id, ready:document.readyState, text:document.body.innerText.slice(0,1500)})").catch(() => 'context unavailable'));
     throw error;

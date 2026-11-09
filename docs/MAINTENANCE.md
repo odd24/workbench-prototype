@@ -194,3 +194,19 @@ proposal3/manifest3(execution_schema_version=1)/approval action3保留原独立�
 维护按钮现在可立即退休正式提交已完整完成的源blob：先证明proposal、manifest、receipt及binding/消费映射/SHA大小匹配，再同一DELETE句柄校验删除并记removed，保留墓碑。删除后未记账的崩溃可在磁盘确实不存在且原回执匹配时完成记账；未知/第三方内容不删。在途或未完成消费不能以consumed标签跳过证据。业务ZIP包含正式附件与原索引/Markdown，排除私人授权/上传及.agent快照/part；灾难恢复仍须复制匹配私人状态，不能把旧源权限带入新空间。
 
 本项浏览器专项node test_agent_attachment_workflows.js使用临时库，覆盖共同授权、两主题两宽度、完整批准、项目结果/下载和两个编辑器特殊文件名往返；普通URL标签格式/代码/引用随共享编辑器回归。100MiB专项在test_agent_attachments中验证有界内存和磁盘事实，不替代独立性能/视觉基线。
+
+## AG-133文档附件维护
+
+正式文件仍为documents/*.md及全局assets/images、assets/files；无attachments旧文档可直接读取，不批量迁移。普通上传仅在已验证Windows固定本机NTFS开启；接收前验证平台和目标路径，模拟不支持分支不代表非Windows原生验收。既有文档/编辑器读取不依赖新上传。单文件100MiB/64KiB块、1GiB未释放暂存、1000活跃、5秒空闲/60秒流截止、16MiB磁盘保留；同步OS调用和外部磁盘竞争仍有边界，不能声称多文件原子事务。
+
+设置→附件清理中“查看文档上传操作”读取全部日志，含来自其他浏览器或localStorage丢失的操作及错误ID。恢复/回收先全目录格式、primitive、路径及快照/回执预检，未知停止全部恢复写并报告document_upload_recovery_required/503。receiving中断只失败封存，prepared/applying按固定计划恢复；第三方正文/名称/身份冲突保留现场。当前浏览器有待查询时先查询原UUID，doc/空间/base匹配才合并当前输入；不要重传生成第二份附件。
+
+“回收终结上传暂存”对completed先保留稳定回执/UUID的精简墓碑，再校验SHA/同句柄删除before/after；已完成文件后的编辑/删除不重放。failed/无领域view的abandoned按创建设备/文件身份、原生版本、真实partial SHA验证后DELETE，实际删除完成才removed释放预算；删除后会计前崩溃可补完。历史墓碑不占1000活跃名额，但仍有O(历史操作数)的元数据预检/报告和日志增长成本。未知/替换/硬链接/重解析不删、不提前释放预算。
+
+“放弃此操作”仅明确标记，不回滚已发布附件；仍含领域计划的放弃残留保持孤儿保护，需人工按现盘证据核查。folder已建而operation.json未写的空初始化可在报告中“放弃空初始化”，生成不可重用的DOC-0000占位墓碑；不是正式文档。若含binary.part/未知文件或损坏日志，不能用这个入口删文件或覆盖原证据；保留原目录，按报告UUID停服核查/恢复匹配证据后重启。禁止删除旧ID日志来重放请求。私人目录不得作为数据源或附件索引。
+
+完整ZIP保留正式Markdown/全局assets，排除整个.workbench-document-uploads及原Agent证据子树，单个.md保持无二进制；选择文档ZIP用平铺MD+assets/<规范路径摘要>-<原名>，副本重写body/metadata引用、共享规范路径去重，不改源。解压到临时目录验证每份MD的实际资源字节；缺失/路径越界/硬链接/重解析/未支持本地HTML或定义式引用拒绝不完整包。目录迁移拒绝receiving/prepared/applying及尚未释放的failed/abandoned来源，先回收或人工核查，避免复制改变源身份而失去回收证明；已完成或已回收的终结日志可随本机目录相对搬迁维持原UUID回执。已终结源字节重新出现按未知503处理，不删、不继续接受新上传。
+
+孤儿扫描只查受控assets roots，已覆盖文档、正文相对图片/附件、记录/项目、历史及回收站按原owner目录、在途Agent/web操作；任一共享有效引用保留。GET orphan-assets?report=1及清理结果显示脱敏警告；损坏/未知引用或链接对象保守不删全部候选。Markdown代码示例/未知本地语法可能保守阻止清理，先核查再处理，不以扫全盘或强制忽略未知来删。外部写入与扫描/删除之间的文件系统竞态不能用服务内锁宣称消除。
+
+专项：python -m unittest test_document_attachments test_assets test_agent_attachments；node test_document_attachment_workflows.js及test_agent_attachment_workflows.js，另跑共享编辑器/设置/样式/HTTP/MCP门禁。前者验证无Agent普通上传、持续输入、关闭切换、刷新草稿/响应丢失/原ID查询、409及维护；后者含document共同授权/local_web正式提案。100MiB样本仅证明有界内存和真实字节，不替代独立性能/视觉基线或AG-142真实模型矩阵。

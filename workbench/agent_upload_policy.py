@@ -32,7 +32,7 @@ def validate_policies(value, security):
                 raise ValueError()
             if value["schema_version"] == 2:
                 grant = item["attachment_write"]
-                if grant is not None and (not isinstance(grant, dict) or set(grant) != {"capability", "operations", "minimum_confirmation_mode"} or grant["capability"] != "attachments.write" or grant["operations"] != ["create"] or grant["minimum_confirmation_mode"] not in {"agent_attested", "local_web"} or item["owner_kind"] == "document"):
+                if grant is not None and (not isinstance(grant, dict) or set(grant) != {"capability", "operations", "minimum_confirmation_mode"} or grant["capability"] != "attachments.write" or grant["operations"] != ["create"] or grant["minimum_confirmation_mode"] not in {"agent_attested", "local_web"}):
                     raise ValueError()
             if item["enabled"]:
                 if item["client_id"] in enabled_clients:
@@ -165,7 +165,7 @@ class UploadPolicyManagement:
         preview = {"workspace_id": self.security.workspace_id, "client_id": key, "client_name": client["name"], "expected_version": client_version(client), "policy": policy, "owner": owner, "sources": names,
                    "disclosure": "仅授权上传暂存，不创建正式附件或写入正文。替代本客户端旧暂存策略；任何客户端授权或凭据变化均需重新批准。来源文件须另有有效附件来源授权；内容仅存本机私人暂存，24小时后按安全规则清理。"}
         if policy.get("attachment_write"):
-            preview["disclosure"] = "共同授权具体目标的uploads.stage与attachments.write/create。暂存后仍须正式提案完整预览及按最低策略明确确认；不授权其他目标、文档、替换或删除。任何客户端变动使两许可同时失效，须重新共同批准并建立新暂存；不迁移旧ready。"
+            preview["disclosure"] = "共同授权具体目标的uploads.stage与attachments.write/create。暂存后仍须正式提案完整预览及按最低策略明确确认；不授权其他目标、替换或删除。任何客户端变动使两许可同时失效，须重新共同批准并建立新暂存；不迁移旧ready。"
         ticket = secrets.token_hex(32)
         for ticket_id, value in list(self.runtime.preview_tickets.items()):
             if "upload_preview" in value and value.get("expires", 0) < time.monotonic():

@@ -251,3 +251,9 @@ capabilities区分Windows实现、当前具体授权与用途操作；configured
 receipt含owner_kind/id、固定asset ID、upload_id、64hex消费映射、真实受理时间、metadata revision与计划摘要；原响应丢失或后来正式改删仍返回原回执，current_item单列当前状态。记录结果用原条目链接；项目结果为/?item=project&itemId=<encoded ID>&assetId=ASSET-<32hex>，打开附件页并聚焦，不自动下载或执行。21项Node与原始MCP证据见验收，真实模型新功能矩阵仍留AG-142。
 
 旧转换为todo但仍保留ISSUE ID的记录沿用既有receipt.web_path=null契约；可在项目/记录UI查看附件，不重编ID或扩大旧深链语法。
+
+### AG-133 document附件契约
+
+工具数仍20，附件owner_kind白名单新增document；没有新增原始二进制下载、任意路径或HTTP代理工具。只对重新共同批准具体document且仍有原分类业务范围的客户端生效；旧schema2的其它owner和旧null许可不变，休眠grant不激活。content保持六字段，category为文档当前原分类，target_id/base_revision绑定原MD，project_id=null，access_target={type:document,category:原分类}。返回附件元数据/正文差异必须完整展示，不能根据路径推断已发布或已检查二进制。
+
+Agent仍复用attachment@1/执行schema2及原uploads绑定/消费/回执恢复，分类变更和客户端revision在最终metadata前重验。普通网页上传和维护API属于浏览器业务操作，不加入MCP；Agent Authorization访问这些普通路由403。普通浏览器使用稳定UUID和独立日志，不声明Agent确认，也不绕过Agent提案批准。

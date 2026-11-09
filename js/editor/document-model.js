@@ -232,8 +232,8 @@
   }
 
   function render(editor, markdown, options = {}) {
-    const {interactive = true, renderReference, renderImage} = options;
-    editor.innerHTML = requireMarkdownCore().markdownToHtml(markdown, {interactive, renderReference, renderImage});
+    const {interactive = true, renderReference, renderLink, renderImage} = options;
+    editor.innerHTML = requireMarkdownCore().markdownToHtml(markdown, {interactive, renderReference, renderLink, renderImage});
     return hydrateEditorBlocks(editor);
   }
 

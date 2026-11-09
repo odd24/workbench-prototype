@@ -103,6 +103,12 @@ class Repository:
             self.list_projects,
             lambda path: open_file_external_callback(path),
         )
+        self._attachment_repository.get_document = self.get_document
+        self._document_repository.resolve_attachment = self.attachment_path
+        from .document_uploads import DocumentUploads
+        self.document_uploads = DocumentUploads(self)
+        self._attachment_repository.document_upload_inventory = self.document_uploads.preflight
+        self._attachment_repository.agent_operation_inventory = self.attachment_operation_inventory
         self._record_repository.reserved_ids = self.reserved_resource_ids
         self._document_repository.reserved_ids = self.reserved_resource_ids
         if (self.root / ".agent" / "workspace.json").exists():
@@ -112,8 +118,17 @@ class Repository:
             self.write_guard = self.agent_proposals.guard_writes
             if not self.agent_proposals.blocked:
                 self.agent_proposals.cleanup()
-        if not getattr(getattr(self, "agent_proposals", None), "blocked", False):
+        if not getattr(getattr(self, "agent_proposals", None), "blocked", False) and not self.document_uploads.pending():
             self.cleanup_trash()
+
+    def attachment_operation_inventory(self):
+        paths = list((self.root / '.agent' / 'operations').glob('*/manifest.json'))
+        store = getattr(self, 'agent_proposals', None)
+        if paths and store is None:
+            raise ValueError('未知Agent操作证据，不能判定无引用')
+        if store:
+            store.preflight()
+        return [json.loads(path.read_text(encoding='utf-8')) for path in paths]
 
     def reserved_resource_ids(self):
         ids = {path.name for path in self.history_dir.iterdir() if path.is_dir()}
@@ -142,7 +157,7 @@ class Repository:
         return self._attachment_repository.attachment_target(kind, owner_id)
 
     def apply_attachment_metadata(self, prepared, checkpoint=None):
-        return self._attachment_repository.apply_attachment_metadata(prepared, self._record_repository.apply_record_write, checkpoint)
+        return self._attachment_repository.apply_attachment_metadata(prepared, self._document_repository.apply_document_write if prepared.view['owner_kind'] == 'document' else self._record_repository.apply_record_write, checkpoint)
 
     def _ensure_config(self):
         settings = self.config_dir / "settings.json"
@@ -479,7 +494,7 @@ class Repository:
                 if not path.is_file() or path.is_symlink():
                     continue
                 resolved = path.resolve()
-                if resolved.is_relative_to(self.trash_dir) or resolved in excluded_files or path.name.startswith(".workbench-") or resolved.is_relative_to(self.root / ".agent"):
+                if resolved.is_relative_to(self.trash_dir) or resolved in excluded_files or path.name.startswith(".workbench-") or resolved.is_relative_to(self.root / ".agent") or resolved.is_relative_to(self.root / ".workbench-document-uploads"):
                     continue
                 archive_name = archive_name_for(source, path)
                 if archive_name:
@@ -548,7 +563,7 @@ class Repository:
     @coordinated
     def restore_document_history(self, document_id: str, version: str, expected_revision=None) -> dict:
         snapshot = self.read_history(document_id, version)
-        return self.update_document(document_id, {**snapshot, "expected_revision": expected_revision})
+        return self._document_repository.apply_document_write(self._document_repository.prepare_document_update(document_id, {**snapshot, "expected_revision": expected_revision}, restore_attachments=True))
 
     @coordinated
     def restore_history(self, record_id: str, version: str, expected_revision=None) -> dict:
@@ -577,9 +592,19 @@ class Repository:
             roots = (self.projects_dir / item["project_id"],) if item and item.get("project_id") else (self.global_ideas_dir, self.global_assets_dir)
         if not item:
             return None
+        if resource_id.startswith('DOC-'):
+            from .document_attachments import safe_local_path
+            import mimetypes
+            candidate = safe_local_path(path.parent, str(source).replace('\\', '/'), roots)
+            if not (mimetypes.guess_type(candidate.name)[0] or '').startswith('image/'):
+                raise ValueError('仅允许读取图片')
+            return candidate if candidate.is_file() else None
         return self._attachment_repository.markdown_image_path(path, source, roots)
 
     def attachment_path(self, record_id: str, filename: str) -> Path | None:
+        if record_id.startswith('DOC-'):
+            from .document_attachments import document_attachment_path
+            return document_attachment_path(self, record_id, filename)
         return self._attachment_repository.attachment_path(record_id, filename)
 
     def open_record_attachment_external(self, record_id: str, filename: str) -> dict:
@@ -652,6 +677,9 @@ class Repository:
     @coordinated
     def batch_delete_assets(self, project_id: str, selections: list[dict]) -> dict:
         return self._attachment_repository.batch_delete_assets(project_id, selections)
+
+    def orphan_asset_report(self):
+        return self._attachment_repository.orphan_asset_report()
 
     def orphan_assets(self) -> list[dict]:
         return self._attachment_repository.orphan_assets()

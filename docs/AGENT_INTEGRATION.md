@@ -1,6 +1,6 @@
 # 通用 Agent 接入
 
-规划提示（2026-11-09）：文件读取、附件上传、概念图、删除、项目创建及分类/工作流变更见 [本机能力扩展执行方案](AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)。AG-128授权基础与AG-129执行基础已完成，AG-130～143待开始；下文当前接入命令、能力与限制不因此改变。
+规划提示（2026-11-09）：文件读取、附件上传、概念图、删除、项目创建及分类/工作流变更见 [本机能力扩展执行方案](AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)。AG-128～134已完成，AG-135进行中，AG-136～143待开始；下文当前接入命令、能力与限制不因此改变。
 
 本文说明设置界面和备用 CLI 接入方式。AG-107～110 提供启停、授权管理、配置向导与分层诊断。设计见 [接入管理 UI 方案](AGENT_SETTINGS_PLAN.md)，实际状态见 [实施台账](AI_AGENT_PROGRESS.md)。
 
@@ -254,6 +254,16 @@ receipt含owner_kind/id、固定asset ID、upload_id、64hex消费映射、真�
 
 ### AG-133 document附件契约
 
-工具数仍20，附件owner_kind白名单新增document；没有新增原始二进制下载、任意路径或HTTP代理工具。只对重新共同批准具体document且仍有原分类业务范围的客户端生效；旧schema2的其它owner和旧null许可不变，休眠grant不激活。content保持六字段，category为文档当前原分类，target_id/base_revision绑定原MD，project_id=null，access_target={type:document,category:原分类}。返回附件元数据/正文差异必须完整展示，不能根据路径推断已发布或已检查二进制。
+AG-133阶段工具数仍20，附件owner_kind白名单新增document；没有新增原始二进制下载、任意路径或HTTP代理工具。只对重新共同批准具体document且仍有原分类业务范围的客户端生效；旧schema2的其它owner和旧null许可不变，休眠grant不激活。content保持六字段，category为文档当前原分类，target_id/base_revision绑定原MD，project_id=null，access_target={type:document,category:原分类}。返回附件元数据/正文差异必须完整展示，不能根据路径推断已发布或已检查二进制。
 
 Agent仍复用attachment@1/执行schema2及原uploads绑定/消费/回执恢复，分类变更和客户端revision在最终metadata前重验。普通网页上传和维护API属于浏览器业务操作，不加入MCP；Agent Authorization访问这些普通路由403。普通浏览器使用稳定UUID和独立日志，不声明Agent确认，也不绕过Agent提案批准。
+
+### AG-135图契约（实施中，最终验收以台账为准）
+
+工具目录从20增至22：workbench_list_concept_maps（query/project_id/category/分页）与workbench_get_concept_map（map_id=CMAP-数字）只读；现有prepare/revise/preview/commit/get/cancel扩展concept_map的完整create/update，不另建写入工具。HTTP GET /api/agent/v1/concept-maps及/<ID>对应只读；图写入仅经既有proposals路由。新图schema3/sha256-json-v3保持，静态concept_map@1、manifest外层3/execution_schema3及history_snapshot/json_write；旧Markdown/attachment版本语义不变。capabilities如实列执行1/2/3、授权1～5、管理日志1～5，图effective仅报告读写资源交集后的操作，指定图无create。
+
+本机同源管理路由clients/<client_id>/concept-maps支持GET当前授权/可选资源、POST /preview与/confirm、DELETE撤销全部图grant；要求原管理会话、同源Origin和有界JSON，Agent Authorization一律拒绝，不加入MCP。preview不写客户端或正式业务；confirm仅接受workspace_id/expected_version/preview_id/preview_digest/request_id/approved=true，绑定完整范围/会话/运行代与资源指纹。响应丢失可用operations/<request_id>查原持久回执；相同请求摘要可在票据过期后重放原结果，不能替换范围。只读状态不初始化空间或升授权格式。
+
+首次明确图批准升registry4/client authorization5/management log5，实际concept_map_grants schema1独立于dormant capability_grants；清空/撤销/轮换和其它操作家族保留最高门槛与新字段。老管理/恢复扫描到新孤立快照或新格式必须拒绝变更；首快照→日志→注册表fence前新增图许可尚未发布，旧普通业务可依旧有效权限继续，不能宣称所有旧版本业务均零写。发布授权和提交图前重新查版本/依赖，使合法旧改动冲突而不覆盖。混用旧进程忽略新分配游标、外部FS竞态及非秘密摘要不能证明文件作者的界限保留。
+
+完整使用/字节上限/两确认/稳定ID与深链见[使用](AGENT_USAGE.md)。图操作不执行节点/关系/说明中的命令、脚本或指令；AGENT_RULES与工具说明同步此限制。没有新增shell、任意路径、通用HTTP代理、模型任务或运行时依赖。

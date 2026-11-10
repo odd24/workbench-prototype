@@ -3181,6 +3181,11 @@ const agentProposalsFeature = window.Workbench.agentProposals.create({
   root:$('#manageContent'), api, escapeHtml, confirm:appConfirm, notify,
   renderMarkdown:(body, resource) => markdownToHtml(body, false, resource),
   isActive:() => currentPage === 'agent_proposals',
+  openItemLink:async link => {
+    if (!await openItemLink(link)) return false;
+    history.replaceState(null, '', `/?item=concept_map&itemId=${encodeURIComponent(link.itemId)}`);
+    return true;
+  },
 });
 
 function tagUsageRecords(tagName) {
@@ -5476,15 +5481,16 @@ document.addEventListener('change', async event => {
 
 async function openItemLink(link = navigationFeature.readItemLink()) {
   if (!link) return false;
-  if (link.invalid || !['issue', 'document', 'todo', 'info', 'project'].includes(link.kind)) {
+  if (link.invalid || !['issue', 'document', 'todo', 'info', 'project', 'concept_map'].includes(link.kind) || link.kind === 'concept_map' && !/^CMAP-[0-9]+$/.test(link.itemId || '')) {
     navigationFeature.clearItemLink();
     notify('打开链接无效', '请检查条目类型和编号', true);
     return false;
   }
   const request = requestRegistry.begin('item-link', link.itemId);
   try {
-    const resource = link.kind === 'document' ? 'documents' : 'records';
-    const item = link.kind === 'project' ? {...projects.find(project => project.id === link.itemId), type:'project'} : await api(`/${resource}/${encodeURIComponent(link.itemId)}`);
+    const resource = link.kind === 'concept_map' ? 'concept-maps' : link.kind === 'document' ? 'documents' : 'records';
+    let item = link.kind === 'project' ? {...projects.find(project => project.id === link.itemId), type:'project'} : await api(`/${resource}/${encodeURIComponent(link.itemId)}`);
+    if (link.kind === 'concept_map') item = {...item, type:'concept_map'};
     if (!requestRegistry.isCurrent(request)) return false;
     if (!item || item.type !== link.kind || (link.kind === 'project' && !item.id)) throw new Error('链接类型与条目不符或目标不存在');
     if (recordConflict.current || hasUnsavedProjectEdit() || recordSession.saving || documentSession.saving) {
@@ -5495,6 +5501,12 @@ async function openItemLink(link = navigationFeature.readItemLink()) {
     if ($('#documentDialog').open && !await closeDocumentEditor({preserveItemLink:true})) return false;
     if (detailDrawer.classList.contains('visible') && !await closeDrawer({preserveItemLink:true})) return false;
     if (!requestRegistry.isCurrent(request)) return false;
+    if (link.kind === 'concept_map') {
+      if (item.id !== link.itemId) throw new Error('概念图稳定身份与链接不符');
+      if (await setPage('concept_maps', {preserveItemLink:true}) === false || !requestRegistry.isCurrent(request)) return false;
+      await conceptMapFeature.open(item.id);
+      return requestRegistry.isCurrent(request) && currentConceptMap?.id === item.id && currentPage === 'concept_maps';
+    }
     if (link.kind === 'project') {
       if (!item.id) throw new Error('链接中的项目不存在');
       selectedProjectId = item.id;

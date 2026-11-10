@@ -233,3 +233,25 @@ GET `/api/concept-maps/<ID>/history`列出版本，后接`/<version>`读取完�
 分类改名/删除对每图调用相同Prepared更新；图库单图分类PATCH携带列表revision，旧画布随后保存会冲突。分类配置和多图迁移仍非多文件事务，中途失败明确报错，可按现盘分类重读后继续；不以AG-134宣称AG-139配置事务完成。删除/回收本项不新增Agent操作。
 
 浏览器`workbench-concept-map-draft:<data_dir>:<CMAP-ID>`是schema1、base revision、完整画布的尽力恢复草稿，不能作为业务事实源，不含授权。草稿写失败必须提示导出JSON，不承诺已保存。冲突暂停autosave、保存当前输入/撤销栈，明确选择继续编辑、读取磁盘或确认以当前图覆盖最新磁盘；读取磁盘后的撤销只恢复内容，不恢复旧revision。覆盖确认期间再变仍409。成功flush才允许关闭、切页、切图/图库和新建；已接受的离开使同一open世代失效，迟到响应不能落入新图，等待GET期间新增未保存输入也不覆盖。刷新/关闭标签以beforeunload提示和本地草稿为尽力保障，没有异步保存成功承诺。JSON/PNG导出仅当前画布，不附revision/冲突字段。
+
+## 概念图单调分配元数据（AG-135实施接点）
+
+真正领取图身份时创建/更新config/concept-map-ids.json：严格对象{"schema_version":1,"high_water":非负整数}，布尔/浮点/负数、null、未知字段/版本或损坏拒绝分配，普通HTTP返回503并保留原文件。共享Repository写锁及既有ID锁下，全部正式图、JSON历史、回收站（含移动后索引前孤立图）、提案/manifest/回执占用与游标取max后原子写入新上界，再发布图。失败可以跳号；纯prepare/只读列表和读取不创建游标。永久清除图前亦先记现存最大占用；冲突恢复图拒绝改名/覆盖稳定ID。Agent首提案沿同一分配器领取并以唯一proposal绑定，整体状态以台账为准。
+
+此文件是可移植的ID分配配置，不是提案预留/事务日志，不含机器路径、凭据或批准。完整工作台ZIP及完整解压/迁移保留它；单项目/文档ZIP不含全库分配承诺。缺失时从全部现存证据派生，无法区分首次升级与外部删除游标；升级前永久移除无证据ID不可追溯，人为删除或仅部分恢复分配元数据后不保证无证据旧ID不重用。旧并行进程不了解新游标，分配不受此保证。扫描随全部历史与提案墓碑增长，不自动清理以换取编号复用。
+
+## 图授权与唯一提案执行（AG-135实施接点）
+
+首次明确图管理批准采用registry schema4、client authorization_schema_version5、management log schema5。客户端必有concept_map_grants={schema_version:1,grants:[...]}；每项为concept_maps.read/write、明确operations、project(id)/concept_map_category(name)/concept_map(id)资源及最低确认方式。read为read/agent_attested；write仅create/update，指定图不得create。实际图授权与旧capability_grants分离，后者继续dormant，缺省为空；旧通配project_ids/categories和旧configured不自动激活。范围重命名/删除先持久收窄图分类grants，失败不恢复或扩大到未分类；相关知识库分类授权仍用原流程。
+
+新concept_map日志家族保存graph_action=approve/revoke/narrow、graph_grants_digest和graph_dependencies（仅approve有完整资源依赖，其余为null）。依赖含schema1、分类配置与完整分类集合摘要、每个资源的原始版本、完整派生图ID/revision集合摘要/数量；项目依赖取README原字节，仅用于身份与变化检测，不授予项目正文读取。首私人快照intent5→操作日志→registry4 fence→传输配置→客户端授权发布→终结回执与私人快照清理，仍是原CredentialManager持久恢复，不是新事务。其它操作家族在root4下写log5并保留auth5/图字段、既有文件/暂存/附件字段与版本下界，不降级清空。
+
+孤立新私人快照在日志/root尚未升版时不代表图许可已经生效。旧管理/恢复/修改入口扫描它必须拒绝更改；已运行旧业务和普通网页未必检查这些格式，可按旧有效权限继续。授权真正发布与图提交前重查客户端和资源，旧合法变更导致冲突；不能将所有旧业务称为零写。非秘密摘要不证明文件作者；外部文件系统和混用版本剩余竞态保留。
+
+图proposal仍schema3/digest_algorithm=sha256-json-v3，kind=concept_map、operation=create/update，normalized_content仅{graph}，base_content为完整原始JSON对象（不含传输revision）。target_id在首次create原子proposal保存前经共享游标领取；identity为{schema_version:1,kind:concept_map,id,proposal_id,client_id,workspace_id}，修订不变，取消/过期/内容清理保留。source_target在update绑定原归属，access_target绑定完整候选；两者都要读取授权，写入还要求源、候选及变更归属的具体目标写权限。CLI/MCP均不接收任意磁盘路径作为图来源。
+
+静态logical plan的handler=concept_map@1、steps=[history_snapshot,json_write]，绑定identity/source/target/candidate_digest、authorization_revision和图资源依赖。完整预览含content、base_graph、prepared_graph（仅服务端时间为明确占位）、graph_diff（全部元数据、节点/边稳定ID前后字段及顺序）、graph_warnings、依赖、计划与版本；这些全部进入图预览摘要，旧Markdown预览摘要含义不变。各原图/候选canonical紧凑JSON UTF-8至多256KiB；原始文件独立上限1MiB；实际完整预览响应至多2MiB；MCP结构化+文字完整返回不超过既有8MiB。普通图原500节点/1000边上限保持，超限拒绝413不省略。节点14字段、关系7字段和视口字段须完整、严格类型/有限值、唯一ID/有效端点/箭头兼容；拒静默裁剪、钳制和重新编号，仅颜色字母规范化明确给警告。
+
+图执行manifest外层schema3/execution_schema_version3、固定relative_path=concept-maps/<target_id>.json，before/after.json保存原始字节，managed_time在受理确认时定稿，history_version为固定时间UUID名。静态concrete plan绑定上述字段、身份、前后SHA及proposal plan；回执继续绑定原proposal/version/两个plan digest/after revision与批准。新建没有before/history旧字节；更新history/CMAP-ID/<history_version>.json必须等于原before。履行与恢复共用同一PreparedConceptMapWrite和唯一ProposalStore，不另开进程或状态机。历史落盘及进度记录后仍重查权限/依赖，目标发布前失效就停止；目标after与必要history证明后只补回执。create applying且目标缺失不重建；未知/第三方/缺历史保留503核查。receipt已证明完成后，后来正常编辑或删除仅返回原回执，不重放目标。终结30天后按原清理流程删除before/after.json与内容，identity/target/摘要/回执墓碑及单调游标仍保留。
+
+设置页sessionStorage新增workbench.agentGraphGrants.pending.<workspace_id>，仅存client_id/request_id供结果查询，不存令牌或正文。只读预览实例通过同一conceptMap.create({readOnly:true,...})工厂，共享几何、节点和关系渲染，root隔离、唯一marker ID、AbortController监听器及取消rAF的dispose；无写API、脏标记、草稿或撤销栈。管理票据绑定同一完整预览，前端完整画布和全部明细加载后才允许批准，不将票据视为DOM/人眼/现实身份认证。

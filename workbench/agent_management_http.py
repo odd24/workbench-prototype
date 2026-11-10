@@ -70,6 +70,19 @@ def dispatch(handler):
                 if len(parts) in (3, 4) and parts[0] == "clients" and parts[2] == "upload-policy":
                     from .agent_upload_http import dispatch_policy
                     result = dispatch_policy(handler, parts, runtime, payload)
+                elif len(parts) in (3, 4) and parts[0] == 'clients' and parts[2] == 'concept-maps':
+                    from .agent_concept_authorization import GraphGrantManagement
+                    grants = GraphGrantManagement(runtime)
+                    if len(parts) == 3 and handler.command == 'GET':
+                        result = grants.list(parts[1])
+                    elif len(parts) == 4 and parts[3] == 'preview' and handler.command == 'POST':
+                        result = grants.preview(parts[1], payload)
+                    elif len(parts) == 4 and parts[3] == 'confirm' and handler.command == 'POST':
+                        result = grants.approve(parts[1], payload)
+                    elif len(parts) == 3 and handler.command == 'DELETE':
+                        result = grants.revoke(parts[1], payload)
+                    else:
+                        raise AgentError('not_found', '图授权管理接口不存在', 404)
                 elif parts[0] in {"proposals", "proposal-actions"}:
                     from .agent_proposal_management import ProposalManagement
                     proposals = ProposalManagement(runtime)

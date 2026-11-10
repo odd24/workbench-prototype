@@ -220,7 +220,7 @@ async function main() {
     assert.notEqual(JSON.parse(fs.readFileSync(path.join(credentials, workspace, `${clientId}.json`), 'utf8')).token, previousToken);
     await click('[data-agent-action="diagnose"]');
     await waitForPage(client, "document.querySelector('.agent-diagnostic')?.textContent.includes('自检 capabilities 只读请求成功')");
-    assert.equal(await client.evaluate("document.querySelector('.agent-diagnostic').textContent.includes('20 个工具')"), true);
+    assert.equal(await client.evaluate("document.querySelector('.agent-diagnostic').textContent.includes('22 个工具')"), true);
     await click('[data-agent-action="refresh"]');
     await waitForPage(client, "!agentSettingsFeature.isBusy() && document.querySelector('.agent-client')?.textContent.includes('最近自检请求：')");
     assert.equal(await client.evaluate("document.querySelector('.agent-client').textContent.includes('最近客户端请求：暂无记录')"), true);
@@ -335,7 +335,7 @@ async function main() {
     const dormantConfig = JSON.parse(fs.readFileSync(path.join(credentials, workspace, `${dormant.client_id}.json`), 'utf8'));
     assert.equal(dormantConfig.schema_version, 2);
     assert.equal('capability_grants' in dormantConfig, false);
-    assert.equal(await client.evaluate("document.querySelector('.agent-client-list').textContent.includes('无旧业务数据权限')"), true);
+    assert.equal(await client.evaluate("document.querySelector('.agent-client-list').textContent.includes('无旧业务条目权限；概念图按单独批准范围和基本权限使用，连接成功仅表示接入可达。')"), true);
     await click(`[data-agent-action="edit"][data-client-id="${dormant.client_id}"]`);
     await waitForPage(client, "!!$('#agentClientName')");
     assert.equal(await client.evaluate("document.querySelectorAll('[data-agent-kind]:checked').length"), 0);
@@ -491,6 +491,73 @@ async function main() {
     await waitForPage(client, "$('#agentUploadPanel')?.textContent.includes('已失效')");
     assert.equal(Object.values(JSON.parse(fs.readFileSync(uploadPolicyPath, 'utf8')).policies)[0].enabled, false);
     assert.deepEqual(JSON.parse(fs.readFileSync(registryPath, 'utf8')).clients[fileClient.client_id].kinds, ['issue']);
+    // Fresh graph permission is separate from every dormant/file/upload grant.
+    const graphTitle = '完整授权预览长中文概念图'.repeat(8);
+    const createdGraphResponse = await fetch(`${origin}/api/concept-maps`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:graphTitle, project_id:uploadProject})});
+    assert.equal(createdGraphResponse.status, 201);
+    const grantedGraph = await createdGraphResponse.json();
+    await click(`[data-agent-action="graph-grants"][data-client-id="${fileClient.client_id}"]`);
+    await waitForPage(client, "!!$('#agentGraphGrantsPanel')");
+    await fill('#agentGraphGrantResource', JSON.stringify({type:'project', id:uploadProject}), 'change');
+    await click('[data-agent-action="graph-add"]');
+    const beforeGraphApproval = fs.readFileSync(registryPath, 'utf8');
+    await click('[data-agent-action="graph-preview"]');
+    await waitForPage(client, "!!$('#agentGraphGrantPreview')");
+    assert.equal(fs.readFileSync(registryPath, 'utf8'), beforeGraphApproval);
+    assert.equal(await client.evaluate(`$('#agentGraphGrantPreview').textContent.includes(${JSON.stringify(grantedGraph.id)})`), true);
+    assert.equal(await client.evaluate(`$('#agentGraphGrantPreview').textContent.includes(${JSON.stringify(grantedGraph.revision)})`), true);
+    await click('[data-agent-action="graph-cancel-preview"]');
+    assert.equal(await client.evaluate("!!$('#agentGraphGrantPreview')"), false);
+    assert.equal(fs.readFileSync(registryPath, 'utf8'), beforeGraphApproval);
+    await click('[data-agent-action="graph-preview"]');
+    await waitForPage(client, "!!$('#agentGraphGrantPreview')");
+    await click('[data-agent-action="graph-confirm"]');
+    await waitForPage(client, "$('#appDialog').open");
+    await client.evaluate("new Promise(resolve => { $('#appDialog').addEventListener('close', () => resolve(true), {once:true}); $('#appDialog button[value=cancel]').click(); })");
+    assert.equal(fs.readFileSync(registryPath, 'utf8'), beforeGraphApproval);
+    for (const theme of ['light', 'dark']) {
+      for (const width of [1440, 390]) {
+        await client.call('Emulation.setDeviceMetricsOverride', {width, height:1000, deviceScaleFactor:1, mobile:false});
+        await client.evaluate(`document.body.classList.toggle('dark', ${theme === 'dark'}); $('#agentGraphGrantPreview').scrollIntoView({block:'start'});`);
+        await delay(100);
+        assert.equal(await client.evaluate('document.documentElement.scrollWidth > innerWidth + 1'), false, `graph grants ${theme}/${width} overflow`);
+        await client.evaluate("document.querySelector('[data-agent-action=graph-confirm]').focus({preventScroll:true})");
+        const screenshot = await client.call('Page.captureScreenshot', {format:'png'});
+        fs.writeFileSync(path.join(screenshots, `graph-grants-${theme}-${width}.png`), Buffer.from(screenshot.data, 'base64'));
+      }
+    }
+    await client.call('Emulation.setDeviceMetricsOverride', {width:1440, height:1000, deviceScaleFactor:1, mobile:false});
+    await client.evaluate(`window.__originalGraphFetch = window.fetch.bind(window); window.fetch = async (...args) => { const response = await window.__originalGraphFetch(...args); if (String(args[0]).includes('/concept-maps/confirm') && args[1]?.method === 'POST') { window.fetch = window.__originalGraphFetch; throw new Error('injected graph grant response loss'); } return response; };`);
+    await click('[data-agent-action="graph-confirm"]');
+    await confirm();
+    await waitForPage(client, "!!document.querySelector('[data-agent-action=graph-resolve]') && agentSettingsFeature.isBusy()");
+    await client.call('Page.reload');
+    await waitForPage(client, "currentPage === 'agent_settings' && !!document.querySelector('[data-agent-action=graph-resolve]')");
+    await click('[data-agent-action="graph-resolve"]');
+    await waitForPage(client, "!!$('#agentGraphGrantsPanel') && !document.querySelector('[data-agent-action=graph-resolve]') && !agentSettingsFeature.isBusy()");
+    let graphRegistry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
+    assert.equal(graphRegistry.schema_version, 4);
+    assert.equal(graphRegistry.clients[fileClient.client_id].authorization_schema_version, 5);
+    assert.equal(graphRegistry.clients[fileClient.client_id].concept_map_grants.grants.length, 1);
+    assert.equal(graphRegistry.clients[fileClient.client_id].capability_grant_state, 'dormant');
+    await client.evaluate(`window.__graphRevokeObservation = {}; window.__beforeGraphRevokeFetch = window.fetch; window.fetch = async (...args) => { const matches = String(args[0]).endsWith(${JSON.stringify(`/clients/${fileClient.client_id}/concept-maps`)}); const method = args[1]?.method || 'GET'; if (matches && method === 'DELETE') window.__graphRevokeObservation.started = true; const response = await window.__beforeGraphRevokeFetch(...args); if (matches && method === 'DELETE') window.__graphRevokeObservation.response = {status:response.status, payload:await response.clone().json()}; if (matches && method === 'GET' && window.__graphRevokeObservation.response) window.__graphRevokeObservation.reloaded = await response.clone().json(); return response; };`);
+    try {
+      await click('[data-agent-action="graph-revoke"]');
+      await confirm();
+      await waitForPage(client, `window.__graphRevokeObservation.started && window.__graphRevokeObservation.response?.status === 200 && window.__graphRevokeObservation.reloaded?.client_id === ${JSON.stringify(fileClient.client_id)} && window.__graphRevokeObservation.reloaded.expected_version === window.__graphRevokeObservation.response.payload.version && window.__graphRevokeObservation.reloaded.grants.grants.length === 0 && !$('#appDialog').open && !!$('#agentGraphGrantsPanel') && !agentSettingsFeature.isBusy() && !document.querySelector('[data-agent-action=graph-resolve]') && document.querySelectorAll('#agentGraphGrantEditor ol li p').length === 0`);
+      const observedRevoke = await client.evaluate('window.__graphRevokeObservation');
+      assert.equal(observedRevoke.response.payload.client_id, fileClient.client_id);
+      assert.match(observedRevoke.response.payload.version, /^[a-f0-9]{64}$/);
+      assert.match(observedRevoke.response.payload.operation_id, /^[a-f0-9]{64}$/);
+      console.log('Graph revoke observed: DELETE started/completed=200, operation/version bound to same-client reloaded empty grants');
+    } finally {
+      await client.evaluate('window.fetch = window.__beforeGraphRevokeFetch');
+    }
+    graphRegistry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
+    assert.equal(graphRegistry.schema_version, 4);
+    assert.deepEqual(graphRegistry.clients[fileClient.client_id].concept_map_grants.grants, []);
+    assert.deepEqual(graphRegistry.clients[fileClient.client_id].kinds, ['issue', 'concept_map']);
+    console.log('AG-135 graph grant browser tests passed: explicit fresh scope,complete resource preview,cancel,no-write-before-consent,lost-response,reload-query,withdraw,dormant-preserved,light/dark,desktop/narrow');
     console.log('AG-131 browser tests passed: independent-policy,owner-scope-rejection,explicit-source-reapproval,cancel,consent,response-loss,reload-query,report,revoke,light/dark,desktop/narrow');
     console.log('AG-130 browser tests passed: file-only,metadata-preview,cancel,explicit-consent,lost-response,refresh-query,revoke,light/dark,desktop/narrow');
     console.log('Agent settings browser tests passed: first-use,enable,preference,create,lost-response-recovery,setup,registration-preview,explicit-replace,cancel,double-click,registration-response-loss,reload-query,automatic-read-check,copy,theme,width,unsaved,session-failure,conflict,edit,rotate,revoke,disable,reload');

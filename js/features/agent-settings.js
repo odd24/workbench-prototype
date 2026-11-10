@@ -25,6 +25,18 @@
     let uploadPreview = null;
     let uploadPending = null;
     let uploadRequest = 0;
+    let graphPanel = null;
+    let graphPreview = null;
+    let graphPending = null;
+    let graphRequest = 0;
+    function rememberGraph(value) {
+      graphPending = value;
+      try {
+        const key = `workbench.agentGraphGrants.pending.${status.workspace_id}`;
+        if (value) global.sessionStorage.setItem(key, JSON.stringify(value));
+        else global.sessionStorage.removeItem(key);
+      } catch { /* The original-operation query remains available on page. */ }
+    }
     function rememberUpload(value) {
       uploadPending = value;
       try {
@@ -54,7 +66,7 @@
     const errorText = error => error.payload?.message || error.message;
     const permissionName = scopes => scopes.length === 1 && scopes[0] === 'read' ? '只读查询' : scopes.length === 3 ? '整理并确认入库' : `旧版权限：${scopes.join(' / ')}`;
     const isDirty = () => Boolean(draft && JSON.stringify(draft) !== original);
-    const isBusy = () => busy || registrationConfirming || Boolean(pending) || Boolean(registrationPending) || Boolean(filePending) || Boolean(uploadPending);
+    const isBusy = () => busy || registrationConfirming || Boolean(pending) || Boolean(registrationPending) || Boolean(filePending) || Boolean(uploadPending) || Boolean(graphPending);
     const valid = version => isActive() && version === epoch;
 
     async function request(path, options = {}) {
@@ -82,9 +94,9 @@
       return `<fieldset class="agent-scope"><legend>${title}</legend><label><input type="checkbox" data-agent-all="${key}" ${all ? 'checked' : ''}>全部（包括未来新增）</label><div class="agent-scope-options">${items.map(item => `<label><input type="checkbox" data-agent-scope="${key}" value="${esc(item.value)}" ${values.includes(item.value) ? 'checked' : ''} ${all ? 'disabled' : ''}>${esc(item.label)}</label>`).join('') || '<p class="settings-hint">暂无可选内容，请先建立项目或知识库分类。</p>'}</div></fieldset>`;
     }
 
-    const kindNames = {issue:'问题', document:'知识文档', todo:'待办', info:'结构化信息'};
+    const kindNames = {issue:'问题', document:'知识文档', todo:'待办', info:'结构化信息', concept_map:'概念图'};
     function kindsField() {
-      return `<fieldset class="agent-scope"><legend>条目类型（仅显式选择的类型）</legend><div class="agent-scope-options">${Object.entries(kindNames).map(([kind, label]) => `<label><input type="checkbox" data-agent-kind="${kind}" ${draft.kinds.includes(kind) ? 'checked' : ''}>${label}</label>`).join('')}</div></fieldset>`;
+      return `<fieldset class="agent-scope"><legend>条目类型（仅显式选择的类型）</legend><div class="agent-scope-options">${Object.entries(kindNames).filter(([kind]) => kind !== 'concept_map').map(([kind, label]) => `<label><input type="checkbox" data-agent-kind="${kind}" ${draft.kinds.includes(kind) ? 'checked' : ''}>${label}</label>`).join('')}</div><p>概念图通过单独的“概念图授权”完整预览批准。</p></fieldset>`;
     }
 
     const capabilityNames = {'attachments.read':'读取附件', 'attachments.write':'新增附件', 'concept_maps.read':'读取概念图', 'concept_maps.write':'新建/更新概念图', 'items.delete':'删除条目', 'projects.create':'创建项目', 'projects.delete':'删除项目', 'categories.write':'修改分类', 'workflows.write':'修改工作流'};
@@ -111,7 +123,7 @@
       const names = new Map(catalog.projects.map(item => [item.id, item.name]));
       const rangeText = (values, projects = false) => values.includes('*') ? '全部（含未来新增）' : values.map(value => projects ? names.get(value) || `${value}（已失效）` : value).join('、') || '未授权';
       const stateText = {enabled:'已开启', disabled:'已关闭', uninitialized:'尚未初始化'}[status.runtime_state] || '异常';
-      root.innerHTML = `<div class="settings-stack agent-settings"><section class="settings-card"><div class="agent-section-head"><div><h2>AI Agent 接入</h2><p>当前状态：<strong id="agentRuntimeState">${stateText}</strong></p></div>${button('refresh', '刷新')}</div><dl class="agent-status"><dt>工作空间</dt><dd>${esc(status.workspace_id || '开启接入后初始化')}</dd><dt>服务地址</dt><dd>${esc(status.origin)}</dd><dt>运行设置来源</dt><dd>${esc({cli:'启动参数（本次覆盖）', preference:'本机启动偏好', ui:'本次界面设置'}[status.effective_source] || status.effective_source)}</dd></dl><div class="settings-actions">${button('toggle', status.enabled ? '关闭接入' : '开启接入')}<label><input id="agentStartupPreference" type="checkbox" ${status.startup_preference ? 'checked' : ''}>下次普通启动时开启</label>${button('preference', '保存启动偏好')}</div><p class="settings-hint">关闭接入保留授权与提案。显式启动参数只影响本次，保存的偏好用于下次普通启动。</p>${status.preference_error ? `<p class="agent-error">${esc(status.preference_error)}</p>` : ''}</section><p id="agentFeedback" class="agent-feedback" role="status" aria-live="polite"></p>${pending ? `<section class="settings-card"><p>上次操作结果尚未确定，请先查询，避免重复创建授权。</p>${button('resolve', '查询上次操作')}</section>` : ''}<section class="settings-card"><div class="agent-section-head"><h2>客户端授权</h2>${button('new', '添加客户端', !status.workspace_id ? 'disabled' : '')}</div><p class="settings-hint">授权只作用于当前工作空间；令牌保存在本机私人目录，页面不显示。</p><div class="agent-client-list">${catalog.items.map(client => `<article class="agent-client"><div><strong>${esc(client.name)}</strong><span class="agent-client-state">${client.recovery_required ? '需要恢复' : client.enabled ? '授权有效' : '已撤销'}</span><small>${esc(client.client_id)}</small><p>权限：${esc(permissionName(client.scopes))}</p><p>最低确认：${client.minimum_confirmation_mode === 'local_web' ? '本机网页独立批准' : '对话确认'}</p><p>类型：${esc((client.kinds || ['issue', 'document']).map(kind => kindNames[kind]).join('、'))}</p><p>后续能力：${esc(client.capability_grants?.grants?.map(grantSummary).join('；') || '未配置')}（尚未实现、不可使用）</p>${!client.kinds.length || !(client.project_ids.length || client.categories.length) ? '<p class="settings-hint">无旧业务数据权限，当前不可开展业务；连接成功仅表示接入可达。</p>' : ''}<p>项目：${esc(rangeText(client.project_ids, true))}</p><p>知识库：${esc(rangeText(client.categories))}</p><p>最近客户端请求：${esc(client.last_client_request_at ? new Date(client.last_client_request_at).toLocaleString() : "暂无记录")}（来源未独立验证）</p><p>最近自检请求：${esc(client.last_diagnostic_request_at ? new Date(client.last_diagnostic_request_at).toLocaleString() : "暂无记录")}</p>${client.invalid_categories.length || client.invalid_project_ids.length ? '<p class="agent-error">部分授权范围已失效，请编辑后重新核对。</p>' : ''}</div><div class="settings-actions">${client.enabled && !client.recovery_required ? `${button('edit', '编辑', `data-client-id="${esc(client.client_id)}"`)}${button('setup', '接入向导', `data-client-id="${esc(client.client_id)}"`)}${button('diagnose', '检查连接', `data-client-id="${esc(client.client_id)}"`)}${button('rotate', '轮换凭据', `data-client-id="${esc(client.client_id)}"`)}${button('repair', '更新服务地址', `data-client-id="${esc(client.client_id)}"`)}${button('revoke', '撤销', `data-client-id="${esc(client.client_id)}"`)}` : ''}</div></article>`).join('') || '<p class="empty-state">暂无客户端。先开启接入，再添加并选择授权范围。</p>'}</div></section>${formHtml()}<div id="agentSetupPanel"></div><div id="agentDiagnosticsPanel"></div></div>`;
+      root.innerHTML = `<div class="settings-stack agent-settings"><section class="settings-card"><div class="agent-section-head"><div><h2>AI Agent 接入</h2><p>当前状态：<strong id="agentRuntimeState">${stateText}</strong></p></div>${button('refresh', '刷新')}</div><dl class="agent-status"><dt>工作空间</dt><dd>${esc(status.workspace_id || '开启接入后初始化')}</dd><dt>服务地址</dt><dd>${esc(status.origin)}</dd><dt>运行设置来源</dt><dd>${esc({cli:'启动参数（本次覆盖）', preference:'本机启动偏好', ui:'本次界面设置'}[status.effective_source] || status.effective_source)}</dd></dl><div class="settings-actions">${button('toggle', status.enabled ? '关闭接入' : '开启接入')}<label><input id="agentStartupPreference" type="checkbox" ${status.startup_preference ? 'checked' : ''}>下次普通启动时开启</label>${button('preference', '保存启动偏好')}</div><p class="settings-hint">关闭接入保留授权与提案。显式启动参数只影响本次，保存的偏好用于下次普通启动。</p>${status.preference_error ? `<p class="agent-error">${esc(status.preference_error)}</p>` : ''}</section><p id="agentFeedback" class="agent-feedback" role="status" aria-live="polite"></p>${pending ? `<section class="settings-card"><p>上次操作结果尚未确定，请先查询，避免重复创建授权。</p>${button('resolve', '查询上次操作')}</section>` : ''}<section class="settings-card"><div class="agent-section-head"><h2>客户端授权</h2>${button('new', '添加客户端', !status.workspace_id ? 'disabled' : '')}</div><p class="settings-hint">授权只作用于当前工作空间；令牌保存在本机私人目录，页面不显示。</p><div class="agent-client-list">${catalog.items.map(client => `<article class="agent-client"><div><strong>${esc(client.name)}</strong><span class="agent-client-state">${client.recovery_required ? '需要恢复' : client.enabled ? '授权有效' : '已撤销'}</span><small>${esc(client.client_id)}</small><p>权限：${esc(permissionName(client.scopes))}</p><p>最低确认：${client.minimum_confirmation_mode === 'local_web' ? '本机网页独立批准' : '对话确认'}</p><p>类型：${esc((client.kinds || ['issue', 'document']).map(kind => kindNames[kind]).join('、'))}</p><p>后续能力：${esc(client.capability_grants?.grants?.map(grantSummary).join('；') || '未配置')}（尚未实现、不可使用）</p>${!client.kinds.length || !(client.project_ids.length || client.categories.length) ? '<p class="settings-hint">无旧业务条目权限；概念图按单独批准范围和基本权限使用，连接成功仅表示接入可达。</p>' : ''}<p>项目：${esc(rangeText(client.project_ids, true))}</p><p>知识库：${esc(rangeText(client.categories))}</p><p>最近客户端请求：${esc(client.last_client_request_at ? new Date(client.last_client_request_at).toLocaleString() : "暂无记录")}（来源未独立验证）</p><p>最近自检请求：${esc(client.last_diagnostic_request_at ? new Date(client.last_diagnostic_request_at).toLocaleString() : "暂无记录")}</p>${client.invalid_categories.length || client.invalid_project_ids.length ? '<p class="agent-error">部分授权范围已失效，请编辑后重新核对。</p>' : ''}</div><div class="settings-actions">${client.enabled && !client.recovery_required ? `${button('edit', '编辑', `data-client-id="${esc(client.client_id)}"`)}${button('setup', '接入向导', `data-client-id="${esc(client.client_id)}"`)}${button('diagnose', '检查连接', `data-client-id="${esc(client.client_id)}"`)}${button('rotate', '轮换凭据', `data-client-id="${esc(client.client_id)}"`)}${button('repair', '更新服务地址', `data-client-id="${esc(client.client_id)}"`)}${button('revoke', '撤销', `data-client-id="${esc(client.client_id)}"`)}` : ''}</div></article>`).join('') || '<p class="empty-state">暂无客户端。先开启接入，再添加并选择授权范围。</p>'}</div></section>${formHtml()}<div id="agentSetupPanel"></div><div id="agentDiagnosticsPanel"></div></div>`;
       if (setup) paintSetup();
       const clientHead = root.querySelector('.agent-client-list')?.parentElement.querySelector('.agent-section-head');
       if (clientHead && status.workspace_id) clientHead.insertAdjacentHTML('beforeend', button('new-file', '添加文件专用客户端'));
@@ -119,9 +131,12 @@
         const client = catalog.items[index];
         if (client.enabled && !client.recovery_required) node.querySelector('.settings-actions')?.insertAdjacentHTML('beforeend', button('files', '具体文件授权', `data-client-id="${esc(client.client_id)}"`));
         if (client.enabled && !client.recovery_required) node.querySelector('.settings-actions')?.insertAdjacentHTML('beforeend', button('upload-policy', '上传暂存授权', `data-client-id="${esc(client.client_id)}"`));
+        if (client.enabled && !client.recovery_required) node.querySelector('.settings-actions')?.insertAdjacentHTML('beforeend', button('graph-grants', '概念图授权', `data-client-id="${esc(client.client_id)}"`));
+        if (client.authorization_schema_version === 5) node.querySelector('div')?.insertAdjacentHTML('beforeend', `<p>已批准图权限：${esc(client.concept_map_grants?.grants?.map(grantSummary).join('；') || '无')}</p>`);
       });
       if (files) root.querySelector('.agent-settings').insertAdjacentHTML('beforeend', filePanelHtml());
       if (uploadPanel) root.querySelector('.agent-settings').insertAdjacentHTML('beforeend', uploadPanelHtml());
+      if (graphPanel) root.querySelector('.agent-settings').insertAdjacentHTML('beforeend', graphPanelHtml());
       if (diagnostic) paintDiagnostic();
       if (registrationPending) {
         const panel = global.document.createElement('section');
@@ -143,10 +158,15 @@
           draft = null; original = ''; setup = null; pending = null; diagnostic = null;
           files = null; filePreview = null; filePending = null;
           uploadPanel = null; uploadPreview = null; uploadPending = null;
+          graphPanel = null; graphPreview = null; graphPending = null;
           registration = null; registrationResult = null; registrationPending = null;
           root.innerHTML = '<div class="empty-state">工作空间已变化，正在重新加载授权…</div>';
         }
         status = loaded;
+        graphPreview = null;
+        if (!graphPending && status.workspace_id) {
+          try { graphPending = JSON.parse(global.sessionStorage.getItem(`workbench.agentGraphGrants.pending.${status.workspace_id}`) || 'null'); } catch { graphPending = null; }
+        }
         if (!filePending && status.workspace_id) {
           try { filePending = JSON.parse(global.sessionStorage.getItem(`workbench.agentFiles.pending.${status.workspace_id}`) || 'null'); } catch { filePending = null; }
         }
@@ -164,6 +184,7 @@
         paint();
         if (filePending && !files) await fileAction('files', filePending.client_id);
         if (uploadPending && !uploadPanel) await uploadAction('upload-policy', uploadPending.client_id);
+        if (graphPending && !graphPanel) await graphAction('graph-grants', graphPending.client_id);
         return true;
       } catch (error) {
         if (valid(version)) {
@@ -304,6 +325,83 @@
         }
       } catch (error) {
         if (valid(version)) { if (name === 'upload-resolve' && error.status === 404) { rememberUpload(null); uploadPreview = null; } busy = false; paint(); message(`${errorText(error)}${uploadPending ? '；请查询原操作。' : ''}`, true); }
+      }
+    }
+
+    function graphPanelHtml() {
+      const grants = graphPanel.draft.grants;
+      const resourceOptions = [
+        ...graphPanel.projects.map(item => ({resource:{type:'project', id:item.id}, label:`项目图：${item.name}（${item.id}）`})),
+        ...graphPanel.categories.map(name => ({resource:{type:'concept_map_category', name}, label:`独立图分类：${name}`})),
+        ...graphPanel.maps.map(item => ({resource:{type:'concept_map', id:item.id}, label:`指定图：${item.title}（${item.id}）`})),
+      ];
+      const preview = graphPreview;
+      return `<section class="settings-card agent-setup" id="agentGraphGrantsPanel"><h2>概念图授权 · ${esc(graphPanel.name)}</h2><p>单独明确授权，替代全部现有图权限。旧休眠图配置不会生效。项目范围仅含关联图，分类范围仅含独立图；两者包括以后加入的图。指定图不能新建或改变归属。项目正文、删除、项目及分类创建不在范围内。</p><fieldset class="agent-scope" id="agentGraphGrantEditor"><legend>待批准图范围</legend><label>具体资源<select id="agentGraphGrantResource">${resourceOptions.map(item => `<option value="${esc(JSON.stringify(item.resource))}">${esc(item.label)}</option>`).join('')}</select></label><label>操作<select id="agentGraphGrantOperation"><option value="read">仅读取</option><option value="update">读取并更新已有图</option><option value="create-update">读取、新建及更新（项目或独立图分类）</option></select></label><label>写入最低确认方式<select id="agentGraphGrantMode"><option value="agent_attested">对话内完整预览后确认</option><option value="local_web">本机网页独立批准</option></select></label>${button('graph-add', '加入待批准范围')}<ol>${grants.map((grant, index) => `<li><p>${esc(grantSummary(grant))}</p>${button('graph-remove', '移除此项', `data-grant-index="${index}"`)}</li>`).join('') || '<li>尚未选择范围。</li>'}</ol><p>写入必须同时满足读取、提案、提交及资源交集；实际采用客户端与匹配图授权中最严格的确认方式。分类移除或重命名先撤去原分类授权；后续失败不恢复，也不会扩大到未分类。</p>${button('graph-preview', '查看完整授权预览')}</fieldset>${preview ? `<div id="agentGraphGrantPreview"><h3>完整图授权预览</h3><p>客户端：${esc(preview.client_name)}（${esc(preview.client_id)}）</p><p>基本权限：${esc(permissionName(preview.scopes))}；客户端最低确认：${preview.minimum_confirmation_mode === 'local_web' ? '本机网页独立批准' : '对话内确认'}</p>${preview.grants.grants.map(grant => `<p>${esc(grantSummary(grant))}</p>`).join('')}${preview.resources.map(item => `<article><h4>${esc(resourceNames[item.resource.type])}：${esc(item.label)}</h4><p>当前 ${item.count} 张图；资源版本 ${esc(item.revision)}</p><ul>${item.maps.map(map => `<li>${esc(map.title)} · ${esc(map.id)} · 项目 ${esc(map.project_id || '无')} · 分类 ${esc(map.category)} · ${esc(map.revision)}</li>`).join('') || '<li>当前无图；范围内以后新增的图也适用。</li>'}</ul></article>`).join('')}<p>${esc(preview.disclosure)}</p><p>完整字段和版本依据：</p><pre>${esc(JSON.stringify(preview, null, 2))}</pre>${button('graph-confirm', '明确批准此图授权')}${button('graph-cancel-preview', '取消预览')}</div>` : ''}${graphPending ? `<p>原图授权操作待查询：${esc(graphPending.request_id)}</p>${button('graph-resolve', '查询原图授权结果')}` : ''}<div class="settings-actions">${button('graph-revoke', '撤销全部图授权')}${button('graph-close', '关闭图授权')}</div></section>`;
+    }
+
+    async function graphAction(name, key, index) {
+      const version = epoch;
+      const panel = graphPanel;
+      if (name === 'graph-close') { if (!graphPending) { graphRequest += 1; graphPanel = null; graphPreview = null; paint(); } return; }
+      if (name === 'graph-cancel-preview') { graphPreview = null; paint(); return; }
+      const clientId = name === 'graph-grants' ? key : graphPanel?.client_id;
+      if (!clientId) return;
+      if (graphPending && !['graph-grants', 'graph-resolve'].includes(name)) { message('请先查询原图授权操作。', true); return; }
+      try {
+        if (name === 'graph-grants') {
+          if (graphPending && graphPending.client_id !== clientId) { message('请先查询原客户端的图授权操作。', true); return; }
+          const generation = ++graphRequest;
+          graphPanel = null; graphPreview = null; paint();
+          const value = await request(`clients/${clientId}/concept-maps`);
+          if (!valid(version) || generation !== graphRequest) return;
+          graphPanel = {...value, draft:structuredClone(value.grants), name:catalog.items.find(item => item.client_id === clientId)?.name || clientId};
+          paint();
+        } else if (name === 'graph-add') {
+          const value = find('#agentGraphGrantResource')?.value;
+          if (!value) { message('请先建立具体项目或概念图分类。', true); return; }
+          const resource = JSON.parse(value);
+          const operation = find('#agentGraphGrantOperation').value;
+          if (resource.type === 'concept_map' && operation === 'create-update') { message('指定图不能授予创建，请选择项目或独立图分类。', true); return; }
+          const read = {capability:'concept_maps.read', operations:['read'], resources:[resource], minimum_confirmation_mode:'agent_attested'};
+          const additions = [read];
+          if (operation !== 'read') additions.push({capability:'concept_maps.write', operations:operation === 'update' ? ['update'] : ['create', 'update'], resources:[resource], minimum_confirmation_mode:find('#agentGraphGrantMode').value});
+          additions.forEach(grant => { if (!graphPanel.draft.grants.some(old => JSON.stringify(old) === JSON.stringify(grant))) graphPanel.draft.grants.push(grant); });
+          graphPreview = null; paint();
+        } else if (name === 'graph-remove') {
+          graphPanel.draft.grants.splice(Number(index), 1); graphPreview = null; paint();
+        } else if (name === 'graph-preview') {
+          graphPreview = null; find('#agentGraphGrantPreview')?.remove();
+          const candidate = JSON.stringify(graphPanel.draft);
+          const preview = await request(`clients/${clientId}/concept-maps/preview`, {method:'POST', body:JSON.stringify({workspace_id:status.workspace_id, expected_version:graphPanel.expected_version, grants:graphPanel.draft})});
+          if (valid(version) && graphPanel === panel && JSON.stringify(graphPanel.draft) === candidate) { graphPreview = preview; paint(); }
+        } else if (name === 'graph-confirm' && graphPreview) {
+          const preview = graphPreview;
+          if (!await confirm({title:'明确批准此完整图授权？', message:preview.client_name, detail:JSON.stringify(preview, null, 2), confirmText:'批准图授权'})) return;
+          if (!valid(version) || graphPanel !== panel || graphPreview !== preview) return;
+          const payload = {workspace_id:status.workspace_id, expected_version:preview.expected_version, preview_id:preview.preview_id, preview_digest:preview.preview_digest, request_id:id(), approved:true};
+          rememberGraph({client_id:clientId, request_id:payload.request_id}); busy = true; paint();
+          await request(`clients/${clientId}/concept-maps/confirm`, {method:'POST', body:JSON.stringify(payload)});
+          if (!valid(version)) return;
+          rememberGraph(null); graphPreview = null; busy = false; await load(); await graphAction('graph-grants', clientId);
+        } else if (name === 'graph-resolve' && graphPending) {
+          const result = await request(`operations/${encodeURIComponent(graphPending.request_id)}`);
+          if (!valid(version)) return;
+          if (['completed', 'abandoned'].includes(result.state)) { rememberGraph(null); graphPreview = null; await load(); await graphAction('graph-grants', clientId); }
+          else message('原图授权操作需要恢复，请按维护说明核查并保留日志。', true);
+        } else if (name === 'graph-revoke') {
+          if (!await confirm({title:'撤销全部图授权？', message:'后续图读取和提交会按收窄后的权限检查，已入库的图保留。', confirmText:'撤销图授权', danger:true})) return;
+          if (!valid(version) || graphPanel !== panel) return;
+          const payload = {workspace_id:status.workspace_id, expected_version:graphPanel.expected_version, request_id:id()};
+          rememberGraph({client_id:clientId, request_id:payload.request_id}); busy = true; paint();
+          await request(`clients/${clientId}/concept-maps`, {method:'DELETE', body:JSON.stringify(payload)});
+          if (!valid(version)) return;
+          rememberGraph(null); graphPreview = null; busy = false; await load(); await graphAction('graph-grants', clientId);
+        }
+      } catch (error) {
+        if (valid(version)) {
+          if (name === 'graph-resolve' && error.status === 404) rememberGraph(null);
+          graphPreview = null; busy = false; paint(); message(`${errorText(error)}${graphPending ? '；请查询原操作。' : ''}`, true);
+        }
       }
     }
 
@@ -470,6 +568,8 @@
 
     async function action(name, clientId, grantIndex) {
       if (busy || registrationConfirming) return;
+      if (graphPending && !['graph-grants', 'graph-resolve', 'refresh'].includes(name)) { message('请先查询原概念图授权操作。', true); return; }
+      if (name.startsWith('graph-')) return graphAction(name, clientId, grantIndex);
       if (name.startsWith('upload-')) return uploadAction(name, clientId);
       if (uploadPending && name !== 'refresh') { message('请先查询原暂存授权操作。', true); return; }
       if (name === 'files' || name.startsWith('file-') || name === 'files-close') return fileAction(name, clientId);
@@ -608,6 +708,7 @@
     root.addEventListener('change', event => {
       if (!isActive() || busy) return;
       const node = event.target;
+      if (node.closest('#agentGraphGrantEditor')) { graphPreview = null; find('#agentGraphGrantPreview')?.remove(); }
       if (node.id === 'agentSetupType' && setup) {
         setup.guide = node.value;
         paintSetup();

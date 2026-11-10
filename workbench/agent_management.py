@@ -61,11 +61,15 @@ def client_version(client):
 
 def clean_client(client):
     keys = ("client_id", "name", "enabled", "scopes", "project_ids", "categories")
-    return {**{key: client[key] for key in keys}, "kinds": client_kinds(client), "minimum_confirmation_mode": client_confirmation_mode(client),
+    result = {**{key: client[key] for key in keys}, "kinds": client_kinds(client), "minimum_confirmation_mode": client_confirmation_mode(client),
             "authorization_schema_version": client.get("authorization_schema_version", 1),
             "capability_grants": client_capability_grants(client), "capability_grant_state": "dormant",
             "active_file_ids": client_file_ids(client),
             "management_revision": client.get("management_revision", 0), "version": client_version(client)}
+    if client.get('authorization_schema_version') == 5:
+        from .agent_concept_authorization import client_graph_grants
+        result['concept_map_grants'] = client_graph_grants(client)
+    return result
 
 
 class CredentialManager:
@@ -90,7 +94,7 @@ class CredentialManager:
             value = read_json(path)
         except (OSError, ValueError):
             raise AgentError("management_recovery_required", "管理日志损坏，请检查备份", 503) from None
-        if not isinstance(value, dict) or type(value.get("schema_version")) is not int or value.get("schema_version") not in (1, 2, 3, 4) or value.get("workspace_id") != self.security.workspace_id or value.get("state") not in {"prepared", "completed", "recovery_required", "abandoned"}:
+        if not isinstance(value, dict) or type(value.get("schema_version")) is not int or value.get("schema_version") not in (1, 2, 3, 4, 5) or value.get("workspace_id") != self.security.workspace_id or value.get("state") not in {"prepared", "completed", "recovery_required", "abandoned"}:
             raise AgentError("management_recovery_required", "管理日志版本或工作空间无效", 503)
         try:
             valid_id = str(uuid.UUID(value["client_id"])) == value["client_id"]
@@ -98,8 +102,9 @@ class CredentialManager:
             valid_id = False
         if not valid_id or value.get("operation_id") != path.stem or not isinstance(value.get("request_id"), str) or hashlib.sha256(value["request_id"].encode()).hexdigest() != path.stem:
             raise AgentError("management_recovery_required", "管理日志客户端无效", 503)
-        if value["schema_version"] == 4:
-            if value.get("registry_schema") != 3 or value.get("operation_family") not in {"credential", "file", "upload_policy", "attachment_policy"}:
+        if value["schema_version"] in (4, 5):
+            families = {"credential", "file", "upload_policy", "attachment_policy"} | ({'concept_map'} if value['schema_version'] == 5 else set())
+            if value.get("registry_schema") != (4 if value['schema_version'] == 5 else 3) or value.get("operation_family") not in families:
                 raise AgentError("management_recovery_required", "管理文件授权格式门槛无效", 503)
             if value["state"] in {"prepared", "recovery_required"}:
                 try:
@@ -113,8 +118,8 @@ class CredentialManager:
         required = {"before_client", "after_client", "before_" + snapshot_kind, "after_" + snapshot_kind}
         if value["state"] in {"prepared", "recovery_required"} and not required <= value.keys():
             raise AgentError("management_recovery_required", "管理日志快照缺失", 503)
-        if value["schema_version"] in (3, 4):
-            if type(value.get("registry_schema")) is not int or value.get("registry_schema") != (3 if value["schema_version"] == 4 else 2):
+        if value["schema_version"] in (3, 4, 5):
+            if type(value.get("registry_schema")) is not int or value.get("registry_schema") != {3: 2, 4: 3, 5: 4}[value['schema_version']]:
                 raise AgentError("management_recovery_required", "管理格式门槛缺失", 503)
             if value["state"] in {"prepared", "recovery_required"}:
                 try:
@@ -123,7 +128,8 @@ class CredentialManager:
                         raise ValueError("授权身份不符")
                     self.security.validate_client(after["name"], after["scopes"], after["project_ids"], after["categories"],
                                                   client_kinds(after), client_confirmation_mode(after),
-                                                  client_capability_grants(after) if after.get("authorization_schema_version") in (3, 4) else None)
+                                                  client_capability_grants(after) if after.get("authorization_schema_version") in (3, 4, 5) else None,
+                                                  authorization_schema_version=after.get('authorization_schema_version', 1), concept_map_grants=after.get('concept_map_grants'))
                 except (ValueError, KeyError, TypeError, AgentError):
                     raise AgentError("management_recovery_required", "管理授权快照无效，停止恢复", 503) from None
         if value.get("operation_family") == "file" and value["state"] in {"prepared", "recovery_required"}:
@@ -134,14 +140,53 @@ class CredentialManager:
             from .agent_upload_policy import validate_policies
             validate_policies(value["before_policies"], self.security)
             validate_policies(value["after_policies"], self.security)
+        self._validate_graph_intent(value)
         return value
+
+    def _validate_graph_intent(self, value):
+        if value.get('operation_family') != 'concept_map':
+            return
+        from .agent_concept_authorization import client_graph_grants, validate_grant_dependencies, validate_narrowing
+        if value.get('schema_version') != 5 or value.get('graph_action') not in {'approve', 'revoke', 'narrow'} or 'graph_dependencies' not in value or not isinstance(value.get('graph_grants_digest'), str) or not re.fullmatch(r'[a-f0-9]{64}', value['graph_grants_digest']):
+            raise AgentError('management_recovery_required', '图管理意图字段无效，保留原证据', 503)
+        if value['state'] not in {'prepared', 'recovery_required'}:
+            return
+        try:
+            after = value['after_client']
+            before = value['before_client']
+            if after.get('authorization_schema_version') != 5 or after.get('client_id') != value['client_id']:
+                raise ValueError()
+            allowed = {'authorization_schema_version', 'concept_map_grants', 'kinds', 'management_revision'}
+            if not isinstance(before, dict) or before.get('client_id') != value['client_id'] or any(before.get(key) != after.get(key) for key in (set(before) | set(after)) - allowed) or type(after.get('management_revision')) is not int or after['management_revision'] != before.get('management_revision', 0) + 1:
+                raise ValueError()
+            expected_kinds = list(dict.fromkeys([*client_kinds(before), 'concept_map'])) if value['graph_action'] == 'approve' else client_kinds(before)
+            if after['kinds'] != expected_kinds:
+                raise ValueError()
+            client_kinds(after)
+            grants = client_graph_grants(after)
+            if digest(grants) != value['graph_grants_digest']:
+                raise ValueError()
+            if value['graph_action'] == 'approve':
+                validate_grant_dependencies(value['graph_dependencies'], grants)
+            elif value['graph_dependencies'] is not None:
+                raise ValueError()
+            elif before.get('authorization_schema_version') != 5:
+                raise ValueError()
+            elif value['graph_action'] == 'narrow':
+                validate_narrowing(client_graph_grants(before), grants)
+            elif grants['grants']:
+                raise ValueError()
+        except (ValueError, KeyError, TypeError, AgentError):
+            raise AgentError('management_recovery_required', '图管理授权或依赖快照无效，停止恢复', 503) from None
 
     def blocked_clients(self):
         return {value["client_id"] for path in self._logs() if (value := self._load(path))["state"] in {"prepared", "recovery_required"}}
 
     def _write(self, path, value):
         self.directory.mkdir(mode=0o700, exist_ok=True)
-        if value["schema_version"] != 4:
+        if value['schema_version'] == 4 and (self.security.registry_version() >= 4 or value.get('after_client', {}).get('authorization_schema_version') == 5):
+            value.update(schema_version=5, registry_schema=4)
+        if value["schema_version"] not in (4, 5):
             private_write(path, value)
             return
         values = {key: item for key, item in value.items() if key.startswith(("before_", "after_"))}
@@ -202,12 +247,21 @@ class CredentialManager:
             value["state"] = "recovery_required"
             self._write(path, value)
             return False
-        if value["schema_version"] in (3, 4):
+        if value["schema_version"] in (3, 4, 5):
             self.security.save_clients(clients, minimum_schema=value["registry_schema"])
             self.checkpoint("format_fence")
         if value["after_config"] is not None and current_config != value["after_config"]:
             private_write(config_path, value["after_config"])
         self.checkpoint("config")
+        if value.get('operation_family') == 'concept_map' and value.get('graph_action') == 'approve' and current_client != value['after_client']:
+            from .agent_concept_authorization import grant_dependencies
+            try:
+                if grant_dependencies(self.security.root, value['after_client']['concept_map_grants']) != value['graph_dependencies']:
+                    raise ValueError('resource snapshot changed')
+            except (ValueError, TypeError, OSError, AgentError):
+                value['state'] = 'recovery_required'
+                self._write(path, value)
+                return False
         clients[value["client_id"]] = value["after_client"]
         self.security.save_clients(clients)
         self.checkpoint("registry")
@@ -222,7 +276,7 @@ class CredentialManager:
         from .agent_upload_policy import load_policies, validate_policies
         before_policies = load_policies(self.security)
         after_policies = deepcopy(before_policies)
-        after = {**before, "authorization_schema_version": 4, "management_revision": int(before.get("management_revision", 0)) + 1}
+        after = {**before, "authorization_schema_version": max(4, before.get("authorization_schema_version", 1)), "management_revision": int(before.get("management_revision", 0)) + 1}
         for policy in after_policies["policies"].values():
             if policy["client_id"] == client_id:
                 policy["enabled"] = False
@@ -292,7 +346,7 @@ class CredentialManager:
             record.update(status="revoked", version=record["version"] + 1)
             ids = [item for item in ids if item != key]
         validate_ledger(after_files, self.security)
-        after.update(authorization_schema_version=4, active_file_ids=ids, management_revision=int(before.get("management_revision", 0)) + 1)
+        after.update(authorization_schema_version=max(4, before.get("authorization_schema_version", 1)), active_file_ids=ids, management_revision=int(before.get("management_revision", 0)) + 1)
         result = {"operation_id": path.stem, "client_id": client_id, "file_id": key, "state": "completed", "version": client_version(after)}
         value = {"schema_version": 4, "registry_schema": 3, "operation_family": "file", "workspace_id": self.security.workspace_id,
                  "operation_id": path.stem, "request_id": request_id, "input_digest": signature, "client_id": client_id, "state": "prepared",
@@ -338,8 +392,10 @@ class CredentialManager:
                 if not isinstance(snapshot, dict) or not isinstance(snapshot.get("intent"), dict):
                     raise ValueError()
                 intent = snapshot["intent"]
-                if set(snapshot) != {"schema_version", "operation_id", "workspace_id", "client_id", "values", "intent"} or snapshot["schema_version"] != 1 or snapshot["workspace_id"] != self.security.workspace_id or snapshot["operation_id"] != snapshot_path.stem or not isinstance(snapshot["values"], dict) or intent.get("schema_version") != 4 or intent.get("registry_schema") != 3 or intent.get("operation_family") not in {"credential", "file", "upload_policy", "attachment_policy"} or intent.get("state") not in {"prepared", "recovery_required"} or intent.get("client_id") != snapshot["client_id"] or intent.get("workspace_id") != self.security.workspace_id or intent.get("operation_id") != snapshot_path.stem or hashlib.sha256(intent["request_id"].encode()).hexdigest() != snapshot_path.stem or str(uuid.UUID(snapshot["client_id"])) != snapshot["client_id"]:
+                if set(snapshot) != {"schema_version", "operation_id", "workspace_id", "client_id", "values", "intent"} or snapshot["schema_version"] != 1 or snapshot["workspace_id"] != self.security.workspace_id or snapshot["operation_id"] != snapshot_path.stem or not isinstance(snapshot["values"], dict) or intent.get("schema_version") not in (4, 5) or intent.get("registry_schema") != (4 if intent.get("schema_version") == 5 else 3) or intent.get("operation_family") not in ({"credential", "file", "upload_policy", "attachment_policy"} | ({"concept_map"} if intent.get("schema_version") == 5 else set())) or intent.get("state") not in {"prepared", "recovery_required"} or intent.get("client_id") != snapshot["client_id"] or intent.get("workspace_id") != self.security.workspace_id or intent.get("operation_id") != snapshot_path.stem or hashlib.sha256(intent["request_id"].encode()).hexdigest() != snapshot_path.stem or str(uuid.UUID(snapshot["client_id"])) != snapshot["client_id"]:
                     raise ValueError()
+                if intent.get('schema_version') == 5:
+                    self._validate_graph_intent({**intent, **snapshot['values']})
                 if snapshot_path.stem in known:
                     if known[snapshot_path.stem].get("private_snapshot_digest") != digest(snapshot):
                         raise ValueError()
@@ -347,21 +403,24 @@ class CredentialManager:
                     orphans.append({**intent, "private_snapshot_id": snapshot_path.stem, "private_snapshot_digest": digest(snapshot)})
             except (KeyError, TypeError, ValueError, OSError):
                 raise AgentError("management_recovery_required", "管理私人快照格式无效，停止全部恢复", 503) from None
-        if (self.security.registry_version() == 3 or orphans or any(value["schema_version"] == 4 for _, value in logs)) and any(value["schema_version"] < 4 and value["state"] in {"prepared", "recovery_required"} for _, value in logs):
+        graph_format = self.security.registry_version() >= 4 or any(value['schema_version'] == 5 for _, value in logs) or any(value['schema_version'] == 5 for value in orphans)
+        if graph_format and (any(value['schema_version'] < 5 and value['state'] in {'prepared', 'recovery_required'} for _, value in logs) or any(value['schema_version'] < 5 for value in orphans)):
+            raise AgentError('management_recovery_required', '图格式与旧未决管理证据混合，停止恢复并保留现场', 503)
+        if (self.security.registry_version() >= 3 or orphans or any(value["schema_version"] >= 4 for _, value in logs)) and any(value["schema_version"] < 4 and value["state"] in {"prepared", "recovery_required"} for _, value in logs):
             raise AgentError("management_recovery_required", "新文件授权日志与旧未决混合，停止恢复", 503)
         if any(value["schema_version"] == 3 for _, value in logs) and any(value["schema_version"] < 3 and value["state"] in {"prepared", "recovery_required"} for _, value in logs):
             raise AgentError("management_recovery_required", "新格式与旧未决日志混合，停止恢复并保留证据", 503)
         # Snapshot-before-prepare exits have never changed authority. Persist a
         # terminal decision before disposing of their private values.
         for intent in orphans:
-            self.security.save_clients(self.security.clients(), minimum_schema=3)
+            self.security.save_clients(self.security.clients(), minimum_schema=4 if intent["schema_version"] == 5 else 3)
             self._write(self.directory / (intent["operation_id"] + ".json"), {**intent, "state": "abandoned", "result": None, "orphaned_before_prepare": True})
         for path, value in logs:
             if value["state"] == "prepared" and not self._finish(path, value):
                 blocked.append(value["client_id"])
             elif value["state"] == "recovery_required":
                 blocked.append(value["client_id"])
-            elif value["schema_version"] == 4:
+            elif value["schema_version"] in (4, 5):
                 self._cleanup_snapshot(path, value)
         return blocked
 
@@ -394,7 +453,7 @@ class CredentialManager:
             if value["state"] not in {"prepared", "recovery_required"}:
                 raise ValueError("只允许放弃未决管理操作")
             clients = self.security.clients()
-            if value["schema_version"] in (3, 4):
+            if value["schema_version"] in (3, 4, 5):
                 self.security.save_clients(clients, minimum_schema=value["registry_schema"])
             client = clients.get(value["client_id"])
             if client:
@@ -413,7 +472,7 @@ class CredentialManager:
             raise ValueError("客户端标识无效")
         operation_id = hashlib.sha256(request_id.encode()).hexdigest()
         path = self.directory / f"{operation_id}.json"
-        signature = digest([action, params.get("approval_digest") if action in {"file_grant_create", "upload_policy", "attachment_policy"} else params, client_id, expected_version])
+        signature = digest([action, params.get("approval_digest") if action in {"file_grant_create", "upload_policy", "attachment_policy", "concept_map_grants"} else params, client_id, expected_version])
         with credential_lock(self.security.config_dir):
             blocked = self._recover()
             if path.exists():
@@ -435,7 +494,7 @@ class CredentialManager:
             if expected_version is not None and client_version(before) != expected_version:
                 raise AgentError("configuration_conflict", "客户端授权已变化，请重新核对", 409)
             if before and not before.get("enabled"):
-                if action not in {"revoke", "file_grant_revoke", "upload_policy_revoke"}:
+                if action not in {"revoke", "file_grant_revoke", "upload_policy_revoke", "concept_map_grants_revoke", "concept_map_grants_narrow"}:
                     raise ValueError("已撤销客户端不能重新启用，请新建客户端")
             client_id = client_id or str(uuid.uuid4())
             if action in {"upload_policy", "attachment_policy", "upload_policy_revoke"}:
@@ -453,17 +512,46 @@ class CredentialManager:
             after_config = before_config
             after = dict(before) if before else {"client_id": client_id, "enabled": True}
             after["management_revision"] = int(after.get("management_revision", 0)) + 1
+            if action in {'concept_map_grants', 'concept_map_grants_revoke', 'concept_map_grants_narrow'}:
+                from .agent_concept_authorization import normalize_graph_grants, grant_dependencies, validate_grant_dependencies
+                if expected_version is None:
+                    raise ValueError('图授权修改必须指定当前客户端版本')
+                if action == 'concept_map_grants':
+                    if set(params) != {'grants', 'approval_digest', 'resource_dependencies'} or not isinstance(params['approval_digest'], str) or not re.fullmatch(r'[a-f0-9]{64}', params['approval_digest']):
+                        raise ValueError('图授权必须绑定完整管理批准预览')
+                    graph_grants = normalize_graph_grants(params['grants'])
+                    if not graph_grants['grants']:
+                        raise ValueError('空图授权请使用明确撤销操作')
+                    validate_grant_dependencies(params['resource_dependencies'], graph_grants)
+                    if grant_dependencies(self.security.root, graph_grants) != params['resource_dependencies']:
+                        raise AgentError('resource_changed', '图授权资源在预览后变化，请重新完整预览', 409)
+                    required = {'read', 'propose', 'commit'} if any(g['capability'] == 'concept_maps.write' for g in graph_grants['grants']) else {'read'}
+                    if not required <= set(after['scopes']):
+                        raise ValueError('当前客户端scope不足以授予所选图能力')
+                elif action == 'concept_map_grants_narrow':
+                    from .agent_concept_authorization import client_graph_grants, validate_narrowing
+                    if set(params) != {'grants'} or before.get('authorization_schema_version') != 5:
+                        raise ValueError('图授权收窄参数无效')
+                    graph_grants = validate_narrowing(client_graph_grants(before), params['grants'])
+                else:
+                    if params or before.get('authorization_schema_version') != 5:
+                        raise ValueError('当前客户端没有可撤销的图授权')
+                    graph_grants = {'schema_version': 1, 'grants': []}
+                after.update(authorization_schema_version=5, concept_map_grants=graph_grants,
+                             kinds=list(dict.fromkeys([*client_kinds(before), 'concept_map'])) if action == 'concept_map_grants' else client_kinds(before))
             if action in {"create", "edit"}:
                 file_only = params.get("file_access_only", False)
                 if type(file_only) is not bool or file_only and (action != "create" or params.get("kinds") != [] or params["scopes"] != ["read"] or params["project_ids"] or params["categories"]):
                     raise ValueError("文件专用客户端不能隐含旧业务范围")
-                new_authorization = "capability_grants" in params or after.get("authorization_schema_version") in (3, 4) or file_only
+                new_authorization = "capability_grants" in params or after.get("authorization_schema_version") in (3, 4, 5) or file_only
                 grants = normalize_capability_grants(params["capability_grants"]) if "capability_grants" in params else client_capability_grants(after)
                 kinds = params.get("kinds", client_kinds(after))
-                self.security.validate_client(params["name"], params["scopes"], params["project_ids"], params["categories"], kinds, params.get("minimum_confirmation_mode", client_confirmation_mode(after)), grants if new_authorization else None)
+                if isinstance(kinds, list) and after.get('authorization_schema_version') == 5 and 'concept_map' in client_kinds(after):
+                    kinds = list(dict.fromkeys([*kinds, 'concept_map']))
+                self.security.validate_client(params["name"], params["scopes"], params["project_ids"], params["categories"], kinds, params.get("minimum_confirmation_mode", client_confirmation_mode(after)), grants if new_authorization else None, authorization_schema_version=after.get("authorization_schema_version", 2), concept_map_grants=after.get("concept_map_grants"))
                 if action == "create" and not kinds and not grants["grants"] and not file_only:
                     raise ValueError("独立客户端至少配置一项休眠授权")
-                schema = 4 if file_only or after.get("authorization_schema_version") == 4 else 3 if new_authorization else 2
+                schema = 5 if after.get("authorization_schema_version") == 5 else 4 if file_only or after.get("authorization_schema_version") == 4 else 3 if new_authorization else 2
                 after.update(minimum_confirmation_mode=params.get("minimum_confirmation_mode", client_confirmation_mode(after)), authorization_schema_version=schema, kinds=kinds, name=params["name"].strip(), scopes=sorted(set(params["scopes"])), project_ids=list(dict.fromkeys(params["project_ids"])), categories=list(dict.fromkeys(params["categories"])))
                 if file_only:
                     after["active_file_ids"] = []
@@ -486,7 +574,7 @@ class CredentialManager:
                     after["token_hash"] = hashlib.sha256(token.encode()).hexdigest()
             elif action == "revoke":
                 after["enabled"] = False
-            elif action != "edit":
+            elif action not in {"edit", "concept_map_grants", "concept_map_grants_revoke", "concept_map_grants_narrow"}:
                 raise ValueError("管理操作无效")
             if after_config is not None:
                 after_config = {**after_config, "schema_version": 2, "kinds": client_kinds(after), "minimum_confirmation_mode": client_confirmation_mode(after)}
@@ -495,12 +583,16 @@ class CredentialManager:
                 result.update(config_file=str(config_path), workspace_id=self.security.workspace_id)
             value = {"schema_version": 2, "workspace_id": self.security.workspace_id, "operation_id": operation_id, "request_id": request_id, "input_digest": signature, "client_id": client_id,
                      "state": "prepared", "before_client": before, "after_client": after, "before_config": before_config, "after_config": after_config, "result": result}
-            if self.security.registry_version() >= 2 or after.get("authorization_schema_version") in (3, 4):
+            if self.security.registry_version() >= 2 or after.get("authorization_schema_version") in (3, 4, 5):
                 if blocked:
                     raise AgentError("management_recovery_required", "升级或写入新格式前须解决全部未决操作", 503)
                 value.update(schema_version=3, registry_schema=2)
-            if self.security.registry_version() == 3 or after.get("authorization_schema_version") == 4:
+            if self.security.registry_version() >= 3 or after.get("authorization_schema_version") in (4, 5):
                 value.update(schema_version=4, registry_schema=3, operation_family="credential")
+            if action in {'concept_map_grants', 'concept_map_grants_revoke', 'concept_map_grants_narrow'}:
+                value.update(schema_version=5, registry_schema=4, operation_family='concept_map',
+                             graph_action={'concept_map_grants':'approve', 'concept_map_grants_revoke':'revoke', 'concept_map_grants_narrow':'narrow'}[action],
+                             graph_dependencies=params.get('resource_dependencies'), graph_grants_digest=digest(after['concept_map_grants']))
             self._write(path, value)
             self.checkpoint("prepared")
             if not self._finish(path, value):
@@ -562,15 +654,17 @@ class AgentManagement:
                 params["capability_grants"] = normalize_capability_grants(params["capability_grants"])
             current = security.clients().get(client_id, {})
             validation = {**params, "authorization_schema_version": 4 if payload.get("file_access_only") is True else current.get("authorization_schema_version", 2)}
-            if "capability_grants" not in validation and current.get("authorization_schema_version") in (3, 4):
+            if "capability_grants" not in validation and current.get("authorization_schema_version") in (3, 4, 5):
                 validation["capability_grants"] = client_capability_grants(current)
+            if current.get('authorization_schema_version') == 5:
+                validation['concept_map_grants'] = current['concept_map_grants']
             security.validate_client(**validation)
             configured = validation.get("capability_grants", {}).get("grants", [])
             if payload.get("file_access_only") is True:
                 params["file_access_only"] = True
                 if params.get("kinds") != [] or params["scopes"] != ["read"]:
                     raise ValueError("文件专用客户端只允许只读和空条目类型")
-            if sorted(params["scopes"]) not in (["read"], ["commit", "propose", "read"]) or not (params["project_ids"] or params["categories"] or configured or current.get("authorization_schema_version") in (3, 4) or params.get("file_access_only")):
+            if sorted(params["scopes"]) not in (["read"], ["commit", "propose", "read"]) or not (params["project_ids"] or params["categories"] or configured or current.get("authorization_schema_version") in (3, 4, 5) or params.get("file_access_only")):
                 raise ValueError("请选择只读或整理入库，并至少授权一个范围")
             projects = {item["id"] for item in self.repository.list_projects()}
             categories = set(self.repository.document_categories())

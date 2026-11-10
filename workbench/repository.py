@@ -92,6 +92,8 @@ class Repository:
             self._move_to_trash,
         )
         self._concept_map_repository = ConceptMapRepository(self.concept_maps_dir, self.config_dir, self._record_id_lock, self._move_to_trash)
+        from .agent_concept_authorization import restrict_graph_categories
+        self._concept_map_repository.before_category_change = lambda names: restrict_graph_categories(self, names)
         self._attachment_repository = AttachmentRepository(
             self.root,
             self.projects_dir,
@@ -111,6 +113,8 @@ class Repository:
         self._attachment_repository.agent_operation_inventory = self.attachment_operation_inventory
         self._record_repository.reserved_ids = self.reserved_resource_ids
         self._document_repository.reserved_ids = self.reserved_resource_ids
+        from .concept_map_ids import occupied_ids
+        self._concept_map_repository.reserved_ids = lambda: occupied_ids(self)
         if (self.root / ".agent" / "workspace.json").exists():
             from .agent_proposals import ProposalStore
             self.agent_proposals = ProposalStore(self)
@@ -338,6 +342,9 @@ class Repository:
         if not destination.is_relative_to(self.root) or destination.is_relative_to(self.trash_dir):
             raise ValueError("回收站恢复路径无效")
         if destination.exists():
+            if item.get('kind') == 'concept-map':
+                from .write_coordinator import RevisionConflict
+                raise RevisionConflict('概念图固定身份已存在，不能改名恢复或覆盖')
             destination = destination.with_name(f"{destination.stem}-restored-{datetime.now().strftime('%H%M%S')}{destination.suffix}")
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(source), str(destination))
@@ -354,6 +361,8 @@ class Repository:
         target = Path(item["trash_path"]).resolve()
         if target.parent != self.trash_dir:
             raise ValueError("回收站路径无效")
+        if item.get('kind') == 'concept-map':
+            self._concept_map_repository.remember_ids()
         if target.is_dir():
             shutil.rmtree(target)
         elif target.exists():

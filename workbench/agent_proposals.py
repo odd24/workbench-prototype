@@ -97,7 +97,7 @@ class ProposalStore:
 
     def owned(self, client, proposal_id):
         proposal = self._load(proposal_id)
-        if proposal["client_id"] != client["client_id"] or not allows(client, proposal["access_target"]):
+        if proposal["client_id"] != client["client_id"] or not allows(client, proposal["access_target"]) or proposal.get('source_target') is not None and not allows(client, proposal['source_target']):
             raise AgentError("not_found", "提案不存在或不可访问", 404)
         return proposal
 
@@ -113,7 +113,7 @@ class ProposalStore:
                 return self.public(self.owned(client, old["proposal_id"]))
         return None
 
-    def create(self, client, request, content, base_content, confirmation_mode="agent_attested", *, dependencies=None):
+    def create(self, client, request, content, base_content, confirmation_mode="agent_attested", *, dependencies=None, graph_warnings=None):
         self.preflight()
         request_hash = digest(request)
         active = 0
@@ -138,11 +138,28 @@ class ProposalStore:
                     "access_target": {"type": request["kind"], "project_id": content.get("project_id"), "category": content.get("category")}}
         if proposal['kind'] == 'attachment':
             proposal['access_target'] = {'project_id':content['project_id']} if content['owner_kind'] == 'project' else {'type':'document', 'category':content['metadata_before'].get('category', '未分类')} if content['owner_kind'] == 'document' else {'type':content['owner_kind'], 'project_id':content['project_id']}
+        if proposal['kind'] == 'concept_map':
+            from .agent_concept_execution import identity
+            from .agent_concept_service import graph_target
+            # The cursor may consume an ID before this atomic proposal save.
+            # Only the saved proposal binds it to the request/client/workspace.
+            with self.repository.write_lock, self.repository._record_id_lock:
+                if proposal['operation'] == 'create':
+                    proposal['target_id'] = self.repository._concept_map_repository.next_id()
+                    self.checkpoint('concept_map_id_claimed')
+                proposal.update(identity=identity(proposal), graph_warnings=graph_warnings or [],
+                                access_target=graph_target(content['graph'], proposal['target_id']),
+                                source_target=graph_target(base_content, proposal['target_id']) if proposal['operation'] == 'update' else None)
+                bind_context(proposal, client, dependencies)
+                validate_context(proposal)
+                self._save(proposal)
+                self.checkpoint('concept_map_reserved')
+                return self.public(proposal)
         bind_context(proposal, client, dependencies)
         self._save(proposal)
         return self.public(proposal)
 
-    def revise(self, proposal, expected_version, content, base_revision, base_content, *, client=None, dependencies=None):
+    def revise(self, proposal, expected_version, content, base_revision, base_content, *, client=None, dependencies=None, graph_warnings=None):
         self.preflight()
         self.editable(proposal, expected_version)
         proposal.update(approval=None, version=proposal["version"] + 1, state="draft", normalized_content=content,
@@ -151,8 +168,14 @@ class ProposalStore:
                         access_target={"type": proposal["kind"], "project_id": content.get("project_id"), "category": content.get("category")})
         if proposal['kind'] == 'attachment':
             proposal['access_target'] = {'project_id':content['project_id']} if content['owner_kind'] == 'project' else {'type':'document', 'category':content['metadata_before'].get('category', '未分类')} if content['owner_kind'] == 'document' else {'type':content['owner_kind'], 'project_id':content['project_id']}
+        if proposal['kind'] == 'concept_map':
+            from .agent_concept_service import graph_target
+            proposal.update(access_target=graph_target(content['graph'], proposal['target_id']), graph_warnings=graph_warnings or [],
+                            source_target=graph_target(base_content, proposal['target_id']) if proposal['operation'] == 'update' else None)
         if proposal["schema_version"] == 3:
             bind_context(proposal, client, dependencies)
+            if proposal['kind'] == 'concept_map':
+                validate_context(proposal)
         self._save(proposal)
         return self.public(proposal)
 
@@ -173,12 +196,18 @@ class ProposalStore:
             preview.update(**{key: proposal[key] for key in ("authorization_revision", "dependencies", "execution_plan", "plan_digest")})
         if proposal['kind'] == 'attachment':
             warnings = ['二进制仅按名称、大小、MIME及SHA-256预览，未解析内容；不执行或解压。', '创建/修改时间显示占位；服务端在接受本次确认时生成实际时间并持久记入执行计划，不使用草稿时间。', '最终名称和相对链接已固定；同名占位必须重新预览。', '请展示完整正文、元数据差异及来源，等待当前版本明确确认。']
+        if proposal['kind'] == 'concept_map':
+            from .agent_concept_execution import preview_fields
+            return {**preview, 'content': proposal['normalized_content'], **preview_fields(proposal)}
         return {**preview, "content": proposal["normalized_content"], "warnings": warnings}
 
     def preview_result(self, proposal):
         content = proposal["normalized_content"]
         preview = self.preview_payload(proposal)
         preview_digest = digest(preview)
+        if proposal['kind'] == 'concept_map':
+            from .agent_concept_execution import checked_preview
+            return checked_preview({**preview, 'preview_digest': preview_digest, 'expires_at': proposal['expires_at'], 'changes': preview['graph_diff'], 'body_diff': ''})
         changes = {key: {"before": proposal["base_content"].get(key), "after": value}
                    for key, value in content.items() if proposal["base_content"].get(key) != value}
         diff = "\n".join(difflib.unified_diff(proposal["base_content"].get("body", "").splitlines(), content.get("body", "").splitlines(), fromfile="当前正文", tofile="拟保存正文", lineterm=""))
@@ -202,6 +231,11 @@ class ProposalStore:
         return self.public(proposal)
 
     def _target(self, manifest):
+        if manifest['kind'] == 'concept_map':
+            from .agent_concept_maps import controlled_graph_path
+            if not re.fullmatch(r'CMAP-[0-9]+', str(manifest['item_id'])) or manifest['relative_path'] != f"concept-maps/{manifest['item_id']}.json":
+                raise ValueError('图执行固定目标无效')
+            return controlled_graph_path(self.repository.root, manifest['relative_path'])
         if manifest['kind'] == 'attachment':
             from .agent_attachment_execution import targets
             return targets(self.repository, self._load(manifest['proposal_id'], expire=False))[1]
@@ -265,11 +299,15 @@ class ProposalStore:
         directory = self.operations / operation_id
         directory.mkdir(parents=True, exist_ok=True)
         prepared.history_version = datetime.now().strftime("%Y%m%d-%H%M%S-%f") + "-" + uuid.uuid4().hex[:8]
+        receipt_content = proposal['normalized_content']['graph'] if proposal['kind'] == 'concept_map' else proposal['normalized_content']
         receipt = {"proposal_id": proposal["proposal_id"], "version": version, "kind": proposal["kind"],
                    "item_id": prepared.item_id, "revision": byte_digest(prepared.after), "committed_at": stamp(),
-                   "title": proposal["normalized_content"]["title"], "project_id": proposal["normalized_content"].get("project_id"),
-                   "category": proposal["normalized_content"].get("category"),
+                   "title": receipt_content["title"], "project_id": receipt_content.get("project_id"),
+                   "category": receipt_content.get("category"),
                    "web_path": "/?" + urlencode({"item": proposal["kind"], "itemId": prepared.item_id})}
+        if proposal['kind'] == 'concept_map':
+            graph = proposal['normalized_content']['graph']
+            receipt.update(title=graph['title'], project_id=graph['project_id'], category=graph['category'])
         if proposal["kind"] == "todo" and not prepared.item_id.startswith("TODO-"):
             receipt["web_path"] = None  # Converted legacy IDs remain readable via the record UI.
         manifest = {"schema_version": proposal["schema_version"], "workspace_id": self.workspace_id, "operation_id": operation_id,
@@ -287,15 +325,18 @@ class ProposalStore:
                             operation=proposal["operation"], access_target=proposal["access_target"],
                             authorization_revision=proposal["authorization_revision"], dependencies=proposal["dependencies"],
                             step_states=["pending", "pending"])
+            if proposal['kind'] == 'concept_map':
+                manifest.update(execution_schema_version=3, managed_time=json.loads(prepared.after.decode('utf-8'))['updated'])
             manifest["execution_plan"] = concrete_plan(manifest, proposal)
             manifest["execution_plan_digest"] = fingerprint(manifest["execution_plan"])
             receipt.update(plan_digest=proposal["plan_digest"], execution_plan_digest=manifest["execution_plan_digest"])
             self._validate_execution(manifest, proposal)
         self._target(manifest)
+        suffix = 'json' if proposal['kind'] == 'concept_map' else 'md'
         try:
-            atomic_write_bytes(directory / "after.md", prepared.after)
+            atomic_write_bytes(directory / f'after.{suffix}', prepared.after)
             if prepared.before is not None:
-                atomic_write_bytes(directory / "before.md", prepared.before)
+                atomic_write_bytes(directory / f'before.{suffix}', prepared.before)
             self.checkpoint("snapshots")
             if manifest["schema_version"] == 3:
                 self._validate_execution(manifest, proposal, snapshots=True)
@@ -309,7 +350,11 @@ class ProposalStore:
             atomic_write_json(directory / "manifest.json", manifest)
             self.checkpoint("applying")
             self.executing = True
-            self.repository.apply_markdown_write(proposal["kind"], prepared, self._progress(manifest, directory / "manifest.json"))
+            if proposal['kind'] == 'concept_map':
+                self._current_authorization(proposal)
+                self.repository.apply_concept_map_write(prepared, self._progress(manifest, directory / 'manifest.json'))
+            else:
+                self.repository.apply_markdown_write(proposal["kind"], prepared, self._progress(manifest, directory / "manifest.json"))
             self._finish(manifest, proposal)
             self.blocked = False
             return receipt
@@ -326,15 +371,27 @@ class ProposalStore:
                 manifest["step_states"] = ["completed", "applying" if stage == "history" else "completed"]
                 atomic_write_json(path, manifest)
                 self.checkpoint(stage + "_logged")
+            if manifest.get('kind') == 'concept_map' and stage == 'history':
+                # History is already durable, but the graph has not published.
+                # Revocation/dependency changes still prevent the JSON write.
+                self._current_authorization(self._load(manifest['proposal_id'], expire=False))
         return checkpoint
 
     def _history_path(self, manifest):
+        if manifest['kind'] == 'concept_map':
+            from .history import concept_map_history_path
+            from .agent_concept_maps import controlled_graph_path
+            path = concept_map_history_path(self.repository.history_dir, manifest['item_id'], manifest['history_version'])
+            return controlled_graph_path(self.repository.root, path.relative_to(self.repository.root).as_posix())
         path = history_path(self.repository.history_dir, manifest["item_id"], manifest["history_version"])
         if path.resolve() != path.absolute():
             raise ValueError("历史步骤路径无效")
         return path
 
     def _validate_execution(self, manifest, proposal, *, snapshots=False):
+        if proposal['kind'] == 'concept_map':
+            from .agent_concept_execution import validate_snapshots
+            return validate_snapshots(self, manifest, proposal, snapshots)
         if proposal['kind'] == 'attachment':
             from .agent_attachment_execution import validate_execution
             return validate_execution(self, manifest, proposal, snapshots)
@@ -422,6 +479,9 @@ class ProposalStore:
             raise AgentError("authorization_changed", "原客户端授权版本已变化", 409)
         from .agent_service import AgentService
         service = AgentService(self.repository, security)
+        if proposal['kind'] == 'concept_map':
+            service.prepare_submission(client, proposal)
+            return client
         if service.execution_dependencies(client, proposal["kind"], proposal["normalized_content"]) != proposal["dependencies"]:
             raise AgentError("dependency_changed", "提案依赖或集合已变化", 409)
         return client
@@ -524,6 +584,16 @@ class ProposalStore:
                     raise ValueError("磁盘内容与事务前后版本均不匹配")
                 if manifest["schema_version"] == 3:
                     self._current_authorization(proposal)
+                if proposal['kind'] == 'concept_map':
+                    from .concept_maps import PreparedConceptMapWrite
+                    after = (manifest_path.parent / 'after.json').read_bytes()
+                    before = (manifest_path.parent / 'before.json').read_bytes() if manifest['before_digest'] is not None else None
+                    manifest['state'] = 'applying'
+                    atomic_write_json(manifest_path, manifest)
+                    self.executing = True
+                    self.repository.apply_concept_map_write(PreparedConceptMapWrite(target, manifest['item_id'], before, after, manifest['history_version']), self._progress(manifest, manifest_path))
+                    self._finish(manifest, proposal)
+                    continue
                 after = (manifest_path.parent / "after.md").read_bytes()
                 before = (manifest_path.parent / "before.md").read_bytes() if manifest["before_digest"] is not None else None
                 if byte_digest(after) != manifest["after_digest"] or byte_digest(before) != manifest["before_digest"]:
@@ -624,5 +694,5 @@ class ProposalStore:
                     if manifest.get("schema_version") not in (1, 2, 3):
                         raise AgentError("unsupported_schema", "不能清理未知格式的事务", 503)
                 if not manifest_path.exists() or manifest.get("state") in {"committed", "abandoned"}:
-                    for filename in ("before.md", "after.md"):
+                    for filename in (("before.json", "after.json") if proposal['kind'] == 'concept_map' else ("before.md", "after.md")):
                         (directory / filename).unlink(missing_ok=True)

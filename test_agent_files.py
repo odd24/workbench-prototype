@@ -254,7 +254,12 @@ class FileTests(AgentFixture, unittest.TestCase):
         from workbench.agent_files import public_info
         record, _ = self.grant()
         with patch("workbench.agent_file_handles.SUPPORTED", False), patch("workbench.agent_files.SUPPORTED", False):
-            self.assertEqual(self.service.capabilities(self.client)["capability_authorization"]["implemented"], [])
+            capabilities = self.service.capabilities(self.client)
+            authorization = capabilities["capability_authorization"]
+            self.assertEqual(authorization["implemented"], ["concept_maps.read", "concept_maps.write"])
+            self.assertEqual(authorization["effective"], [])
+            self.assertEqual(capabilities["concept_maps"]["grants"], {"schema_version": 1, "grants": []})
+            self.assertEqual(capabilities["concept_maps"]["operations"], [])
             for operation in (lambda: self.service.list_file_grants(self.client), lambda: self.service.get_file_info(self.client, record["file_id"]), lambda: self.service.read_file(self.client, record["file_id"], {"source_revision": record["source_revision"]})):
                 with self.assertRaises(AgentError) as error:
                     operation()
@@ -546,7 +551,7 @@ class FileHTTPTests(unittest.TestCase):
             rpc.call("initialize", INITIALIZE)
             rpc.notify("notifications/initialized")
             tools = rpc.call("tools/list")["tools"]
-            self.assertEqual(len(tools), 20)
+            self.assertEqual(len(tools), 22)
             files = rpc.call("tools/call", {"name": "workbench_list_file_grants", "arguments": {}})["structuredContent"]
             item = files["items"][0]
             metadata = rpc.call("tools/call", {"name": "workbench_get_file_info", "arguments": {"file_id": result["file_id"]}})["structuredContent"]

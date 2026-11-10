@@ -73,6 +73,16 @@ class AgentService:
             raise AgentError("unsupported_platform", "本机文件能力在当前平台不可用", 503)
         return {"items": [public_info(item) for item in authorized_files(self.security, client).values()]}
 
+    @service_operation
+    def list_concept_maps(self, client, params):
+        from .agent_concept_service import GraphCandidateService
+        return GraphCandidateService(self.repository).list(client, params)
+
+    @service_operation
+    def get_concept_map(self, client, key):
+        from .agent_concept_service import GraphCandidateService
+        return GraphCandidateService(self.repository).get(client, key)
+
     def get_file_info(self, client, key):
         from .agent_files import get_authorized, public_info
         return public_info(get_authorized(self.security, client, key))
@@ -111,14 +121,20 @@ class AgentService:
         from .agent_uploads import LIMITS as UPLOAD_LIMITS
         upload_policies = active_policies(self.repository, self.security, client) if SUPPORTED else []
         attachment_policies = [policy for policy in upload_policies if policy.get('attachment_write')]
-        return {"kind_operations": {**{kind: ["create", "append", "update"] for kind in kinds}, **({"attachment":["create"]} if attachment_policies else {})},
-                "kind_fields": {kind: fields[kind] for kind in kinds}, "authorized_kinds": client_kinds(client),
+        from .agent_concept_authorization import client_graph_grants, effective_operations
+        graph_grants = client_graph_grants(client)
+        graph_read = 'concept_map' in client_kinds(client) and any(grant['capability'] == 'concept_maps.read' for grant in graph_grants['grants'])
+        graph_operations = effective_operations(self.repository, client) if graph_read else []
+        graph_write = bool(graph_operations)
+        return {"kind_operations": {**{kind: ["create", "append", "update"] for kind in kinds}, **({"attachment":["create"]} if attachment_policies else {}), **({'concept_map':graph_operations} if graph_write else {})},
+                "kind_fields": {**{kind: fields[kind] for kind in kinds}, **({'concept_map':{operation:['graph'] for operation in graph_operations}} if graph_write else {})}, "authorized_kinds": client_kinds(client),
                 "confirmation_modes": ["agent_attested", "local_web"], "default_confirmation_mode": client_confirmation_mode(client),
-                "proposal_schema_versions": [1, 2, 3], "execution_schema_versions": [1, 2], "api_version": "1", "workspace_id": self.security.workspace_id, "kinds": kinds,
+                "proposal_schema_versions": [1, 2, 3], "execution_schema_versions": [1, 2, 3], "api_version": "1", "workspace_id": self.security.workspace_id, "kinds": kinds + (['concept_map'] if graph_read else []),
                 "operations": ["create", "append", "update"], "limits": LIMITS, "scopes": client["scopes"],
                 "project_ids": client["project_ids"], "categories": client["categories"], "confirmation_mode": client_confirmation_mode(client),
                 "capability_authorization": {"configured": client_capability_grants(client),
-                                             "implemented": ["files.read", "uploads.stage", "attachments.write"] if SUPPORTED else [], "effective": (["files.read"] if file_grants else []) + (["uploads.stage"] if upload_policies else []) + (["attachments.write"] if attachment_policies else []), "activation": "requires_reauthorization"},
+                                             "implemented": (["files.read", "uploads.stage", "attachments.write"] if SUPPORTED else []) + ['concept_maps.read', 'concept_maps.write'], "effective": (["files.read"] if file_grants else []) + (["uploads.stage"] if upload_policies else []) + (["attachments.write"] if attachment_policies else []) + (['concept_maps.read'] if graph_read else []) + (['concept_maps.write'] if graph_write else []), "activation": "requires_reauthorization"},
+                'concept_maps': {'grants':graph_grants, 'operations':graph_operations, 'graph_json_bytes':262144, 'raw_base_bytes':1048576, 'preview_bytes':2097152, 'partial_update':False, 'delete':False, 'identity':'server-reserved stable CMAP ID; canceled/expired proposals retain it; timestamps fixed at confirmation acceptance', 'authorization':'fresh explicit grants; exact read/write/resource/operation intersection; existing projects/categories only'},
                 "upload_staging": {"policies": upload_policies, "limits": UPLOAD_LIMITS, "formal_attachment_write": bool(attachment_policies),
                                    "transports": ["approved_file_id", "dedicated_loopback_octet_stream"], "mcp_binary_payload": False,
                                    "authorization": "read scope, existing owner access and fresh staging policy; any client authorization or token change requires reapproval"},
@@ -127,7 +143,7 @@ class AgentService:
                                 "raw_chunk_bytes": 65536, "default_max_bytes": 10485760, "max_bytes": 104857600, "default_duration_seconds": 3600, "max_duration_seconds": 86400,
                                 "verification": "each segment rehashes the full approved file; raw byte offsets; use next_offset; attachment_source grants do not permit text reads or uploads",
                                 "revocation": "checked at response permit; already permitted responses may arrive after revocation", "timeout": "5 seconds checked between local synchronous reads; OS waits may exceed this"},
-                "authorization_schema_versions": [1, 2, 3, 4], "management_log_schema_versions": [1, 2, 3, 4]}
+                "authorization_schema_versions": [1, 2, 3, 4, 5], "management_log_schema_versions": [1, 2, 3, 4, 5]}
 
     @service_operation
     def projects(self, client, params):
@@ -148,7 +164,7 @@ class AgentService:
         if kind not in client_kinds(client) and project_id:
             raise AgentError("not_found", "项目不存在或不可访问", 404)
         tags = self.repository.list_tags()
-        if client.get("authorization_schema_version") in (3, 4):
+        if client.get("authorization_schema_version") in (3, 4, 5):
             visible = [item for item in self.repository.list_records() if allows(client, item)] + [item for item in self.repository.list_documents() if allows(client, item)]
             names = {name for item in visible for name in item.get("tags", [])}
             tags = [tag for tag in tags if tag["name"] in names]
@@ -346,6 +362,20 @@ class AgentService:
         if existing:
             return existing
         self.store.guard_writes()
+        if payload.get('kind') == 'concept_map':
+            from .agent_concept_service import GraphCandidateService, graph_target
+            from .agent_concept_authorization import graph_confirmation_mode
+            from .concept_map_ids import ConceptMapIdentityError
+            graphs = GraphCandidateService(self.repository)
+            content, base, warnings = graphs.normalize(client, payload.get('operation'), payload.get('content'), payload.get('target_id'), payload.get('base_revision'))
+            targets = [graph_target(content['graph'], payload.get('target_id'))] + ([graph_target(base, payload.get('target_id'))] if base else [])
+            for target in targets:
+                mode = graph_confirmation_mode(client, target, payload['operation'], mode)
+            try:
+                return self.store.create(client, payload, content, base, mode,
+                                         dependencies=graphs.dependencies(client, payload['operation'], content, base, payload.get('target_id')), graph_warnings=warnings)
+            except ConceptMapIdentityError as error:
+                raise AgentError('identity_unavailable', str(error), 503) from None
         if payload.get('kind') == 'attachment':
             from .agent_attachments import AttachmentService
             attachments = AttachmentService(self)
@@ -400,6 +430,18 @@ class AgentService:
         self._enforce_confirmation_policy(client, proposal)
         self.store.editable(proposal, payload.get("expected_version"))
         revision = payload.get("base_revision", proposal["base_revision"])
+        if proposal['kind'] == 'concept_map':
+            from .agent_concept_service import GraphCandidateService, graph_target
+            from .agent_concept_authorization import graph_confirmation_mode
+            graphs = GraphCandidateService(self.repository)
+            content, base, warnings = graphs.normalize(client, proposal['operation'], payload.get('content'),
+                                                      proposal['target_id'] if proposal['operation'] == 'update' else None, revision)
+            mode = proposal['confirmation_mode']
+            for target in [graph_target(content['graph'], proposal['target_id'])] + ([graph_target(base, proposal['target_id'])] if base else []):
+                mode = graph_confirmation_mode(client, target, proposal['operation'], mode)
+            proposal['confirmation_mode'] = mode
+            return self.store.revise(proposal, payload['expected_version'], content, revision, base, client=client,
+                                     dependencies=graphs.dependencies(client, proposal['operation'], content, base, proposal['target_id']), graph_warnings=warnings)
         if proposal['kind'] == 'attachment':
             from contextlib import ExitStack
             from .agent_attachments import AttachmentService
@@ -451,7 +493,11 @@ class AgentService:
         result = self.store.public(proposal)
         if proposal["state"] == "committed":
             try:
-                current = self.get_item(client, proposal["kind"], proposal["receipt"]["item_id"])
+                if proposal['kind'] == 'concept_map':
+                    from .agent_concept_service import authorized_graph
+                    current, _, _ = authorized_graph(self.repository, client, proposal['receipt']['item_id'])
+                else:
+                    current = self.get_item(client, proposal["kind"], proposal["receipt"]["item_id"])
                 result["current_item"] = {"exists": True, "revision": current["revision"], "changed_since_commit": current["revision"] != proposal["receipt"]["revision"]}
             except AgentError:
                 result["current_item"] = {"exists": False}
@@ -527,6 +573,19 @@ class AgentService:
         require_scope(client, "read")
         require_scope(client, "propose")
         require_scope(client, "commit")
+        if proposal['kind'] == 'concept_map':
+            from .agent_concept_service import GraphCandidateService
+            from .markdown_io import now_iso
+            graphs = GraphCandidateService(self.repository)
+            if authorization_revision(client) != proposal['authorization_revision']:
+                raise AgentError('authorization_changed', '图授权版本变化，请修订并重新完整预览', 409)
+            content, base, _ = graphs.normalize(client, proposal['operation'], proposal['normalized_content'],
+                                               proposal['target_id'] if proposal['operation'] == 'update' else None, proposal['base_revision'])
+            if content != proposal['normalized_content'] or base != proposal['base_content']:
+                raise AgentError('proposal_conflict', '图候选或原图变化，请重新完整预览', 409)
+            if graphs.dependencies(client, proposal['operation'], content, base, proposal['target_id']) != proposal['dependencies']:
+                raise AgentError('dependency_changed', '图相关资源或派生集合变化，请修订并重新预览', 409)
+            return graphs.prepare(proposal['operation'], content, proposal['target_id'], proposal['base_revision'], managed_time=now_iso())
         if proposal['kind'] == 'attachment':
             from .agent_attachments import AttachmentService
             return AttachmentService(self).prepare_submission(client, proposal)

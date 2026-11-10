@@ -2,7 +2,112 @@
 (function initializeConceptMapModule(global) {
 'use strict';
 
-function createConceptMapFeature({dom, api:apiClient, dialogs, appState}) {
+let conceptPreviewSequence = 0;
+const conceptColor = (value, fallback) => /^#[a-f0-9]{6}$/i.test(value || '') ? value : fallback;
+
+function conceptMapGeometry(from, to) {
+  if (!from || !to) return null;
+  const fromCenter = {x:from.x + from.width / 2, y:from.y + from.height / 2};
+  const toCenter = {x:to.x + to.width / 2, y:to.y + to.height / 2};
+  const boundary = (node, center, toward) => {
+    const dx = toward.x - center.x, dy = toward.y - center.y;
+    if (!dx && !dy) return {...center};
+    const scale = 1 / Math.max(Math.abs(dx) / Math.max(1, node.width / 2), Math.abs(dy) / Math.max(1, node.height / 2));
+    return {x:center.x + dx * scale, y:center.y + dy * scale};
+  };
+  const start = boundary(from, fromCenter, toCenter), end = boundary(to, toCenter, fromCenter);
+  const mid = {x:(start.x + end.x) / 2, y:(start.y + end.y) / 2};
+  return {d:`M ${start.x} ${start.y} L ${end.x} ${end.y}`, start, c1:start, c2:start, end, mid};
+}
+
+function conceptNodeMarkup(node, esc, {primary = false, multi = false, readOnly = false} = {}) {
+  const ports = readOnly ? '' : ['top', 'right', 'bottom', 'left'].map((side, index) => `<button type="button" class="concept-port ${side}" data-concept-port="${side}" aria-label="向${['上', '右', '下', '左'][index]}扩展">${['↑', '→', '↓', '←'][index]}</button>`).join('');
+  return `<article class="concept-node ${node.type === 'linking_phrase' ? 'linking-phrase' : 'concept'} ${esc(node.shape)} ${primary ? 'selected' : ''} ${multi ? 'multi-selected' : ''}" data-concept-${readOnly ? 'readonly-node' : 'node'}="${esc(node.id)}" data-concept-node-type="${esc(node.type || 'concept')}" style="left:${node.x}px;top:${node.y}px;width:${node.width}px;height:${node.height}px;background:${esc(conceptColor(node.color, '#f4f8fa'))};--concept-preview-background:${esc(conceptColor(node.color, '#f4f8fa'))};--concept-border:${esc(conceptColor(node.border_color, '#9eb4c7'))}"><strong style="color:${esc(conceptColor(node.text_color, '#213044'))};font-size:${node.font_size || 13}px;font-weight:${node.font_weight || 400}">${esc(node.text)}</strong>${ports}</article>`;
+}
+
+function conceptEdgeMarkup(edge, nodes, esc, {selected = false, prefix = 'concept-arrow', readOnly = false} = {}) {
+  const from = nodes.find(node => node.id === edge.from), to = nodes.find(node => node.id === edge.to);
+  const path = conceptMapGeometry(from, to);
+  if (!path) return '';
+  const markerId = `${prefix}-${edge.id}`, arrow = edge.arrowhead || (to.type === 'linking_phrase' ? 'none' : 'to');
+  const markers = `${['from', 'both'].includes(arrow) ? ` marker-start="url(#${esc(markerId)}-from)"` : ''}${['to', 'both'].includes(arrow) ? ` marker-end="url(#${esc(markerId)}-to)"` : ''}`;
+  const color = esc(conceptColor(edge.color, '#687b8e'));
+  const label = readOnly && edge.label ? `<text class="concept-preview-edge-label" x="${path.mid.x}" y="${path.mid.y}" text-anchor="middle">${String(edge.label).split('\n').map((line, index) => `<tspan x="${path.mid.x}" dy="${index ? '1.2em' : '-.5em'}">${esc(line)}</tspan>`).join('')}</text>` : '';
+  return `<g class="concept-map-edge-group ${selected ? 'selected' : ''}" data-concept-${readOnly ? 'readonly-edge' : 'edge'}="${esc(edge.id)}"><defs><marker id="${esc(markerId)}-from" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M10 0 L0 5 L10 10z" fill="${color}"/></marker><marker id="${esc(markerId)}-to" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0 L10 5 L0 10z" fill="${color}"/></marker></defs><path class="concept-map-edge-hit" d="${path.d}"/><path class="concept-map-edge-line" d="${path.d}" stroke="${color}" stroke-dasharray="${edge.dashed ? '6 5' : 'none'}"${markers}/>${label}</g>`;
+}
+
+function createConceptMapPreview({root, graph, escapeHtml:esc}) {
+  if (!root || typeof esc !== 'function' || !graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) throw new Error('完整图预览依赖无效');
+  const snapshot = JSON.parse(JSON.stringify(graph));
+  const finite = value => typeof value === 'number' && Number.isFinite(value);
+  const color = value => typeof value === 'string' && /^#[a-f0-9]{6}$/i.test(value);
+  const nodeIds = new Set(snapshot.nodes.map(node => node?.id));
+  if (snapshot.version !== 2 || snapshot.nodes.length > 500 || snapshot.edges.length > 1000 || !snapshot.viewport || !['x', 'y', 'zoom'].every(key => finite(snapshot.viewport[key])) || snapshot.viewport.zoom <= 0 || nodeIds.size !== snapshot.nodes.length || snapshot.nodes.some(node => !node || !/^[A-Za-z0-9_-]{1,80}$/.test(node.id) || !['concept', 'linking_phrase'].includes(node.type) || !['rounded', 'rectangle', 'pill', 'ellipse'].includes(node.shape) || typeof node.text !== 'string' || typeof node.note !== 'string' || !['x', 'y', 'width', 'height', 'font_size', 'font_weight'].every(key => finite(node[key])) || !['color', 'border_color', 'text_color'].every(key => color(node[key]))) || new Set(snapshot.edges.map(edge => edge?.id)).size !== snapshot.edges.length || snapshot.edges.some(edge => !edge || !/^[A-Za-z0-9_-]{1,80}$/.test(edge.id) || !nodeIds.has(edge.from) || !nodeIds.has(edge.to) || !color(edge.color) || typeof edge.label !== 'string' || typeof edge.dashed !== 'boolean' || !['none', 'from', 'to', 'both'].includes(edge.arrowhead))) throw new Error('完整图字段不能安全显示，请重新读取；不能批准残缺图预览');
+  const controller = new AbortController();
+  const prefix = `concept-preview-${++conceptPreviewSequence}`;
+  let disposed = false, gesture = null, frame = null, settle;
+  let viewport = {...snapshot.viewport};
+  const ready = new Promise(resolve => { settle = resolve; });
+  const listen = (node, type, callback, options = {}) => node.addEventListener(type, callback, {...options, signal:controller.signal});
+  root.setAttribute('data-concept-readonly', prefix);
+  root.innerHTML = `<div class="settings-actions"><button type="button" class="secondary-button" data-concept-view="fit">适应全图</button><button type="button" class="secondary-button" data-concept-view="original">保存的视口</button><button type="button" class="secondary-button" data-concept-view="out" aria-label="缩小图预览">−</button><output data-concept-view-zoom></output><button type="button" class="secondary-button" data-concept-view="in" aria-label="放大图预览">＋</button></div><div class="concept-map-canvas-shell concept-preview-shell" tabindex="0" role="region" aria-label="完整只读概念图，可拖动平移、滚轮缩放，F适应全图"><div class="concept-map-canvas"><svg class="concept-map-edges" width="12000" height="8000" aria-label="全部关系">${snapshot.edges.map(edge => conceptEdgeMarkup(edge, snapshot.nodes, esc, {prefix, readOnly:true})).join('')}</svg><div class="concept-map-nodes">${snapshot.nodes.map(node => conceptNodeMarkup(node, esc, {readOnly:true})).join('')}</div></div></div>`;
+  const shell = root.querySelector('.concept-preview-shell'), canvas = root.querySelector('.concept-map-canvas');
+  function apply() {
+    if (disposed) return;
+    canvas.style.transform = `translate(${viewport.x}px,${viewport.y}px) scale(${viewport.zoom})`;
+    root.querySelector('[data-concept-view-zoom]').textContent = `${(viewport.zoom * 100).toFixed(viewport.zoom < .1 ? 2 : 0)}%`;
+  }
+  function fit() {
+    if (disposed) return;
+    const nodes = snapshot.nodes, rect = shell.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const x = nodes.length ? Math.min(...nodes.map(node => node.x)) : 0, y = nodes.length ? Math.min(...nodes.map(node => node.y)) : 0;
+    const width = nodes.length ? Math.max(...nodes.map(node => node.x + node.width)) - x : 300;
+    const height = nodes.length ? Math.max(...nodes.map(node => node.y + node.height)) - y : 180;
+    const zoom = Math.max(.0005, Math.min(1.5, (rect.width - 48) / Math.max(1, width), (rect.height - 48) / Math.max(1, height)));
+    viewport = {x:(rect.width - width * zoom) / 2 - x * zoom, y:(rect.height - height * zoom) / 2 - y * zoom, zoom}; apply();
+  }
+  function zoom(scale, x = shell.clientWidth / 2, y = shell.clientHeight / 2) {
+    const next = Math.max(.0005, Math.min(8, viewport.zoom * scale));
+    viewport = {x:x - (x - viewport.x) * next / viewport.zoom, y:y - (y - viewport.y) * next / viewport.zoom, zoom:next}; apply();
+  }
+  listen(root, 'click', event => {
+    const action = event.target.closest('[data-concept-view]')?.dataset.conceptView;
+    if (!action) return;
+    if (action === 'fit') fit();
+    else if (action === 'original') { viewport = {...snapshot.viewport}; apply(); }
+    else zoom(action === 'in' ? 1.2 : 1 / 1.2);
+  });
+  listen(shell, 'pointerdown', event => {
+    if (event.button !== 0) return;
+    event.preventDefault(); shell.focus({preventScroll:true}); shell.setPointerCapture(event.pointerId);
+    gesture = {id:event.pointerId, x:event.clientX, y:event.clientY, viewport:{...viewport}};
+  });
+  listen(shell, 'pointermove', event => {
+    if (!gesture || gesture.id !== event.pointerId) return;
+    viewport = {...viewport, x:gesture.viewport.x + event.clientX - gesture.x, y:gesture.viewport.y + event.clientY - gesture.y}; apply();
+  });
+  for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) listen(shell, event, () => { gesture = null; });
+  listen(shell, 'wheel', event => { event.preventDefault(); const rect = shell.getBoundingClientRect(); zoom(event.deltaY > 0 ? 1 / 1.15 : 1.15, event.clientX - rect.left, event.clientY - rect.top); }, {passive:false});
+  listen(shell, 'keydown', event => {
+    if (event.key.toLowerCase() === 'f') { event.preventDefault(); fit(); }
+    else if (['+', '=', '-'].includes(event.key)) { event.preventDefault(); zoom(event.key === '-' ? 1 / 1.2 : 1.2); }
+    else if (event.key.startsWith('Arrow')) { event.preventDefault(); viewport.x += event.key === 'ArrowLeft' ? 30 : event.key === 'ArrowRight' ? -30 : 0; viewport.y += event.key === 'ArrowUp' ? 30 : event.key === 'ArrowDown' ? -30 : 0; apply(); }
+    event.stopPropagation();
+  });
+  frame = requestAnimationFrame(() => {
+    frame = null;
+    if (disposed) return;
+    fit();
+    const complete = root.isConnected && shell.clientWidth > 0 && shell.clientHeight > 0 && root.querySelectorAll('[data-concept-readonly-node]').length === snapshot.nodes.length && root.querySelectorAll('[data-concept-readonly-edge]').length === snapshot.edges.length;
+    settle(complete);
+  });
+  return Object.freeze({ready, fit, dispose:() => { if (disposed) return; disposed = true; controller.abort(); if (frame !== null) cancelAnimationFrame(frame); gesture = null; settle(false); root.innerHTML = ''; root.removeAttribute('data-concept-readonly'); }});
+}
+
+function createConceptMapFeature(options) {
+  if (options?.readOnly === true) return createConceptMapPreview(options);
+  const {dom, api:apiClient, dialogs, appState} = options;
   if (!dom || !apiClient || !dialogs || !appState) throw new Error('Concept map requires DOM, API, dialogs, and app state dependencies');
   const {$, $$, escapeHtml} = dom;
   const api = typeof apiClient === 'function' ? apiClient : apiClient.request;
@@ -35,6 +140,13 @@ let conceptMapSavePromise = null;
 let conceptMapConflict = false;
 let conceptMapRestoring = false;
 let conceptMapOpenRequest = 0;
+function conceptFrame(callback) {
+  const owner = conceptState.current, request = conceptMapOpenRequest;
+  return global.requestAnimationFrame(() => {
+    if (owner !== conceptState.current || request !== conceptMapOpenRequest || ($('#conceptMapPage') && !$('#conceptMapPage').classList.contains('active'))) return;
+    callback();
+  });
+}
 let conceptMapMultiSelection = new Set();
 let conceptMapHistory = [];
 let conceptMapHistoryIndex = -1;
@@ -239,7 +351,7 @@ async function openConceptMap(mapId, {centerInitial = false} = {}) {
   } else if (draft) clearConceptMapDraft(mapId);
   if (request !== conceptMapOpenRequest) return false;
   if (migrated || centerInitial) scheduleConceptMapSave();
-  requestAnimationFrame(() => conceptState.current.nodes.length === 1 && !conceptState.current.viewport.x && !conceptState.current.viewport.y ? fitConceptMap() : applyConceptMapViewport());
+  conceptFrame(() => conceptState.current.nodes.length === 1 && !conceptState.current.viewport.x && !conceptState.current.viewport.y ? fitConceptMap() : applyConceptMapViewport());
 }
 
 function conceptNode(nodeId) { return conceptState.current?.nodes.find(item => item.id === nodeId); }
@@ -256,20 +368,7 @@ function conceptNodeNaturalSize(text, fontSize = 13, type = 'concept') {
   return {width:Math.max(72, Math.min(280, Math.ceil(longest * fontSize + 22))), height:Math.max(30, Math.min(180, Math.ceil(lines.length * fontSize * 1.4 + 12)))};
 }
 
-function conceptMapPathBetween(from, to) {
-  if (!from || !to) return null;
-  const fromCenter = {x:from.x + from.width / 2, y:from.y + from.height / 2};
-  const toCenter = {x:to.x + to.width / 2, y:to.y + to.height / 2};
-  const boundaryPoint = (node, center, toward) => {
-    const dx = toward.x - center.x, dy = toward.y - center.y;
-    if (!dx && !dy) return {...center};
-    const scale = 1 / Math.max(Math.abs(dx) / Math.max(1, node.width / 2), Math.abs(dy) / Math.max(1, node.height / 2));
-    return {x:center.x + dx * scale, y:center.y + dy * scale};
-  };
-  const start = boundaryPoint(from, fromCenter, toCenter), end = boundaryPoint(to, toCenter, fromCenter);
-  const mid = {x:(start.x + end.x) / 2, y:(start.y + end.y) / 2};
-  return {d:`M ${start.x} ${start.y} L ${end.x} ${end.y}`, start, c1:start, c2:start, end, mid};
-}
+function conceptMapPathBetween(from, to) { return conceptMapGeometry(from, to); }
 
 function conceptMapPath(edge) { return conceptMapPathBetween(conceptNode(edge.from), conceptNode(edge.to)); }
 
@@ -345,7 +444,7 @@ function showConceptEdgeToolbar(edgeId, clientX = null, clientY = null) {
 }
 
 function migrateConceptMapLinkingPhrases() {
-  if (!conceptState.current || (conceptState.current.version >= 2 && !conceptState.current.edges.some(edge => edge.label))) return false;
+  if (!conceptState.current || (Object.hasOwn(conceptState.current, 'version') && conceptState.current.version !== 1)) return false;
   const migratedEdges = [], linkingPhrases = [];
   conceptState.current.edges.forEach(edge => {
     const from = conceptNode(edge.from), to = conceptNode(edge.to);
@@ -369,25 +468,29 @@ function migrateConceptMapLinkingPhrases() {
 
 function renderConceptMapEdges() {
   if (!conceptState.current) return;
-  $('#conceptMapEdges').innerHTML = conceptState.current.edges.map(edge => {
-    const path = conceptMapPath(edge); if (!path) return '';
-    const markerId = `concept-arrow-${edge.id}`, arrows = conceptEdgeArrowEnds(edge);
-    const markers = `${arrows.from ? ` marker-start="url(#${escapeHtml(markerId)}-from)"` : ''}${arrows.to ? ` marker-end="url(#${escapeHtml(markerId)}-to)"` : ''}`;
-    return `<g class="concept-map-edge-group ${conceptState.selection?.type === 'edge' && conceptState.selection.id === edge.id ? 'selected' : ''}" data-concept-edge="${escapeHtml(edge.id)}"><defs><marker id="${escapeHtml(markerId)}-from" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M10 0 L0 5 L10 10z" fill="${escapeHtml(edge.color)}"/></marker><marker id="${escapeHtml(markerId)}-to" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0 L10 5 L0 10z" fill="${escapeHtml(edge.color)}"/></marker></defs><path class="concept-map-edge-hit" d="${path.d}"/><path class="concept-map-edge-line" d="${path.d}" stroke="${escapeHtml(edge.color)}" stroke-dasharray="${edge.dashed ? '6 5' : 'none'}"${markers}/></g>`;
-  }).join('');
+  $('#conceptMapEdges').innerHTML = conceptState.current.edges.map(edge => conceptEdgeMarkup(edge, conceptState.current.nodes, escapeHtml, {selected:conceptState.selection?.type === 'edge' && conceptState.selection.id === edge.id})).join('');
 }
 
 function renderConceptMapLabels() {
   if (!conceptState.current) return;
-  $('#conceptMapLabels').innerHTML = '';
+  const root = $('#conceptMapLabels');
+  root.innerHTML = conceptState.current.edges.filter(edge => edge.label).map(edge => {
+    const path = conceptMapPath(edge);
+    if (!path) return '';
+    return `<span class="concept-link-word ${conceptState.selection?.type === 'edge' && conceptState.selection.id === edge.id ? 'selected' : ''}" data-concept-edge-label="${escapeHtml(edge.id)}" style="left:${path.mid.x}px;top:${path.mid.y}px">${escapeHtml(edge.label)}</span>`;
+  }).join('');
+  $$('[data-concept-edge-label]', root).forEach(label => {
+    label.addEventListener('pointerdown', event => {
+      event.stopPropagation(); conceptMapMultiSelection.clear(); conceptState.selection = {type:'edge', id:label.dataset.conceptEdgeLabel};
+      updateConceptMapSelectionUi(); showConceptEdgeToolbar(label.dataset.conceptEdgeLabel, event.clientX, event.clientY);
+    });
+    label.addEventListener('dblclick', event => { event.stopPropagation(); beginConceptEdgeEdit(label.dataset.conceptEdgeLabel); });
+  });
 }
 
 function renderConceptMapNodes() {
   if (!conceptState.current) return;
-  $('#conceptMapNodes').innerHTML = conceptState.current.nodes.map(node => {
-    const primary = conceptState.selection?.type === 'node' && conceptState.selection.id === node.id, multi = conceptMapMultiSelection.has(node.id);
-    return `<article class="concept-node ${node.type === 'linking_phrase' ? 'linking-phrase' : 'concept'} ${escapeHtml(node.shape)} ${primary ? 'selected' : ''} ${multi ? 'multi-selected' : ''}" data-concept-node="${escapeHtml(node.id)}" data-concept-node-type="${escapeHtml(node.type || 'concept')}" style="left:${node.x}px;top:${node.y}px;width:${node.width}px;height:${node.height}px;background:${escapeHtml(node.color || '#f4f8fa')};--concept-border:${escapeHtml(node.border_color || '#9eb4c7')}"><strong style="color:${escapeHtml(node.text_color || '#213044')};font-size:${node.font_size || 13}px;font-weight:${node.font_weight || 400}">${escapeHtml(node.text)}</strong><button type="button" class="concept-port top" data-concept-port="top" aria-label="向上扩展">↑</button><button type="button" class="concept-port right" data-concept-port="right" aria-label="向右扩展">→</button><button type="button" class="concept-port bottom" data-concept-port="bottom" aria-label="向下扩展">↓</button><button type="button" class="concept-port left" data-concept-port="left" aria-label="向左扩展">←</button></article>`;
-  }).join('');
+  $('#conceptMapNodes').innerHTML = conceptState.current.nodes.map(node => conceptNodeMarkup(node, escapeHtml, {primary:conceptState.selection?.type === 'node' && conceptState.selection.id === node.id, multi:conceptMapMultiSelection.has(node.id)})).join('');
   $$('[data-concept-node]', $('#conceptMapNodes')).forEach(bindConceptNode);
   $$('[data-concept-port]', $('#conceptMapNodes')).forEach(bindConceptPort);
 }
@@ -402,6 +505,7 @@ function updateConceptMapSelectionUi() {
     element.classList.toggle('multi-selected', conceptMapMultiSelection.has(element.dataset.conceptNode));
   });
   renderConceptMapEdges();
+  $$('[data-concept-edge-label]', $('#conceptMapLabels')).forEach(element => element.classList.toggle('selected', conceptState.selection?.type === 'edge' && conceptState.selection.id === element.dataset.conceptEdgeLabel));
   if (conceptState.selection?.type !== 'edge') { $('#conceptEdgeToolbar')?.remove(); conceptMapEdgeToolbarAnchor = null; }
 }
 
@@ -433,7 +537,7 @@ function addConceptNodeAt(x, y, text = '???', edit = true, persist = true) {
   const node = {id:nextConceptElementId('node', conceptState.current.nodes), type:'concept', text, note:'', x:Math.max(0, Math.min(CONCEPT_MAP_WIDTH - size.width, x - size.width / 2)), y:Math.max(0, Math.min(CONCEPT_MAP_HEIGHT - size.height, y - size.height / 2)), ...size, color:'#f4f8fa', border_color:'#9eb4c7', text_color:'#213044', font_size:13, font_weight:400, shape:'rounded'};
   conceptState.current.nodes.push(node); conceptMapMultiSelection.clear(); conceptState.selection = {type:'node', id:node.id}; renderConceptMap();
   if (persist) scheduleConceptMapSave();
-  if (edit) requestAnimationFrame(() => beginConceptNodeEdit(node.id));
+  if (edit) conceptFrame(() => beginConceptNodeEdit(node.id));
   return node;
 }
 
@@ -492,11 +596,11 @@ function beginConceptNodeEdit(nodeId) {
 }
 
 function beginConceptEdgeEdit(edgeId) {
-  const edge = conceptEdge(edgeId), label = $(`[data-concept-edge-label="${edgeId}"]`); if (!edge || !label || label.isContentEditable) return;
+  const edge = conceptEdge(edgeId), label = $$('[data-concept-edge-label]', $('#conceptMapLabels')).find(node => node.dataset.conceptEdgeLabel === edgeId); if (!edge || !label || label.isContentEditable) return;
   conceptState.selection = {type:'edge', id:edgeId}; updateConceptMapSelectionUi(); label.contentEditable = 'true'; label.focus({preventScroll:true});
   const selection = window.getSelection(), range = document.createRange(); range.selectNodeContents(label); selection.removeAllRanges(); selection.addRange(range);
   const finish = () => { label.contentEditable = 'false'; edge.label = label.textContent.trim(); renderConceptMapLabels(); scheduleConceptMapSave(); };
-  label.addEventListener('blur', finish, {once:true}); label.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); label.blur(); } });
+  label.addEventListener('blur', finish, {once:true}); label.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); label.blur(); } });
 }
 
 function addLinkingPhraseAt(x, y, text = '连接') {
@@ -549,7 +653,7 @@ function bindConceptPort(port) {
       if (moveEvent.pointerId !== gesture.pointerId || gesture.finished) return;
       if (Math.abs(moveEvent.clientX - start.x) + Math.abs(moveEvent.clientY - start.y) > 4) gesture.moved = true;
       const target = conceptDropTarget(moveEvent.clientX, moveEvent.clientY, source.id);
-      $$('.concept-node.drop-target').forEach(element => element.classList.remove('drop-target'));
+      $$('.concept-node.drop-target', $('#conceptMapNodes')).forEach(element => element.classList.remove('drop-target'));
       if (target) target.classList.add('drop-target');
       const targetNode = target ? conceptNode(target.dataset.conceptNode) : null;
       const point = targetNode ? {x:targetNode.x + targetNode.width / 2, y:targetNode.y + targetNode.height / 2} : conceptMapPoint(moveEvent.clientX, moveEvent.clientY);
@@ -557,7 +661,7 @@ function bindConceptPort(port) {
     };
     const cleanup = () => {
       capture.removeEventListener('pointermove', move); capture.removeEventListener('pointerup', up); capture.removeEventListener('pointercancel', cancel); capture.removeEventListener('lostpointercapture', cancel);
-      $('#conceptMapDraftEdge')?.remove(); $$('.concept-node.drop-target').forEach(element => element.classList.remove('drop-target'));
+      $('#conceptMapDraftEdge')?.remove(); $$('.concept-node.drop-target', $('#conceptMapNodes')).forEach(element => element.classList.remove('drop-target'));
       conceptMapLinkGesture = null; conceptMapLinkGestureBlockedUntil = performance.now() + 180;
     };
     const up = upEvent => {
@@ -568,15 +672,15 @@ function bindConceptPort(port) {
       if (gesture.moved) {
         if (!targetElement) {
           const dropPoint = conceptMapPoint(upEvent.clientX, upEvent.clientY), target = addConceptNodeAt(dropPoint.x, dropPoint.y, '???', false, false);
-          createConceptEdge(source.id, target.id, gesture.direct ? '' : '连接'); recenterLinkingPhrasesForConcept(source.id); renderConceptMap(); scheduleConceptMapSave(); requestAnimationFrame(() => beginConceptNodeEdit(target.id));
+          createConceptEdge(source.id, target.id, gesture.direct ? '' : '连接'); recenterLinkingPhrasesForConcept(source.id); renderConceptMap(); scheduleConceptMapSave(); conceptFrame(() => beginConceptNodeEdit(target.id));
           return;
         }
         const phrase = createConceptEdge(source.id, targetElement.dataset.conceptNode, gesture.direct ? '' : '连接'); renderConceptMap(); scheduleConceptMapSave();
-        if (phrase) requestAnimationFrame(() => beginConceptNodeEdit(phrase.id));
+        if (phrase) conceptFrame(() => beginConceptNodeEdit(phrase.id));
         return;
       }
       const point = branchPosition(source, port.dataset.conceptPort), target = addConceptNodeAt(point.x, point.y, '???', false, false);
-      createConceptEdge(source.id, target.id, gesture.direct ? '' : '连接'); renderConceptMap(); scheduleConceptMapSave(); requestAnimationFrame(() => beginConceptNodeEdit(target.id));
+      createConceptEdge(source.id, target.id, gesture.direct ? '' : '连接'); renderConceptMap(); scheduleConceptMapSave(); conceptFrame(() => beginConceptNodeEdit(target.id));
     };
     const cancel = cancelEvent => { if (cancelEvent.pointerId !== gesture.pointerId || gesture.finished) return; gesture.finished = true; cleanup(); renderConceptMapEdges(); };
     capture.addEventListener('pointermove', move); capture.addEventListener('pointerup', up); capture.addEventListener('pointercancel', cancel); capture.addEventListener('lostpointercapture', cancel);
@@ -929,11 +1033,19 @@ function layoutConceptMap() {
 
 function exportConceptMapPng() {
   if (!conceptState.current?.nodes.length) return;
-  const minX = Math.min(...conceptState.current.nodes.map(node => node.x)) - 60, minY = Math.min(...conceptState.current.nodes.map(node => node.y)) - 60;
-  const maxX = Math.max(...conceptState.current.nodes.map(node => node.x + node.width)) + 60, maxY = Math.max(...conceptState.current.nodes.map(node => node.y + node.height)) + 60;
+  let minX = Math.min(...conceptState.current.nodes.map(node => node.x)) - 60, minY = Math.min(...conceptState.current.nodes.map(node => node.y)) - 60;
+  let maxX = Math.max(...conceptState.current.nodes.map(node => node.x + node.width)) + 60, maxY = Math.max(...conceptState.current.nodes.map(node => node.y + node.height)) + 60;
+  const canvas = document.createElement('canvas'), context = canvas.getContext('2d');
+  context.font = '400 11px Microsoft YaHei';
+  conceptState.current.edges.forEach(edge => {
+    const data = conceptMapPath(edge); if (!data || !edge.label) return;
+    const lines = edge.label.split('\n'), halfWidth = Math.max(...lines.map(line => context.measureText(line).width)) / 2;
+    minX = Math.min(minX, data.mid.x - halfWidth - 60); maxX = Math.max(maxX, data.mid.x + halfWidth + 60);
+    minY = Math.min(minY, data.mid.y - 60); maxY = Math.max(maxY, data.mid.y + lines.length * 14 + 60);
+  });
   const width = maxX - minX, height = maxY - minY, scale = Math.min(2, 5000 / Math.max(width, height));
-  const canvas = document.createElement('canvas'); canvas.width = Math.ceil(width * scale); canvas.height = Math.ceil(height * scale);
-  const context = canvas.getContext('2d'); context.scale(scale, scale); context.translate(-minX, -minY); context.fillStyle = '#eef0f2'; context.fillRect(minX, minY, width, height);
+  canvas.width = Math.ceil(width * scale); canvas.height = Math.ceil(height * scale);
+  context.scale(scale, scale); context.translate(-minX, -minY); context.fillStyle = '#eef0f2'; context.fillRect(minX, minY, width, height);
   context.textAlign = 'center'; context.textBaseline = 'middle';
   const drawArrow = (point, angle, color) => { context.beginPath(); context.moveTo(point.x, point.y); context.lineTo(point.x - 8 * Math.cos(angle - .45), point.y - 8 * Math.sin(angle - .45)); context.lineTo(point.x - 8 * Math.cos(angle + .45), point.y - 8 * Math.sin(angle + .45)); context.closePath(); context.fillStyle = color; context.fill(); };
   conceptState.current.edges.forEach(edge => {
@@ -942,6 +1054,10 @@ function exportConceptMapPng() {
     const arrows = conceptEdgeArrowEnds(edge), angle = Math.atan2(data.end.y - data.start.y, data.end.x - data.start.x);
     if (arrows.from) drawArrow(data.start, angle + Math.PI, edge.color);
     if (arrows.to) drawArrow(data.end, angle, edge.color);
+    if (edge.label) {
+      context.font = '400 11px Microsoft YaHei'; context.fillStyle = '#44505e'; context.strokeStyle = '#eef0f2'; context.lineWidth = 4;
+      edge.label.split('\n').forEach((line, index) => { context.strokeText(line, data.mid.x, data.mid.y - 7 + index * 14); context.fillText(line, data.mid.x, data.mid.y - 7 + index * 14); });
+    }
   });
   conceptState.current.nodes.forEach(node => { if (node.type !== 'linking_phrase') { context.fillStyle = node.color; context.strokeStyle = node.border_color || '#9eb4c7'; context.lineWidth = 1; context.beginPath(); const radius = node.shape === 'rectangle' ? 2 : node.shape === 'pill' ? node.height / 2 : node.shape === 'ellipse' ? Math.min(node.width, node.height) / 2 : 4; context.roundRect(node.x, node.y, node.width, node.height, radius); context.fill(); context.stroke(); } else { context.fillStyle = '#eef0f2'; context.fillRect(node.x, node.y, node.width, node.height); } context.fillStyle = node.text_color || '#213044'; context.font = `${node.font_weight || 400} ${node.font_size || 13}px Microsoft YaHei`; context.fillText(node.text.slice(0, 40), node.x + node.width / 2, node.y + node.height / 2, node.width - (node.type === 'linking_phrase' ? 4 : 16)); });
   const link = document.createElement('a'); link.download = `${conceptState.current.id}-${conceptState.current.title.replace(/[\\/:*?"<>|]/g, '-')}.png`; link.href = canvas.toDataURL('image/png'); link.click(); notify('概念图已导出', link.download);
@@ -1059,18 +1175,21 @@ conceptMapCanvasShell.addEventListener('dblclick', event => { if (!event.target.
 conceptMapCanvasShell.addEventListener('wheel', event => { if (!conceptState.current) return; event.preventDefault(); changeConceptMapZoom(conceptState.current.viewport.zoom * (event.deltaY > 0 ? .9 : 1.1), event.clientX, event.clientY); }, {passive:false});
 
 document.addEventListener('pointerdown', event => {
+  if (event.target.closest?.('[data-concept-readonly]')) return;
   const edgeGroup = event.target.closest('[data-concept-edge]');
   if (edgeGroup && conceptState.current) { event.stopPropagation(); conceptMapMultiSelection.clear(); conceptState.selection = {type:'edge', id:edgeGroup.dataset.conceptEdge}; updateConceptMapSelectionUi(); showConceptEdgeToolbar(edgeGroup.dataset.conceptEdge, event.clientX, event.clientY); }
   if (!event.target.closest('.concept-map-menu,#conceptMapMore,.concept-map-card-more')) closeConceptMapMenus();
 });
 
 document.addEventListener('input', event => {
+  if (event.target.closest?.('[data-concept-readonly]')) return;
   if (!conceptState.current) return;
   if (event.target.id === 'conceptMapTitle') { conceptState.current.title = event.target.value; scheduleConceptMapSave(); return; }
   if (event.target.id === 'conceptMapFocus') { conceptState.current.focus_question = event.target.value; scheduleConceptMapSave(); return; }
 });
 
 document.addEventListener('click', async event => {
+  if (event.target.closest?.('[data-concept-readonly]')) return;
   const edgeArrow = event.target.closest('[data-concept-edge-arrow]');
   if (edgeArrow) { setConceptEdgeArrowType(edgeArrow.dataset.edgeId, edgeArrow.dataset.conceptEdgeArrow); return; }
   if (event.target.closest('#newConceptMapCategory')) { await createConceptMapCategory(); return; }
@@ -1118,7 +1237,8 @@ document.addEventListener('click', async event => {
 });
 
 document.addEventListener('keydown', event => {
-  if (!conceptState.current || $('#conceptMapWorkspace').hidden) return;
+  if (event.target.closest?.('[data-concept-readonly]')) return;
+  if (!conceptState.current || $('#conceptMapWorkspace').hidden || ($('#conceptMapPage') && !$('#conceptMapPage').classList.contains('active'))) return;
   const editable = event.target.matches('input,textarea,select,[contenteditable="true"]'), modifier = event.ctrlKey || event.metaKey, key = event.key.toLowerCase();
   if (!editable && modifier && key === 'z') { event.preventDefault(); event.shiftKey ? redoConceptMap() : undoConceptMap(); return; }
   if (!editable && modifier && key === 'y') { event.preventDefault(); redoConceptMap(); return; }
@@ -1141,9 +1261,11 @@ document.addEventListener('keydown', event => {
   if (modifier && event.key === 'Enter' && !editable) { event.preventDefault(); const shell = $('#conceptMapCanvasShell'), rect = shell.getBoundingClientRect(), point = conceptMapPoint(rect.left + rect.width / 2, rect.top + rect.height / 2); addConceptNodeAt(point.x, point.y); }
 });
 
-document.addEventListener('keyup', event => { if (event.code === 'Space') { conceptMapSpacePressed = false; conceptMapCanvasShell.classList.remove('space-pan'); } });
+document.addEventListener('keyup', event => {
+  if (event.target.closest?.('[data-concept-readonly]')) return; if (event.code === 'Space') { conceptMapSpacePressed = false; conceptMapCanvasShell.classList.remove('space-pan'); } });
 window.addEventListener('blur', () => { conceptMapSpacePressed = false; conceptMapCanvasShell.classList.remove('space-pan'); });
 document.addEventListener('paste', event => {
+  if (event.target.closest?.('[data-concept-readonly]')) return;
   if (!conceptState.current || $('#conceptMapWorkspace').hidden || event.target.matches('input,textarea,[contenteditable="true"]')) return;
   const text = event.clipboardData?.getData('text/plain').trim(); if (!text) return; event.preventDefault();
   const shell = $('#conceptMapCanvasShell'), rect = shell.getBoundingClientRect(), point = conceptMapPoint(rect.left + rect.width / 2, rect.top + rect.height / 2); addConceptNodeAt(point.x, point.y, text.slice(0, 500));

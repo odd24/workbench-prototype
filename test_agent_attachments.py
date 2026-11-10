@@ -735,10 +735,10 @@ class AttachmentHTTPTests(unittest.TestCase):
         rpc = RpcProcess([sys.executable, 'agent_bridge.py', '--config', self.info['config_file']], Path(__file__).resolve().parent, {**os.environ, 'PYTHONIOENCODING':'utf-8'})
         try:
             rpc.call('initialize', INITIALIZE); rpc.notify('notifications/initialized')
-            self.assertEqual(len(rpc.call('tools/list')['tools']), 20)
+            self.assertEqual(len(rpc.call('tools/list')['tools']), 22)
             def tool(name, arguments):
                 return rpc.call('tools/call', {'name':'workbench_' + name, 'arguments':arguments})
-            self.assertEqual(tool('capabilities', {})['structuredContent']['execution_schema_versions'], [1, 2])
+            self.assertEqual(tool('capabilities', {})['structuredContent']['execution_schema_versions'], [1, 2, 3])
             self.assertFalse(tool('cancel_proposal', {'proposal_id':proposal['proposal_id'], 'expected_version':1})['isError'])
             target = tool('get_attachment_target', {'owner_kind':kind, 'owner_id':owner_id})
             self.assertFalse(target['isError'], target)

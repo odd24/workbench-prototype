@@ -4,7 +4,7 @@
 
 主方案：[AI_AGENT_PLAN.md](AI_AGENT_PLAN.md)。前期扩展：[AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。实施事实与状态：[AI_AGENT_PROGRESS.md](AI_AGENT_PROGRESS.md)。执行规范：[AGENTS.md](../AGENTS.md)。
 
-**当前执行状态（2026-11-09）：用户最新明确“现在开始执行方案”，AG-128 已完成授权基础，尚未开放新增业务；AG-129执行基础、AG-130文件授权、AG-131私人暂存及AG-132记录/项目附件已完成，AG-133、134已完成、AG-135～143待开始，状态以台账为准。此前 AG-127 仅文档和暂停实施是历史事实。方案不等于能力已实现或验收；不得提前开放后续业务工具或操作真实客户端。**
+**当前执行状态（2026-11-09）：用户最新明确“现在开始执行方案”，AG-128 已完成授权基础，尚未开放新增业务；AG-129执行基础、AG-130文件授权、AG-131私人暂存及AG-132记录/项目附件已完成，AG-133～135已完成、AG-136～143待开始，状态以台账为准。此前 AG-127 仅文档和暂停实施是历史事实。方案不等于能力已实现或验收；不得提前开放后续业务工具或操作真实客户端。**
 
 ## 1. 目标与交付范围
 
@@ -253,7 +253,7 @@ capabilities 明示 authorized capabilities、kind_operations、kind_fields、�
 
 ## 12. 工作项、文件与独立验收
 
-以下是预计接点，不是要求创建所有候选文件。实施前确定最小变更，不复制现有 CRUD 或另建 Repository 进程。AG-127 为本文档治理；AG-128～132已完成、AG-133、134已完成、AG-135～143待开始，实际状态以台账为准。
+以下是预计接点，不是要求创建所有候选文件。实施前确定最小变更，不复制现有 CRUD 或另建 Repository 进程。AG-127 为本文档治理；AG-128～132已完成、AG-133～135已完成、AG-136～143待开始，实际状态以台账为准。
 
 | ID | 范围/依赖 | 预计文件或模块 | 独立完成证据 |
 | --- | --- | --- | --- |
@@ -410,3 +410,36 @@ AG-128实际结果见[本机能力验收](AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE
 - AG-LOCAL-DEC-044：领域Prepared固定before/after与唯一历史名，原字节历史→再查before→原子目标→重读；history/CMAP-ID/时间UUID.json无索引/新操作日志、不自动重放，所有历史保留。失败可能已有历史或目标，查询实际revision后处理；未知历史保留标警告、不自动删除。真实history/target退出及失败重读证明，保留外部FS竞态，不称多文件事务。
 - AG-LOCAL-DEC-045：唯一画布控制器持base/dirty序号/保存Promise/冲突和原open世代。409暂停保存并保留输入/撤销；明确继续编辑、读取磁盘或确认覆盖最新磁盘，再CAS。撤销不恢复旧base。成功flush才接受离开并失效未决open，失败/取消保留当前图；迟到请求还复核等待期间输入和空间。刷新草稿尽力保存，失败可见；JSON/PNG仅导出画布。恢复期间暂停autosave但继续输入，不用恢复响应覆盖新的输入。
 - AG-LOCAL-DEC-046：分类逐图、兼容_write、普通update/create和历史恢复复用同域Prepared；单图图库移动有列表CAS。分类配置与多图迁移中断仍属原有非事务边界，报错不宣称全部成功，不扩展AG-139。回收/ZIP接点保持，未开放Agent concept_map类型、工具或休眠许可，AG-135以后另行派发。
+
+
+## 22. AG-135实施设计（2026-11-10，监督接受，已实施；以下设计过程保留）
+
+1. **新鲜授权与兼容门槛**：拟root registry4 / client authorization5 / management log5，保留旧1～3/1～4/1～4读取，首次明确图授权管理批准才升新门槛，清空/撤销不降版。复用CredentialManager、锁、expected_version、私人前后快照/幂等及report/abandon；新concept_map授权操作家族。独立`concept_map_grants` schema1为实际批准内容，原capability_grants继续严格dormant，绝不复制configured为active。scope read/propose/commit、明确concept_map类型、read/write能力、具体资源与create/update操作及最低确认共同满足；旧客户端即使全项目/分类也无图能力。最低确认取请求/客户端/所有匹配写grant最严格。新版本保持其它文件/暂存/附件字段和旧行为，旧代码未知root/log/proposal/handler全量预检拒绝；真实9e43aa3验证零JSON变更。此格式提升是待讨论的明确选择，不伪称现有格式。
+
+2. **范围和依赖**：具体project资源只覆盖关联该项目的图，独立category资源仅覆盖project_id=null的图，named map资源只针对现有稳定ID；空project不表示所有图。read/write分开；create只可项目或独立分类授权，named map不授予尚未存在的任意ID。update同时校验原图和完整候选，改变归属还需明确目的项目/独立分类写范围，不凭named map迁移到任意归属。只用现有project/category，不创建配置。授权变更绑定client_version，执行依赖绑定图base_revision、相关project存在/版本和分类原始配置及完整归一化集合，成员增减均冲突。分类改名/删除复用既有“先收窄授权再迁移业务”的CredentialManager hook，拟对图分类grant移除旧资源且不自动恢复/改成未分类；需重新明确授权，失败保持收窄。静态读取/错误/列表/引用不泄漏未授权图或项目正文。外部文件系统及字节版本ABA边界不伪称已消除。
+
+3. **稳定身份，无额外ID状态机**：create提案原子落盘本身持久预留`target_id=CMAP-ID`（显式identity schema1，含proposal/workspace/client绑定），不另建预留目录/第二索引。共享Repository写锁+既有ID锁分配，取正式图、图历史、回收站、所有graph提案（含取消/过期/已清理）、执行manifest和回执的占用并集；网页create也使用同一占用提供器。首次proposal落盘前退出无已展示身份，落盘后按request_id/hash找回原proposal和ID；revision版本保持同ID，终结墓碑保留身份永不重用。读/取消/过期不创建正式JSON或目录/历史。标题同名沿用现有允许规则，ID区分；固定正式路径被占用一律409，不换名换ID或接管外部文件。现有ProposalStore终结清理保留target_id/identity；不靠内存预留。AG-134同域新增prepare_create并由普通create调用；Agent create要求完整至少一个节点，避免网页空输入默认根节点被当成隐式候选修改。
+
+4. **完整候选与严格校验**：content拟仅`graph`对象，完整version2/title/project_id/category/focus_question/theme/viewport/nodes/edges；顶层id/created/updated/revision与任意路径均拒绝，ID由预留或target给定。在既有宽容normalize前逐层拒绝未知字段、错误类型/bool充数/NaN或Infinity、重复/非法节点边ID、自环/缺失引用、非法类型/箭头组合及所有现有数值/字符/颜色/数量上限。输入不得被静默修正/截断；颜色等纯等价规范化完整预览显示。稳定ID检查仅识别唯一、完整相同的非ID字段结构匹配所证明的纯重新编号；边先按已证明节点映射归一端点，不做NLP/模糊语义推断。重复相同节点或身份无法证明时不武断拒绝，明确服务不能证明任意语义身份。旧文件宽容读取/网页路径不移除；无法严格表达的旧图需先本机处理，不自动重编号。已有未知meta若领域保留必须完整列出，任何可能丢失的旧字段/归一化变化须显式警告和完整前后差异或拒绝。候选与base各拟最多256KiB、完整preview拟最多2MiB，超限413而不截断/声称完整；不放宽旧1MiB请求/8MiB响应或旧正文限制，capabilities分别明示。
+
+5. **唯一引擎与恢复**：保留proposal3/sha256-json-v3，新增静态concept_map@1、外层manifest3内独立execution_schema3与history_snapshot/json_write两步。preview与commit同域prepare（不apply），候选固定ID及时间占位；受理确认时才生成实际created/updated并持久固定，只允许这些托管字段变化。计划/批准/依赖/managed_time/固定history版本、before.json/after.json摘要与原receipt绑定；server派生concept-maps/CMAP-ID.json及history受控路径，不接受执行指令或任意path。同一ProposalStore预检全部新旧证据后才任何过期/恢复/清理写，复用guard、report/abandon、两确认、幂等回执，无平行恢复进程。before需当前授权与依赖，after已发布且历史证据匹配只补原回执；第三方其它字节/缺历史/未知版本保留503，不分配新ID、不重放已完成后来的编辑/删除。create applying后目标消失不擅自重建；无manifest的初始化/快照残留不推定已确认。真实退出覆盖提案预留首次保存、批准、快照/manifest、历史、target replace、receipt/proposal终结与清理；不称两文件事务或文件作者身份认证。
+
+6. **完整预览与画布复用**：拟扩展既有conceptMap工厂的只读模式及明确root范围/销毁监听器；同一几何/节点/边渲染能力，不再实现第二套图画布或另用PNG缩略图替代。只读实例独立交互状态、不注册编辑/保存/全局快捷键，不修改后台current/dirty/undo；平移缩放仅查看。既有编辑factory的全局选择器/监听器需限定自有root，避免预览节点误触编辑。管理modal提供可缩放全图、完整元数据/保留字段、全部节点文字/note/ID/布局/样式、全部边端点/文字/箭头/样式，及按稳定ID的增删改、全部文字和坐标/尺寸/视口差异与警告；当前规模不分页，不折叠或截断明细作为默认“完整”。MCP完整结果含同样候选/base/明细/差异/警告，全部纳入graph分支preview_payload摘要，普通Markdown摘要语义不变。local_web只有完整API/画布/明细同版本加载成功后才能申请批准，沿既有会话ticket/完整摘要/依赖/authorization绑定；改候选须新版本重预览。Agent自报不能替代local_web，两确认均不宣称现实身份认证。
+
+7. **接口/深链与验收接点**：拟新增范围只读list/get graph工具（目录20→22，最终以实测目录为准），复用prepare/revise/preview/commit工具的concept_map create/update分支，不开放delete。明确graph只读结果与可编辑候选、保留metadata及revision，过大完整内容拒绝而非返回伪全文。web_path `/?item=concept_map&itemId=CMAP-ID`经严格ID和当前请求检查，先AG-134 flush/leave，再打开原画布；不绕过dirty冲突保护。真实浏览器两确认/完整大图明细/旧版本拒批/取消/丢响应/刷新查原回执/结果深链/后台画布无副作用/保存重开/undo-redo/JSON-PNG/浅深1440-390；新旧格式、管理私有快照与旧二进制拒绝、并发预留/网页创建、各写阶段真实退出、授权/分类/项目变化及MCP原始stdio均进入临时数据验收。此为设计，尚无新增已实现能力；不提前开展136。
+
+
+2026-11-10监督设计收口：上述总体方案已接受，可实施135；136不开始。registry4/auth5/log5必要性是旧程序无法理解实际图授权及撤销恢复，普通旧客户端只读/状态不升级；须覆盖首个私有快照已落但root未升的窗口、所有其它管理family及withdraw/rotate/revoke/report-abandon/terminal cleanup不降版不丢字段。预留全部未知/损坏占用来源fail closed，所有显示过ID的墓碑永久保留且记录扫描/增长成本。project/category完整派生集合依赖是保守选择，无关成员增减也可能要求重预览，须在警告中明确。
+
+字节预算明确为新增Agent路径：候选与base各256KiB按紧凑、ensure_ascii=False JSON数据的UTF-8计数（含全部图字段/保留元数据，排除传输revision）；原始base文件另设1MiB接收上限以拒绝异常格式膨胀，正式快照仍保存上限内原字节及原SHA，不能用重序列化代替revision。JSON请求envelope仍服从现有1MiB；完整preview实际JSON上限2MiB，并验证MCP双structured/text结果仍在8MiB预算内。超任何界限413，不影响网页原有图限制。只读量化盘点：标准500节点/1000边样本紧凑UTF-8为220400B，缩进JSON为347464B；两种字节层必须区分，不把缩进使合法常见图误判为256KiB数据上限。
+
+readonly工厂/root/lifecycle公开契约调整登记在135内，不回写RF历史；优先共享最小几何/渲染原语，不能复制整套编辑器。避免DOM id重复，选择器/监听器/快捷键/blur/paste/unload/pagehide/rAF/save timer有明确实例归属和dispose；旧预览迟到不装配新提案，readonly不调用写API或污染草稿/undo/current。local_web可批准状态绑定同一proposal/version/digest的完整明细与画布载入，失败/取消/更版清空；ticket仅证明服务端完整预览数据和管理会话绑定，不证明DOM可信或人眼读过每条。未实现的能力仍不在capabilities中宣称。
+
+
+2026-11-10监督兼容边界修订：首private snapshot→operation log→registry fence顺序保持，不增加全局阻塞标记。旧管理/恢复/客户端变更入口扫描到孤儿新快照时必须零JSON写拒绝；root4/log5或图proposal/manifest存在后，只对实际经过相应格式门槛的旧Agent授权/提案恢复写入口声明拒绝。首快照但root/log未升的窗口尚无新增图权限生效，旧dormant不激活；已经运行的旧HTTP业务可按旧有效授权继续，普通无凭据网页也不必经过registry，不能概称所有旧业务零写。真正授权发布/图提交前重查client_version和目标/依赖版本，窗口内合法旧修改造成CAS/依赖冲突而不静默覆盖。测试按每个真实退出点和入口分组，证明旧管理不覆盖新快照/授权且active grant发布前root fence已持久；保留混用版本/外部FS与非秘密摘要不能证明文件作者的边界。此前更宽的“旧代码零写”目标以本修订限定，不抹原讨论。
+
+AG-LOCAL-DEC-047（2026-11-10，监督接受，135分配契约补充）：统一图分配器使用config/concept-map-ids.json的schema_version=1/high_water非负整数单调游标，仅作分配元数据，不是第二套提案预留或事务日志。真正领取身份在repository.write_lock→既有ID锁下，严格读取游标与formal/history/trash/全部proposal/manifest/receipt占用取max，先原子持久化新上界，再发布网页图或首个proposal。Agent身份/客户端/工作空间仍只由唯一proposal原子JSON绑定，重试先查原request不重新领取；纯prepare与只读list/get不初始化游标。失败/取消/过期/清空回收站不降上界，允许安全跳号。缺文件时只能从现存证据派生，无法区分首次升级与人为删除旧游标；升级前已永久移除且无证据ID不能追溯，人为删除或部分恢复分配元数据后不再保证无证据旧ID不复用。未知/损坏任一占用源或游标停止分配，不归零/跳过。完整ZIP自然包含此可移植配置文件，完整解压及copytree迁移保留；单项目/文档ZIP不承诺全库图编号。旧并行进程不理解游标，延续混用版本不能保证其分配的边界。不采用空history目录，不扩展136的Agent删除能力。
+
+AG-LOCAL-DEC-048（2026-11-10，监督接受，135主画布贯通修复）：原主画布不只迁移旧v1，v2只要edge.label非空也自动拆边/新增linking_phrase并autosave；与135完整图候选及稳定ID冲突。自动迁移限定已支持version1及历史缺version约定，version2保留label和节点/边身份，不再因打开而改结构；未知未来版不得当旧版迁移或写回。复用同一共享几何/边/节点渲染，主图标签沿用已有标签编辑宿主，不另建画布。补完整Agent提交→深链打开→等待保存窗口字节不变→显式标签编辑保存重开身份和关系样式/箭头保留、旧v1迁移和原画布/readonly回归。此为有意修正旧v2自动迁移行为，不宣称该旧行为保留。
+
+AG-135实施收口（2026-11-10）：22节及决策047/048范围已完成，最终433项Python/23项Node分批与隔离真实Codex旧流兼容验收通过，实际结果、首次失败/复验、兼容及风险见独立台账与验收。上文拟定/尚未实现等表述保留为当时设计事实，不代表当前能力状态。136～143未开始。

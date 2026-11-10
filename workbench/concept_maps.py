@@ -59,6 +59,8 @@ class ConceptMapRepository:
         self.history_dir = concept_maps_dir.parent / "history"
         self._id_lock = id_lock
         self._move_to_trash = move_to_trash
+        self.reserved_ids = lambda: set()
+        self.before_category_change = lambda names: None
 
     @staticmethod
     def concept_map_number(value, default=0.0) -> float:
@@ -68,7 +70,8 @@ class ConceptMapRepository:
             return float(default)
         return number if abs(number) <= 100_000 else float(default)
 
-    def normalize(self, payload: dict, current: dict | None = None) -> dict:
+    @classmethod
+    def normalize(cls, payload: dict, current: dict | None = None) -> dict:
         if not isinstance(payload, dict):
             raise ValueError("概念图数据无效")
         base = current or {}
@@ -117,11 +120,11 @@ class ConceptMapRepository:
                 "id": node_id, "text": str(raw.get("text", "新概念")).strip()[:500] or "新概念",
                 "type": node_type,
                 "note": str(raw.get("note", ""))[:5000],
-                "x": self.concept_map_number(raw.get("x")), "y": self.concept_map_number(raw.get("y")),
-                "width": min(420, max(min_width, self.concept_map_number(raw.get("width"), 120))),
-                "height": min(260, max(min_height, self.concept_map_number(raw.get("height"), 38))),
+                "x": cls.concept_map_number(raw.get("x")), "y": cls.concept_map_number(raw.get("y")),
+                "width": min(420, max(min_width, cls.concept_map_number(raw.get("width"), 120))),
+                "height": min(260, max(min_height, cls.concept_map_number(raw.get("height"), 38))),
                 "color": color.lower(), "border_color": border_color.lower(), "text_color": text_color.lower(),
-                "font_size": min(32, max(10, int(self.concept_map_number(raw.get("font_size"), 13)))),
+                "font_size": min(32, max(10, int(cls.concept_map_number(raw.get("font_size"), 13)))),
                 "font_weight": font_weight, "shape": shape,
             })
         edges, edge_ids = [], set()
@@ -153,14 +156,14 @@ class ConceptMapRepository:
         viewport = payload.get("viewport", base.get("viewport", {}))
         if not isinstance(viewport, dict):
             viewport = {}
-        zoom = min(3, max(.2, self.concept_map_number(viewport.get("zoom"), 1)))
+        zoom = min(3, max(.2, cls.concept_map_number(viewport.get("zoom"), 1)))
         return {
             "version": 2, "title": title,
             "project_id": str(payload.get("project_id", base.get("project_id", "")) or "").strip()[:80] or None,
             "category": validate_category_name(payload.get("category", base.get("category", "未分类"))),
             "focus_question": str(payload.get("focus_question", base.get("focus_question", ""))).strip()[:500],
             "theme": str(payload.get("theme", base.get("theme", "light"))) if str(payload.get("theme", base.get("theme", "light"))) in {"light", "paper", "dots"} else "light",
-            "viewport": {"x": self.concept_map_number(viewport.get("x")), "y": self.concept_map_number(viewport.get("y")), "zoom": zoom},
+            "viewport": {"x": cls.concept_map_number(viewport.get("x")), "y": cls.concept_map_number(viewport.get("y")), "zoom": zoom},
             "nodes": nodes, "edges": edges,
         }
 
@@ -212,6 +215,9 @@ class ConceptMapRepository:
             category = str(concept_map.get("category") or "未分类").strip() or "未分类"
             if category not in cleaned:
                 cleaned.append(category)
+        removed = set(self.categories()) - set(cleaned)
+        if removed:
+            self.before_category_change(removed)
         atomic_write_json(self.config_dir / "concept-map-categories.json", cleaned)
         return cleaned
 
@@ -233,6 +239,8 @@ class ConceptMapRepository:
             raise ValueError("分类名称不能为空")
         if new_name != old_name and new_name in categories:
             raise ValueError("分类名称已存在")
+        if new_name != old_name:
+            self.before_category_change({old_name})
         changed = 0
         for summary in self.list():
             if summary.get("category") != old_name:
@@ -251,6 +259,7 @@ class ConceptMapRepository:
             raise FileNotFoundError(name)
         if name == "未分类":
             raise ValueError("“未分类”是系统默认分类，不能删除")
+        self.before_category_change({name})
         changed = 0
         for summary in self.list():
             if summary.get("category") != name:
@@ -293,7 +302,7 @@ class ConceptMapRepository:
         stamp = datetime.now().strftime('%Y%m%d-%H%M%S-%f') + '-' + uuid.uuid4().hex[:8]
         return PreparedConceptMapWrite(path, map_id, before, json.dumps(item, ensure_ascii=False, indent=2).encode('utf-8'), stamp)
 
-    def prepare_update(self, map_id, payload):
+    def prepare_update(self, map_id, payload, *, managed_time=None):
         if not isinstance(payload, dict):
             raise ValueError('概念图数据无效')
         if 'version' in payload and (type(payload['version']) is not int or payload['version'] not in (1, 2)):
@@ -310,7 +319,7 @@ class ConceptMapRepository:
         if expected != content_revision(before) or current['revision'] != content_revision(before):
             raise RevisionConflict('概念图已变化，请处理版本冲突')
         normalized = self.normalize(payload, current)
-        item = {**current, **normalized, 'id':map_id, 'updated':now_iso()}
+        item = {**current, **normalized, 'id':map_id, 'updated':managed_time or now_iso()}
         item.pop('revision', None)
         item.pop('expected_revision', None)
         return self._prepared(path, map_id, before, item)
@@ -326,19 +335,41 @@ class ConceptMapRepository:
         item = self.get_history(map_id, version)
         return self.update(map_id, {**item, 'expected_revision':payload.get('expected_revision')})
 
-    def create(self, payload: dict) -> dict:
+    def next_id(self):
+        from .concept_map_ids import advance
+        with self._id_lock:
+            return advance(self.concept_maps_dir.parent, self.reserved_ids, allocate=True)
+
+    def remember_ids(self):
+        from .concept_map_ids import advance
+        with self._id_lock:
+            advance(self.concept_maps_dir.parent, self.reserved_ids, allocate=False)
+
+    def prepare_create(self, payload, map_id, *, managed_time=None, default_node=True):
+        """Produce fixed bytes without categories, directories, history or target writes."""
         if isinstance(payload, dict) and 'version' in payload and (type(payload['version']) is not int or payload['version'] not in (1, 2)):
             raise ValueError('概念图候选版本尚不支持')
+        if not isinstance(map_id, str) or not re.fullmatch(r'CMAP-\d+', map_id):
+            raise ValueError('概念图身份无效')
+        path = self.concept_maps_dir / f'{map_id}.json'
+        if path.exists():
+            raise RevisionConflict('概念图固定身份已被占用，不能改名或覆盖')
+        normalized = self.normalize(payload)
+        if default_node and not normalized['nodes']:
+            width, height = float(min(240, max(90, len(normalized['title']) * 14 + 22))), 38.0
+            normalized['nodes'] = [{'id': 'node-1', 'type': 'concept', 'text': normalized['title'], 'note': '', 'x': (CONCEPT_MAP_WIDTH - width) / 2, 'y': (CONCEPT_MAP_HEIGHT - height) / 2, 'width': width, 'height': height, 'color': '#f4f8fa', 'border_color': '#9eb4c7', 'text_color': '#213044', 'font_size': 13, 'font_weight': 400, 'shape': 'rounded'}]
+        stamp = managed_time or now_iso()
+        item = {'id': map_id, **normalized, 'created': stamp, 'updated': stamp}
+        return self._prepared(path, map_id, None, item)
+
+    def create(self, payload: dict) -> dict:
         with self._id_lock:
-            used = [int(match.group(1)) for path in self.concept_maps_dir.glob("CMAP-*.json") if (match := re.fullmatch(r"CMAP-(\d+)", path.stem))]
-            map_id, stamp = f"CMAP-{max(used, default=0) + 1:04d}", now_iso()
             normalized = self.normalize(payload)
-            normalized["category"] = self.ensure_category(normalized["category"])
-            if not normalized["nodes"]:
-                width, height = float(min(240, max(90, len(normalized["title"]) * 14 + 22))), 38.0
-                normalized["nodes"] = [{"id": "node-1", "type": "concept", "text": normalized["title"], "note": "", "x": (CONCEPT_MAP_WIDTH - width) / 2, "y": (CONCEPT_MAP_HEIGHT - height) / 2, "width": width, "height": height, "color": "#f4f8fa", "border_color": "#9eb4c7", "text_color": "#213044", "font_size": 13, "font_weight": 400, "shape": "rounded"}]
-            item = {"id": map_id, **normalized, "created": stamp, "updated": stamp}
-            return self.write(self.concept_maps_dir / f"{map_id}.json", item)
+            if 'version' in payload and (type(payload['version']) is not int or payload['version'] not in (1, 2)):
+                raise ValueError('概念图候选版本尚不支持')
+            prepared = self.prepare_create(normalized, self.next_id())
+            self.ensure_category(json.loads(prepared.after.decode('utf-8'))['category'])
+            return prepared.apply(self.history_dir)
 
     def update(self, map_id: str, payload: dict) -> dict:
         return self.prepare_update(map_id, payload).apply(self.history_dir)

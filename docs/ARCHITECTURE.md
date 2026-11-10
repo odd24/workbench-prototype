@@ -168,3 +168,13 @@ asset_references只枚举白名单roots，扫描正式记录/文档/项目正文
 ConceptMapRepository负责原JSON字节版本及PreparedConceptMapWrite；Repository只提供共享coordinated锁门面，HTTP负责expected_revision强制边界/400、404、409映射。原normalize仍是图的领域可信边界，create/update/分类迁移/历史恢复走同域实现，未开放Agent concept_map处理器。history.py扩展受控CMAP JSON快照，无第二索引、日志或自动恢复执行器；快照→目标两文件不是事务，失败后读取实际revision判断。
 
 concept-map.js仍唯一画布控制器，统一持有base revision、本地编辑序号/保存Promise、撤销栈、冲突状态、同一个open请求世代及恢复中保护。app.setPage等待feature.leave成功后才改变路由；leave只在flush成功时使未决open失效。请求返回还核对世代/空间与等待期间的未保存内容；不会用迟到图覆盖当前画布。冲突选择与历史恢复复用既有对话框和API，草稿只恢复交互，不代替JSON；保存成功只推进base/保存序号，保留期间继续输入。
+
+## AG-135图接点（实施中）
+
+concept_maps仍是JSON归一化/Prepared/历史的唯一领域实现；新增纯prepare_create及可固定managed_time的prepare_update，预览不创建分类/正式图/历史。concept_map_ids为共享单调分配器，合并正式/历史/回收/全部提案证据；Repository注入库存并与既有RLock协调。config/concept-map-ids.json仅是分配游标，Agent预留仍只由唯一proposal原子记录绑定，不另建预留日志。
+
+agent_concept_maps严格验证完整Agent候选、字节预算、稳定ID证明和受控读取；agent_concept_authorization承载独立新鲜图grant、资源集合依赖及本机管理预览批准/收窄；agent_concept_service组合既有领域准备与读写授权；agent_concept_execution仅提供静态concept_map@1的逻辑/具体计划、完整预览与JSON快照验证。它们接入原AgentService、ProposalStore、CredentialManager和HTTP/MCP适配，不复制CRUD或恢复状态机。新外层manifest3的execution_schema3与旧markdown@1/schema1及attachment@1/schema2静态分支并存；全量预检先于恢复/到期/清理的任何写入。
+
+concept-map.js同一工厂新增readOnly选项：共享几何/节点/边markup，独立root和局部视口，pan/zoom只影响该实例；dispose中断root监听器、取消frame并清除DOM。原主画布全局事件忽略readonly根，键盘/粘贴还检查当前页面；主画布排队frame检查原current/open世代，主节点查询限主root。agent-proposals展示完整候选画布、全部字段/原图/差异/警告，成功加载同一proposal/version/digest后才启用本机批准，失败/关闭/切换/迟到结果清除旧前端许可。结果回调复用app.openItemLink及AG-134 leave/flush/open/request保护；不会通过新平行画布打开正式结果。
+
+v2带edge.label的原自动拆边会改变Agent稳定身份，本项明确改为保留v2结构并用原标签编辑宿主显示/编辑；仅v1或历史缺version执行旧迁移，未来版本不迁移。图同ID回收恢复冲突409，其它资源原恢复策略保持。完整数据ZIP与迁移自然携带单调游标，私人Agent状态仍排除可移植ZIP。最终实现状态与验收证据以独立台账为准。

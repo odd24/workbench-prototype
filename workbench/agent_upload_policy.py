@@ -143,7 +143,7 @@ class UploadPolicyManagement:
         with self.runtime.repository.write_lock, credential_lock(self.security.config_dir):
             client = self.client(key, payload["expected_version"])
             owner = authorized_owner(self.runtime.repository, client, payload["owner_kind"], payload["owner_id"])
-            after = {**client, "authorization_schema_version": 4, "management_revision": int(client.get("management_revision", 0)) + 1}
+            after = {**client, "authorization_schema_version": max(4, client.get("authorization_schema_version", 1)), "management_revision": int(client.get("management_revision", 0)) + 1}
             policy = {"policy_id": str(uuid.uuid4()), "client_id": key, "client_version": client_version(after), "owner_kind": payload["owner_kind"], "owner_id": payload["owner_id"], "stream": payload["stream"], "files": payload["files"], "max_bytes": payload["max_bytes"], "expires_at": int(time.time()) + payload["duration_seconds"], "enabled": True}
             if "attachment_write" in payload:
                 if payload["attachment_write"] is not True or payload.get("minimum_confirmation_mode") not in {"agent_attested", "local_web"}:

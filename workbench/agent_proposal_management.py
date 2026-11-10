@@ -41,8 +41,11 @@ class ProposalManagement:
 
     def _summary(self, proposal, clients):
         result = {key: proposal.get(key) for key in ("proposal_id", "client_id", "version", "state", "kind", "operation", "target_id", "created_at", "expires_at", "finished_at", "content_cleaned")}
+        content = proposal.get('normalized_content', {})
+        if proposal['kind'] == 'concept_map':
+            content = content.get('graph', {})
         result.update(client_name=clients.get(proposal["client_id"], {}).get("name", "已移除客户端"),
-                      title=proposal.get("normalized_content", {}).get("title", proposal.get("receipt", {}).get("title", "正文已清理")),
+                      title=content.get("title", proposal.get("receipt", {}).get("title", "正文已清理")),
                       access_target=proposal["access_target"], receipt=proposal.get("receipt"))
         return result
 
@@ -50,7 +53,7 @@ class ProposalManagement:
     def list(self, params):
         if set(params) - {"limit", "cursor", "client_id", "kind", "state", "operation"}:
             raise AgentError("unknown_parameter", "提案筛选参数无效")
-        if params.get("kind") and params["kind"] not in {"issue", "todo", "info", "document", "attachment"} or params.get("state") and params["state"] not in STATES or params.get("operation") and params["operation"] not in {"create", "append", "update"}:
+        if params.get("kind") and params["kind"] not in {"issue", "todo", "info", "document", "attachment", "concept_map"} or params.get("state") and params["state"] not in STATES or params.get("operation") and params["operation"] not in {"create", "append", "update"}:
             raise AgentError("invalid_filter", "提案筛选值无效")
         clients = self._clients()
         items = []
@@ -70,6 +73,11 @@ class ProposalManagement:
         authorized = bool(client and client.get("enabled") and {"read", "propose", "commit"} <= set(client.get("scopes", [])) and allows(client, proposal["access_target"]))
         if authorized:
             authorized = client["client_id"] not in self.runtime.security().manager().blocked_clients()
+        if authorized and proposal['kind'] == 'concept_map' and not proposal.get('content_cleaned'):
+            try:
+                AgentService(self.repository, self.runtime.security()).prepare_submission(client, proposal)
+            except (AgentError, ValueError, OSError):
+                authorized = False
         if authorized and proposal['kind'] == 'attachment' and not proposal.get('content_cleaned'):
             try:
                 from .agent_attachments import AttachmentService

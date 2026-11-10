@@ -14,7 +14,7 @@ AI Agent 功能文档（实现事实以台账与验收记录为准）：
 
 - 实施方案：[docs/AI_AGENT_PLAN.md](docs/AI_AGENT_PLAN.md)
 - 后续扩展方案：[docs/AI_AGENT_EXTENSION_PLAN.md](docs/AI_AGENT_EXTENSION_PLAN.md)（AG-116 起逐项实施；状态以台账为准）
-- 本机能力扩展方案：[docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md](docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)（AG-127 仅文档；AG-128～134已完成，AG-135～143待开始）
+- 本机能力扩展方案：[docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md](docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)（AG-127 仅文档；AG-128～135已完成，AG-136～143待开始）
 - 接入管理 UI 方案：[docs/AGENT_SETTINGS_PLAN.md](docs/AGENT_SETTINGS_PLAN.md)（实现状态以台账为准）
 - 实施台账：[docs/AI_AGENT_PROGRESS.md](docs/AI_AGENT_PROGRESS.md)
 - 接入与使用：[docs/AGENT_INTEGRATION.md](docs/AGENT_INTEGRATION.md)、[docs/AGENT_USAGE.md](docs/AGENT_USAGE.md)
@@ -197,7 +197,8 @@ workbench-data/
 - 不得无测试放宽节点数量、边数量、文本、坐标、尺寸、颜色和缩放限制。
 - 自动保存、关闭前 flush、撤销重做和原子写入必须一起验证。
 
-- AG-134新增原JSON字节revision、Prepared条件写入及history/CMAP-ID/*.json原字节历史；HTTP已有图PATCH/历史恢复必须expected_revision，缺失409提示刷新以阻止旧缓存覆盖。Python省略版本仅服务锁内兼容。未知未来version拒写/恢复；历史全部保留、无自动重放/清理，失败后查询实际版本，不称多文件事务。画布冲突保留输入/撤销及草稿，明确选择后再CAS；成功flush才接受离开并失效同一open世代，迟到请求不能覆盖新图。详见数据格式/维护及134验收，Agent概念图工具仍未开放。
+- AG-134新增原JSON字节revision、Prepared条件写入及history/CMAP-ID/*.json原字节历史；HTTP已有图PATCH/历史恢复必须expected_revision，缺失409提示刷新以阻止旧缓存覆盖。Python省略版本仅服务锁内兼容。未知未来version拒写/恢复；历史全部保留、无自动重放/清理，失败后查询实际版本，不称多文件事务。画布冲突保留输入/撤销及草稿，明确选择后再CAS；成功flush才接受离开并失效同一open世代，迟到请求不能覆盖新图。详见数据格式/维护及134验收；该阶段未开放Agent概念图，135接点见下条。
+- AG-135已完成：新鲜concept_map_grants独立批准，registry4/auth5/log5；旧休眠/通配不扩权，其它管理家族和撤销/轮换保留新字段/格式下界。22工具含图list/get，写入仅完整create/update和既有提案两确认；原图/全部节点关系/元数据/布局/差异/警告与执行依据完整展示，禁止以缩略图或片段替代。唯一ProposalStore、concept_map@1与manifest3/execution_schema3复用同域Prepared/JSON历史，历史已落但图未发布仍重查权限；after及必要history证明后只补原回执，未知/缺历史/第三方状态保留，create applying目标缺失不重建。config/concept-map-ids.json为共享单调分配游标，真正领取才写；Agent身份仍由唯一原子proposal绑定并在取消/过期/清理后保留墓碑。坏占用/游标停止分配，完整ZIP/迁移保留；人为删除/部分恢复及旧进程忽略游标不保证无证据ID不复用。readonly通过同一工厂及共享渲染、root隔离与dispose，不写主画布/草稿/撤销；全量画布/明细载入失败或版本切换禁止批准，票据不证明人眼阅读。v2 label保留原ID/结构，自动迁移仅v1/历史缺version，未来版不迁移；图同ID恢复409，其它类型原策略不变。最终状态/范围以135台账验收为准，136不开始。
 
 ### 附件与导入导出
 

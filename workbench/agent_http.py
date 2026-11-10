@@ -85,8 +85,11 @@ def dispatch(handler):
                   "projects": ({"limit", "cursor"}, lambda: service.projects(client, query)),
                   "catalog": ({"project_id", "kind"}, lambda: service.catalog(client, query)),
                   "search": ({"query", "kind", "project_id", "category", "limit", "cursor"}, lambda: service.search(client, query))}
+        routes['concept-maps'] = ({'query', 'project_id', 'category', 'limit', 'cursor'}, lambda: service.list_concept_maps(client, query))
         parts = route.split("/")
-        if route == "proposals" and handler.command == "GET":
+        if len(parts) == 2 and parts[0] == 'concept-maps' and handler.command == 'GET':
+            allowed, action = set(), lambda: service.get_concept_map(client, parts[1])
+        elif route == "proposals" and handler.command == "GET":
             allowed, action = {"limit", "cursor"}, lambda: service.list_proposals(client, query)
         elif route == "proposals" and handler.command == "POST":
             allowed, action = set(), lambda: service.prepare_proposal(client, agent_body(handler))
@@ -123,7 +126,7 @@ def dispatch(handler):
         def display_links(value):
             if isinstance(value.get("receipt"), dict):
                 value = {**value, "receipt": display_links(value["receipt"])}
-            if value.get("proposal_id") and value.get("item_id") and value.get("kind") in {"issue", "document", "todo", "info"}:
+            if value.get("proposal_id") and value.get("item_id") and value.get("kind") in {"issue", "document", "todo", "info", "concept_map"}:
                 if value["kind"] == "todo" and not value["item_id"].startswith("TODO-"):
                     return {**value, "web_path": None, "web_url": None}
                 path = "/?" + urlencode({"item": value["kind"], "itemId": value["item_id"]})

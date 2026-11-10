@@ -811,7 +811,7 @@ class UploadHTTPTests(unittest.TestCase):
         try:
             rpc.call("initialize", INITIALIZE); rpc.notify("notifications/initialized")
             tools = rpc.call("tools/list")["tools"]
-            self.assertEqual(len(tools), 20)
+            self.assertEqual(len(tools), 22)
             def tool(name, arguments):
                 return rpc.call("tools/call", {"name": "workbench_" + name, "arguments": arguments})
             self.assertFalse(tool("capabilities", {})["isError"])

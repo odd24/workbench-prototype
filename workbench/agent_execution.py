@@ -24,6 +24,9 @@ def authorization_revision(client):
 
 
 def logical_plan(proposal):
+    if proposal['kind'] == 'concept_map':
+        from .agent_concept_execution import logical_plan as graph_plan
+        return graph_plan(proposal)
     if proposal['kind'] == 'attachment':
         from .agent_attachments import logical_plan as attachment_plan
         return attachment_plan(proposal)
@@ -56,6 +59,10 @@ def validate_context(proposal):
     binding = proposal.get("authorization_revision")
     if not isinstance(binding, dict) or set(binding) != {"management_revision", "client_version"} or type(binding["management_revision"]) is not int or binding["management_revision"] < 0 or not re.fullmatch(r"[a-f0-9]{64}", str(binding["client_version"])):
         raise ValueError("提案授权版本无效")
+    if proposal['kind'] == 'concept_map':
+        from .agent_concept_execution import validate_context as graph_context
+        graph_context(proposal)
+        return
     if proposal['kind'] == 'attachment':
         from .agent_attachments import validate_dependencies
         validate_dependencies(proposal)
@@ -87,6 +94,9 @@ def validate_context(proposal):
 
 
 def concrete_plan(manifest, proposal):
+    if proposal['kind'] == 'concept_map':
+        from .agent_concept_execution import concrete_plan as graph_plan
+        return graph_plan(manifest, proposal)
     if proposal['kind'] == 'attachment':
         from .agent_attachment_execution import concrete_plan as attachment_plan
         return attachment_plan(manifest, proposal)
@@ -109,7 +119,7 @@ def validate_manifest(manifest, proposal):
             continue
         if not isinstance(manifest.get(key), str) or not re.fullmatch(r"[a-f0-9]{64}", manifest[key]):
             raise ValueError("执行内容摘要格式无效")
-    if type(manifest.get("execution_schema_version")) is not int or manifest["execution_schema_version"] != 1:
+    if type(manifest.get("execution_schema_version")) is not int or manifest["execution_schema_version"] != (3 if proposal['kind'] == 'concept_map' else 1):
         raise ValueError("执行日志版本无效")
     if manifest.get("execution_plan") != concrete_plan(manifest, proposal) or manifest.get("execution_plan_digest") != fingerprint(manifest["execution_plan"]):
         raise ValueError("执行计划摘要无效")

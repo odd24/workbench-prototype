@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from .agent_security import AgentError
+from .concept_map_ids import ConceptMapIdentityError
 from .write_coordinator import RevisionConflict, DataDirectoryLock
 from .external_editor import external_editor_payload, save_external_editor
 from .paths import (
@@ -27,7 +28,7 @@ from .paths import (
 
 
 APP_DIR = Path(__file__).resolve().parent.parent
-APP_VERSION = "2026.11.10.1"
+APP_VERSION = "2026.11.10.2"
 MAX_JSON_BODY_BYTES = 15_000_000
 
 
@@ -372,6 +373,8 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             return self._json({"error":"资源不存在"}, HTTPStatus.NOT_FOUND)
         except AgentError as exc:
             return self._json({"error": str(exc), **exc.payload()}, exc.status)
+        except ConceptMapIdentityError as exc:
+            return self._json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
         except FileExistsError as exc:
             return self._json({"error": str(exc)}, HTTPStatus.CONFLICT)
         except ValueError as exc:
@@ -469,6 +472,8 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             return self._json({"error": f"资源不存在：{exc}"}, HTTPStatus.NOT_FOUND)
         except AgentError as exc:
             return self._json({"error": str(exc), **exc.payload()}, exc.status)
+        except ConceptMapIdentityError as exc:
+            return self._json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
         except FileExistsError as exc:
             return self._json({"error": str(exc)}, HTTPStatus.CONFLICT)
         except (ValueError, json.JSONDecodeError) as exc:
@@ -519,6 +524,8 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             return self._json({"error": "接口不存在"}, HTTPStatus.NOT_FOUND)
         except AgentError as exc:
             return self._json({"error": str(exc), **exc.payload()}, exc.status)
+        except ConceptMapIdentityError as exc:
+            return self._json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
         except FileExistsError as exc:
             return self._json({"error": str(exc)}, HTTPStatus.CONFLICT)
         except (ValueError, json.JSONDecodeError) as exc:
@@ -563,6 +570,8 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             return self._json({"error": "记录不存在"}, HTTPStatus.NOT_FOUND)
         except AgentError as exc:
             return self._json({"error": str(exc), **exc.payload()}, exc.status)
+        except ConceptMapIdentityError as exc:
+            return self._json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
         except FileExistsError as exc:
             return self._json({"error": str(exc)}, HTTPStatus.CONFLICT)
         except (ValueError, json.JSONDecodeError) as exc:
@@ -602,6 +611,8 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             return self._json({"error": "记录不存在"}, HTTPStatus.NOT_FOUND)
         except AgentError as exc:
             return self._json({"error": str(exc), **exc.payload()}, exc.status)
+        except ConceptMapIdentityError as exc:
+            return self._json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
         except FileExistsError as exc:
             return self._json({"error": str(exc)}, HTTPStatus.CONFLICT)
         except (ValueError, json.JSONDecodeError) as exc:

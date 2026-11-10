@@ -14,7 +14,7 @@ AI Agent 功能文档（实现事实以台账与验收记录为准）：
 
 - 实施方案：[docs/AI_AGENT_PLAN.md](docs/AI_AGENT_PLAN.md)
 - 后续扩展方案：[docs/AI_AGENT_EXTENSION_PLAN.md](docs/AI_AGENT_EXTENSION_PLAN.md)（AG-116 起逐项实施；状态以台账为准）
-- 本机能力扩展方案：[docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md](docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)（AG-127 仅文档；AG-128～137已完成，AG-138～143待开始）
+- 本机能力扩展方案：[docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md](docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)（AG-127 仅文档；当前状态以台账为准）
 - 接入管理 UI 方案：[docs/AGENT_SETTINGS_PLAN.md](docs/AGENT_SETTINGS_PLAN.md)（实现状态以台账为准）
 - 实施台账：[docs/AI_AGENT_PROGRESS.md](docs/AI_AGENT_PROGRESS.md)
 - 接入与使用：[docs/AGENT_INTEGRATION.md](docs/AGENT_INTEGRATION.md)、[docs/AGENT_USAGE.md](docs/AGENT_USAGE.md)
@@ -270,6 +270,7 @@ Markdown
 - AG-136删除接点：独立新鲜delete_grants/schema1，仅items.delete/delete/local_web；registry5/auth6/log6，旧休眠不激活，其他家族保留全部字段/格式下界。只开放issue/todo/info/document/concept_map单条移入回收站，无Agent恢复/purge/项目级联。完整目标/匹配活动来源/附件元数据/原图全字段预览，单文件1MiB、实际UTF8 JSON预览2MiB、活动集合4096文件/32MiB；有权读取且有删除许可才可执行，无权命中通用拒绝不泄露详情。唯一ProposalStore/trash_delete@1/execution4，manifest及原索引快照先落；同一NTFS句柄最后重验后不覆盖rename，原trash身份/字节证明后只补原索引/cache/receipt。移动中但trash缺失不重删恢复源，不从快照重建；committed重放只回原回执。索引/排序为保守依赖，排序ID/位置、历史、共享附件保留。全局在途保护涵盖普通恢复/purge/cleanup/孤儿清理；abandon接受盘态而非回滚，残留仍保护。已完成完整目录迁移须匹配私人配置/日志，ZIP不含删除事务。实现和验收状态以136台账为准，137以后不开始。
 - AG-137项目创建接点：独立新鲜project_create_grant/schema1，registry6/auth7/log7，transport2及旧家族语义保留。仅project/create五字段/已存在模板/固定ID/强制local_web；普通创建和Agent共享残留/回收/预留/显式范围占用，不能接管。完整项目及排序规则对Agent可见，本机完整前后排序，未授权他项不泄露。唯一ProposalStore/project_create@1/execution5，先批准和原字节快照/manifest，再同卷私有暂存，以同NTFS目录句柄无覆盖发布；只有原目录与完整树证明才续办固定排序/回执，不重发不覆盖异物。访问授权由本机再次完整预览批准，独立CredentialManager CAS及原回执/目录/README证据，只追加一个精确项目范围，既有通配照旧，不由Agent内容启用。项目成功与授权失败分别查询。状态以137台账为准。
 - Agent 功能按 `docs/AI_AGENT_PLAN.md` 的 `AG-*` 工作项实施；开工和完成必须更新独立台账，不改写已完成 RF 工作项的历史状态。超出已登记边界的重构另行登记。
+- AG-138 项目级联删除使用独立 `project_delete_grants` schema1、registry7/auth8/log8。旧授权家族与格式下界保留，休眠授权不激活。必须有原项目读取、各实际子记录独立读删及逐个独立附件批准。本机完整预览项目及子目录、附件、影响和保留归属的关联图。外部活动附件引用、历史 idea 或未知树成员使整案拒绝。唯一 ProposalStore 的 `project_trash@1`/execution6 在同 NTFS 目录句柄无覆盖移动前后核验原树。未知盘态保留，已应用证据只补原索引、缓存和回执。回收 schema2 原 ID 固定，恢复碰撞 409，子 ID 永久占用。备份、在途保护和验收见数据格式、维护和台账。
 - 业务接口不得绑定 Codex、特定模型或聊天 ID。MCP 是协议适配层，必须调用工作台服务，不直接写业务文件或另建 Repository 进程。
 - 整理入库的日志证据按 docs/AGENT_USAGE.md：关键原文摘录至正文代码块，保留必要时间/错误码/上下文并脱敏，省略明确标注，区分事实与推测。外部日志路径仅作来源补充；确认文件已存工作台时才可引用已有文件/附件，关键片段仍优先入正文。未取得原文须标注待补充，不补造摘录或附件链接；维护时同步 MCP 的 AGENT_RULES，不能只依赖本文件约束其他客户端。
 - 正式新建、追加、更新均须先生成服务端提案和完整预览，用户明确确认当前版本后提交。提交只接受提案版本和摘要，不接受临时替换正文；修改内容必须重新预览、确认。

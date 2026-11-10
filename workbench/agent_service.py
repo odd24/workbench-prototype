@@ -144,15 +144,27 @@ class AgentService:
         if project_create:
             kind_operations['project'] = ['create']
             kind_fields['project'] = {'create':list(PROJECT_FIELDS)}
+        from .agent_project_delete_authorization import client_project_delete_grants, project_delete_grant
+        project_delete_config = client_project_delete_grants(client)
+        project_delete = delete_supported and any(
+            project_delete_grant(client, grant['project_id']) is not None and self.repository.project(grant['project_id'])
+            for grant in project_delete_config['grants'])
+        if project_delete:
+            kind_operations.setdefault('project', []).append('delete')
+            kind_fields.setdefault('project', {})['delete'] = []
+        project_capabilities = (['projects.create', 'projects.delete'] if SUPPORTED else [])
+        effective_project = (['projects.create'] if project_create else []) + (['projects.delete'] if project_delete else [])
         return {"kind_operations":kind_operations,
                 "kind_fields":kind_fields, "authorized_kinds": client_kinds(client),
                 "confirmation_modes": ["agent_attested", "local_web"], "default_confirmation_mode": client_confirmation_mode(client),
-                "proposal_schema_versions": [1, 2, 3], "execution_schema_versions": [1, 2, 3, 4, 5], "api_version": "1", "workspace_id": self.security.workspace_id, "kinds": kinds + (['concept_map'] if graph_read else []),
+                "proposal_schema_versions": [1, 2, 3], "execution_schema_versions": [1, 2, 3, 4, 5, 6], "api_version": "1", "workspace_id": self.security.workspace_id, "kinds": kinds + (['concept_map'] if graph_read else []),
                 "operations": ["create", "append", "update"] + (['delete'] if delete_supported else []), "limits": LIMITS, "scopes": client["scopes"],
                 "project_ids": client["project_ids"], "categories": client["categories"], "confirmation_mode": client_confirmation_mode(client),
                 "capability_authorization": {"configured": client_capability_grants(client),
-                                             "implemented": (["files.read", "uploads.stage", "attachments.write"] if SUPPORTED else []) + ['concept_maps.read', 'concept_maps.write'] + (['items.delete'] if delete_supported else []) + (['projects.create'] if SUPPORTED else []), "effective": (["files.read"] if file_grants else []) + (["uploads.stage"] if upload_policies else []) + (["attachments.write"] if attachment_policies else []) + (['concept_maps.read'] if graph_read else []) + (['concept_maps.write'] if graph_write else []) + (['items.delete'] if delete_kinds else []) + (['projects.create'] if project_create else []), "activation": "requires_reauthorization"},
+                                             "implemented": (["files.read", "uploads.stage", "attachments.write"] if SUPPORTED else []) + ['concept_maps.read', 'concept_maps.write'] + (['items.delete'] if delete_supported else []) + project_capabilities, "effective": (["files.read"] if file_grants else []) + (["uploads.stage"] if upload_policies else []) + (["attachments.write"] if attachment_policies else []) + (['concept_maps.read'] if graph_read else []) + (['concept_maps.write'] if graph_write else []) + (['items.delete'] if delete_kinds else []) + effective_project, "activation": "requires_reauthorization"},
                 'project_creation':{'grant':project_grant, 'effective':project_create, 'confirmation_mode':'local_web', 'platform':'Windows fixed NTFS only', 'fields':list(PROJECT_FIELDS), 'grants_access':False, 'preview_bytes':2097152},
+                'project_deletion':{'effective':project_delete, 'confirmation_mode':'local_web', 'tree_members':4096,
+                                    'tree_bytes':67108864, 'preview_bytes':2097152, 'scope':'fresh exact grant; actual children, assets and all external impacts are separately checked per proposal'},
                 'deletion':{'grants':delete_grants, 'effective_kinds':delete_kinds, 'confirmation_mode':'local_web', 'platform':'Windows fixed NTFS only', 'raw_file_bytes':1048576, 'preview_bytes':2097152, 'inventory_files':4096, 'inventory_bytes':33554432, 'default_retention_days':30, 'local_early_purge':True, 'agent_restore':False, 'agent_purge':False, 'attachments':'retain', 'history':'retain', 'ordering':'preserve', 'source_note':'operation delete accepts target_id/base_revision/source_note; content/path/body forbidden; full impact or generic refusal'},
                 'concept_maps': {'grants':graph_grants, 'operations':graph_operations, 'graph_json_bytes':262144, 'raw_base_bytes':1048576, 'preview_bytes':2097152, 'partial_update':False, 'delete':'concept_map' in delete_kinds, 'identity':'server-reserved stable CMAP ID; canceled/expired proposals retain it; timestamps fixed at confirmation acceptance', 'authorization':'fresh explicit grants; exact read/write/resource/operation intersection; existing projects/categories only; delete requires independent delete_grants/local_web'},
                 "upload_staging": {"policies": upload_policies, "limits": UPLOAD_LIMITS, "formal_attachment_write": bool(attachment_policies),
@@ -163,13 +175,26 @@ class AgentService:
                                 "raw_chunk_bytes": 65536, "default_max_bytes": 10485760, "max_bytes": 104857600, "default_duration_seconds": 3600, "max_duration_seconds": 86400,
                                 "verification": "each segment rehashes the full approved file; raw byte offsets; use next_offset; attachment_source grants do not permit text reads or uploads",
                                 "revocation": "checked at response permit; already permitted responses may arrive after revocation", "timeout": "5 seconds checked between local synchronous reads; OS waits may exceed this"},
-                "authorization_schema_versions": [1, 2, 3, 4, 5, 6, 7], "management_log_schema_versions": [1, 2, 3, 4, 5, 6, 7]}
+                "authorization_schema_versions": [1, 2, 3, 4, 5, 6, 7, 8], "management_log_schema_versions": [1, 2, 3, 4, 5, 6, 7, 8]}
 
     @service_operation
     def projects(self, client, params):
         require_scope(client, "read")
         items = [{key: item[key] for key in ("id", "name", "status", "workflow_template") if key in item}
                  for item in self.repository.list_projects() if allows(client, {"project_id": item["id"]})]
+        from .project_identity import controlled, read_bounded, valid_new_id
+        from .project_delete_tree import project_metadata
+        from .write_coordinator import content_revision
+        root = self.repository.root
+        for item in items:
+            try:
+                valid_new_id(item['id'])
+                path = controlled(root, root / 'projects' / item['id'] / 'README.md')
+                raw = read_bounded(path)
+                project_metadata(raw, item['id'])
+                item['revision'] = content_revision(raw)
+            except (OSError, ValueError):
+                continue  # The existing listing remains usable for legacy projects.
         return page(items, params)
 
     @service_operation
@@ -374,7 +399,7 @@ class AgentService:
             raise AgentError("invalid_request", "参数或 request_id 无效")
         if not isinstance(payload.get("source_note", ""), str) or len(payload.get("source_note", "")) > 1000:
             raise AgentError("invalid_source", "来源说明无效")
-        if payload.get('kind') == 'project':
+        if payload.get('kind') == 'project' and payload.get('operation') != 'delete':
             from .agent_project_authorization import creation_confirmation_mode
             creation_confirmation_mode(payload.get('confirmation_mode'))
             if payload.get('operation') != 'create' or {'target_id','base_revision'} & payload.keys():
@@ -390,15 +415,14 @@ class AgentService:
         if existing:
             return existing
         self.store.guard_writes()
-        if payload.get('kind') == 'project':
+        if payload.get('kind') == 'project' and payload.get('operation') != 'delete':
             from .agent_project_service import ProjectCandidateService
             content, dependencies, details, _ = ProjectCandidateService(self.repository, self.security).normalize(client, payload.get('content'))
             return self.store.create(client, payload, content, {}, 'local_web', dependencies=dependencies, project_sort_details=details)
         if payload.get('operation') == 'delete':
-            from .agent_delete_service import DeleteCandidateService
             if 'content' in payload:
                 raise AgentError('unknown_field', '删除不接受content、替换正文或路径')
-            content, dependencies, binding, _ = DeleteCandidateService(self.repository).normalize(client, payload.get('kind'), payload.get('target_id'), payload.get('base_revision'))
+            content, dependencies, binding, _ = self._delete_candidate(client, payload.get('kind'), payload.get('target_id'), payload.get('base_revision'))
             return self.store.create(client, payload, content, {}, 'local_web', dependencies=dependencies, delete_binding=binding)
         if payload.get('kind') == 'concept_map':
             from .agent_concept_service import GraphCandidateService, graph_target
@@ -434,6 +458,13 @@ class AgentService:
         content, base = self.normalize_content(client, payload.get("kind"), payload.get("operation"), payload.get("content"), payload.get("target_id"), payload.get("base_revision"))
         return self.store.create(client, payload, content, base, mode, dependencies=self.execution_dependencies(client, payload["kind"], content))
 
+    def _delete_candidate(self, client, kind, target_id, revision):
+        if kind == 'project':
+            from .agent_project_delete_service import prepare_project_delete
+            return prepare_project_delete(self.repository, client, target_id, revision)
+        from .agent_delete_service import DeleteCandidateService
+        return DeleteCandidateService(self.repository).normalize(client, kind, target_id, revision)
+
     def execution_dependencies(self, client, kind, content):
         """Only dependencies that decide this candidate; never private config paths."""
         statuses = []
@@ -468,7 +499,7 @@ class AgentService:
         self._enforce_confirmation_policy(client, proposal)
         self.store.editable(proposal, payload.get("expected_version"))
         revision = payload.get("base_revision", proposal["base_revision"])
-        if proposal['kind'] == 'project':
+        if proposal['kind'] == 'project' and proposal['operation'] == 'create':
             from .agent_project_service import ProjectCandidateService
             if 'base_revision' in payload:
                 raise AgentError('invalid_operation', '创建项目不接受基础版本')
@@ -476,10 +507,9 @@ class AgentService:
             return self.store.revise(proposal, payload['expected_version'], content, None, {}, client=client,
                                      dependencies=dependencies, project_sort_details=details)
         if proposal['operation'] == 'delete':
-            from .agent_delete_service import DeleteCandidateService
             if 'content' in payload:
                 raise AgentError('unknown_field', '删除修订不接受替换正文')
-            content, dependencies, binding, _ = DeleteCandidateService(self.repository).normalize(client, proposal['kind'], proposal['target_id'], revision)
+            content, dependencies, binding, _ = self._delete_candidate(client, proposal['kind'], proposal['target_id'], revision)
             return self.store.revise(proposal, payload['expected_version'], content, revision, {}, client=client, dependencies=dependencies, delete_binding=binding)
         if proposal['kind'] == 'concept_map':
             from .agent_concept_service import GraphCandidateService, graph_target
@@ -624,10 +654,13 @@ class AgentService:
         require_scope(client, "read")
         require_scope(client, "propose")
         require_scope(client, "commit")
-        if proposal['kind'] == 'project':
+        if proposal['kind'] == 'project' and proposal['operation'] == 'create':
             from .agent_project_service import ProjectCandidateService
             return ProjectCandidateService(self.repository, self.security).prepare_submission(client, proposal)
         if proposal['operation'] == 'delete':
+            if proposal['kind'] == 'project':
+                from .agent_project_delete_service import prepare_submission
+                return prepare_submission(self.repository, client, proposal, held_tree=held_source)
             from .agent_delete_service import DeleteCandidateService
             return DeleteCandidateService(self.repository).prepare_submission(client, proposal, held_source=held_source)
         if proposal['kind'] == 'concept_map':

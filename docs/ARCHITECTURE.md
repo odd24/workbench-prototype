@@ -192,3 +192,9 @@ records/documents/concept_maps定位并产生deletion_prepared.PreparedDelete，
 projects 共享 README 序列化和 slug 分配；project_identity 核实际目录、回收、持久身份与显式范围，project_prepared 纯生成严格五字段、模板、项目集合及排序计划。普通创建仍用原领域入口和排序，但独占创建目录，不能接管残留。ConfigurationRepository 的纯排序归一化由普通写与 Agent 共用。
 
 agent_project_execution 只提供静态 project_create@1 及阶段证据，状态循环、持久批准和回执仍由唯一 ProposalStore 管理。project_directory 复用原生句柄底座，目录叶能力仅内部使用，不扩展 Agent 任意文件读取；私人同卷暂存完整树后按同句柄无覆盖发布。agent_project_authorization 与 agent_project_access 复用 CredentialManager，项目访问独立检查原提交和当前客户端版本，保持目录及 README 句柄至 registry 发布。HTTP/MCP 层只做路由和受控链接返回。
+
+## AG-138 项目级联删除
+
+`project_delete_tree` 核验原始树与归属并复用 NTFS 目录句柄。`project_delete_impact` 在原有活动来源盘点中选择匹配影响，再检查全文读取权限。`agent_project_delete_service` 用同一逻辑准备候选及最终校验，`agent_project_delete_execution` 在唯一 ProposalStore 内提供静态 `project_trash@1` 执行步骤。项目、子资源、活动集合、排序和回收索引均绑定原计划。正常本机回收站操作复用已提交证据及目录原语恢复固定身份。
+
+`agent_project_delete_authorization` 复用本机管理票据、CredentialManager 日志和客户端 CAS。浏览器复用授权管理流程、删除预览及概念图只读工厂。项目外关联图保留原 `project_id` 和原始字节。已有编辑器、历史和保存协议沿用现有路径。

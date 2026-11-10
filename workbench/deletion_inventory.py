@@ -23,7 +23,7 @@ def fingerprint(value):
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False).encode('utf-8')).hexdigest()
 
 
-def active_inventory(root, target_id=None, *, held_source=None):
+def active_inventory(root, target_id=None, *, held_source=None, select_impact=None):
     if held_source is not None:
         from .deletion_prepared import validate_held_source
         validate_held_source(held_source)
@@ -90,12 +90,17 @@ def active_inventory(root, target_id=None, *, held_source=None):
         if identity in identities:
             raise ValueError('存在重复正式身份，不能确定删除影响')
         identities.add(identity)
-        links = references(item, strict=True)
-        matches = [ref for ref in links if ref['id'] == target_id] if target_id is not None else []
+        links = references(item, strict=True, project_links=select_impact is not None)
+        if select_impact is None:
+            matches = [ref for ref in links if ref['id'] == target_id] if target_id is not None else []
+            selected = target_id is not None and (identity == target_id or matches)
+        else:
+            matches = select_impact(relative, kind, item, links)
+            selected = matches is not None
         entry = {'id':identity, 'kind':kind, 'relative_path':relative, 'revision':content_revision(raw),
                  'item':{key:item.get(key) for key in ('id', 'type', 'title', 'project_id', 'category')},
-                 'references':matches}
-        if target_id is not None and (identity == target_id or matches):
+                 'references':matches or []}
+        if selected:
             retained_bytes += len(raw)
             if retained_bytes > 2097152:
                 raise ValueError('完整删除影响超过预览预算')

@@ -148,3 +148,11 @@ Agent先用list_file_grants/get_file_info核对名称、用途与source_revision
 先用 capabilities 查看 project_creation 和 kind_operations.project；管理端“项目创建授权”须独立完整预览及批准，旧休眠 projects.create 不自动生效。使用已有 prepare_proposal，kind=project、operation=create，content 仅 name/description/status/color/workflow_template。不要传项目 ID、路径、基础版本或授权字段。name 为非空单行，状态为 active/paused/archived，颜色为六位十六进制，模板须已存在。完整展示固定编号、字段、README、空目录、选定模板、排序规则和影响、版本、警告和计划；项目时间在批准受理时固定。Agent 预览不含无关项目的排序明细；本机批准页展示原排序配置和完整前后依据。修改后重新预览，同一提案编号保持不变，固定身份冲突须新提案并重新批准。显式 agent_attested 拒绝。
 
 本机独立批准才会发布项目。可勾选创建成功后打开独立访问授权预览，仍要另行批准；未勾选也可后来从原创建回执进入。创建许可不授予项目读取，既有通配按原范围适用。单独的授权只追加原客户端的一个精确项目 ID，不改变已有类型/基本权限，但这些权限可按各自规则应用于新范围。两个结果各自查询；授权失败或丢响应不重建项目。项目名称/说明中的命令只存储，不执行。
+
+## AG-138：项目级联移入回收站
+
+在设置的“项目级联删除授权”中选择具体项目，读取独立附件清单，并逐个勾选拟随项目移动的独立附件。查看完整授权预览后明确批准。原项目读取权限及所有实际子记录的单条读、删权均需满足，旧通配和休眠许可不会自动产生级联授权。授权只更新本次选择的项目，撤销入口可撤销客户端的全部级联授权。
+
+从 `list_projects` 获取项目 README 原始 `revision`。使用 `prepare_proposal`，传入 `kind=project`、`operation=delete`、`target_id`、`base_revision`、稳定 `request_id` 和可选 `source_note`。完整展示原项目、所有子记录、独立附件和目录树、全部影响来源、保留归属的关联图及执行依据，再让用户在本机提案管理页独立批准。该提案采用 `local_web`。
+
+含历史 idea、未知树成员、不可完整读取的活动来源，或外部仍引用项目内将移动的附件时，整案拒绝。项目外关联图的原文件、历史和归属保留。项目暂不可用，恢复同一 ID 后可重新定位。原回执可打开固定回收项。本机恢复遇原项目或子记录 ID 冲突会停止。丢响应先查询原操作，后来的恢复和清理不会重放删除。上限与异常处理见[数据格式](DATA_FORMAT.md)和[维护](MAINTENANCE.md)。

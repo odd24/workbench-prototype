@@ -120,6 +120,15 @@ class ProposalStore:
             raise AgentError("not_found", "提案不存在或不可访问", 404)
         if proposal['operation'] == 'delete' and not proposal.get('content_cleaned'):
             from .agent_delete_service import access_target
+            if proposal['kind'] == 'project':
+                from .agent_project_delete_authorization import asset_evidence, project_delete_grant
+                grant = project_delete_grant(client, proposal['target_id'])
+                assets = proposal['normalized_content']['standalone_assets']
+                if assets and (grant is None or grant['assets'] != asset_evidence(assets)):
+                    raise AgentError('not_found', '提案不存在或不可访问', 404)
+            for child in proposal['normalized_content'].get('children', ()):
+                if not allows(client, child['item']):
+                    raise AgentError('not_found', '提案不存在或不可访问', 404)
             for impact in proposal['normalized_content']['impacts']:
                 item = impact['source']['item']
                 if not allows(client, access_target(item['type'], item)):
@@ -161,7 +170,7 @@ class ProposalStore:
                     "created_at": stamp(), "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
                     "previewed_version": None, "preview_digest": None,
                     "access_target": {"type": request["kind"], "project_id": content.get("project_id"), "category": content.get("category")}}
-        if proposal['kind'] == 'project':
+        if proposal['kind'] == 'project' and proposal['operation'] == 'create':
             if project_sort_details is None:
                 raise ValueError('缺少完整项目排序计划')
             if proposal['target_id'] not in (None, content['project_id']):
@@ -211,7 +220,7 @@ class ProposalStore:
                         base_revision=base_revision, base_content=base_content, previewed_version=None, preview_digest=None,
                         expires_at=(datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
                         access_target={"type": proposal["kind"], "project_id": content.get("project_id"), "category": content.get("category")})
-        if proposal['kind'] == 'project':
+        if proposal['kind'] == 'project' and proposal['operation'] == 'create':
             if project_sort_details is None:
                 raise ValueError('缺少完整项目排序计划')
             if proposal['target_id'] not in (None, content['project_id']):
@@ -259,7 +268,7 @@ class ProposalStore:
             preview.update(confirmation_mode=proposal["confirmation_mode"], digest_algorithm=proposal["digest_algorithm"])
         if proposal.get("schema_version") == 3:
             preview.update(**{key: proposal[key] for key in ("authorization_revision", "dependencies", "execution_plan", "plan_digest")})
-        if proposal['kind'] == 'project':
+        if proposal['kind'] == 'project' and proposal['operation'] == 'create':
             return {**preview, 'content':proposal['normalized_content'], 'warnings':proposal['normalized_content']['warnings']}
         if proposal['operation'] == 'delete':
             from .agent_delete_execution import token
@@ -275,12 +284,18 @@ class ProposalStore:
         content = proposal["normalized_content"]
         preview = self.preview_payload(proposal)
         preview_digest = digest(preview)
-        if proposal['kind'] == 'project':
+        if proposal['kind'] == 'project' and proposal['operation'] == 'create':
             from .agent_project_service import checked_preview
             return checked_preview({**preview, 'preview_digest':preview_digest, 'expires_at':proposal['expires_at'],
                                     'changes':{'operation':{'before':None, 'after':'创建新项目'}}, 'body_diff':''})
         if proposal['operation'] == 'delete':
             from .agent_delete_service import checked_preview
+            if proposal['kind'] == 'project':
+                from .project_delete_tree import validate_tree_destination
+                try:
+                    validate_tree_destination(self.repository.trash_dir / preview['trash_token'], content['tree'])
+                except (ValueError, AgentError):
+                    raise AgentError('impact_unavailable', '无法用固定回收身份容纳完整项目路径，请在本机核查', 409) from None
             return checked_preview({**preview, 'preview_digest':preview_digest, 'expires_at':proposal['expires_at'], 'changes':{'operation':{'before':'正式条目', 'after':'回收站'}}, 'body_diff':''})
         if proposal['kind'] == 'concept_map':
             from .agent_concept_execution import checked_preview
@@ -372,7 +387,7 @@ class ProposalStore:
         previous = self.check_commit(proposal, version, preview_digest, confirmation, local_approval=local_approval)
         if previous is not None:
             return previous
-        if proposal['kind'] == 'project':
+        if proposal['kind'] == 'project' and proposal['operation'] == 'create':
             return self._commit_project(proposal, prepared, local_approval)
         if proposal['operation'] == 'delete':
             return self._commit_delete(proposal, version, preview_digest, prepared, local_approval)
@@ -503,15 +518,17 @@ class ProposalStore:
         directory.mkdir(parents=True, exist_ok=True)
         accepted = stamp()
         content = proposal['normalized_content']
+        project = proposal['kind'] == 'project'
+        item_id = proposal['target_id'] if project else prepared.item_id
         receipt = {'proposal_id':proposal['proposal_id'], 'version':version, 'kind':proposal['kind'],
-                   'item_id':prepared.item_id, 'revision':proposal['base_revision'], 'committed_at':accepted,
+                   'item_id':item_id, 'revision':proposal['base_revision'], 'committed_at':accepted,
                    'title':content['title'], 'project_id':content['project_id'], 'category':content['category'],
                    'deleted':True, 'trash_token':token(proposal), 'web_path':'/?item=trash&itemId=' + token(proposal), 'approval':approval,
                    'plan_digest':proposal['plan_digest']}
-        manifest = {'schema_version':3, 'execution_schema_version':4, 'workspace_id':self.workspace_id,
+        manifest = {'schema_version':3, 'execution_schema_version':6 if project else 4, 'workspace_id':self.workspace_id,
                     'operation_id':operation_id, 'proposal_id':proposal['proposal_id'], 'version':version,
                     'client_id':proposal['client_id'], 'kind':proposal['kind'], 'operation':'delete',
-                    'item_id':prepared.item_id, 'relative_path':prepared.relative_path, 'before_digest':proposal['base_revision'],
+                    'item_id':item_id, 'relative_path':prepared.relative_path, 'before_digest':proposal['base_revision'],
                     'trash_token':token(proposal), 'deleted_at':accepted, 'state':'prepared', 'step_states':['pending'] * 4,
                     'receipt':receipt, 'confirmation':{'mode':'local_web'}, 'approval':approval,
                     **{key:proposal[key] for key in ('authorization_revision', 'dependencies', 'preview_digest', 'confirmation_mode', 'digest_algorithm', 'access_target')}}
@@ -526,6 +543,10 @@ class ProposalStore:
             if byte_digest(index_raw) != proposal['delete_binding']['trash_index_digest'] or manifest['trash_token'] in index:
                 raise ValueError('回收站索引变化或token被占用，请重新完整预览')
             atomic_write_bytes(directory / 'index-before.json', index_raw)
+            if project:
+                atomic_write_json(directory / 'tree-before.json', {'identity':prepared.tree.identity, 'members':prepared.tree.members})
+                if prepared.sort_raw is not None:
+                    atomic_write_bytes(directory / 'sort-before.json', prepared.sort_raw)
             self.checkpoint('snapshots')
             self._validate_execution(manifest, proposal, snapshots=True)
             atomic_write_json(directory / 'manifest.json', manifest)
@@ -535,7 +556,11 @@ class ProposalStore:
             self._save(proposal)
             self.checkpoint('committing')
             self.executing = True
-            apply_steps(self, manifest, proposal, prepared)
+            if project:
+                from .agent_project_delete_execution import apply_steps as move_project
+                move_project(self, manifest, proposal)
+            else:
+                apply_steps(self, manifest, proposal, prepared)
             self._finish(manifest, proposal)
             self.blocked = False
             return receipt
@@ -570,7 +595,7 @@ class ProposalStore:
         return path
 
     def _validate_execution(self, manifest, proposal, *, snapshots=False):
-        if proposal['kind'] == 'project':
+        if proposal['kind'] == 'project' and proposal['operation'] == 'create':
             from .agent_project_execution import validate_execution
             return validate_execution(self, manifest, proposal, snapshots)
         if proposal['operation'] == 'delete':
@@ -747,17 +772,21 @@ class ProposalStore:
                     if not (self.receipts / f"{proposal['proposal_id']}.json").exists() or proposal["state"] != "committed":
                         self._finish(manifest, proposal)
                     continue
-                if proposal['kind'] == 'project':
+                if proposal['kind'] == 'project' and proposal['operation'] == 'create':
                     from .agent_project_execution import apply_steps
                     self.executing = True
                     apply_steps(self, manifest, proposal)
                     self._finish(manifest, proposal)
                     continue
                 if proposal['operation'] == 'delete':
-                    from .agent_delete_execution import prepared_from_manifest, apply_steps
-                    prepared = prepared_from_manifest(self, manifest, proposal)
                     self.executing = True
-                    apply_steps(self, manifest, proposal, prepared, recovery=True)
+                    if proposal['kind'] == 'project':
+                        from .agent_project_delete_execution import apply_steps
+                        apply_steps(self, manifest, proposal)
+                    else:
+                        from .agent_delete_execution import prepared_from_manifest, apply_steps
+                        prepared = prepared_from_manifest(self, manifest, proposal)
+                        apply_steps(self, manifest, proposal, prepared, recovery=True)
                     self._finish(manifest, proposal)
                     continue
                 if proposal['kind'] == 'attachment':
@@ -833,8 +862,12 @@ class ProposalStore:
             path = self.operations / operation_id / "manifest.json"
             try:
                 manifest = read_json(path)
-                if manifest.get('kind') == 'project':
+                if manifest.get('kind') == 'project' and manifest['operation'] == 'create':
                     from .agent_project_execution import recovery_evidence
+                    details.append(recovery_evidence(self, manifest, self._load(manifest['proposal_id'], expire=False)))
+                    continue
+                if manifest.get('kind') == 'project' and manifest['operation'] == 'delete':
+                    from .agent_project_delete_execution import recovery_evidence
                     details.append(recovery_evidence(self, manifest, self._load(manifest['proposal_id'], expire=False)))
                     continue
                 target = self._target(manifest)
@@ -905,7 +938,10 @@ class ProposalStore:
                 if not manifest_path.exists() or manifest.get("state") in {"committed", "abandoned"}:
                     if proposal['operation'] == 'delete':
                         (directory / 'index-before.json').unlink(missing_ok=True)
-                    if proposal['kind'] == 'project':
+                        if proposal['kind'] == 'project':
+                            for name in ('tree-before.json', 'sort-before.json'):
+                                (directory / name).unlink(missing_ok=True)
+                    if proposal['kind'] == 'project' and proposal['operation'] == 'create':
                         for name in ('sort-before.json', 'sort-after.json'):
                             (directory / name).unlink(missing_ok=True)
                     for filename in (("before.json", "after.json") if proposal['kind'] == 'concept_map' else ("before.md", "after.md")):

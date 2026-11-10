@@ -62,7 +62,13 @@ def orphan_report(domain):
         if not isinstance(trash, dict):
             raise ValueError()
         for value in trash.values():
-            original, path = Path(value['original_path']), Path(value['trash_path'])
+            if value.get('delete_schema_version') == 2:
+                from .agent_delete_execution import validated_trash_paths
+                path, original, _, _ = validated_trash_paths(domain, value)
+                roots.append(original / 'assets')
+                add_snapshot(path / 'README.md', original / 'README.md')
+            else:
+                original, path = Path(value['original_path']), Path(value['trash_path'])
             if not path.absolute().is_relative_to(root / '.trash') or path.resolve() != path.absolute():
                 raise ValueError()
             if path.is_file():
@@ -78,7 +84,7 @@ def orphan_report(domain):
                         add_snapshot(child, original / part / child.name)
             elif not path.exists():
                 warn()
-    except (ValueError, OSError, KeyError, TypeError):
+    except (ValueError, OSError, KeyError, TypeError, AgentError):
         warn()
 
     all_asset_roots = tuple(roots)

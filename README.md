@@ -60,7 +60,7 @@ python server.py
 
 前期 AI 接入扩展见 [详细执行方案](docs/AI_AGENT_EXTENSION_PLAN.md)：AG-116～121、AG-126 已完成，覆盖待办/结构化信息、提案管理、网页独立批准和本机客户端兼容；远程 AG-122～125 已取消且未实现。当前状态以 [实施台账](docs/AI_AGENT_PROGRESS.md) 和 [扩展验收](docs/AI_AGENT_EXTENSION_ACCEPTANCE.md) 为准。
 
-附件上传、本机文件读取、概念图、删除、项目创建及分类/工作流变更已另行形成 [本机能力扩展执行方案](docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)。AG-127 仅为文档规划；用户已于2026-11-09授权执行，AG-128～137已完成、AG-138～143待开始。各能力按对应工作项实际验收范围开放。
+附件上传、本机文件读取、概念图、删除、项目创建及分类/工作流变更见 [本机能力扩展执行方案](docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)。AG-127 仅为文档规划，用户已于 2026-11-09 授权执行。各能力的验收状态以 [实施台账](docs/AI_AGENT_PROGRESS.md) 为准。
 
 项目没有包管理器或构建步骤。架构和模块职责见 [架构说明](docs/ARCHITECTURE.md)，日常修改、测试和发布步骤见 [维护说明](docs/MAINTENANCE.md)。重构执行事实记录在 [进度台账](docs/REFACTORING_PROGRESS.md)。
 
@@ -116,3 +116,5 @@ Agent 删除接点（AG-136已完成）：客户端“删除授权”需独立�
 图编号单调游标config/concept-map-ids.json随完整备份/迁移保留，请勿手工删除或部分恢复。坏格式或未知占用停止分配，不归零；升级前已永久删除无证据ID无法追溯。v2带关系文字的图打开后保留节点/边ID，不再自动拆边；仅旧v1/缺version保留兼容迁移。图恢复遇同一固定ID占用返回409，不自动改文件名。边界见[数据格式](docs/DATA_FORMAT.md)、[使用](docs/AGENT_USAGE.md)、[维护](docs/MAINTENANCE.md)及[本机验收](docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md)。
 
 项目创建 Agent 接点（AG-137 已完成）：设置→AI Agent 接入→客户端“项目创建授权”，独立批准后才可生成单个新项目提案。完整预览固定编号、说明、模板、目录及排序；正式目录只在本机批准后发布。创建不会新增项目访问范围；已有通配仍按旧规则。可从创建回执另行预览、批准原客户端的精确项目范围，两个结果分别查询。仅支持 Windows 固定 NTFS，详见[使用说明](docs/AGENT_USAGE.md)。
+
+项目级联删除（AG-138）使用客户端的“项目级联删除授权”，选择具体项目并逐个批准独立附件。每条实际子记录都需既有读取和删除权限。每次移入回收站前，本机提案管理页完整展示原项目、全部子记录与目录、外部引用和保留原归属的关联图。项目外存在指向将移动附件的活动引用时拒绝整案。本机可从原回执打开回收站并以原 ID 恢复。详见[使用说明](docs/AGENT_USAGE.md)。

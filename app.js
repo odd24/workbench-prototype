@@ -5481,7 +5481,7 @@ document.addEventListener('change', async event => {
 
 async function openItemLink(link = navigationFeature.readItemLink()) {
   if (!link) return false;
-  if (link.invalid || !['issue', 'document', 'todo', 'info', 'project', 'concept_map', 'trash'].includes(link.kind) || link.kind === 'concept_map' && !/^CMAP-[0-9]+$/.test(link.itemId || '') || link.kind === 'trash' && !/^(?:record|document|concept-map)-agent-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}-[1-9][0-9]*$/.test(link.itemId || '')) {
+  if (link.invalid || !['issue', 'document', 'todo', 'info', 'project', 'concept_map', 'trash'].includes(link.kind) || link.kind === 'concept_map' && !/^CMAP-[0-9]+$/.test(link.itemId || '') || link.kind === 'trash' && !/^(?:record|document|concept-map|project)-agent-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}-[1-9][0-9]*$/.test(link.itemId || '')) {
     navigationFeature.clearItemLink();
     notify('打开链接无效', '请检查条目类型和编号', true);
     return false;

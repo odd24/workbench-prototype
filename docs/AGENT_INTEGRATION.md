@@ -1,6 +1,6 @@
 # 通用 Agent 接入
 
-规划提示（2026-11-09）：文件读取、附件上传、概念图、删除、项目创建及分类/工作流变更见 [本机能力扩展执行方案](AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)。AG-128～137已完成，AG-138～143待开始；下文当前接入命令、能力与限制不因此改变。
+文件读取、附件上传、概念图、删除、项目创建及分类/工作流变更见 [本机能力扩展执行方案](AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)。开放范围与验收状态以 [实施台账](AI_AGENT_PROGRESS.md) 为准。
 
 本文说明设置界面和备用 CLI 接入方式。AG-107～110 提供启停、授权管理、配置向导与分层诊断。设计见 [接入管理 UI 方案](AGENT_SETTINGS_PLAN.md)，实际状态见 [实施台账](AI_AGENT_PROGRESS.md)。
 
@@ -279,3 +279,9 @@ capabilities报告静态trash_delete@1/execution4及平台/目标有效性，imp
 仍为 22 工具。新增 project/create 提案操作，不把 project 加进旧业务 kind 或任意读取接口。新鲜 project_create_grant 仅 projects.create/create/local_web，需基础 read/propose/commit，适用于可核验的同卷 Windows 固定 NTFS。项目内容严格五字段，不能控制 ID、路径、时间或授权。完整 Agent 候选提供项目与排序规则/摘要，本机管理预览才提供排序完整原配置和 before/after；无关 ID 不进入 Agent 回执/依赖。复用已有版本、摘要、独立网页批准及原回执，创建后不会因响应丢失而重建。
 
 独立管理路由 clients/<id>/project-creation 的 GET、preview、confirm、DELETE；项目访问走 proposals/<id>/project-access/{preview,confirm} 及原管理操作查询。它们均只接受本机管理会话，未初始化读不创建工作区，不加入 MCP；创建与访问是两个独立持久操作。新授权保留全部历史能力与格式下界，实际版本见[数据格式](DATA_FORMAT.md)。
+
+### AG-138 项目级联删除
+
+复用现有 22 个 MCP 工具和 `/api/agent/v1` 提案接口。`list_projects` 仅为原可见项目附可验证的 README `revision`，`project/delete` 仅接受目标 ID、此版本、请求标识和可选来源说明。工具调用方完整展示内容与警告。原提案同版本、完整本机页面预览票据和独立批准才可应用。删除回执使用 `/?item=trash&itemId=project-agent-<proposal_uuid>-<version>`。
+
+同源本机管理路由 `clients/<id>/project-deletions` 支持 GET、`POST /preview`、`POST /confirm` 及 DELETE。预览请求绑定 `workspace_id`、`expected_version`、`project_id` 和逐项 `asset_ids`。确认使用现有管理会话、预览标识/摘要、`approved=true` 及稳定 `request_id`。旧授权维持独立。本机授权查询沿用原操作管理，客户端提案凭据不能调用此管理接口。

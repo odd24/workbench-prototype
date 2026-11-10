@@ -1,5 +1,6 @@
 """Server-derived, complete deletion impact; never accepts replacement content."""
 
+import html
 import json
 
 from .agent_security import AgentError, allows
@@ -28,10 +29,10 @@ def checked_preview(result):
 
 
 def access_target(kind, item):
-    return {'type':kind, 'id':item['id'], 'project_id':item.get('project_id'), 'category':item.get('category', '未分类') if kind in {'document', 'concept_map'} else None}
+    return {'type':kind, 'id':item['id'], 'project_id':item['id'] if kind == 'project' else item.get('project_id'), 'category':item.get('category', '未分类') if kind in {'document', 'concept_map'} else None}
 
 
-def source_view(repository, entry):
+def source_view(repository, entry, *, url_references=()):
     item = entry['item']
     if not isinstance(item.get('title', ''), str):
         raise ValueError('目标标题无法完整预览')
@@ -42,7 +43,9 @@ def source_view(repository, entry):
     for attachment in attachment_items(item.get('attachments', [])):
         path = safe_local_path(original.parent, attachment['path'], roots, decode=False)
         assets.append({'metadata':attachment, 'exists':path.is_file(), 'retained':True})
-    for _match, source in local_links(item.get('body', '')):
+    for match, source in local_links(item.get('body', '')):
+        if url_references and html.unescape(match.group(1).strip('<>')) in url_references:
+            continue  # Already represented as an app URL in the impact list.
         if source:
             path = safe_local_path(original.parent, source, (*roots, repository.documents_dir))
             assets.append({'body_reference':source, 'exists':path.is_file(), 'retained':True})

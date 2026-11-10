@@ -109,7 +109,7 @@ class ProposalManagement:
             detail = self.detail(proposal_id)
         preview = self.store.preview_result(proposal)
         result = {**detail, "preview": preview}
-        if proposal['kind'] == 'project':
+        if proposal['kind'] == 'project' and proposal['operation'] == 'create':
             from .agent_project_service import checked_preview
             result['local_project_plan'] = proposal['project_sort_details']
             checked_preview({**result, 'preview_ticket':'x' * 43, 'preview_ticket_seconds':600, 'state':'previewed'})

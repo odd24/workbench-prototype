@@ -126,13 +126,13 @@ def dispatch(handler):
         def display_links(value):
             if isinstance(value.get("receipt"), dict):
                 value = {**value, "receipt": display_links(value["receipt"])}
-            if value.get('proposal_id') and value.get('kind') == 'project' and value.get('item_id'):
+            if value.get('proposal_id') and value.get('kind') == 'project' and value.get('item_id') and value.get('deleted') is not True:
                 from .agent_project_execution import web_path
                 path = web_path(value['item_id'])
                 if value.get('web_path') != path or value.get('project_id') != value['item_id']:
                     raise ValueError('项目回执链接与固定身份不一致')
                 return {**value, 'web_url':'http://' + handler.headers['Host'] + path}
-            if value.get("proposal_id") and value.get("item_id") and value.get("kind") in {"issue", "document", "todo", "info", "concept_map"}:
+            if value.get("proposal_id") and value.get("item_id") and value.get("kind") in {"issue", "document", "todo", "info", "concept_map", "project"}:
                 if value.get('deleted') is True:
                     from .deletion_prepared import deletion_token
                     token = deletion_token(value['kind'], value['proposal_id'], value['version'])

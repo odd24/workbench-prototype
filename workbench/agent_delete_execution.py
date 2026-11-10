@@ -21,13 +21,21 @@ def token(proposal):
 
 def logical_plan(proposal):
     content = proposal.get('normalized_content')
-    return {'handler':'trash_delete@1', 'kind':proposal['kind'], 'operation':'delete',
+    return {'handler':handler(proposal), 'kind':proposal['kind'], 'operation':'delete',
             'target':proposal['access_target'], 'trash_token':token(proposal),
             'candidate_digest':fingerprint(content) if content is not None else proposal['execution_plan']['candidate_digest'],
             'binding_digest':fingerprint(proposal['delete_binding']), 'steps':STEPS.copy(), 'source_bindings':[]}
 
 
+def handler(proposal):
+    from .agent_project_delete_execution import HANDLER
+    return HANDLER if proposal['kind'] == 'project' else 'trash_delete@1'
+
+
 def validate_context(proposal):
+    if proposal['kind'] == 'project':
+        from .agent_project_delete_execution import validate_context as validate_project_context
+        return validate_project_context(proposal)
     if proposal['operation'] != 'delete' or proposal['kind'] not in DELETE_KINDS or proposal['confirmation_mode'] != 'local_web':
         raise ValueError('删除仅支持固定类型与本机网页批准')
     target = proposal.get('access_target')
@@ -73,14 +81,15 @@ def validate_context(proposal):
 
 
 def concrete_plan(manifest, proposal):
-    return {'handler':'trash_delete@1', 'proposal_plan_digest':proposal['plan_digest'], 'steps':STEPS.copy(),
+    return {'handler':handler(proposal), 'proposal_plan_digest':proposal['plan_digest'], 'steps':STEPS.copy(),
             **{key:manifest[key] for key in ('kind', 'operation', 'item_id', 'relative_path', 'before_digest', 'trash_token', 'deleted_at')},
             'binding_digest':fingerprint(proposal['delete_binding'])}
 
 
 def validate_execution(store, manifest, proposal, snapshots):
     validate_context(proposal)
-    if manifest.get('execution_schema_version') != 4 or type(manifest['execution_schema_version']) is not int or manifest.get('operation') != 'delete' or manifest.get('kind') != proposal['kind'] or manifest.get('client_id') != proposal['client_id'] or manifest.get('item_id') != proposal['target_id'] or manifest.get('relative_path') != proposal['delete_binding']['relative_path'] or manifest.get('before_digest') != proposal['base_revision'] or manifest.get('trash_token') != token(proposal):
+    project = proposal['kind'] == 'project'
+    if manifest.get('execution_schema_version') != (6 if project else 4) or type(manifest['execution_schema_version']) is not int or manifest.get('operation') != 'delete' or manifest.get('kind') != proposal['kind'] or manifest.get('client_id') != proposal['client_id'] or manifest.get('item_id') != proposal['target_id'] or manifest.get('relative_path') != proposal['delete_binding']['relative_path'] or manifest.get('before_digest') != proposal['base_revision'] or manifest.get('trash_token') != token(proposal):
         raise ValueError('删除执行身份/来源/版本不一致')
     if store is not None:
         controlled(store.repository.root, manifest['relative_path'], required=False)
@@ -108,7 +117,9 @@ def validate_execution(store, manifest, proposal, snapshots):
     receipt = manifest['receipt']
     if any(receipt.get(key) != value for key, value in expected.items()):
         raise ValueError('删除回执不属于原操作')
-    if not proposal.get('content_cleaned'):
+    if project and (receipt.get('project_id') != proposal['target_id'] or receipt.get('category') is not None):
+        raise ValueError('项目级联回执归属无效')
+    if store is not None and not proposal.get('content_cleaned'):
         from .agent_proposals import digest
         if digest(store.preview_payload(proposal)) != manifest['preview_digest']:
             raise ValueError('删除预览摘要不一致')
@@ -122,6 +133,9 @@ def validate_execution(store, manifest, proposal, snapshots):
         raw_index = controlled(store.repository.root, index_path.relative_to(store.repository.root).as_posix()).read_bytes()
         if content_revision(raw_index) != proposal['delete_binding']['trash_index_digest'] or manifest['trash_token'] in json.loads(raw_index.decode('utf-8')):
             raise ValueError('删除原索引快照不一致或token已存在')
+        if project:
+            from .agent_project_delete_execution import validate_snapshots
+            validate_snapshots(store, manifest, proposal)
 
 
 def prepared_from_manifest(store, manifest, proposal):
@@ -131,12 +145,14 @@ def prepared_from_manifest(store, manifest, proposal):
 
 
 def index_entry(store, manifest):
+    project = manifest['kind'] == 'project'
+    original = manifest['relative_path'] if project else str(store.repository.root / manifest['relative_path'])
+    trashed = '.trash/' + manifest['trash_token'] if project else str(store.repository.trash_dir / manifest['trash_token'])
     return {'token':manifest['trash_token'], 'id':manifest['item_id'],
-            'kind':'concept-map' if manifest['kind'] == 'concept_map' else 'document' if manifest['kind'] == 'document' else 'record',
+            'kind':'concept-map' if manifest['kind'] == 'concept_map' else manifest['kind'] if manifest['kind'] in {'document', 'project'} else 'record',
             'title':manifest['receipt']['title'], 'deleted_at':manifest['deleted_at'],
-            'original_path':str(store.repository.root / manifest['relative_path']),
-            'trash_path':str(store.repository.trash_dir / manifest['trash_token']),
-            'delete_schema_version':1, 'original_relative_path':manifest['relative_path'], 'agent_operation_id':manifest['operation_id']}
+            'original_path':original, 'trash_path':trashed,
+            'delete_schema_version':2 if project else 1, 'original_relative_path':manifest['relative_path'], 'agent_operation_id':manifest['operation_id']}
 
 
 def apply_steps(store, manifest, proposal, prepared, *, recovery=False):
@@ -183,8 +199,12 @@ def validated_trash_paths(repository, item):
     """Resolve a completed Agent entry under the current root, including migration."""
     if 'delete_schema_version' not in item:
         return None
-    if type(item['delete_schema_version']) is not int or item['delete_schema_version'] != 1:
+    version = item['delete_schema_version']
+    if type(version) is not int or version not in (1, 2):
         raise AgentError('unsupported_schema', '回收站删除证据版本未知，请使用匹配版本核查', 503)
+    if version == 2:
+        from .agent_project_delete_execution import validated_project_trash
+        return validated_project_trash(repository, item)
     store = getattr(repository, 'agent_proposals', None)
     operation = item.get('agent_operation_id')
     if store is None or not isinstance(operation, str) or not re.fullmatch(r'[a-f0-9-]{36}-[1-9][0-9]*', operation):

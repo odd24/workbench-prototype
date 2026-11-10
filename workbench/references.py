@@ -26,7 +26,7 @@ def text_values(value):
         raise ValueError('未知用户文本结构，不能完整识别引用')
 
 
-def references(value, *, strict=False):
+def references(value, *, strict=False, project_links=False):
     """Potential textual links, including code samples; never execute text."""
     found = []
     for text in text_values(value):
@@ -44,16 +44,22 @@ def references(value, *, strict=False):
             if 'item' not in query and 'itemId' not in query:
                 continue
             kind, key = query.get('item', []), query.get('itemId', [])
-            if kind == ['trash'] and len(key) == 1 and set(query) == {'item', 'itemId'} and re.fullmatch(r'(?:record|document|concept-map)-agent-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}-[1-9][0-9]*', key[0]):
+            if kind == ['trash'] and len(key) == 1 and set(query) == {'item', 'itemId'} and re.fullmatch(r'(?:record|document|concept-map|project)-agent-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}-[1-9][0-9]*', key[0]):
                 continue  # A receipt link addresses retained trash, not a formal item.
-            if kind == ['project'] and len(key) == 1 and set(query) == {'item', 'itemId'}:
+            if kind == ['project'] and len(key) == 1 and set(query) in ({'item', 'itemId'}, {'item', 'itemId', 'assetId'}):
                 from .project_identity import valid_new_id
+                asset = query.get('assetId')
                 try:
                     valid_new_id(key[0])
+                    if asset is not None and (len(asset) != 1 or not re.fullmatch(r'ASSET-[a-f0-9]{32}', asset[0])):
+                        raise ValueError('项目附件身份无效')
                 except ValueError:
                     pass
                 else:
-                    continue  # Project results are outside the single-item deletion surface.
+                    if project_links:
+                        found.append({'id':key[0], 'kind':'project', 'syntax':'item_link',
+                                      'token':match[0], 'attachment':asset[0] if asset else None})
+                    continue
             valid = len(kind) == len(key) == 1 and kind[0] in {'issue', 'todo', 'info', 'document', 'concept_map'} and re.fullmatch(r'(?:ISSUE|TODO|INFO|IDEA|DOC|CMAP)-[0-9]+', key[0])
             if valid and kind[0] in {'document', 'todo', 'info', 'concept_map'}:
                 valid = key[0].startswith({'document':'DOC-', 'todo':'TODO-', 'info':'INFO-', 'concept_map':'CMAP-'}[kind[0]])
@@ -63,5 +69,8 @@ def references(value, *, strict=False):
                 if strict:
                     raise ValueError('内部结果链接无效，不能建立完整影响计划')
                 continue
-            found.append({'id':key[0], 'syntax':'item_link', 'token':match[0], 'attachment':None})
+            result = {'id':key[0], 'syntax':'item_link', 'token':match[0], 'attachment':None}
+            if project_links:
+                result['kind'] = kind[0]
+            found.append(result)
     return found

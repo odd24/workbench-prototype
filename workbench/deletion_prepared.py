@@ -75,14 +75,14 @@ def read_handle(handle):
 
 
 def deletion_token(kind, proposal_id, version):
-    if kind not in DELETE_KINDS or str(uuid.UUID(proposal_id)) != proposal_id or type(version) is not int or version < 1:
+    if kind not in DELETE_KINDS | {'project'} or str(uuid.UUID(proposal_id)) != proposal_id or type(version) is not int or version < 1:
         raise ValueError('删除操作身份无效')
-    prefix = 'concept-map' if kind == 'concept_map' else 'document' if kind == 'document' else 'record'
+    prefix = 'concept-map' if kind == 'concept_map' else kind if kind in {'document', 'project'} else 'record'
     return f'{prefix}-agent-{proposal_id}-{version}'
 
 
 def validate_token(token, kind):
-    prefix = 'concept-map' if kind == 'concept_map' else 'document' if kind == 'document' else 'record'
+    prefix = 'concept-map' if kind == 'concept_map' else kind if kind in {'document', 'project'} else 'record'
     match = re.fullmatch(re.escape(prefix) + r'-agent-([a-f0-9-]{36})-([1-9][0-9]*)', token) if isinstance(token, str) else None
     if not match or deletion_token(kind, match[1], int(match[2])) != token:
         raise ValueError('回收站操作身份无效')
@@ -115,7 +115,7 @@ def read_trash_index(root):
         if not isinstance(value, dict) or not required <= value.keys() or value['token'] != key or not isinstance(key, str) or '/' in key or '\\' in key or key in {'.', '..'} or value['kind'] not in {'project', 'record', 'document', 'concept-map'} or any(not isinstance(value[name], str) for name in required):
             raise ValueError('回收索引成员未知或损坏')
         datetime.fromisoformat(value['deleted_at'])
-        if 'delete_schema_version' in value and (type(value['delete_schema_version']) is not int or value['delete_schema_version'] != 1 or set(value) != required | {'delete_schema_version', 'original_relative_path', 'agent_operation_id'}):
+        if 'delete_schema_version' in value and (type(value['delete_schema_version']) is not int or value['delete_schema_version'] != (2 if value['kind'] == 'project' else 1) or set(value) != required | {'delete_schema_version', 'original_relative_path', 'agent_operation_id'}):
             raise ValueError('回收索引删除版本未知')
     return raw, index
 

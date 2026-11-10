@@ -28,7 +28,7 @@ def normalize_delete_grants(value):
 
 
 def client_delete_grants(client):
-    if client.get('authorization_schema_version', 1) not in (6, 7):
+    if client.get('authorization_schema_version', 1) not in (6, 7, 8):
         if 'delete_grants' in client:
             raise AgentError('invalid_configuration', '旧授权不能包含已生效删除授权', 503)
         return {'schema_version': 1, 'grants': []}

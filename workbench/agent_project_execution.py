@@ -30,6 +30,11 @@ PHASES = (
 def proposal_allows(client, proposal, *, writing=False):
     if proposal['kind'] != 'project':
         return allows(client, proposal['access_target'])
+    if proposal['operation'] == 'delete':
+        from .agent_project_delete_authorization import project_delete_grant
+        if not writing and proposal['state'] == 'committed':
+            return client.get('enabled') is True and 'read' in client['scopes'] and allows(client, {'project_id':proposal['target_id']})
+        return project_delete_grant(client, proposal['target_id']) is not None
     if not writing and proposal['state'] == 'committed':
         return client.get('enabled') is True and 'read' in client['scopes']
     return can_create_project(client)

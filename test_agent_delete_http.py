@@ -1,4 +1,4 @@
-"""AG-136 actual local HTTP management and raw stdio deletion boundaries."""
+"""Actual local HTTP management and raw stdio deletion boundaries."""
 
 import hashlib
 import json
@@ -100,6 +100,41 @@ class DeleteBridgeHTTPTests(unittest.TestCase):
         self.assertEqual(replay, {**receipt, 'web_url':self.workbench.base_url + receipt['web_path']})
         self.assertEqual(path.read_bytes(), original)
         self.assertNotIn(self.config['token'], json.dumps([preview, completed]) + '\n'.join(self.rpc.errors))
+
+        route = prefix + f"clients/{self.info['client_id']}/project-deletions"
+        candidate = {'workspace_id':status['workspace_id'], 'expected_version':granted['version'],
+                     'project_id':self.project['id'], 'asset_ids':[]}
+        self.assertEqual(self.request(route + '/preview', 'POST', candidate, agent_headers)[0], 403)
+        code, grant_preview = self.request(route + '/preview', 'POST', candidate, headers)
+        self.assertEqual(code, 200, grant_preview)
+        approval = {key:grant_preview[key] for key in ('workspace_id', 'expected_version', 'preview_id', 'preview_digest')}
+        approval.update(request_id='cascade-http-fresh', approved=True)
+        self.assertEqual(self.request(route + '/confirm', 'POST', approval, headers)[0], 200)
+        self.assertEqual(self.workbench.security.registry_version(), 7)
+        project = self.tool('list_projects', {})['structuredContent']['items'][0]
+        prepared = self.tool('prepare_proposal', {'request_id':'cascade-stdio', 'kind':'project', 'operation':'delete',
+                             'target_id':project['id'], 'base_revision':project['revision']})
+        self.assertFalse(prepared['isError'], prepared)
+        proposal_id = prepared['structuredContent']['proposal_id']
+        result = self.tool('preview_proposal', {'proposal_id':proposal_id})
+        preview = result['structuredContent']
+        self.assertEqual(preview, json.loads(result['content'][0]['text']))
+        self.assertEqual(preview['execution_plan']['handler'], 'project_trash@1')
+        self.assertEqual(preview['content']['children'][0]['raw_source'].encode('utf-8'), original)
+        commit = {'proposal_id':proposal_id, 'version':1, 'preview_digest':preview['preview_digest'],
+                  'confirmation':{'mode':'agent_attested', 'user_confirmed':True}}
+        self.assertTrue(self.tool('commit_proposal', commit)['isError'])
+        code, review = self.request(prefix + f'proposals/{proposal_id}/preview', headers=headers)
+        self.assertEqual(code, 200, review)
+        code, completed = self.request(prefix + f'proposals/{proposal_id}/approve', 'POST',
+                                      {'workspace_id':status['workspace_id'], 'version':1, 'preview_digest':preview['preview_digest'],
+                                       'preview_ticket':review['preview_ticket'], 'request_id':'cascade-http-business'}, headers)
+        self.assertEqual(code, 200, completed)
+        receipt = completed['receipt']
+        self.assertFalse(path.exists())
+        self.assertEqual(self.request('/api/trash/' + receipt['trash_token'] + '/restore', 'POST', {})[0], 200)
+        self.assertEqual(path.read_bytes(), original)
+        self.assertEqual(self.tool('commit_proposal', commit)['structuredContent'], {**receipt, 'web_url':self.workbench.base_url + receipt['web_path']})
 
 
 if __name__ == '__main__':

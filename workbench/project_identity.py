@@ -129,6 +129,7 @@ def scoped_project_ids(security):
     """Exclude still configured exact scopes, even for disabled clients."""
     from .agent_concept_authorization import client_graph_grants
     from .agent_delete_authorization import client_delete_grants
+    from .agent_project_delete_authorization import client_project_delete_grants
     from .agent_security import client_kinds
 
     if security.manager().blocked_clients():
@@ -139,6 +140,7 @@ def scoped_project_ids(security):
         if not isinstance(client['project_ids'], list):
             raise ValueError('现有项目范围格式未知，不能确认编号占用')
         used.update(identity_key(key) for key in client['project_ids'] if key != '*')
+        used.update(identity_key(grant['project_id']) for grant in client_project_delete_grants(client)['grants'])
         for policy in (client_graph_grants(client), client_delete_grants(client)):
             for grant in policy['grants']:
                 used.update(identity_key(resource['id']) for resource in grant['resources'] if resource['type'] == 'project')

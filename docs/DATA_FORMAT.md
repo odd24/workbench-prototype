@@ -277,3 +277,11 @@ prepared且未进入移动时可按当前权限/依赖继续；applying但trash�
 proposal3/manifest3 新增 project_create@1/execution5，依次 project_stage/project_publish/project_sort/receipt。批准受理时固定实际时间和 README 字节；持久批准、after.md、sort-before.json/sort-after.json 与 manifest 后才建立私人同卷暂存。记录目录物理身份（volume/index/created）及完整树；同 NTFS 目录句柄核验后无覆盖 rename，无复制替代。发布前重查授权、占用、模板、集合及原排序；进入发布中后仅可信正式目标可补固定排序和原回执。排序只接受批准的原前后字节；异物不覆盖，已发布项目不重建。回执证明完成后重放不依赖后续项目或排序。终结内容按既有清理，原身份/摘要/回执保留。
 
 独立范围授权绑定原项目创建回执、固定客户端、目录物理身份、当前 README 摘要和完整客户端 CAS。已发布 registry 只补原管理回执；待发布重查真实目录/README 持有句柄，第三方同 ID 同字节目录不视为原项目。批准后只追加一个精确 project_ids，既有授权类型、scope 和通配语义不变。独立授权不是项目写入事务，不会重跑项目。
+
+## AG-138 项目级联回收证据
+
+私有 registry7、客户端授权8 和管理日志8 新增 `project_delete_grants` schema1。每项是 `projects.delete/delete/local_web`，含精确项目 ID 和选中独立附件的 ID 及元数据与内容证据摘要。旧家族按原字段、版本与撤销语义读取。管理日志采用原有私有快照、日志、格式门槛和发布阶段。
+
+proposal3 与 manifest3 的执行分支为 `project_trash@1`、execution6。`before.md` 保存 README 原字节，`index-before.json` 保存原回收索引，`tree-before.json` 保存原树物理身份与全部相对成员证据，若项目排序文件存在，`sort-before.json` 保存其原字节。固定 token 为 `project-agent-<UUID>-<正整数版本>`。回收项 `delete_schema_version=2` 用当前根相对路径，保留原操作 ID，便于完整停机副本核验。项目和子记录 ID 在终结提案证据中长期保留。schema1 仍用于单条删除。可移植 ZIP 保持排除 `.agent` 和 `.trash`。
+
+树最多 4096 个目录和文件成员、64 MiB 原始字节，单文本 1 MiB。完整活动集合最多 4096 文件、32 MiB，完整 UTF-8 JSON 预览最多 2 MiB。二进制仅记录元数据、大小及 SHA-256；保留原字节的完整目录直接移动。额外 NTFS 数据流、硬链接、重解析和未知成员均拒绝。[FindFirstStreamW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-findfirststreamw)、[FindNextStreamW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-findnextstreamw)

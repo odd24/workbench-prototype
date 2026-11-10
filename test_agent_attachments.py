@@ -738,7 +738,7 @@ class AttachmentHTTPTests(unittest.TestCase):
             self.assertEqual(len(rpc.call('tools/list')['tools']), 22)
             def tool(name, arguments):
                 return rpc.call('tools/call', {'name':'workbench_' + name, 'arguments':arguments})
-            self.assertEqual(tool('capabilities', {})['structuredContent']['execution_schema_versions'], [1, 2, 3, 4, 5])
+            self.assertEqual(tool('capabilities', {})['structuredContent']['execution_schema_versions'], [1, 2, 3, 4, 5, 6])
             self.assertFalse(tool('cancel_proposal', {'proposal_id':proposal['proposal_id'], 'expected_version':1})['isError'])
             target = tool('get_attachment_target', {'owner_kind':kind, 'owner_id':owner_id})
             self.assertFalse(target['isError'], target)

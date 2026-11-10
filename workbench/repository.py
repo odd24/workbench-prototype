@@ -143,6 +143,12 @@ class Repository:
             ids.add(json.loads(path.read_text(encoding="utf-8")).get("item_id", ""))
         for path in (self.root / ".agent" / "operations").glob("*/manifest.json"):
             ids.add(json.loads(path.read_text(encoding="utf-8")).get("item_id", ""))
+        store = getattr(self, 'agent_proposals', None)
+        if store:
+            for path in store.proposals.glob('*.json'):
+                proposal = store._load(path.stem, expire=False)
+                if proposal['kind'] == 'project' and proposal['operation'] == 'delete':
+                    ids.update(proposal['delete_binding']['child_ids'])
         return ids
 
     def prepare_delete(self, kind, item_id, base_revision):
@@ -355,7 +361,13 @@ class Repository:
             if deleted < cutoff:
                 if item.get('protected'):
                     continue
-                self.purge_trash(item["token"])
+                from .agent_security import AgentError
+                try:
+                    self.purge_trash(item["token"])
+                except AgentError as error:
+                    if item.get('delete_schema_version') != 2 or error.code != 'recovery_required':
+                        raise
+                    # Keep a changed cascade entry and its directory for explicit review.
 
     @coordinated
     def restore_trash(self, token: str) -> dict:
@@ -372,13 +384,18 @@ class Repository:
         destination = planned_paths[1] if planned_paths else Path(item["original_path"]).resolve()
         if not destination.is_relative_to(self.root) or destination.is_relative_to(self.trash_dir):
             raise ValueError("回收站恢复路径无效")
-        if destination.exists():
+        if item.get('delete_schema_version') == 2:
+            from .agent_project_delete_execution import verify_restore_destination
+            from .project_delete_tree import move_tree
+            move_tree(self.root, source, destination, planned_paths[2], lambda _:verify_restore_destination(self, planned_paths))
+        elif destination.exists():
             if item.get('kind') == 'concept-map':
                 from .write_coordinator import RevisionConflict
                 raise RevisionConflict('概念图固定身份已存在，不能改名恢复或覆盖')
             destination = destination.with_name(f"{destination.stem}-restored-{datetime.now().strftime('%H%M%S')}{destination.suffix}")
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(source), str(destination))
+        if item.get('delete_schema_version') != 2:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(source), str(destination))
         self._forget_record(destination)
         del index[token]
         self._write_trash_index(index)
@@ -434,7 +451,10 @@ class Repository:
             self._guard_trash_token(token, index)
             if 'delete_schema_version' in index[token]:
                 from .agent_delete_execution import validated_trash_paths
-                validated_trash_paths(self, index[token])
+                planned = validated_trash_paths(self, index[token])
+                if index[token]['delete_schema_version'] == 2:
+                    from .agent_project_delete_execution import verify_restore_destination
+                    verify_restore_destination(self, planned)
         restored = [self.restore_trash(token) for token in tokens]
         return {"restored": restored, "count": len(restored)}
 

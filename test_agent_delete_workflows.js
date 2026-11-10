@@ -196,6 +196,62 @@ async function main() {
     assert.deepEqual(registry.clients[created.client_id].delete_grants.grants, []);
     assert.equal(registry.clients[created.client_id].concept_map_grants.grants.length, 1);
     await client.evaluate('window.fetch = window.__deleteRevokeFetch');
+    const childGrants = {schema_version:1, grants:[{capability:'items.delete', operations:['delete'],
+      minimum_confirmation_mode:'local_web', resources:[{type:'project', id:project.id}]}]};
+    const childPreview = await management(`clients/${created.client_id}/deletions/preview`, 'POST', {
+      workspace_id:status.workspace_id, expected_version:currentGrant.expected_version, grants:childGrants});
+    await management(`clients/${created.client_id}/deletions/confirm`, 'POST', {workspace_id:status.workspace_id,
+      expected_version:childPreview.expected_version, preview_id:childPreview.preview_id,
+      preview_digest:childPreview.preview_digest, request_id:'cascade-child-grant', approved:true});
+    const standalone = await json(`/api/projects/${encodeURIComponent(project.id)}/assets/upload?name=${encodeURIComponent('独立附件.txt')}`, {
+      method:'POST', headers:{'Content-Type':'application/octet-stream'}, body:Buffer.from('CASCADE TEST')});
+    await client.evaluate('agentSettingsFeature.load().then(() => true)');
+    await click(`[data-agent-action=project-creation-delete][data-client-id="${created.client_id}"]`);
+    await waitForPage(client, "!!$('#agentProjectDeletionPanel') && !agentSettingsFeature.isBusy()");
+    await click('[data-agent-action=project-creation-assets]');
+    await waitForPage(client, `!!document.querySelector('[data-project-delete-asset][value="${standalone.id}"]')`);
+    await click(`[data-project-delete-asset][value="${standalone.id}"]`);
+    await click('#agentProjectDeletionPanel [data-agent-action=project-creation-preview]');
+    await waitForPage(client, "!!$('#agentProjectCreationFull') && !agentSettingsFeature.isBusy()");
+    for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
+      await client.call('Emulation.setDeviceMetricsOverride', {width, height:1000, deviceScaleFactor:1, mobile:false});
+      await client.evaluate(`document.body.classList.toggle('dark', ${theme === 'dark'}); $('#agentProjectDeletionPanel').scrollIntoView({block:'start'});`);
+      await waitForPage(client, `Math.abs(document.querySelector('.main').getBoundingClientRect().left - ${width <= 760 ? 0 : 244}) < 1`);
+      assert.equal(await client.evaluate('document.documentElement.scrollWidth > innerWidth + 1'), false);
+      fs.writeFileSync(path.join(screenshots, `cascade-grant-${theme}-${width}.png`), Buffer.from((await client.call('Page.captureScreenshot', {format:'png'})).data, 'base64'));
+    }
+    await click('#agentProjectDeletionPanel [data-agent-action=project-creation-confirm]'); await confirm();
+    await waitForPage(client, "!!document.querySelector('#agentProjectDeletionPanel [data-agent-action=project-creation-revoke]') && !agentSettingsFeature.isBusy()");
+    assert.deepEqual((await agent('capabilities')).kind_operations.project, ['delete']);
+    const listedProject = (await agent('projects')).items.find(item => item.id === project.id);
+    const cascade = await agent('proposals', 'POST', {request_id:'cascade-project', kind:'project', operation:'delete', target_id:project.id, base_revision:listedProject.revision});
+    const retainedGraphPath = path.join(data, 'concept-maps', `${referencingGraph.id}.json`);
+    const retainedGraph = fs.readFileSync(retainedGraphPath);
+    await client.evaluate("setPage('agent_proposals').then(() => true)");
+    await waitForPage(client, `!!document.querySelector('[data-proposal-id="${cascade.proposal_id}"]')`);
+    await review(cascade.proposal_id);
+    assert.equal(await client.evaluate("!!document.querySelector('[data-project-deletion-fields]')"), true);
+    assert.ok(await client.evaluate("document.querySelectorAll('[data-deletion-canvas][data-concept-readonly]').length >= 2"));
+    for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
+      await client.call('Emulation.setDeviceMetricsOverride', {width, height:1000, deviceScaleFactor:1, mobile:false});
+      await client.evaluate(`document.body.classList.toggle('dark', ${theme === 'dark'}); document.querySelector('[data-project-deletion-inventory]').scrollIntoView({block:'start'});`);
+      await waitForPage(client, `Math.abs(document.querySelector('.main').getBoundingClientRect().left - ${width <= 760 ? 0 : 244}) < 1`);
+      assert.equal(await client.evaluate('document.documentElement.scrollWidth > innerWidth + 1'), false);
+      assert.equal(await client.evaluate("[...document.querySelectorAll('[data-project-deletion-fields]')].some(node => node.scrollWidth > node.clientWidth + 1)"), false);
+      fs.writeFileSync(path.join(screenshots, `cascade-${theme}-${width}.png`), Buffer.from((await client.call('Page.captureScreenshot', {format:'png'})).data, 'base64'));
+    }
+    await click('[data-proposal-action=approve]'); await confirm();
+    await waitForPage(client, "!!document.querySelector('[data-proposal-trash-result]') && !agentProposalsFeature.isBusy()");
+    const cascadeReceipt = (await agent(`proposals/${cascade.proposal_id}`)).receipt;
+    assert.equal(fs.existsSync(path.join(data, 'projects', project.id)), false);
+    assert.deepEqual(fs.readFileSync(retainedGraphPath), retainedGraph);
+    await click('[data-proposal-trash-result]');
+    await waitForPage(client, `currentPage === 'trash' && !!document.querySelector('[data-restore-trash="${cascadeReceipt.trash_token}"]')`);
+    await click(`[data-restore-trash="${cascadeReceipt.trash_token}"]`);
+    await waitForPage(client, `!document.querySelector('[data-trash-row="${cascadeReceipt.trash_token}"]')`);
+    assert.equal(fs.existsSync(infoPath), true);
+    assert.deepEqual(fs.readFileSync(retainedGraphPath), retainedGraph);
+    console.log('AG-138 browser passed: project and explicit asset authorization, complete cascade/graph preview, fixed trash result and restore');
     console.log('AG-136 browser passed: fresh deletion grant/full preview/cancel/lost-response/reload-query; full info/attachment/active sources; two graph canvases/all fields; local-web-only delete/receipt/restore/old replay; background draft and navigation flush; light/dark desktop/narrow');
     console.log(`Screenshots: ${screenshots}`);
   } catch (error) {

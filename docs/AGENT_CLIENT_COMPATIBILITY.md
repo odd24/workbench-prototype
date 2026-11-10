@@ -239,13 +239,77 @@ HTTP夹具已从真实服务取得200只读结果，再延迟响应12秒；桥�
 | WorkBuddy 安装包 | 5.9.3，ProductVersion 5.9.3.0 | 磁盘安装元数据。桌面任务启动前需由用户核对运行版本 |
 | WorkBuddy 原装 CLI | 2.165.0，`lite-wb` | 两次新进程实际 initialize、initialized 和 tools/list，MCP 2025-11-25、完整 22 项工具名称。显式探针的 ping 和未知方法应答均通过。原装 `mcp --help` 只有登记、移除、列表与详情，公开直接业务调用入口未验证 |
 | WorkBuddy 桌面 | 运行中显示 V5.9.3，模型选择器显示 Hy4 | 已打开隔离项目。项目级发现未证实，按约定在发送前停止，夹具已清理 |
-| Codex 桌面 | 待用户确认运行版本 | 独立只读夹具已交用户手工试点，等待结果 |
+| Codex 桌面 | Windows 安装包版本见上。运行版本未由用户确认 | 用户手工试点报告未发现连接器，无中继握手。试点夹具已清理 |
 
 ### 已观察的桌面试点
 
 用户批准两客户端各一次只读试点，随后授权监督自行验证 WorkBuddy，并指定 Hy4。监督在 WorkBuddy V5.9.3 的新建任务中选择了本次临时 `desktop-project`，模型选择器显示 Hy4。夹具已生成项目级 `.workbuddy/mcp.json`。等待至少 60 秒后仍未出现 `protocol.jsonl`，因此没有 `initialize` 或 `tools/list` 证据。按约定在发送前停止，实际模型回合为 0，未切换模型或使用用户级配置。结论限于这次运行环境的项目级发现，WorkBuddy 原装 CLI 的 22 项工具证据继续单列。
 
-监督通过本次夹具的 STOP 路径收尾。进程退出码为 0，输出记录 `stopped=true`、`port_closed=true`、`temporary_directory_removed=true`、`revoked_credential_denied=true`。随后只读核验临时项目不存在。Codex 使用另一份夹具，由用户手工执行，截至本条记录尚无中继轨迹，待用户结果。
+监督通过本次夹具的 STOP 路径收尾。进程退出码为 0，输出记录 `stopped=true`、`port_closed=true`、`temporary_directory_removed=true`、`revoked_credential_denied=true`。随后只读核验临时项目不存在。
+
+Codex 使用另一份夹具。用户手工报告「没发现 workbench_ag142」。监督只读核对临时目录存在，`protocol.jsonl` 不存在，无中继握手或工具目录证据。通过该夹具唯一 STOP 路径退出 0，输出记录服务和端口关闭、撤销后旧凭据被拒、临时目录移除，随后只读核验根目录不存在。该次试点没有启动模型或改用户级配置。实际 App Server 业务直调的通过证据仍单列。
+
+### 连接器发现与启动时机对照
+
+| 表面 | 已复验结果 | 边界 |
+| --- | --- | --- |
+| WorkBuddy 原装 CLI 2.165.0 | 同一 stdio 配置放在 `<项目>/.workbuddy/mcp.json` 时，`mcp list` 报无服务。放在 CLI 自身的 `<项目>/.mcp.json` 时，默认 `list` 无握手。对照见过 `Needs approval`。对同一项目条目显式 `mcp get workbench_ag142` 显示 `Scope: project`，并实际完成 initialize、initialized 和 tools/list，发现 22 项 | CLI 项目作用域与桌面项目作用域分开。已安装版的 `mcp list` 子命令拒绝显式 `--mcp-config` 的组合，不能把会话启动选项套到子命令上 |
+| WorkBuddy 5.9.3 安装包 | 静态核对显示桌面管理列表返回已登记项与缓存。展开某个已登记项的工具详情走 `describe`，可信且启用时会进入 `activate`。项目资源另在会话准备时解析。部分运行入口注入 `--mcp-config` 和 `--strict-mcp-config` | 已选工作目录、登记列表、连接启动是三个不同证据。若桌面已经列出本次**项目级**目标，可在发送前只展开该行，并以中继核实实际连接。当前没有证据表明此前项目文件会进入该列表，也未验证此动作在桌面会启动本次连接器 |
+| Codex 安装版 App Server 0.167.0-alpha.3.2 | 同一无 `.git` 的临时目录和同一项目配置，默认、明确不可信、只信任另一目录时均无目标工具和中继。独立 `CODEX_HOME` 中仅将实际线程 CWD 的确切目录标记可信后，发现 22 项并产生中继轨迹。客户端提出 `2025-06-18`，服务返回 `2025-11-25`，随后收到 initialized 和工具目录请求 | 证明该二进制在隔离运行下可加载项目级配置。用户此前实际桌面未发现的原因未确定。应先核对本地线程工作目录和有效信任，避免原样重试 |
+
+WorkBuddy 文档区分用户级和项目级文件，也说明可在管理界面查看连接状态。CLI 文档另外说明项目级审批、严格注入和首条消息的预热时机。这些资料与上述静态及隔离对照相符，但无法确定实际桌面的首次等待会在哪一层停止。全局自定义 MCP 开关若禁用，只记录，避免为试点修改影响其他连接器的设置。[WorkBuddy MCP 指南](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/MCP-Guide) [WorkBuddy 工具管控](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Permission-Modes) [CodeBuddy CLI MCP](https://www.codebuddy.cn/docs/cli/mcp) [CLI 首轮状态](https://www.codebuddy.cn/docs/cli/mcp-first-run-status)
+
+Codex 官方配置说明要求项目可信，桌面文档提供 `/mcp` 查看连接。旧试点的长路径和脚本当时输出的 8.3 拼写，在默认候选文件的 `projects` 中均未匹配。该检查未确定旧任务实际选取的路径或桌面生效信任。新夹具会输出解析后的长路径，中继摘要分别记客户端提出的版本和服务返回的版本。[OpenAI Docs 配置层](https://learn.chatgpt.com/docs/config-file/config-advanced) [OpenAI Docs MCP 界面](https://learn.chatgpt.com/docs/extend/mcp?surface=app)
+
+若用户此前未能核实旧任务的实际目录与信任，可审查一次新的零模型检查。用户准备好后启动 `python workbuddy_agent_acceptance.py --readonly-pilot codex`，在 Codex 桌面创建新本地任务并精确选择该次输出的 `desktop_project` 长路径。若客户端明确询问，只在用户同意时信任该目录。信任记录可能写入项目配置映射，本次步骤不增删用户级 MCP 项。核对实际目录与信任后，从输入框的命令菜单选择 `/mcp` 查看连接。若无此本地命令、目录或信任无法核对，停止。若菜单可用但 60 秒仍无目标项或中继握手，也停止，不发送 `PROMPT.txt`。随后按本次 STOP 收尾。已有证据显示前一任务确切信任时，不原样重复这次检查。
+
+### 待审查的单条用户级备选
+
+仅在用户接受用户级可见性并明确批准完整候选时采用。一次只启动一个新的只读夹具，工作目录、连接器参数、令牌文件和 TTL 均取自该次输出。与既有的项目级条目不能同时生效。授权最多是该客户端一次合成只读回合，WorkBuddy 指定 Hy4，Codex 模型由用户另定。消费额度未知。
+
+| 客户端 | 用户级配置目标 | 可审查的完整候选来源 |
+| --- | --- | --- |
+| WorkBuddy | 默认 `~/.workbuddy/mcp.json`，仅增加 `mcpServers.workbench_ag142`。安装包支持 `WORKBUDDY_CONFIG_DIR`、`CODEBUDDY_CONFIG_DIR` 覆盖，须先核对实际客户端目标 | `python workbuddy_agent_acceptance.py --readonly-pilot workbuddy` 输出的 `config_text`。从其中取唯一的 `workbench_ag142` 对象合并，不用它替换整个文件 |
+| Codex | 默认 `~/.codex/config.toml`，仅增加 `[mcp_servers.workbench_ag142]` 及其 `.env` 子表。以实际桌面设置打开的用户配置为准 | `python workbuddy_agent_acceptance.py --readonly-pilot codex` 输出的 `config_text`，完整两张表，包含程序、参数和环境路径 |
+
+WorkBuddy 完整候选的结构如下。实际值须由本次夹具解析后重新审查，不能复制已关闭预演的路径。
+
+```json
+{
+  "mcpServers": {
+    "workbench_ag142": {
+      "command": "<本次输出的 Python 绝对路径>",
+      "args": ["<本次输出的 workbuddy_agent_acceptance.py 绝对路径>", "--relay"],
+      "env": {
+        "WORKBENCH_PROBE_TRACE": "<本次临时 protocol.jsonl>",
+        "WORKBENCH_PROBE_CONFIG": "<本次临时私人客户端 JSON 路径>"
+      }
+    }
+  }
+}
+```
+
+Codex 候选同样只登记固定中继和本次两个路径。
+
+```toml
+[mcp_servers.workbench_ag142]
+command = "<本次输出的 Python 绝对路径>"
+args = ["<本次输出的 workbuddy_agent_acceptance.py 绝对路径>", "--relay"]
+
+[mcp_servers.workbench_ag142.env]
+WORKBENCH_PROBE_TRACE = "<本次临时 protocol.jsonl>"
+WORKBENCH_PROBE_CONFIG = "<本次临时私人客户端 JSON 路径>"
+```
+
+本次只读审计，当前 shell 无上述覆盖。两处默认文件均为普通文件且可解析，WorkBuddy 有 0 个其他项，Codex 有 2 个其他项。均未发现完全同名或按大小写及分隔符保守归一化后的冲突。未输出其他条目、配置值或凭据。当前 shell 结果不能确认运行中桌面的配置根。
+
+获准后，先在实际目标处复核同名、同义名称、已登记项、配置可解析且未在审查后变化。遇到冲突、权限限制、重解析路径、无法核对实际配置或无关设置变化时停止。只新增本次唯一条目，保留其余条目和顶层字段。若客户端已显示本次条目，可只查看或连接该项，以中继的 initialize 与 tools/list 判定。60 秒仍无握手或目录，停止，不发模型提示。用户级条目可能暂时对其他项目可见，但本次凭据只能读取单一合成工作空间、项目和文本文件。
+
+生成与比对顺序。可先在两个启动命令后追加 `--pilot-check` 审查结构，预演退出后其路径即失效。用户准备审查本次确切配置时，才以不带 `--pilot-check` 的对应命令启动一份夹具。从输出复制 `config_path`，用 `Get-Content -LiteralPath '<本次 config_path>' -Raw` 只读查看完整项，与 `config_text` 核对。添加前，从客户端确认实际生效配置文件，并解析该文件记录所有非目标条目和顶层字段的本机私有快照。添加后重读文件，核对目标程序、参数、环境和连接范围与本次候选完全相同，再比较除目标外的整个解析结构。删除后，比较整个解析结构与基线，确认目标不存在。无关内容不出本机，不通过整个文件覆盖回滚。使用用户级候选时，从该夹具根下另建无项目配置的空工作目录，打开这个目录而非含同名项目配置的 `desktop_project`。实际读取仍用同一 `PROMPT.txt`，并核对其中的空间 ID。
+
+退出时先关闭临时项目和连接，再创建本次 `stop_file`。夹具先撤销身份并检查旧令牌返回 401，然后停止服务并清理临时目录。核对终端退出、端口关闭和目录消失后，从实际配置中仅移除与审查候选匹配的 `workbench_ag142`，并复核其他条目和顶层字段。发现条目或文件被其他操作改写，停止覆盖并保留现场，不恢复整个旧文件。夹具与文件授权最长 20 分钟，TTL 不能移除真实用户级条目。若实际账号隔离、项目入口或这项用户级例外无法确认，只保留已证实的隔离 CLI/App Server 结果和桌面缺口。
+
+已证实的零模型隔离路径是 Codex App Server 的可信项目和 WorkBuddy 原装 CLI 的显式项目条目详情。没有证据表明能够给现有 WorkBuddy 或 Codex 桌面账号启动一份独立认证会话，同时保证完全隔离用户级配置和任务历史。上述两条隔离路径可保留为协议证据，实际桌面任务继续按可核对的用户许可处理。
 
 ### 新能力的零模型证据
 

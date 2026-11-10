@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -366,7 +367,7 @@ def run_readonly_pilot(client, check_only=False):
 
     prefix = f'workbench-ag142-pilot-{client}-'
     with disposable_directory(prefix) as directory:
-        base = Path(directory)
+        base = Path(directory).resolve()
         project_dir = base / 'desktop-project'
         project_dir.mkdir()
         workbench = LocalWorkbench(base / 'data', base / 'private')
@@ -480,8 +481,12 @@ def run_readonly_pilot(client, check_only=False):
                             event = json.loads(line)
                         except ValueError:
                             continue
-                        if event.get('method') == 'initialize' and event.get('protocolVersion') == '2025-11-25':
-                            audit['initialize'] = True
+                        version = event.get('protocolVersion')
+                        if isinstance(version, str) and re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', version):
+                            if event.get('method') == 'initialize' and event.get('direction') == 'client_to_server':
+                                audit.update(initialize=True, offered_protocol=version)
+                            elif event.get('direction') == 'server_to_client':
+                                audit['server_protocol'] = version
                         if event.get('method') == 'notifications/initialized':
                             audit['initialized'] = True
                         if 'tools' in event and sorted(event['tools']) == expected:

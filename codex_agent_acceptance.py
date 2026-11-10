@@ -6,21 +6,25 @@ user's Codex settings. Not included in unittest discovery.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import queue
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+import uuid
 from pathlib import Path
 
 from acceptance_process import ClientJob
 from server import Repository, WorkbenchHandler, WorkbenchHTTPServer
 from workbench.agent_security import AgentSecurity, private_write, read_json
 from workbench.agent_service import AgentService
+from workbench.agent_tools import TOOLS
 
 
 ROOT = Path(__file__).resolve().parent
@@ -122,12 +126,21 @@ class RpcProcess:
 
 class LocalWorkbench:
     def __init__(self, root, credentials):
+        self.drop_response_path = None
         self.repository = Repository(root)
         self.security = AgentSecurity(root, credentials)
         self.repository.agent_service = AgentService(self.repository, self.security)
         class QuietHandler(WorkbenchHandler):
             def log_message(self, *_args):
                 pass
+
+            def _json(handler, payload, status=200):
+                if status == 200 and handler.path == self.drop_response_path:
+                    self.drop_response_path = None
+                    handler.close_connection = True
+                    handler.connection.shutdown(socket.SHUT_RDWR)
+                    return
+                return super()._json(payload, status)
         QuietHandler.repository = self.repository
         self.server = WorkbenchHTTPServer(("127.0.0.1", 0), QuietHandler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -140,6 +153,179 @@ class LocalWorkbench:
         self.thread.join(5)
 
 
+def run_local_capabilities(call, local_request, workbench, project, info, session):
+    """Exercise the current business tools through the installed App Server."""
+    from urllib.parse import quote
+    from urllib.request import Request, urlopen
+    from workbench.agent_file_handles import SUPPORTED
+    from workbench.agent_management import client_version
+    from workbench.concept_maps import ConceptMapRepository
+
+    workspace = info['workspace_id']
+    client_id = info['client_id']
+    project_id = project['id']
+    resource = {'type':'project', 'id':project_id}
+    attested = {'mode':'agent_attested', 'user_confirmed':True, 'note':'程序化协议验收'}
+
+    def post(route, payload):
+        return local_request(route, 'POST', payload, session)
+
+    def confirm(route, preview, request_id):
+        payload = {key:preview[key] for key in ('workspace_id', 'expected_version', 'preview_id', 'preview_digest')}
+        return post(route + '/confirm', {**payload, 'approved':True, 'request_id':request_id})
+
+    def grant(suffix, request_id, **selection):
+        route = f'clients/{client_id}/{suffix}'
+        version = client_version(workbench.security.clients()[client_id])
+        preview = post(route + '/preview', {'workspace_id':workspace, 'expected_version':version, **selection})
+        return confirm(route, preview, request_id)
+
+    def preview(kind, operation, request_id, **fields):
+        candidate = call('prepare_proposal', {'request_id':request_id, 'kind':kind, 'operation':operation, **fields})
+        return call('preview_proposal', {'proposal_id':candidate['proposal_id']})
+
+    def commit_payload(candidate):
+        return {**{key:candidate[key] for key in ('proposal_id', 'version', 'preview_digest')}, 'confirmation':attested}
+
+    def web_approve(candidate, request_id):
+        arguments = commit_payload(candidate)
+        assert call('commit_proposal', arguments, error=True)['code'] == 'confirmation_required'
+        route = 'proposals/' + candidate['proposal_id']
+        review = local_request(route + '/preview', token=session)
+        assert review['preview']['preview_digest'] == candidate['preview_digest']
+        result = post(route + '/approve', {'workspace_id':workspace, 'version':review['version'],
+                      'preview_digest':candidate['preview_digest'], 'preview_ticket':review['preview_ticket'], 'request_id':request_id})
+        assert result['state'] == 'completed'
+        observed = call('get_proposal', {'proposal_id':candidate['proposal_id']})['receipt']
+        assert all(observed[key] == value for key, value in result['receipt'].items())
+        return result['receipt']
+
+    workbench.repository.ensure_concept_map_category('未分类')
+    graph = ConceptMapRepository.normalize({'title':'Codex 图原文', 'project_id':project_id,
+        'nodes':[{'id':'a', 'text':'甲'}, {'id':'b', 'text':'乙'}],
+        'edges':[{'id':'edge', 'from':'a', 'to':'b', 'label':'联系'}]})
+    assert not call('list_concept_maps')['items']
+    grant('concept-maps', 'codex-graph-grant', grants={'schema_version':1, 'grants':[
+        {'capability':'concept_maps.read', 'operations':['read'], 'resources':[resource], 'minimum_confirmation_mode':'agent_attested'},
+        {'capability':'concept_maps.write', 'operations':['create','update'], 'resources':[resource], 'minimum_confirmation_mode':'agent_attested'}]})
+    candidate = preview('concept_map', 'create', 'codex-graph-create', content={'graph':graph})
+    assert candidate['content']['graph'] == graph
+    created = call('commit_proposal', commit_payload(candidate))
+    assert call('commit_proposal', commit_payload(candidate)) == created
+    graph_id = created['item_id']
+    assert graph_id in {item['id'] for item in call('list_concept_maps')['items']}
+    current = call('get_concept_map', {'map_id':graph_id})
+    edited = {**current['editable_graph'], 'title':'Codex 图更新'}
+    candidate = preview('concept_map', 'update', 'codex-graph-update', target_id=graph_id,
+                        base_revision=current['revision'], content={'graph':edited})
+    assert candidate['content']['graph'] == edited
+    workbench.drop_response_path = '/api/agent/v1/proposals/' + candidate['proposal_id'] + '/commit'
+    assert call('commit_proposal', commit_payload(candidate), error=True)['code'] == 'service_unavailable'
+    assert workbench.drop_response_path is None
+    queried = call('get_proposal', {'proposal_id':candidate['proposal_id']})
+    assert queried['state'] == 'committed'
+    assert call('commit_proposal', commit_payload(candidate)) == queried['receipt']
+    assert call('get_concept_map', {'map_id':graph_id})['graph']['title'] == edited['title']
+
+    grant('project-creation', 'codex-project-grant')
+    candidate = preview('project', 'create', 'codex-project-create', content={'name':'Codex 隔离项目', 'description':'仅为兼容验收',
+                        'status':'paused', 'color':'#4d78e8', 'workflow_template':'standard'})
+    receipt = web_approve(candidate, 'codex-project-approve')
+    created_project_id = receipt['item_id']
+    project_route = 'proposals/' + candidate['proposal_id'] + '/project-access'
+    assert receipt['item_id'] not in {item['id'] for item in call('list_projects')['items']}
+    review = local_request(project_route + '/preview', token=session)
+    confirm(project_route, review, 'codex-project-access')
+    assert receipt['item_id'] in {item['id'] for item in call('list_projects')['items']}
+
+    def create_category(family, owner=None, refresh_visibility=None):
+        name = 'Codex ' + family
+        selection = {'family':family, 'name':name, 'project_id':owner}
+        grant('category-writes', 'codex-grant-' + family, selection={**selection, 'operation':'create'})
+        if refresh_visibility:
+            refresh_visibility()
+        content = {key:value for key,value in selection.items() if value is not None}
+        candidate = preview('category', 'create', 'codex-create-' + family, content=content)
+        web_approve(candidate, 'codex-approve-' + family)
+
+    create_category('concept_map_category')
+    result = {'graph_create_update':True, 'lost_commit_response_original_receipt':True,
+              'project_separate_access':True, 'concept_map_category':True,
+              'ntfs_cases':'unsupported_platform' if not SUPPORTED else 'passed'}
+    if not SUPPORTED:
+        return result
+
+    source = workbench.repository.root.parent / 'codex-fixture.txt'
+    original = '  UTF-8 中文与引号 "原文"\n第二段 🧪\n尾部空格  '.encode()
+    source.write_bytes(original)
+    file_grant = grant('files', 'codex-file-grant', path=str(source), purposes=['text_read','attachment_source'],
+                       encoding='auto', max_bytes=10485760, duration_seconds=3600)
+    file_id = file_grant['file_id']
+    metadata = call('get_file_info', {'file_id':file_id})
+    assert metadata in call('list_file_grants')['items'] and 'path' not in metadata
+    offset, parts = 0, []
+    while offset is not None:
+        chunk = call('read_file', {'file_id':file_id, 'source_revision':metadata['source_revision'], 'offset':offset, 'length':12})
+        parts.append(chunk['body'])
+        assert chunk['offset'] == offset and offset < chunk['end_offset'] <= len(original) and 'path' not in chunk
+        offset = chunk['next_offset']
+        assert offset is None or offset == chunk['end_offset']
+    assert len(parts) > 1 and ''.join(parts).encode() == original
+    checksum = hashlib.sha256(original).hexdigest()
+    file_binding = {'file_id':file_id, 'source_revision':metadata['source_revision']}
+    def approve_attachment_policy(request_id):
+        return grant('upload-policy', request_id, owner_kind='project', owner_id=project_id,
+                     stream=True, files=[file_binding], max_bytes=10485760, duration_seconds=3600,
+                     attachment_write=True, minimum_confirmation_mode='agent_attested')
+
+    policy = approve_attachment_policy('codex-attachment-grant')
+    for mode in ('file', 'stream'):
+        source_selection = {'mode':mode, **(file_binding if mode == 'file' else {})}
+        upload = call('create_upload', {'request_id':'codex-upload-' + mode, 'policy_id':policy['policy_id'],
+                      'owner_kind':'project', 'owner_id':project_id, 'source':source_selection,
+                      'filename':metadata['display_name'] if mode == 'file' else 'codex-stream.txt', 'bytes':len(original), 'sha256':checksum})
+        upload_id = upload['upload_id']
+        if mode == 'stream':
+            config = read_json(Path(info['config_file']))
+            request = Request(workbench.base_url + f'/api/agent/v1/uploads/{upload_id}/content', data=original, method='PUT',
+                              headers={'Authorization':'Bearer ' + config['token'], 'X-Workbench-Workspace':workspace,
+                                       'Content-Type':'application/octet-stream'})
+            with urlopen(request, timeout=10) as response:
+                assert response.status == 200
+        assert call('complete_upload', {'upload_id':upload_id})['state'] == 'ready'
+        target = call('get_attachment_target', {'owner_kind':'project', 'owner_id':project_id})
+        candidate = preview('attachment', 'create', 'codex-attachment-' + mode, target_id=project_id, base_revision=target['revision'],
+                            content={'owner_kind':'project', 'owner_id':project_id, 'upload_id':upload_id,
+                                     'display_name':'codex-' + mode + '.txt', 'category':'', 'insert_link':False})
+        assert candidate['content']['attachment']['sha256'] == checksum
+        receipt = call('commit_proposal', commit_payload(candidate))
+        assert call('commit_proposal', commit_payload(candidate)) == receipt
+        url = workbench.base_url + f'/api/project-assets/{quote(project_id, safe="")}/{receipt["item_id"]}'
+        with urlopen(url, timeout=10) as response:
+            assert response.read() == original
+    create_category('project_attachment_category', project_id,
+                    lambda:approve_attachment_policy('codex-attachment-visibility-refresh'))
+
+    item = workbench.repository.create_record({'type':'issue', 'project_id':project_id, 'title':'Codex 单条删除验收', 'body':'完整合成正文'})
+    item = call('get_item', {'kind':'issue', 'item_id':item['id']})
+    deletion = {'target_id':item['id'], 'base_revision':item['revision']}
+    denied = call('prepare_proposal', {'request_id':'codex-delete-denied', 'kind':'issue', 'operation':'delete', **deletion}, error=True)
+    assert denied['code'] in {'forbidden','not_found'}
+    grant('deletions', 'codex-delete-grant', grants={'schema_version':1, 'grants':[
+        {'capability':'items.delete', 'operations':['delete'], 'resources':[resource], 'minimum_confirmation_mode':'local_web'}]})
+    candidate = preview('issue', 'delete', 'codex-delete', **deletion)
+    assert '完整合成正文' in candidate['content']['target']['raw_source']
+    receipt = web_approve(candidate, 'codex-delete-approve')
+    assert (workbench.repository.trash_dir / receipt['trash_token']).is_file()
+    grant('project-deletions', 'codex-project-delete-grant', project_id=created_project_id, asset_ids=[])
+    project_to_remove = next(item for item in call('list_projects')['items'] if item['id'] == created_project_id)
+    candidate = preview('project', 'delete', 'codex-project-delete', target_id=created_project_id, base_revision=project_to_remove['revision'])
+    receipt = web_approve(candidate, 'codex-project-delete-approve')
+    assert (workbench.repository.trash_dir / receipt['trash_token']).is_dir()
+    return {**result, 'file_read_segments':len(parts), 'file_attachment':True, 'mixed_http_stream_attachment':True,
+            'project_attachment_category':True, 'item_delete':True, 'project_delete':True}
+
+
 def run_acceptance(codex=None):
     executable = codex or shutil.which("codex")
     if not executable:
@@ -149,10 +335,12 @@ def run_acceptance(codex=None):
         data, credentials = base / "data", base / "credentials"
         workbench = LocalWorkbench(data, credentials)
         rpc = None
+        identities = []
         try:
             project = workbench.repository.create_project({"name": "Codex 接入验收"})
             workbench.repository.ensure_document_category("验收知识")
             info = workbench.security.add_client("Codex 临时验收", ["read", "propose", "commit"], [project["id"]], ["验收知识"], workbench.base_url, kinds=["issue", "document", "todo", "info"])
+            identities.append(info['client_id'])
             client_config = Path(info["config_file"])
             codex_home = base / "isolated-codex"
             codex_home.mkdir()
@@ -172,13 +360,18 @@ def run_acceptance(codex=None):
                 'args = [' + quote(ROOT / 'agent_bridge.py') + ', "--config", ' + quote(client_config) + ']',
                 'env = { WORKBENCH_MCP_TRACE = "1" }',
             ])
-            # This is the child's genuine config home, not a shell scratch variable.
             from workbench.persistence import atomic_write_text
             atomic_write_text(codex_home / "config.toml", config)
-            env = {**os.environ, "CODEX_HOME": str(codex_home), "PYTHONIOENCODING": "utf-8"}
-            for key in list(env):
-                if key == "CODEX_THREAD_ID" or (key.startswith(("OPENAI_", "CHATGPT_", "CODEX_")) and any(marker in key for marker in ("TOKEN", "KEY", "AUTH"))):
-                    env.pop(key)
+            allowed = {'PATH','SYSTEMROOT','WINDIR','COMSPEC','PATHEXT','NUMBER_OF_PROCESSORS','PROCESSOR_ARCHITECTURE'}
+            env = {key:value for key,value in os.environ.items() if key.upper() in allowed}
+            for variable, name in {'USERPROFILE':'home', 'HOME':'home', 'APPDATA':'roaming', 'LOCALAPPDATA':'local',
+                                   'TEMP':'tmp', 'TMP':'tmp', 'XDG_CONFIG_HOME':'xdg-config', 'XDG_CACHE_HOME':'xdg-cache'}.items():
+                path = base / name
+                path.mkdir(exist_ok=True)
+                env[variable] = str(path)
+            drive, tail = os.path.splitdrive(env['USERPROFILE'])
+            env.update(CODEX_HOME=str(codex_home), PYTHONIOENCODING='utf-8', HOMEDRIVE=drive, HOMEPATH=tail,
+                       HTTP_PROXY='http://127.0.0.1:1', HTTPS_PROXY='http://127.0.0.1:1', NO_PROXY='127.0.0.1,localhost')
 
             rpc = RpcProcess([executable, "app-server", "--stdio"], cwd, env, terminate_tree=True)
             rpc.call("initialize", {"clientInfo": {"name": "workbench_acceptance", "version": "1.0"}, "capabilities": {"experimentalApi": True}})
@@ -187,10 +380,21 @@ def run_acceptance(codex=None):
             thread_id = thread["thread"]["id"]
             status = rpc.call("mcpServerStatus/list", {"threadId": thread_id, "serverName": "workbench", "detail": "toolsAndAuthOnly"})
             inventory = next(item for item in status["data"] if item["name"] == "workbench")
-            assert len(inventory["tools"]) == 22 and inventory["serverCapabilities"] == {"tools": {}}
+            assert sorted(inventory['tools']) == sorted(tool['name'] for tool in TOOLS)
+            assert inventory["serverCapabilities"] == {"tools": {}}
+
+            def reconnect(config_text):
+                nonlocal thread_id
+                atomic_write_text(codex_home / 'config.toml', config_text)
+                rpc.call('config/mcpServer/reload', {})
+                fresh = rpc.call('thread/start', {'cwd':str(cwd), 'ephemeral':True, 'approvalPolicy':'never', 'sandbox':'read-only'})
+                thread_id = fresh['thread']['id']
+                refreshed = rpc.call('mcpServerStatus/list', {'threadId':thread_id, 'serverName':'workbench', 'detail':'toolsAndAuthOnly'})
+                assert refreshed['data'][0]['name'] == 'workbench' and refreshed['data'][0]['tools'] == inventory['tools']
+
             def call(name, args=None, error=False):
                 result = rpc.call("mcpServer/tool/call", {"threadId": thread_id, "server": "workbench", "tool": "workbench_" + name, "arguments": args or {}})
-                if bool(result.get("isError")) != error:
+                if error is not None and bool(result.get("isError")) != error:
                     raise AssertionError(result)
                 return result.get("structuredContent") or json.loads(result["content"][0]["text"])
             capabilities = call("capabilities")
@@ -298,27 +502,62 @@ def run_acceptance(codex=None):
                 "request_id":"codex-workflow-approve"}, session)
             assert workflow_result["state"] == "completed"
             assert call("get_proposal", {"proposal_id":workflow_id})["receipt"] == workflow_result["receipt"]
+            original_config = read_json(client_config)
+            expanded = workbench.security.add_client('Codex 新能力验收', ['read','propose','commit'], [project['id']], ['验收知识'],
+                                                     workbench.base_url, kinds=['issue','document','todo','info'])
+            identities.append(expanded['client_id'])
+            reconnect(config.replace(quote(client_config), quote(expanded['config_file'])))
+            local_capabilities = run_local_capabilities(call, local_request, workbench, project, expanded, session)
+            workbench.security.change_client(expanded['client_id'])
+            assert call('capabilities', error=True)['code'] == 'unauthenticated'
             workbench.close()
             workbench = LocalWorkbench(data, credentials)
             assert selected["name"] in workbench.repository.document_categories()
             assert workflow_name in {item["name"] for item in workbench.repository.config()["workflow_templates"]}
-            private_write(client_config, {**read_json(client_config), "base_url": workbench.base_url})
+            original_config['base_url'] = workbench.base_url
+            mismatch_config = credentials / 'wrong-workspace.json'
+            private_write(mismatch_config, {**original_config, 'workspace_id':str(uuid.uuid4())})
+            reconnect(config.replace(quote(client_config), quote(mismatch_config)))
+            assert call('capabilities', error=True)['code'] == 'workspace_mismatch'
+            private_write(client_config, original_config)
+            reconnect(config)
             for receipt in receipts:
                 assert call("get_item", {"kind": receipt["kind"], "item_id": receipt["item_id"]})["revision"] == receipt["revision"]
+            workbench.security.change_client(info['client_id'], rotate=True)
+            rotated = read_json(client_config)
+            private_write(client_config, original_config)
+            assert call('capabilities', error=True)['code'] == 'unauthenticated'
+            private_write(client_config, rotated)
+            assert call('capabilities')['workspace_id'] == info['workspace_id']
+            for _ in range(121):
+                probe = call('capabilities', error=None)
+                if probe.get('code'):
+                    assert probe['code'] == 'rate_limited' and probe['retryable']
+                    break
+            else:
+                raise AssertionError('Codex did not receive the rate limit')
             workbench.security.change_client(info["client_id"])
             assert call("capabilities", error=True)["code"] == "unauthenticated"
-            version = subprocess.run([executable, "--version"], capture_output=True, text=True, check=True).stdout.strip()
+            version = subprocess.run([executable, "--version"], cwd=cwd, env=env, capture_output=True,
+                                     text=True, check=True, timeout=15).stdout.strip()
             return {"passed": True, "codex_version": version, "protocol": "2025-11-25", "tool_count": len(inventory["tools"]),
                     "created": [item["kind"] for item in receipts], "preview_revision_confirmation": True,
                     "issue_append_document_update": True, "local_web_independent_approval": True, "category_local_web":True, "workflow_local_web":True,
-                    "retry_cancel_restart_revoke": True, "model_turns_started": 0, "user_config_changed": False}
+                    "retry_cancel_restart_rotate_revoke": True, "workspace_mismatch":True, "rate_limited":True, "catalog_reload":True,
+                    "local_capabilities":local_capabilities,
+                    "model_turns_started": 0, "user_config_changed": False}
         except Exception as error:
             diagnostics = "\n".join(rpc.errors[-12:]) if rpc else ""
             raise RuntimeError(str(error) + "\n" + diagnostics) from error
         finally:
-            if rpc:
-                rpc.close()
-            workbench.close()
+            try:
+                for client_id in identities:
+                    if workbench.security.clients()[client_id]['enabled']:
+                        workbench.security.change_client(client_id)
+            finally:
+                if rpc:
+                    rpc.close()
+                workbench.close()
 
 
 if __name__ == "__main__":

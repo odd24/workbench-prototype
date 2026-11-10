@@ -8,7 +8,7 @@
 
 后续扩展详见 [AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。AG-115仅文档；AG-116～121、AG-126已完成；用户已明确仅本机使用，AG-122～125已取消当前实施、远程未实现。当前WorkBuddy5.9.3与本机最终交付证据见末尾及扩展验收，不影响首期历史状态。
 
-2026-11-09 用户在监督对话明确“现在开始执行方案”，解除此前暂停实施限制。AG-128～130及独立POST锁修复已通过监督审查，AG-131已通过监督审查，AG-132已通过监督审查，AG-133已通过监督审查，AG-134已提交9e43aa3并获监督接受，AG-135～136已完成。2026-11-10 用户明确“继续持续的推进方案”，AG-137～141 已完成，AG-142～143 待开始。历史 AG-127 的仅文档授权和暂停事实保留。
+2026-11-09 用户在监督对话明确“现在开始执行方案”，解除此前暂停实施限制。AG-128～130及独立POST锁修复已通过监督审查，AG-131已通过监督审查，AG-132已通过监督审查，AG-133已通过监督审查，AG-134已提交9e43aa3并获监督接受，AG-135～136已完成。2026-11-10 用户明确“继续持续的推进方案”，AG-137～141 已完成，AG-142 进行中，AG-143 待开始。历史 AG-127 的仅文档授权和暂停事实保留。
 
 ## 工作项
 
@@ -56,7 +56,7 @@
 | AG-139 | 三类分类变更与授权迁移 | 已完成 | 2026-11-10 | 2026-11-10 | AG-129、133、135。三类分类命令、身份代次及授权迁移已验收 |
 | AG-140 | 工作流变更、状态迁移与模板切换 | 已完成 | 2026-11-10 | 2026-11-10 | AG-129、137。工作流许可、状态映射及恢复已验收 |
 | AG-141 | 提案管理、恢复入口与诊断整体验收 | 已完成 | 2026-11-10 | 2026-11-10 | AG-132～140 |
-| AG-142 | 新能力真实 Codex、WorkBuddy 兼容验收 | 待开始 | — | — | AG-141；真实客户端环境 |
+| AG-142 | 新能力真实 Codex、WorkBuddy 兼容验收 | 进行中 | 2026-11-10 | — | AG-141；真实客户端环境 |
 | AG-143 | 新能力兼容、备份、运维与最终交付 | 待开始 | — | — | AG-142 |
 
 状态只使用：待开始、进行中、受阻、已完成、已取消。每项开工记录精确范围、文件、检查和风险；完成记录实际结果、兼容影响和剩余问题。代码写完但未验证仍为进行中。
@@ -1297,3 +1297,17 @@ AG-140 实际修改文件（52）：`AGENTS.md`、`app.js`、`codex_agent_accept
 - 语法及实机。137 个 Python 与 53 个 JS 通过语法检查，6 个 Markdown 文件与 83 个相对链接、`git diff --check` 通过。隔离 Codex CLI 0.167.0-alpha.3.2、MCP 2025-11-25 和 22 工具的既有兼容验证通过，0 个模型 turn，用户配置未改。详情与限制见[本机能力验收](AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md)。
 - 实际文件（22）。`AGENTS.md`、`README.md`、`docs/AGENT_USAGE.md`、`docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md`、`docs/AI_AGENT_PROGRESS.md`、`docs/MAINTENANCE.md`、`index.html`、`js/features/agent-proposals.js`、`test_agent_attachment_workflows.js`、`test_agent_attachments.py`、`test_agent_category_workflows.js`、`test_agent_concept_maps.py`、`test_agent_diagnostics.py`、`test_agent_proposal_management.py`、`test_agent_proposal_workflows.js`、`test_agent_settings.js`、`test_agent_workflow_workflows.js`、`workbench/agent_diagnostics.py`、`workbench/agent_management_http.py`、`workbench/agent_proposal_management.py`、`workbench/agent_proposals.py`、`workbench/http_api.py`。
 - 交接。AG-140 独立临时目录清理待办仍在，收口时只读结果一致。AG-142 待开始，待监督派发。
+
+### AG-142 真实客户端兼容验收（2026-11-10 开始）
+
+- 起点 `00fe468`，工作区干净。监督接受 AG-141，派发仅 AG-142。先盘点版本与可运行入口，以合成临时库、私人配置和固定 loopback 执行零模型回合协议验收。真实客户端、原始 stdio、HTTP、浏览器和真实桌面任务分列证据。
+- 范围。工具目录与刷新、完整文件读取及两类附件来源、图新建和更新、删除、项目创建和独立授权、三个分类域和工作流、两种确认和自报拒绝。覆盖重放、取消、版本、空间、授权、限流、响应丢失和重启。优先复用现有 Codex、WorkBuddy 验收脚本与领域专项，按实际证据补齐。预计涉及兼容矩阵、验收台账、隔离脚本及必要验收测试。
+- 人工任务、费用、登录和真实客户端配置变更需审查具体安排。先准备每次操作和批准点、调用预算、退出和清理措施。历史 AG-121/126 的授权和通过结论仅作参考。AG-140 递归清理被拒的临时目录继续单列，已只读核实存在。
+
+### AG-142 零模型回归及只读试点准备（2026-11-10）
+
+- 实际 Codex App Server `0.167.0-alpha.3.2`，MCP `2025-11-25`，22 项 Schema。独立子进程配置、用户目录和合成库完成文件六段完整读取、两个附件通道、图 create/update、单条和项目删除、项目创建后另行批准访问、三个分类域和工作流。实际丢弃图更新 HTTP 成功响应后原提案查询和同回执重放通过。另核证旧版、取消、错空间、429、重启、轮换、撤销及重载目录。流式 bytes 由独立 loopback HTTP 助手发送。程序确认仅是协议证据。
+- WorkBuddy 安装 `5.9.3.0`，原装 CLI `2.165.0` 的默认和显式探针各实际发现完整 22 项名称，MCP `2025-11-25`，ping 和 `-32601` 符合预期。旧 20 项固定断言失败及修复保留。原装 CLI `mcp --help` 无直接工具调用选项。真实桌面业务仍待验收。
+- 原始 stdio、HTTP、领域持久化与管理回归 207 项，288.623 秒，206 通过、1 项 Windows 符号链接权限跳过。两份只读试点分别预演完整读回、写入拒绝、撤销后 401、ready/STOP、端口关闭和目录删除。无活动试点服务，无真实配置改动、桌面启动或模型回合。实际步骤、完整候选和预算见[兼容矩阵](AGENT_CLIENT_COMPATIBILITY.md)。
+- 阶段门禁 `python -m unittest -v` 共 525 项，931.041 秒，524 通过，1 项同样因 Windows 原生符号链接权限跳过。新脚本最终版本分别执行 Codex 直调、WorkBuddy 默认/故障和两份试点预演通过。Python/JS 语法、两份 Markdown UTF-8/围栏及 12 个相对链接、`git diff --check` 通过。范围仅验收脚本和文档，实际文件为 `codex_agent_acceptance.py`、`workbuddy_agent_acceptance.py`、`docs/AGENT_CLIENT_COMPATIBILITY.md` 与 `docs/AI_AGENT_PROGRESS.md`。继续使用既有业务、协议、数据格式和应用版本。
+- 等待本次桌面安排。监督接收每客户端最多一轮只读试点的审查稿，两个试点合计最多两轮，后续写入、额外额度和用户级配置另行决定。AG-142 保持进行中，AG-143 未开始。

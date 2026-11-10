@@ -8,6 +8,7 @@ replies; it never generates client requests or substitutes a simulated client.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -16,14 +17,16 @@ import sys
 import tempfile
 import threading
 import time
+import tomllib
 import uuid
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 from acceptance_process import ClientJob
-from codex_agent_acceptance import LocalWorkbench
+from codex_agent_acceptance import LocalWorkbench, RpcProcess
 from workbench.agent_security import read_json
 from workbench.agent_runtime import AgentRuntime
+from workbench.agent_tools import TOOLS
 
 
 ROOT = Path(__file__).resolve().parent
@@ -112,8 +115,8 @@ def protocol_metadata(message, pending):
 
 
 @contextmanager
-def disposable_directory():
-    temporary = tempfile.TemporaryDirectory(prefix="workbench-workbuddy-probe-")
+def disposable_directory(prefix="workbench-workbuddy-probe-"):
+    temporary = tempfile.TemporaryDirectory(prefix=prefix)
     try:
         yield temporary.name
     finally:
@@ -279,7 +282,8 @@ def run_acceptance(install, protocol_faults=False):
             assert not timed_out and process.returncode == 0 and connected, "Installed client connection check failed"
             assert initialized and initialized["protocolVersion"] == "2025-11-25", "Client initialize not observed"
             assert any(item.get("method") == "notifications/initialized" for item in requests), "Client initialized notification missing"
-            assert inventories and len(inventories[0]) == 20, "Installed client did not discover the full tool catalog"
+            expected_tools = sorted(tool['name'] for tool in TOOLS)
+            assert inventories and all(sorted(items) == expected_tools for items in inventories), "Installed client did not discover the full tool catalog"
             errors = [item["error_code"] for item in events if "error_code" in item and "fixture_reply" not in item]
             probe_replies = [item for item in events if "fixture_reply" in item]
             assert not errors, "Protocol error observed"
@@ -288,7 +292,8 @@ def run_acceptance(install, protocol_faults=False):
                 assert all(item["valid"] for item in probe_replies), "Client gave an unexpected server-request response"
             return {"cli_version": version, "cli_bundle": bundle, "exit_code": process.returncode, "timed_out": timed_out,
                 "connected": connected, "initialize": initialized,
-                "methods": [item["method"] for item in requests if "method" in item], "tool_count": len(inventories[0]) if inventories else 0,
+                "methods": [item["method"] for item in requests if "method" in item], "tool_count": len(inventories[0]),
+                "tools": expected_tools,
                 "server_protocols": [item["protocolVersion"] for item in events if item["direction"] == "server_to_client" and "protocolVersion" in item],
                 "protocol_errors": errors, "protocol_faults": protocol_faults,
                 "fixture_replies": probe_replies,
@@ -353,6 +358,159 @@ def run_session(install, protocol_faults=False):
                 workbench.close()
 
 
+def run_readonly_pilot(client, check_only=False):
+    """Create one single-client AG-142 fixture without opening a desktop."""
+    from urllib.error import HTTPError
+    from urllib.request import Request, urlopen
+    from workbench.agent_management import client_version
+
+    prefix = f'workbench-ag142-pilot-{client}-'
+    with disposable_directory(prefix) as directory:
+        base = Path(directory)
+        project_dir = base / 'desktop-project'
+        project_dir.mkdir()
+        workbench = LocalWorkbench(base / 'data', base / 'private')
+        client_id = None
+        token = None
+        audit = {}
+        try:
+            project = workbench.repository.create_project({'name':'AG142 隔离项目'})
+            info = workbench.security.add_client(f'AG142 {client} read-only', ['read'], [project['id']], [],
+                                                  workbench.base_url, kinds=['issue'])
+            client_id = info['client_id']
+            workspace = info['workspace_id']
+            token = read_json(Path(info['config_file']))['token']
+            source = base / 'AG142-fixture.txt'
+            text = '  UTF-8 中文与引号 "原文"\n第二段 🧪\n尾部空格  '
+            source.write_bytes(text.encode())
+
+            headers = {'Origin':workbench.base_url, 'X-Workbench-Management':'1', 'Content-Type':'application/json'}
+
+            def local(route, payload=None, method=None):
+                body = json.dumps(payload).encode() if payload is not None else None
+                request = Request(workbench.base_url + '/api/local/agent-management/' + route,
+                                  data=body, headers=headers, method=method)
+                with urlopen(request, timeout=10) as response:
+                    return json.load(response)
+
+            headers['X-Workbench-Management-Token'] = local('status')['management_token']
+            files_route = f'clients/{client_id}/files'
+            preview = local(files_route + '/preview', {'workspace_id':workspace,
+                            'expected_version':client_version(workbench.security.clients()[client_id]),
+                            'path':str(source), 'purposes':['text_read'], 'encoding':'utf-8', 'max_bytes':4096, 'duration_seconds':1200})
+            ticket = {key:preview[key] for key in ('workspace_id','expected_version','preview_id','preview_digest')}
+            granted = local(files_route + '/confirm', {**ticket, 'request_id':'ag142-pilot-file', 'approved':True})
+            file_id = granted['file_id']
+
+            name = 'workbench_ag142'
+            trace = base / 'protocol.jsonl'
+            entry = {'command':sys.executable, 'args':[str(Path(__file__).resolve()), '--relay'],
+                     'env':{'WORKBENCH_PROBE_TRACE':str(trace), 'WORKBENCH_PROBE_CONFIG':info['config_file']}}
+            if client == 'codex':
+                config = project_dir / '.codex' / 'config.toml'
+                encoded = json.dumps
+                content = (f'[mcp_servers.{name}]\ncommand = {encoded(entry["command"])}\n'
+                           f'args = {encoded(entry["args"])}\n[mcp_servers.{name}.env]\n' +
+                           '\n'.join(f'{key} = {encoded(value)}' for key, value in entry['env'].items()) + '\n')
+                assert tomllib.loads(content)['mcp_servers'][name] == entry
+            else:
+                config = project_dir / '.workbuddy' / 'mcp.json'
+                content = json.dumps({'mcpServers':{name:entry}}, ensure_ascii=False, indent=2) + '\n'
+            config.parent.mkdir()
+            config.write_text(content, encoding='utf-8')
+
+            prompt = (f'只使用 {name} 对应的 MCP 工具。先查询 capabilities，核对空间 {workspace}，再查项目 {project["id"]}。'
+                      f'列出本次可见的工具名和协议证据。查找已批准的 AG142-fixture.txt（file_id {file_id}），用 get_file_info 的 '
+                      'source_revision 和每段 next_offset，按每段 12 原始字节读到结束。把合成文本原样放入代码块，另列各段字节区间和服务返回的 SHA-256。'
+                      '仅做上述读取。工具缺失、空间不符或任一分段失败时报告原错误并停止。不要使用终端、读取路径、改配置或提交。')
+            prompt_path = project_dir / 'PROMPT.txt'
+            prompt_path.write_text(prompt + '\n', encoding='utf-8')
+            stop = base / 'STOP'
+            review = {'mode':'check' if check_only else 'ready', 'client':client, 'workbench_url':workbench.base_url,
+                      'workspace_id':workspace, 'project_id':project['id'], 'scopes':['read'], 'file_purposes':['text_read'],
+                      'source_sha256':hashlib.sha256(text.encode()).hexdigest(),
+                      'desktop_project':str(project_dir), 'config_path':str(config), 'config_text':content,
+                      'prompt_path':str(prompt_path), 'prompt':prompt, 'trace_path':str(trace), 'stop_file':str(stop),
+                      'timeout_seconds':1200, 'desktop_launched':False, 'model_turns_started':0}
+            print(json.dumps(review, ensure_ascii=False, indent=2), flush=True)
+
+            if check_only:
+                env = {**isolated_environment(base), **entry['env']}
+                rpc = RpcProcess([entry['command'], *entry['args']], project_dir, env, terminate_tree=True)
+                try:
+                    init = rpc.call('initialize', {'protocolVersion':'2025-11-25', 'capabilities':{},
+                                    'clientInfo':{'name':'ag142-pilot-fixture-check', 'version':'1'}})
+                    assert init['protocolVersion'] == '2025-11-25'
+                    rpc.notify('notifications/initialized')
+                    assert sorted(tool['name'] for tool in rpc.call('tools/list')['tools']) == sorted(tool['name'] for tool in TOOLS)
+
+                    def call(tool, arguments=None, error=False):
+                        result = rpc.call('tools/call', {'name':'workbench_' + tool, 'arguments':arguments or {}})
+                        assert result['isError'] is error
+                        return result['structuredContent']
+
+                    assert call('capabilities')['workspace_id'] == workspace
+                    assert [item['id'] for item in call('list_projects')['items']] == [project['id']]
+                    assert [item['file_id'] for item in call('list_file_grants')['items']] == [file_id]
+                    metadata = call('get_file_info', {'file_id':file_id})
+                    offset, parts = 0, []
+                    while offset is not None:
+                        data = call('read_file', {'file_id':file_id, 'source_revision':metadata['source_revision'], 'offset':offset, 'length':12})
+                        assert 'path' not in data and offset < data['end_offset'] <= metadata['size_bytes']
+                        parts.append(data['body'])
+                        offset = data['next_offset']
+                        assert offset is None or offset == data['end_offset']
+                    assert ''.join(parts) == text and metadata['sha256'] == review['source_sha256']
+                    denied = call('prepare_proposal', {'kind':'issue', 'operation':'create', 'request_id':'ag142-denied',
+                                  'content':{'title':'不得创建', 'project_id':project['id'], 'body':'只读拒绝测试'}}, error=True)
+                    assert denied['code'] == 'forbidden'
+                    assert not list(workbench.repository.agent_proposals.proposals.glob('*.json'))
+                    audit.update(file_read_segments=len(parts), write_denied=True)
+                finally:
+                    rpc.close()
+            else:
+                deadline = time.monotonic() + review['timeout_seconds']
+                while not stop.exists() and time.monotonic() < deadline:
+                    time.sleep(0.25)
+            if trace.exists():
+                expected = sorted(tool['name'] for tool in TOOLS)
+                with trace.open(encoding='utf-8') as stream:
+                    for line in stream:
+                        try:
+                            event = json.loads(line)
+                        except ValueError:
+                            continue
+                        if event.get('method') == 'initialize' and event.get('protocolVersion') == '2025-11-25':
+                            audit['initialize'] = True
+                        if event.get('method') == 'notifications/initialized':
+                            audit['initialized'] = True
+                        if 'tools' in event and sorted(event['tools']) == expected:
+                            audit['tool_count'] = len(expected)
+                        if event.get('tool_is_error') is False and event.get('tool') in expected:
+                            successes = audit.setdefault('successful_tools', {})
+                            tool = event['tool']
+                            successes[tool] = successes.get(tool, 0) + 1
+        finally:
+            try:
+                if client_id:
+                    workbench.security.change_client(client_id)
+                    assert not workbench.security.clients()[client_id]['enabled']
+                if token:
+                    request = Request(workbench.base_url + '/api/agent/v1/capabilities',
+                                      headers={'Authorization':'Bearer ' + token, 'X-Workbench-Workspace':workspace})
+                    try:
+                        with urlopen(request, timeout=5):
+                            raise AssertionError('Revoked pilot credential still accepted')
+                    except HTTPError as error:
+                        with error:
+                            assert error.code == 401
+                    audit['revoked_credential_denied'] = True
+            finally:
+                workbench.close()
+    print(json.dumps({'client':client, 'stopped':True, 'port_closed':True, 'temporary_directory_removed':not base.exists(),
+                      'check_only':check_only, 'model_turns_started_by_fixture':0, 'audit':audit}, ensure_ascii=False), flush=True)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--install-dir", type=Path,
@@ -360,9 +518,15 @@ if __name__ == "__main__":
     parser.add_argument("--relay", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--protocol-faults", action="store_true", help="Explicitly inject fixed server ping/unknown requests; no model or business writes")
     parser.add_argument("--desktop-session", action="store_true", help="Prepare temporary project files only; never launch or modify the real desktop profile")
+    parser.add_argument('--readonly-pilot', choices=('codex','workbuddy'), help='Prepare a disposable AG-142 read-only project; never launch the desktop')
+    parser.add_argument('--pilot-check', action='store_true', help='Verify and immediately close the read-only pilot without a desktop')
     args = parser.parse_args()
+    if (args.pilot_check and not args.readonly_pilot) or (args.readonly_pilot and (args.relay or args.desktop_session or args.protocol_faults)):
+        parser.error('Select one read-only pilot mode independently of the legacy probe')
     if args.relay:
         relay(args.protocol_faults)
+    elif args.readonly_pilot:
+        run_readonly_pilot(args.readonly_pilot, args.pilot_check)
     elif args.desktop_session:
         run_session(args.install_dir, args.protocol_faults)
     else:

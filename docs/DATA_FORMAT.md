@@ -43,6 +43,7 @@ workbench-data/
 ├─ ideas/*.md
 ├─ assets/{images,files}/
 ├─ history/<record-id>/*.md
+├─ history/CMAP-ID/*.json
 └─ .trash/index.json
 ```
 
@@ -218,3 +219,17 @@ GET /api/document-uploads返回全部可发现操作和脱敏错误/操作ID；P
 三层路径解释：持久metadata.path及私有计划路径都是原始文件系统相对路径，不进行URL解码；文档Markdown source是URL，恰好解码一次；HTTP route由协议入口unquote一次，附件名称下游不再解码。字面%3A、%253A、%2F、%25、#及中文可作为合法文件名的一部分，正文/HTTP分别编码后解析；真实冒号、问号、斜线等仍按Windows可移植规则拒绝。文档元数据只按完整路径匹配正文附件，不用basename遮蔽另一目录的同名外部图片。原文档中的非业务project_id等未知meta保留，但不参与文档附件归属，正式字节始终在全局assets。
 
 原record/project音视频继续保留audio/*、video/*的正确Content-Type与inline语义，光栅图片/PDF同样按既有可预览类型内联，nosniff保留；HTML、SVG等主动内容采用octet-stream+attachment及CSP sandbox。被动媒体不施加改变其文档origin的sandbox，避免破坏原生浏览器媒体预览；实际兼容范围以HTTP契约和临时合成WAV/WebM真实浏览器验收为准，不引入转码或播放器。
+
+## 概念图磁盘版本与历史（AG-134）
+
+`concept-maps/CMAP-<数字>.json`继续version=2，ID/节点/边/类型/箭头/视口及归一化上限不变。缺version或version=1的旧图继续宽容读取/归一化；未知未来版本可读取原数据但禁止更新和历史恢复，不能降级写回。未知当前元数据保留。GET单图与列表、create/update/restore返回的revision为同一次read_bytes所得原始磁盘字节SHA-256，不根据mtime或重序列化计算；revision/expected_revision是传输字段，不写入JSON或导出副本。
+
+HTTP `PATCH /api/concept-maps/<ID>`及`POST /api/concept-maps/<ID>/history/<version>/restore`必须携带非空expected_revision；缺失返回409及刷新/重读提示，非法签名400，字节变化409、资源缺失404。此处有意阻断旧缓存页面不带版本的覆盖请求；刷新加载新资源后重新读取，再处理原画布或浏览器草稿。Python旧update调用未提供字段时兼容：仅在同一Repository共享写锁内基于当前字节准备和应用，不能宣称保护无版本调用方的外部编辑CAS。显式null不是兼容省略。
+
+更新经过ConceptMapRepository.prepare_update生成PreparedConceptMapWrite（受控目标、ID、before/after字节和固定时间UUID历史名），共享写协调应用。先复验before，保存`history/CMAP-ID/<YYYYMMDD-HHMMSS-ffffff-8hex>.json`原始字节，再复验before、原子替换目标并重读after。历史无索引/新日志，不自动重放；读取不会创建历史目录。历史后失败可能已有旧快照；目标替换后失败/响应丢失可能已经提交，查询当前revision及历史判断，不将异常等同零写入，不宣称多文件原子事务。保留检查与replace之间的外部文件系统竞态。
+
+GET `/api/concept-maps/<ID>/history`列出版本，后接`/<version>`读取完整图与原快照revision。恢复只接受本图ID和受控版本名，不接受路径；复用当前CAS/归一化/Prepared，恢复前的当前图也进入历史。未知/损坏历史在列表标available=false及警告，原文件保留、拒绝恢复。概念图历史本项保留全部，不套用Markdown最近30份策略、不自动清理，长期自动保存会增加磁盘占用；完整ZIP包含这些JSON历史，回收站移图/恢复不删除图历史。
+
+分类改名/删除对每图调用相同Prepared更新；图库单图分类PATCH携带列表revision，旧画布随后保存会冲突。分类配置和多图迁移仍非多文件事务，中途失败明确报错，可按现盘分类重读后继续；不以AG-134宣称AG-139配置事务完成。删除/回收本项不新增Agent操作。
+
+浏览器`workbench-concept-map-draft:<data_dir>:<CMAP-ID>`是schema1、base revision、完整画布的尽力恢复草稿，不能作为业务事实源，不含授权。草稿写失败必须提示导出JSON，不承诺已保存。冲突暂停autosave、保存当前输入/撤销栈，明确选择继续编辑、读取磁盘或确认以当前图覆盖最新磁盘；读取磁盘后的撤销只恢复内容，不恢复旧revision。覆盖确认期间再变仍409。成功flush才允许关闭、切页、切图/图库和新建；已接受的离开使同一open世代失效，迟到响应不能落入新图，等待GET期间新增未保存输入也不覆盖。刷新/关闭标签以beforeunload提示和本地草稿为尽力保障，没有异步保存成功承诺。JSON/PNG导出仅当前画布，不附revision/冲突字段。

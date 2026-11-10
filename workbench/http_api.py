@@ -15,7 +15,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from .agent_security import AgentError
-from .write_coordinator import DataDirectoryLock
+from .write_coordinator import RevisionConflict, DataDirectoryLock
 from .external_editor import external_editor_payload, save_external_editor
 from .paths import (
     directory_browser_payload,
@@ -27,7 +27,7 @@ from .paths import (
 
 
 APP_DIR = Path(__file__).resolve().parent.parent
-APP_VERSION = "2026.11.09.7"
+APP_VERSION = "2026.11.10.1"
 MAX_JSON_BODY_BYTES = 15_000_000
 
 
@@ -249,11 +249,26 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             return False
         return True
 
+    @staticmethod
+    def _require_concept_map_revision(payload):
+        if not isinstance(payload, dict):
+            raise ValueError('概念图数据无效')
+        if not payload.get('expected_revision'):
+            raise RevisionConflict('概念图保存协议已升级，请刷新页面后重新读取；未覆盖磁盘内容')
+
     def _get_concept_map_resource(self, path: str) -> bool:
         if path == "/api/concept-maps":
             self._json(self.repository.list_concept_maps())
         elif path == "/api/concept-map-categories":
             self._json(self.repository.concept_map_categories())
+        elif path.startswith("/api/concept-maps/") and '/history' in path:
+            parts = path.strip('/').split('/')
+            if len(parts) == 4 and parts[3] == 'history':
+                self._json(self.repository.list_concept_map_history(parts[2]))
+            elif len(parts) == 5 and parts[3] == 'history':
+                self._json(self.repository.get_concept_map_history(parts[2], parts[4]))
+            else:
+                raise FileNotFoundError(path)
         elif path.startswith("/api/concept-maps/"):
             concept_map, _ = self.repository.get_concept_map(path.rsplit("/", 1)[-1])
             self._json(concept_map) if concept_map else self._json({"error": "概念图不存在"}, HTTPStatus.NOT_FOUND)
@@ -353,6 +368,8 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             if self._get_project_asset_resource(path) or self._get_record_resource(path, query):
                 return
             return self._json({"error": "接口不存在"}, HTTPStatus.NOT_FOUND)
+        except FileNotFoundError:
+            return self._json({"error":"资源不存在"}, HTTPStatus.NOT_FOUND)
         except AgentError as exc:
             return self._json({"error": str(exc), **exc.payload()}, exc.status)
         except FileExistsError as exc:
@@ -387,6 +404,13 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                 return self._json(self.repository.restore_document_history(path.split("/")[-2], payload.get("version", ""), payload.get("expected_revision")))
             if path == "/api/documents":
                 return self._json(self.repository.create_document(self._body()), HTTPStatus.CREATED)
+            if path.startswith('/api/concept-maps/') and path.endswith('/restore'):
+                parts = path.strip('/').split('/')
+                if len(parts) != 6 or parts[3] != 'history':
+                    raise FileNotFoundError(path)
+                payload = self._body()
+                self._require_concept_map_revision(payload)
+                return self._json(self.repository.restore_concept_map_history(parts[2], parts[4], payload))
             if path == "/api/concept-maps":
                 return self._json(self.repository.create_concept_map(self._body()), HTTPStatus.CREATED)
             if path.startswith("/api/documents/") and path.endswith("/open-external"):
@@ -522,7 +546,9 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             if path.startswith("/api/documents/"):
                 return self._json(self.repository.update_document(path.rsplit("/", 1)[-1], self._body()))
             if path.startswith("/api/concept-maps/"):
-                return self._json(self.repository.update_concept_map(path.rsplit("/", 1)[-1], self._body()))
+                payload = self._body()
+                self._require_concept_map_revision(payload)
+                return self._json(self.repository.update_concept_map(path.rsplit("/", 1)[-1], payload))
             if path.startswith("/api/projects/") and "/assets/" in path:
                 parts = path.strip("/").split("/")
                 if len(parts) != 5:

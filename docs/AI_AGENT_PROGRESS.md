@@ -8,7 +8,7 @@
 
 后续扩展详见 [AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。AG-115仅文档；AG-116～121、AG-126已完成；用户已明确仅本机使用，AG-122～125已取消当前实施、远程未实现。当前WorkBuddy5.9.3与本机最终交付证据见末尾及扩展验收，不影响首期历史状态。
 
-2026-11-09 用户在监督对话明确“现在开始执行方案”，解除此前暂停实施限制。AG-128～130及独立POST锁修复已通过监督审查，AG-131已通过监督审查，AG-132已通过监督审查，AG-133已完成待交接审查，AG-134～143待开始。历史 AG-127 的仅文档授权和暂停事实保留。
+2026-11-09 用户在监督对话明确“现在开始执行方案”，解除此前暂停实施限制。AG-128～130及独立POST锁修复已通过监督审查，AG-131已通过监督审查，AG-132已通过监督审查，AG-133已通过监督审查，AG-134已完成待提交核对、AG-135～143待开始。历史 AG-127 的仅文档授权和暂停事实保留。
 
 ## 工作项
 
@@ -48,7 +48,7 @@
 | AG-131 | 流式暂存、上传会话、配额与清理 | 已完成 | 2026-11-09 | 2026-11-09 | AG-129；监督接受eeeaf86后派发；实际结果见末节 |
 | AG-132 | 记录与项目附件提案入库 | 已完成 | 2026-11-09 | 2026-11-09 | AG-130、131；监督接受b7ce3fe后派发；实际结果见末节 |
 | AG-133 | 知识库附件领域能力与网页接入 | 已完成 | 2026-11-09 | 2026-11-09 | AG-131、132；监督接受6c28f12后派发；实测见末节 |
-| AG-134 | 概念图版本、历史与准备写入 | 待开始 | — | — | AG-129 |
+| AG-134 | 概念图版本、历史与准备写入 | 已完成 | 2026-11-09 | 2026-11-10 | AG-129；监督接受e0a5a88后派发 |
 | AG-135 | 概念图 Agent 提案与完整预览 | 待开始 | — | — | AG-128、134 |
 | AG-136 | 条目删除与回收站持久恢复 | 待开始 | — | — | AG-129、135 |
 | AG-137 | 项目创建、排序与可选独立授权 | 待开始 | — | — | AG-129 |
@@ -1037,3 +1037,38 @@ AG-132提交前最终检查：76个Python/47个JavaScript全文件语法、10份
 - 实际修改文件：`AGENTS.md`、`README.md`、`app.js`、`css/knowledge-base.css`、`docs/AGENT_INTEGRATION.md`、`docs/AGENT_USAGE.md`、`docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md`、`docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md`、`docs/AI_AGENT_PROGRESS.md`、`docs/ARCHITECTURE.md`、`docs/DATA_FORMAT.md`、`docs/MAINTENANCE.md`、`index.html`、`js/editor/document-model.js`、`js/features/agent-settings.js`、`test_agent_attachment_workflows.js`、`test_agent_attachments.py`、`test_agent_workflows.js`、`test_assets.py`、`test_document_attachment_workflows.js`、`test_document_attachments.py`、`workbench/agent_attachment_execution.py`、`workbench/agent_attachments.py`、`workbench/agent_proposals.py`、`workbench/agent_service.py`、`workbench/agent_tools.py`、`workbench/agent_upload_policy.py`、`workbench/asset_references.py`、`workbench/assets.py`、`workbench/attachment_prepared.py`、`workbench/document_attachment_http.py`、`workbench/document_attachments.py`、`workbench/document_export.py`、`workbench/document_uploads.py`、`workbench/documents.py`、`workbench/http_api.py`、`workbench/paths.py`、`workbench/repository.py`、`workbench/write_coordinator.py`。
 
 AG-133提交前最终检查：82个Python/48个JavaScript全文件语法通过（编译输出临时目录），10份修改Markdown UTF-8/围栏/78个相对链接通过；git diff --check通过，39个目标文件无业务数据、凭据、日志、截图或用户既有修改。按本轮测试前缀筛查Python/Node/Edge进程无匹配残留；AG-133已完成、AG-134～143待开始。用户报告删除的历史合成目录已只读确认不存在。
+
+### 2026-11-09 / AG-134 / 开始
+
+- 起始e0a5a88、工作区干净；监督已接受133并派发134，总体执行授权持续，唯一执行写入。135～143待开始，不开放Agent concept_map工具/类型或休眠许可。
+- 精确范围：磁盘原始字节SHA-256 revision、领域Prepared JSON条件写入与原字节历史；HTTP条件更新/历史读取恢复；画布自动保存/关闭flush/网页并发冲突、保留当前输入与撤销栈、保存重开。保持version=2与原宽容归一化、节点边ID/类型/箭头/视口/各限制。
+- 盘点：create/update、兼容_write_concept_map、分类rename/delete逐图写入、图库单图分类PATCH、画布autosave/flush、回收站移动/恢复、完整ZIP和浏览器JSON/PNG导出。无图历史现状；普通画布关闭忽略flush失败，本项修正；页面导航和卸载保护需接入。
+- 方案：HTTP修改已有图必须非空expected_revision（缺失409要求刷新，阻止旧缓存页静默覆盖）；Python旧调用缺字段在共享锁内读取当前字节并生成条件Prepared，保留兼容但不宣称客户端CAS。快照history/CMAP-ID/时间UUID.json为原字节，无独立索引/新日志；先快照再目标，阶段失败保留证据、不自动重放，重试必须重新读取版本。历史恢复走同一归一化/Prepared和当前CAS，未知未来version快照拒恢复、原样保留。
+- 预计文件：concept_maps/history/write_coordinator/repository/http_api、concept-map/app/index及必要既有生命周期接点；概念图领域/HTTP/真实Edge/前端测试；数据格式/架构/维护/README/AGENTS/本机方案/验收/台账。
+- 验证：临时目录重读/原字节hash/旧调用格式/限制/非法字段/并发409/分类/回收/导出，历史阶段异常及真实退出、不重放未知证据；真实画布自动保存/关闭flush/失败保留/撤销重做/冲突明确选择/重开/JSON/PNG，浅深1440/390及长中文空/大量图；冻结代码后全量及必要Node/全文件语法/diff。风险：旧HTTP写调用有意拒绝，Python兼容仍不保护无版本客户端；快照与目标非多文件事务、外部FS最终检查/replace间竞态、历史保留成本/异常残留均需如实记录。
+
+AG-134阶段验证（2026-11-10，尚未完成）：13项概念图专项1.877秒通过；相关server/http63项16.049秒通过。冻结源码/测试后全量384项599.704秒，1错误/1权限skip：既有100MiB暂存complete阶段触发5秒source_timeout，单独原限制复验1项2.232秒通过（5996265B峰值、1.83秒）。不将该全量记为通过。22Node批次21通过，concept项3.186秒在fixture清理EPERM遮蔽早期结果，业务是否跑完未知；此前独立新增概念图全流程通过是另批事实，不能替代该失败。测试夹具弹窗等待、快速close事件已修正后独立通过；失败记录保留。
+
+阶段尾审：全量结束后补同一open世代的成功离开失效/迟到响应等待期间输入保护、本按钮hidden选择器、历史恢复409在原clean状态仍保留草稿并阻止离开。不会将后续边界补测冒称冻结全量覆盖。APP_VERSION2026.11.10.1及对应app/concept/CSS资源缓存20261110-1；该尾审仍待最终浏览器回归。
+
+本轮清理待办：冻结Node失败留下精确目录Temp/workbench-edge-concept-PQSsuE及Temp/workbench-concept-HsEGyp；只读无对应浏览器进程。限定路径/名称/无reparse的PowerShell删除仍被自动审批blocked by policy拒绝，未绕过，已异步请用户手工删除，尚待回复和只读确认。不得写无遗留或提前完成134；历史另一个非本轮目录未操作。
+
+AG-134最终冻结全量（2026-11-10）：最终源码/测试固定后顺序python -m unittest -v，384项598.002秒OK（1原生符号链接权限skip），exit=0；全程未并行浏览器批次、未修改源码/测试。既有100MiB暂存本组5379728B峰值/4.342秒在原5秒界限内通过，正式copy1851480B/1.468秒、web445873B。首轮失败与单独复验保留，不推断唯一资源/OS原因，不替代独立性能基线。
+
+最终concept Node完整exit=0两次，最后一次等既有applicationFeature.start() Promise完成后复验通过；不是仅等started（其语义为初始化开始，home不会设置navigation-restoring）。新增返回值诊断保留，一次page仍为home失败不作唯一根因归因。源码未扩改产品初始化。覆盖原zoom/gesture/undo/redo/保存重开及新CAS选择、覆盖确认再次变化、clean历史409的dirty草稿/flush保护、真reload恢复、草稿失败提示在同一input事件读取、JSON剥离传输字段/PNG有效字节头、成功离开/失败保留/A迟到B正确与实际computed display。保存期间入口disabled，所有结束分支恢复；正常状态hidden被通用display覆盖的尾审已用专属选择器修正。四入口/模块/样式依赖Node通过；其余21Node已有冻结批次通过，导航相关附件/编辑器回归另在最终全量后运行。
+
+最终八图目视（原画布/冲突×浅深×1440/390）：无页面横向溢出，正常状态无冲突按钮，错误状态入口文字清楚；窄屏独立一行，旧空白工具按钮显示文字，标题/焦点字段在原单行空间内裁切而不覆盖控件。截图仅Temp评审不入Git。当前尚待两个被拒目录手工清理确认、最终文档检查/依赖结果和提交，134保持进行中，135不开始。
+
+AG-134独立验收收口（2026-11-10）：最终全量后仅追加两项导航依赖浏览器，test_agent_attachment_workflows.js exit=0/20.774秒、test_editor_workflows.js exit=0/71.935秒，原始日志仅Temp；没有继续改源码或测试。22Node按批次最终均有通过证据，不冒称首轮整组通过。代码、缓存和领域/API/UI证据已就绪，仍待两个被拒目录手工清理确认后方可结项和提交。
+
+AG-134实际目标文件（20）：`AGENTS.md`、`README.md`、`app.js`、`concept-map.js`、`css/concept-map.css`、`css/responsive.css`、`docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md`、`docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md`、`docs/AI_AGENT_PROGRESS.md`、`docs/ARCHITECTURE.md`、`docs/DATA_FORMAT.md`、`docs/MAINTENANCE.md`、`index.html`、`test_concept_map_frontend.js`、`test_concept_map_workflows.js`、`test_concept_maps.py`、`workbench/concept_maps.py`、`workbench/history.py`、`workbench/http_api.py`、`workbench/repository.py`。
+
+AG-134提交前独立材料检查（2026-11-10）：82Python/48JavaScript语法、8份修改Markdown UTF-8/围栏/67相对链接、四个资源缓存20261110-1及135～143待开始、git diff --check通过；最终status仅20个目标M，无新增生成物/业务数据/凭据/日志/截图或用户既有修改。按本轮concept/attachment/editor fixture前缀查Python/Node/Edge无匹配残留。两个已拒目录最后只读仍True，未再次删除/提问；代码/测试不再修改，提交说明已拟定为Add conditional concept map writes and history，等待清理确认后完成状态和本地提交。
+
+
+### 2026-11-10 / AG-134 / 完成与清理记录闭合
+
+- 监督更新管理决定：用户最新明确持续执行方案；此前“两个Temp残留清理前不得结项”是监督的管理安排，不是AGENTS或用户强制条件。代码/验收/20文件diff已经只读审查通过，独立合成测试残留不影响应用正确性或AG-135依赖，故应作为独立清理待办而不阻断已验证逻辑修改。保留上文等待、EPERM及blocked by policy原始事实，不抹历史，不再次工具删除/换工具绕过/重复提问。
+- 本次只读复核结果：workbench-edge-concept-PQSsuE及workbench-concept-HsEGyp两个精确Temp路径Test-Path均False，对应Python/Node/Edge进程无匹配。未收到新的手工删除回复，故只陈述当前目录已经不存在，不补写是谁或何时删除。两处实际残留已不存在，此独立待办按只读现状闭合；自动审批拒绝作为历史保留。
+- 功能与验证完成：原字节revision/条件Prepared JSON及历史、网页冲突/草稿/flush/迟到保护、分类/回收/导出接点均完成；数据/API兼容、原生/外部FS/历史增长/非多文件事务边界见本节与DATA_FORMAT。最终冻结全量384项598.002秒OK/1权限skip；22Node分批通过，最终导航附件20.774秒/双编辑器71.935秒通过；八图逐张目视、82Python/48JS及8Markdown/67链接通过。首轮384失败及后续复验不互相覆盖，无源码/测试尾改。
+- 实际文件为上列20个；决策043～046、APP_VERSION2026.11.10.1与四资源缓存20261110-1。最终仅状态/文档记录变更及diff核对后按13.1独立本地提交；下一项仅AG-135获监督派发先设计，136～143不开始。没有真实数据/客户端配置修改或模型turn操作，无新的功能阻断遗留。

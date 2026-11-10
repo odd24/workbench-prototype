@@ -210,3 +210,13 @@ proposal3/manifest3(execution_schema_version=1)/approval action3保留原独立�
 孤儿扫描只查受控assets roots，已覆盖文档、正文相对图片/附件、记录/项目、历史及回收站按原owner目录、在途Agent/web操作；任一共享有效引用保留。GET orphan-assets?report=1及清理结果显示脱敏警告；损坏/未知引用或链接对象保守不删全部候选。Markdown代码示例/未知本地语法可能保守阻止清理，先核查再处理，不以扫全盘或强制忽略未知来删。外部写入与扫描/删除之间的文件系统竞态不能用服务内锁宣称消除。
 
 专项：python -m unittest test_document_attachments test_assets test_agent_attachments；node test_document_attachment_workflows.js及test_agent_attachment_workflows.js，另跑共享编辑器/设置/样式/HTTP/MCP门禁。前者验证无Agent普通上传、持续输入、关闭切换、刷新草稿/响应丢失/原ID查询、409及维护；后者含document共同授权/local_web正式提案。100MiB样本仅证明有界内存和真实字节，不替代独立性能/视觉基线或AG-142真实模型矩阵。
+
+## AG-134 概念图保存冲突和历史维护
+
+升级后请刷新旧页面：已有图PATCH和历史恢复要求expected_revision，旧缓存无签名请求409而不覆盖磁盘；Python旧调用仅保留服务内无版本兼容。概念图“处理版本冲突”保留当前画布和撤销栈：可先从更多操作导出原始JSON，再选择读取磁盘、继续编辑，或明确确认覆盖最新磁盘。读取磁盘后撤销可恢复本地内容且沿用新base，确认期间磁盘再次变化仍拒写。保存/冲突未解决时关闭/切页被阻止；刷新提示和草稿只是尽力保障，出现草稿写失败须先导出。
+
+更多操作“查看历史”选择受控快照，恢复仍检查当前版本并保留恢复前图。`history/CMAP-ID/*.json`是原始字节快照，全部保留且无自动清理；需监测长期自动保存的磁盘增长，Markdown原最近30份策略不变。未知/损坏历史保留并标不可恢复，不通过手工删未知文件来强制恢复。未知未来图version禁止写回，先备份/使用支持该版本的软件核查，不能把version手工改2绕过。
+
+历史保存后异常可能已留下快照；目标replace后响应丢失可能已完成，请GET当前图/历史比较revision后明确重试，不把错误解释为零落盘。本项无新持久日志/后台自动重放，读操作不会创建历史。分类批量改名/删除的逐图写入有历史，但配置与多图不是原子事务；中途报错后重读分类/各图，按实际剩余范围继续，勿宣称全量成功。回收图/恢复不删除历史，完整ZIP保留概念图及JSON历史；PNG和当前图JSON导出不包含传输revision。
+
+验收使用临时数据：`python -m unittest test_concept_maps test_server test_http -q`，`node test_concept_map_workflows.js`（真实画布/冲突/草稿刷新/历史/迟到/导出及浅深桌面窄屏），另运行相关入口/样式/保存/Agent深链回归。全量运行期间冻结代码；大文件截止保持原5秒，资源竞争或其他失败必须按实测保留，不通过放宽超时掩盖。

@@ -14,7 +14,7 @@ AI Agent 功能文档（实现事实以台账与验收记录为准）：
 
 - 实施方案：[docs/AI_AGENT_PLAN.md](docs/AI_AGENT_PLAN.md)
 - 后续扩展方案：[docs/AI_AGENT_EXTENSION_PLAN.md](docs/AI_AGENT_EXTENSION_PLAN.md)（AG-116 起逐项实施；状态以台账为准）
-- 本机能力扩展方案：[docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md](docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)（AG-127 仅文档；AG-128～133已完成，AG-134～143待开始）
+- 本机能力扩展方案：[docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md](docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)（AG-127 仅文档；AG-128～134已完成，AG-135～143待开始）
 - 接入管理 UI 方案：[docs/AGENT_SETTINGS_PLAN.md](docs/AGENT_SETTINGS_PLAN.md)（实现状态以台账为准）
 - 实施台账：[docs/AI_AGENT_PROGRESS.md](docs/AI_AGENT_PROGRESS.md)
 - 接入与使用：[docs/AGENT_INTEGRATION.md](docs/AGENT_INTEGRATION.md)、[docs/AGENT_USAGE.md](docs/AGENT_USAGE.md)
@@ -196,6 +196,8 @@ workbench-data/
 - 保持版本、节点/边 ID、节点类型、箭头和视口语义。
 - 不得无测试放宽节点数量、边数量、文本、坐标、尺寸、颜色和缩放限制。
 - 自动保存、关闭前 flush、撤销重做和原子写入必须一起验证。
+
+- AG-134新增原JSON字节revision、Prepared条件写入及history/CMAP-ID/*.json原字节历史；HTTP已有图PATCH/历史恢复必须expected_revision，缺失409提示刷新以阻止旧缓存覆盖。Python省略版本仅服务锁内兼容。未知未来version拒写/恢复；历史全部保留、无自动重放/清理，失败后查询实际版本，不称多文件事务。画布冲突保留输入/撤销及草稿，明确选择后再CAS；成功flush才接受离开并失效同一open世代，迟到请求不能覆盖新图。详见数据格式/维护及134验收，Agent概念图工具仍未开放。
 
 ### 附件与导入导出
 

@@ -43,7 +43,7 @@ const feature = conceptMap.create({
   appState,
 });
 
-assert.deepEqual(Object.keys(feature).sort(), ['flushSave', 'open', 'renderLibrary']);
+assert.deepEqual(Object.keys(feature).sort(), ['flushSave', 'leave', 'open', 'renderLibrary']);
 
 (async () => {
   await feature.renderLibrary();

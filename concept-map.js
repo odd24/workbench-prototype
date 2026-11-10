@@ -32,6 +32,9 @@ let conceptMapLinkGestureBlockedUntil = 0;
 let conceptMapRevision = 0;
 let conceptMapSavedRevision = 0;
 let conceptMapSavePromise = null;
+let conceptMapConflict = false;
+let conceptMapRestoring = false;
+let conceptMapOpenRequest = 0;
 let conceptMapMultiSelection = new Set();
 let conceptMapHistory = [];
 let conceptMapHistoryIndex = -1;
@@ -73,6 +76,8 @@ function sortConceptMapItems(items) {
 }
 
 async function renderConceptMapLibrary() {
+  if (!await flushConceptMapSave()) return false;
+  conceptMapOpenRequest += 1;
   conceptMapHistory = [];
   conceptMapHistoryIndex = -1;
   conceptState.current = null;
@@ -141,6 +146,7 @@ function bindConceptMapCategoryDrag(enabled) {
 }
 
 async function createConceptMap() {
+  if (!await flushConceptMapSave()) return false;
   const title = await appPrompt({title:'新建概念图', message:'先写下这次思考的主题。', confirmText:'创建并开始', input:{label:'概念图标题', placeholder:'例如：新产品增长路径'}});
   if (!title?.trim()) return;
   const created = await api('/concept-maps', {method:'POST', body:JSON.stringify({title:title.trim(), focus_question:'', category:conceptMapCategoryFilter || '未分类'})});
@@ -183,7 +189,17 @@ async function deleteConceptMapCategory(name) {
 }
 
 async function openConceptMap(mapId, {centerInitial = false} = {}) {
-  conceptState.current = await api(`/concept-maps/${encodeURIComponent(mapId)}`);
+  if (!await flushConceptMapSave()) return false;
+  const request = ++conceptMapOpenRequest, space = window.workbenchDataDir;
+  const loaded = await api(`/concept-maps/${encodeURIComponent(mapId)}`);
+  if (request !== conceptMapOpenRequest || space !== window.workbenchDataDir) return false;
+  if (conceptMapRestoring || conceptMapConflict || conceptMapSavedRevision < conceptMapRevision) {
+    notify('当前画布仍有未保存内容', '请先保存或处理冲突，再打开其他概念图', true);
+    return false;
+  }
+  conceptState.current = loaded;
+  conceptMapConflict = false;
+  $('#conceptMapResolveConflict').hidden = true;
   conceptState.current.nodes = conceptState.current.nodes.map(node => {
     const legacySize = !node.border_color && node.width === 180 && node.height === 72;
     const type = node.type === 'linking_phrase' ? 'linking_phrase' : 'concept';
@@ -208,6 +224,20 @@ async function openConceptMap(mapId, {centerInitial = false} = {}) {
   }
   resetConceptMapHistory();
   renderConceptMap();
+  const draft = readConceptMapDraft(mapId);
+  if (draft && await appConfirm({title:'恢复未保存的概念图？', message:'此浏览器保存了上次未完成的画布。', detail:'恢复后保留磁盘版本作为撤销起点；磁盘已变化时先处理冲突。', confirmText:'恢复画布', cancelText:'使用磁盘版'})) {
+    if (request !== conceptMapOpenRequest) return false;
+    const base = conceptState.current.revision;
+    Object.assign(conceptState.current, draft.canvas, {id:mapId, revision:base});
+    $('#conceptMapTitle').value = conceptState.current.title;
+    $('#conceptMapFocus').value = conceptState.current.focus_question || '';
+    recordConceptMapHistory(); conceptMapRevision += 1;
+    conceptMapConflict = draft.base !== base;
+    if (conceptMapConflict) showConceptMapConflict();
+    else scheduleConceptMapSave();
+    renderConceptMap();
+  } else if (draft) clearConceptMapDraft(mapId);
+  if (request !== conceptMapOpenRequest) return false;
   if (migrated || centerInitial) scheduleConceptMapSave();
   requestAnimationFrame(() => conceptState.current.nodes.length === 1 && !conceptState.current.viewport.x && !conceptState.current.viewport.y ? fitConceptMap() : applyConceptMapViewport());
 }
@@ -698,28 +728,136 @@ function nudgeConceptMapSelection(dx, dy) {
   return true;
 }
 
+function conceptMapDraftKey(id) {
+  return `workbench-concept-map-draft:${window.workbenchDataDir || ''}:${id}`;
+}
+
+function conceptMapPortable() {
+  const {revision, expected_revision, ...canvas} = conceptState.current;
+  return canvas;
+}
+
+function readConceptMapDraft(id) {
+  try {
+    const value = JSON.parse(localStorage.getItem(conceptMapDraftKey(id)) || 'null');
+    return value?.schema === 1 && value.canvas?.id === id && Array.isArray(value.canvas.nodes) && Array.isArray(value.canvas.edges) ? value : null;
+  } catch { return null; }
+}
+
+function clearConceptMapDraft(id) {
+  try { localStorage.removeItem(conceptMapDraftKey(id)); }
+  catch { notify('未能清除概念图本地草稿', '磁盘内容已保存；下次恢复前请检查版本', true); }
+}
+
+function persistConceptMapDraft() {
+  if (!conceptState.current || conceptMapSavedRevision >= conceptMapRevision) return;
+  try {
+    localStorage.setItem(conceptMapDraftKey(conceptState.current.id), JSON.stringify({schema:1, base:conceptState.current.revision, canvas:conceptMapPortable()}));
+  } catch {
+    $('#conceptMapSaveState').textContent = '本地草稿保存失败，请导出 JSON';
+    notify('概念图草稿保存失败', '当前画布仍在页面中，请导出 JSON 后再离开', true);
+  }
+}
+
+function showConceptMapConflict() {
+  conceptMapConflict = true;
+  if (conceptMapSavedRevision >= conceptMapRevision) conceptMapRevision += 1;
+  clearTimeout(conceptState.saveTimer);
+  $('#conceptMapSaveState').textContent = '磁盘版本已变化，当前画布未覆盖';
+  $('#conceptMapResolveConflict').hidden = false;
+  persistConceptMapDraft();
+}
+
+async function resolveConceptMapConflict() {
+  if (!conceptState.current || conceptMapSavePromise) return;
+  const id = conceptState.current.id;
+  const choice = await appPrompt({title:'处理概念图版本冲突', message:'当前画布和撤销记录仍保留。可先从更多操作导出当前 JSON。', input:{label:'选择处理方式', readOnly:true, choices:[{value:'disk', label:'读取磁盘版（当前画布可撤销恢复）'}, {value:'local', label:'用当前画布覆盖最新磁盘版'}, {value:'edit', label:'继续编辑，暂不保存'}]}});
+  if (conceptState.current?.id !== id || !['disk', 'local'].includes(choice)) return;
+  try {
+    const disk = await api(`/concept-maps/${encodeURIComponent(id)}`);
+    if (conceptState.current?.id !== id) return;
+    if (choice === 'local' && !await appConfirm({title:'覆盖最新磁盘版？', message:`将用当前完整画布替换“${disk.title}”。`, detail:'磁盘版先进入历史；确认期间再变化仍会拒绝覆盖。', confirmText:'确认覆盖', danger:true})) return;
+    if (conceptState.current?.id !== id) return;
+    if (choice === 'disk') {
+      recordConceptMapHistory();
+      conceptState.current = disk;
+      recordConceptMapHistory();
+      conceptMapRevision += 1; conceptMapSavedRevision = conceptMapRevision;
+      $('#conceptMapTitle').value = disk.title; $('#conceptMapFocus').value = disk.focus_question || '';
+      renderConceptMap(); clearConceptMapDraft(id);
+    } else {
+      conceptState.current.revision = disk.revision;
+    }
+    conceptMapConflict = false; $('#conceptMapResolveConflict').hidden = true;
+    $('#conceptMapSaveState').textContent = '已读取磁盘版';
+    if (choice === 'local') await saveConceptMap();
+  } catch (error) { notify('概念图冲突尚未解决', error.message, true); }
+}
+
+async function restoreConceptMapVersion() {
+  if (!conceptState.current || !await flushConceptMapSave()) return;
+  const id = conceptState.current.id;
+  try {
+    const versions = await api(`/concept-maps/${encodeURIComponent(id)}/history`);
+    if (conceptState.current?.id !== id) return;
+    const available = versions.filter(item => item.available);
+    if (!available.length) { notify('没有可恢复的历史', versions.length ? '未知或损坏的历史文件已保留' : '首次修改后会保存原图快照'); return; }
+    const version = await appPrompt({title:'概念图历史', message:'恢复会先保存当前磁盘图到历史。', input:{label:'选择历史版本', readOnly:true, choices:available.map(item => ({value:item.version, label:`${item.version} · ${item.title}`}))}});
+    if (!version || conceptState.current?.id !== id) return;
+    const snapshot = await api(`/concept-maps/${encodeURIComponent(id)}/history/${encodeURIComponent(version)}`);
+    if (conceptState.current?.id !== id) return;
+    // Restore through the same conditional domain write as ordinary canvas saves.
+    if (!await appConfirm({title:`恢复历史：${snapshot.title}？`, message:`${snapshot.nodes.length} 个节点，${snapshot.edges.length} 条关系。`, detail:'恢复后可通过撤销回到当前画布；磁盘并发修改仍会阻止恢复。', confirmText:'恢复此版本'})) return;
+    if (conceptState.current?.id !== id) return;
+    const restoringRevision = conceptMapRevision;
+    conceptMapRestoring = true;
+    const saved = await api(`/concept-maps/${encodeURIComponent(id)}/history/${encodeURIComponent(version)}/restore`, {method:'POST', body:JSON.stringify({expected_revision:conceptState.current.revision})});
+    if (conceptState.current?.id !== id) return;
+    if (conceptMapRevision !== restoringRevision) {
+      conceptState.current.revision = saved.revision;
+      persistConceptMapDraft();
+      $('#conceptMapSaveState').textContent = '历史已恢复，正在保存继续输入的画布';
+      return;
+    }
+    recordConceptMapHistory(); conceptState.current = saved; recordConceptMapHistory();
+    conceptMapRevision += 1; conceptMapSavedRevision = conceptMapRevision;
+    $('#conceptMapTitle').value = saved.title; $('#conceptMapFocus').value = saved.focus_question || ''; renderConceptMap();
+    clearConceptMapDraft(id); $('#conceptMapSaveState').textContent = '已恢复历史';
+  } catch (error) {
+    if (error.status === 409) showConceptMapConflict();
+    notify('恢复历史失败', error.message, true);
+  } finally {
+    conceptMapRestoring = false;
+    if (conceptState.current?.id === id && !conceptMapConflict && conceptMapRevision > conceptMapSavedRevision) {
+      clearTimeout(conceptState.saveTimer); conceptState.saveTimer = setTimeout(saveConceptMap, 80);
+    }
+  }
+}
+
 function scheduleConceptMapSave({recordHistory = true} = {}) {
   if (!conceptState.current) return;
   if (recordHistory) recordConceptMapHistory();
   conceptMapRevision += 1;
   clearTimeout(conceptState.saveTimer); $('#conceptMapSaveState').textContent = '有未保存修改'; $('#conceptMapSaveState').classList.add('saving');
-  conceptState.saveTimer = setTimeout(saveConceptMap, 650);
+  persistConceptMapDraft();
+  if (!conceptMapConflict && !conceptMapRestoring) conceptState.saveTimer = setTimeout(saveConceptMap, 650);
 }
 
 async function saveConceptMap() {
-  if (!conceptState.current) return false;
+  if (!conceptState.current || conceptMapConflict || conceptMapRestoring) return false;
   if (conceptMapSavePromise) return conceptMapSavePromise;
   clearTimeout(conceptState.saveTimer);
   const mapId = conceptState.current.id, savingRevision = conceptMapRevision;
   conceptState.current.title = $('#conceptMapTitle').value.trim() || conceptState.current.title;
   conceptState.current.focus_question = $('#conceptMapFocus').value.trim();
-  const payload = JSON.stringify(conceptState.current);
-  conceptState.saving = true; $('#conceptMapSaveState').textContent = '正在保存…';
+  const payload = JSON.stringify({...conceptMapPortable(), expected_revision:conceptState.current.revision});
+  conceptState.saving = true; $('#conceptMapResolveConflict').disabled = true; $('#conceptMapSaveState').textContent = '正在保存…';
   conceptMapSavePromise = (async () => {
     let succeeded = false;
     try {
       const saved = await api(`/concept-maps/${encodeURIComponent(mapId)}`, {method:'PATCH', body:payload});
       if (conceptState.current?.id === mapId) {
+        conceptState.current.revision = saved.revision;
         conceptState.current.updated = saved.updated;
         conceptState.current.version = saved.version;
         conceptMapSavedRevision = Math.max(conceptMapSavedRevision, savingRevision);
@@ -727,16 +865,18 @@ async function saveConceptMap() {
       }
       return true;
     } catch (error) {
-      if (conceptState.current?.id === mapId) { $('#conceptMapSaveState').textContent = '保存失败'; notify('概念图保存失败', error.message, true); }
+      if (conceptState.current?.id === mapId) { if (error.status === 409) showConceptMapConflict(); else $('#conceptMapSaveState').textContent = '保存失败，请重试或导出 JSON'; notify('概念图保存失败', error.message, true); }
       return false;
     } finally {
-      conceptState.saving = false;
+      conceptState.saving = false; $('#conceptMapResolveConflict').disabled = false;
       conceptMapSavePromise = null;
       if (conceptState.current?.id !== mapId) return;
       if (succeeded && conceptMapRevision > conceptMapSavedRevision) {
+        persistConceptMapDraft();
         $('#conceptMapSaveState').textContent = '有未保存修改'; $('#conceptMapSaveState').classList.add('saving');
         clearTimeout(conceptState.saveTimer); conceptState.saveTimer = setTimeout(saveConceptMap, 80);
       } else if (succeeded) {
+        clearConceptMapDraft(mapId);
         $('#conceptMapSaveState').textContent = '已自动保存'; $('#conceptMapSaveState').classList.remove('saving');
       }
     }
@@ -745,6 +885,7 @@ async function saveConceptMap() {
 }
 
 async function flushConceptMapSave() {
+  if (conceptMapConflict || conceptMapRestoring) return false;
   clearTimeout(conceptState.saveTimer);
   while (conceptState.current && conceptMapSavedRevision < conceptMapRevision) {
     const succeeded = await saveConceptMap();
@@ -807,7 +948,7 @@ function exportConceptMapPng() {
 }
 
 function exportConceptMapJson() {
-  const blob = new Blob([JSON.stringify(conceptState.current, null, 2)], {type:'application/json'}), link = document.createElement('a');
+  const blob = new Blob([JSON.stringify(conceptMapPortable(), null, 2)], {type:'application/json'}), link = document.createElement('a');
   link.download = `${conceptState.current.id}.concept-map.json`; link.href = URL.createObjectURL(blob); link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 }
 
@@ -819,7 +960,7 @@ function closeConceptMapMenus() {
 function showConceptMapMenu(button) {
   closeConceptMapMenus();
   const rect = button.getBoundingClientRect(), menu = document.createElement('div'); menu.className = 'concept-map-menu'; menu.style.top = `${rect.bottom + 5}px`; menu.style.right = `${innerWidth - rect.right}px`;
-  menu.innerHTML = '<button type="button" data-export-concept-json>导出原始 JSON</button><button type="button" class="danger" data-delete-concept-map>删除这张概念图</button>'; document.body.appendChild(menu);
+  menu.innerHTML = '<button type="button" data-concept-history>查看历史</button><button type="button" data-export-concept-json>导出原始 JSON</button><button type="button" class="danger" data-delete-concept-map>删除这张概念图</button>'; document.body.appendChild(menu);
 }
 
 function showConceptMapCardMenu(button, mapId) {
@@ -946,7 +1087,7 @@ document.addEventListener('click', async event => {
   const setCardCategory = event.target.closest('[data-set-concept-map-category]');
   if (setCardCategory) {
     const mapId = setCardCategory.dataset.setConceptMapCategory, category = setCardCategory.dataset.category;
-    try { await api(`/concept-maps/${encodeURIComponent(mapId)}`, {method:'PATCH', body:JSON.stringify({category})}); closeConceptMapMenus(); await renderConceptMapLibrary(); notify('概念图分类已更新', `已移动到「${category}」`); }
+    try { await api(`/concept-maps/${encodeURIComponent(mapId)}`, {method:'PATCH', body:JSON.stringify({category, expected_revision:conceptState.maps.find(item => item.id === mapId)?.revision})}); closeConceptMapMenus(); await renderConceptMapLibrary(); notify('概念图分类已更新', `已移动到「${category}」`); }
     catch (error) { notify('分类更新失败', error.message, true); }
     return;
   }
@@ -958,7 +1099,9 @@ document.addEventListener('click', async event => {
     return;
   }
   const open = event.target.closest('[data-open-concept-map]'); if (open) { closeConceptMapMenus(); await openConceptMap(open.dataset.openConceptMap); return; }
-  if (event.target.closest('#closeConceptMap')) { await flushConceptMapSave(); await renderConceptMapLibrary(); return; }
+  if (event.target.closest('#closeConceptMap')) { if (await flushConceptMapSave()) await renderConceptMapLibrary(); return; }
+  if (event.target.closest('#conceptMapResolveConflict')) { await resolveConceptMapConflict(); return; }
+  if (event.target.closest('[data-concept-history]')) { closeConceptMapMenus(); await restoreConceptMapVersion(); return; }
   if (event.target.closest('#addConceptNode')) { const shell = $('#conceptMapCanvasShell'), rect = shell.getBoundingClientRect(), point = conceptMapPoint(rect.left + rect.width / 2, rect.top + rect.height / 2); addConceptNodeAt(point.x, point.y); return; }
   if (event.target.closest('#layoutConceptMap')) { layoutConceptMap(); return; }
   if (event.target.closest('#fitConceptMap,#conceptMapZoomValue')) { fitConceptMap(); return; }
@@ -970,7 +1113,7 @@ document.addEventListener('click', async event => {
   if (event.target.closest('[data-export-concept-json]')) { exportConceptMapJson(); closeConceptMapMenus(); return; }
   if (event.target.closest('[data-delete-concept-map]') && conceptState.current) {
     const approved = await appConfirm({title:'删除这张概念图？', message:`“${conceptState.current.title}”将移入回收站。`, confirmText:'移入回收站', danger:true});
-    if (approved) { await api(`/concept-maps/${encodeURIComponent(conceptState.current.id)}`, {method:'DELETE'}); closeConceptMapMenus(); notify('概念图已移入回收站'); await renderConceptMapLibrary(); }
+    if (approved && await flushConceptMapSave()) { await api(`/concept-maps/${encodeURIComponent(conceptState.current.id)}`, {method:'DELETE'}); closeConceptMapMenus(); notify('概念图已移入回收站'); await renderConceptMapLibrary(); }
   }
 });
 
@@ -1003,10 +1146,23 @@ window.addEventListener('blur', () => { conceptMapSpacePressed = false; conceptM
 document.addEventListener('paste', event => {
   if (!conceptState.current || $('#conceptMapWorkspace').hidden || event.target.matches('input,textarea,[contenteditable="true"]')) return;
   const text = event.clipboardData?.getData('text/plain').trim(); if (!text) return; event.preventDefault();
-  const shell = $('#conceptMapCanvasShell'), rect = shell.getBoundingClientRect(), point = conceptMapPoint(rect.left + rect.width / 2, rect.top + rect.height / 2); addConceptNodeAt(point.x, point.y, text.slice(0, 500), false);
+  const shell = $('#conceptMapCanvasShell'), rect = shell.getBoundingClientRect(), point = conceptMapPoint(rect.left + rect.width / 2, rect.top + rect.height / 2); addConceptNodeAt(point.x, point.y, text.slice(0, 500));
 });
 
+window.addEventListener('beforeunload', event => {
+  if (!conceptState.current || conceptMapSavedRevision >= conceptMapRevision) return;
+  persistConceptMapDraft(); event.preventDefault(); event.returnValue = '';
+});
+window.addEventListener('pagehide', persistConceptMapDraft);
+
+  async function leaveConceptMap() {
+    if (!await flushConceptMapSave()) return false;
+    conceptMapOpenRequest += 1;
+    return true;
+  }
+
   return Object.freeze({
+    leave:leaveConceptMap,
     flushSave:flushConceptMapSave,
     open:openConceptMap,
     renderLibrary:renderConceptMapLibrary,

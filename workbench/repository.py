@@ -423,6 +423,25 @@ class Repository:
     def rename_concept_map_category(self, old_name: str, new_name: str) -> dict:
         return self._concept_map_repository.rename_category(old_name, new_name)
 
+    def prepare_concept_map_update(self, map_id, payload):
+        return self._concept_map_repository.prepare_update(map_id, payload)
+
+    @coordinated
+    def apply_concept_map_write(self, prepared, checkpoint=None):
+        if prepared.path != self.concept_maps_dir / f'{prepared.item_id}.json':
+            raise ValueError('概念图写入目标无效')
+        return prepared.apply(self.history_dir, checkpoint)
+
+    def list_concept_map_history(self, map_id):
+        return self._concept_map_repository.list_history(map_id)
+
+    def get_concept_map_history(self, map_id, version):
+        return self._concept_map_repository.get_history(map_id, version)
+
+    @coordinated
+    def restore_concept_map_history(self, map_id, version, payload):
+        return self._concept_map_repository.restore_history(map_id, version, payload)
+
     @coordinated
     def delete_concept_map_category(self, name: str) -> dict:
         return self._concept_map_repository.delete_category(name)
@@ -430,6 +449,7 @@ class Repository:
     def get_concept_map(self, map_id: str) -> tuple[dict, Path] | tuple[None, None]:
         return self._concept_map_repository.get(map_id)
 
+    @coordinated
     def _write_concept_map(self, path: Path, item: dict) -> dict:
         return self._concept_map_repository.write(path, item)
 

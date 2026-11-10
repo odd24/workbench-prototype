@@ -884,7 +884,8 @@ function persistNavigationState() {
   navigationFeature.write({page:currentPage, projectId:selectedProjectId, projectTab});
 }
 
-function setPage(page, options = {}) {
+async function setPage(page, options = {}) {
+  if (!await conceptMapFeature.leave()) return false;
   const managePages = navigationFeature.managePages;
   page = navigationFeature.resolvePage(page, projects, selectedProjectId);
   if (page !== 'agent_settings') agentSettingsFeature.deactivate();
@@ -902,7 +903,7 @@ function setPage(page, options = {}) {
     renderProjectPage();
   } else if (page === 'concept_maps') {
     $('#conceptMapPage').classList.add('active');
-    conceptMapFeature.renderLibrary().catch(error => notify('概念图加载失败', error.message, true));
+    await conceptMapFeature.renderLibrary().catch(error => notify('概念图加载失败', error.message, true));
   } else if (managePages.includes(page)) {
     $('#managePage').classList.add('active');
     activeManagePage = page;
@@ -964,6 +965,7 @@ function hasUnsavedProjectEdit() {
 }
 
 async function confirmLeaveManagePage() {
+  if (!await conceptMapFeature.flushSave()) return false;
   if (activeManagePage === 'agent_proposals' && agentProposalsFeature.isBusy()) { notify('请先等待或查询提案操作结果'); return false; }
   if (activeManagePage === 'agent_settings' && agentSettingsFeature.isBusy()) { notify('请先等待或查询上次接入操作结果'); return false; }
   if (!hasUnsavedManageChanges()) return true;
@@ -4078,7 +4080,7 @@ document.addEventListener('click', async event => {
     $('#globalStatsDialog').close();
     selectedProjectId = globalStatsProject.dataset.globalStatsProject;
     projectTab = 'overview';
-    setPage('project');
+    await setPage('project');
     return;
   }
   if (event.target.closest('#manageHome')) { openHomeLayoutDialog(); return; }
@@ -4487,7 +4489,7 @@ document.addEventListener('click', async event => {
     }
     if (action === 'manage-statuses') {
       const project = projects.find(item => item.id === selectedProjectId);
-      selectedWorkflowId = project?.workflow_template || 'standard'; setPage('status_templates');
+      selectedWorkflowId = project?.workflow_template || 'standard'; await setPage('status_templates');
     }
     return;
   }
@@ -4497,13 +4499,13 @@ document.addEventListener('click', async event => {
     if ($('#managePage').classList.contains('active') && pageButton.dataset.page === activeManagePage && !pageButton.dataset.projectId) return;
     if (!await confirmLeaveManagePage()) return;
     if (pageButton.dataset.projectId) selectedProjectId = pageButton.dataset.projectId;
-    setPage(pageButton.dataset.page);
+    await setPage(pageButton.dataset.page);
     return;
   }
   const pageLink = event.target.closest('[data-page-link]');
-  if (pageLink) { if (await confirmLeaveManagePage()) setPage(pageLink.dataset.pageLink); return; }
+  if (pageLink) { if (await confirmLeaveManagePage()) await setPage(pageLink.dataset.pageLink); return; }
   const retryManage = event.target.closest('[data-retry-manage]');
-  if (retryManage) { if (await confirmLeaveManagePage()) setPage(retryManage.dataset.retryManage); return; }
+  if (retryManage) { if (await confirmLeaveManagePage()) await setPage(retryManage.dataset.retryManage); return; }
   const createButton = event.target.closest('[data-create-type]');
   if (createButton) {
     const column = createButton.closest('.kanban-column');
@@ -4744,7 +4746,7 @@ document.addEventListener('click', async event => {
     return;
   }
   const openProject = event.target.closest('[data-open-project]');
-  if (openProject) { selectedProjectId = openProject.dataset.openProject; setPage('project'); }
+  if (openProject) { selectedProjectId = openProject.dataset.openProject; await setPage('project'); }
   const restoreProject = event.target.closest('[data-restore-project]');
   if (restoreProject) api(`/projects/${encodeURIComponent(restoreProject.dataset.restoreProject)}`, {method:'PATCH', body:JSON.stringify({status:'active'})}).then(async () => { await refreshData(); renderManagePage('archive'); notify('项目已恢复'); }).catch(error => notify('恢复失败', error.message, true));
   if (event.target.closest('#addGlobalTag')) {
@@ -5045,7 +5047,7 @@ $('#deleteRecord').addEventListener('click', async () => {
 $('#deleteProject').addEventListener('click', async () => {
   const project = projects.find(item => item.id === selectedProjectId);
   if (!project || !await appConfirm({title:'删除整个项目？', message:`项目「${project.name}」及其中的全部记录将移入回收站。`, detail:'项目目录不会立即永久删除，可在回收站中恢复。', confirmText:'删除项目', danger:true})) return;
-  try { await api(`/projects/${encodeURIComponent(project.id)}`, {method:'DELETE'}); selectedProjectId = ''; await refreshData(); setPage('home'); notify('项目已移入回收站'); }
+  try { await api(`/projects/${encodeURIComponent(project.id)}`, {method:'DELETE'}); selectedProjectId = ''; await refreshData(); await setPage('home'); notify('项目已移入回收站'); }
   catch (error) { notify('项目删除失败', error.message, true); }
 });
 async function saveProjectEdit() {
@@ -5463,7 +5465,7 @@ document.addEventListener('change', async event => {
   if (event.target.id === 'importDirectoryInput' && event.target.files.length) {
     const files = [...event.target.files].filter(file => file.name.toLowerCase().endsWith('.md'));
     const suggested = files[0]?.webkitRelativePath?.split('/')[0] || '导入项目'; const name = await appPrompt({title:'导入 Markdown 项目', message:`检测到 ${files.length} 个 Markdown 文件。`, confirmText:'开始导入', input:{label:'导入后的项目名称', value:suggested}});
-    if (name?.trim()) (async () => { try { const project = await api('/projects', {method:'POST', body:JSON.stringify({name:name.trim(), description:'从本地 Markdown 目录导入'})}); let count = 0; for (const file of files) { await api('/import', {method:'POST', body:JSON.stringify({name:file.name, content:await file.text(), project_id:project.id})}); count += 1; } selectedProjectId = project.id; await refreshData(); notify(`已导入项目：${name.trim()}`, `共导入 ${count} 个 Markdown 文件`); setPage('project'); } catch (error) { notify('目录导入失败', error.message, true); } })();
+    if (name?.trim()) (async () => { try { const project = await api('/projects', {method:'POST', body:JSON.stringify({name:name.trim(), description:'从本地 Markdown 目录导入'})}); let count = 0; for (const file of files) { await api('/import', {method:'POST', body:JSON.stringify({name:file.name, content:await file.text(), project_id:project.id})}); count += 1; } selectedProjectId = project.id; await refreshData(); notify(`已导入项目：${name.trim()}`, `共导入 ${count} 个 Markdown 文件`); await setPage('project'); } catch (error) { notify('目录导入失败', error.message, true); } })();
     event.target.value = ''; return;
   }
   if (event.target.id !== 'importMarkdownInput' || !event.target.files[0]) return;
@@ -5500,7 +5502,7 @@ async function openItemLink(link = navigationFeature.readItemLink()) {
       projectAssetCategoryFilter = ''; projectAssetSearch = '';
       await loadProjectAssets(item.id, {force:true});
       if (!requestRegistry.isCurrent(request)) return false;
-      setPage('project', {preserveItemLink:true});
+      if (await setPage('project', {preserveItemLink:true}) === false) return false;
       const button = document.querySelector(`[data-open-project-asset="${CSS.escape(link.assetId)}"]`);
       if (button) { button.scrollIntoView({block:'center'}); button.focus({preventScroll:true}); }
       else notify('附件已不存在', '当前项目仍可查看；原入库回执不会重建附件。', true);
@@ -5508,13 +5510,13 @@ async function openItemLink(link = navigationFeature.readItemLink()) {
     }
     if (link.kind === 'document') {
       documents = [...documents.filter(document => document.id !== item.id), item];
-      setPage('documents', {preserveItemLink:true});
+      if (await setPage('documents', {preserveItemLink:true}) === false) return false;
       openDocument(item.id, '', {fromItemLink:true});
     } else {
       selectedProjectId = item.project_id;
       projectTab = {issue:'issues', todo:'todos', info:'infos'}[link.kind];
       projectFilters = {status:'', tag:'', priority:''};
-      setPage('project', {preserveItemLink:true});
+      if (await setPage('project', {preserveItemLink:true}) === false) return false;
       await openDrawer(item.id, {fromItemLink:true});
       return currentRecord?.id === item.id && detailDrawer.classList.contains('visible');
     }
@@ -5543,13 +5545,13 @@ async function initialize() {
     updateDocumentColorButtons();
     const requestedPage = location.hash.replace('#', '');
     const itemLink = navigationFeature.readItemLink();
-    if (itemLink) { setPage('home', {preserveItemLink:true}); await openItemLink(itemLink); }
-    else if (requestedPage.startsWith('record/')) { setPage('home', {preserveHash:true}); openDrawer(requestedPage.slice(7)); }
-    else if (requestedPage) setPage(requestedPage);
+    if (itemLink) { await setPage('home', {preserveItemLink:true}); await openItemLink(itemLink); }
+    else if (requestedPage.startsWith('record/')) { await setPage('home', {preserveHash:true}); openDrawer(requestedPage.slice(7)); }
+    else if (requestedPage) await setPage(requestedPage);
     else {
       const storedPage = typeof navigation.page === 'string' ? navigation.page : 'home';
       const missingStoredProject = storedPage === 'project' && storedProjectId && !projects.some(project => project.id === storedProjectId);
-      setPage(missingStoredProject ? 'home' : storedPage);
+      await setPage(missingStoredProject ? 'home' : storedPage);
     }
     setInterval(async () => {
       if (!apiAvailable || document.hidden) return;

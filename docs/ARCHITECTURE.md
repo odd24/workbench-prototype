@@ -24,7 +24,7 @@ Python ThreadingHTTPServer
 - `workbench/configuration.py`：工作流、标签、分类和排序配置。
 - `workbench/markdown_io.py`：轻量 front matter 与 Markdown I/O。
 - `workbench/write_coordinator.py`：Repository 共享可重入写锁、SHA-256 内容版本检查及服务数据目录独占锁；服务取得目录锁后才装配仓储。
-- `workbench/history.py`：记录与知识库共用的原子 Markdown 历史快照、读取和保留规则。
+- `workbench/history.py`：记录与知识库共用的原子 Markdown 历史快照、读取和保留规则，以及概念图原字节 JSON 历史（保留全部）。
 - `workbench/persistence.py`：同目录临时文件、flush/fsync 和 `os.replace` 原子覆盖。
 - `workbench/security.py`：文件名、分类、ZIP 成员和归档边界校验。
 - `workbench/paths.py`、`external_editor.py`：数据目录、导出位置、Markdown 编辑器和附件默认应用的进程边界。
@@ -162,3 +162,9 @@ DocumentUploads是普通网页操作证据组件，不是第二业务仓储或�
 普通上传全目录报告/预检/恢复/回收/明确放弃由document_attachment_http协议适配，未知先保留，无Agent依赖。completed墓碑先于快照DELETE，partial身份/SHA验证及实际DELETE先于预算释放；同UUID只回原结果。私人.workbench-document-uploads不进静态、业务搜索或ZIP，迁移未决拒绝；终结日志随本机目录迁移保留幂等。旧外部编辑器图片入口保持兼容，新metadata下载以受控原生句柄流式发送、主动内容强制下载及nosniff/sandbox。
 
 asset_references只枚举白名单roots，扫描正式记录/文档/项目正文与meta、history及trash按原owner语义、在途manifest；共享任一有效引用保留，未知/损坏/别名报告并保守不删。document_export生成平铺MD及去重assets副本，解析metadata/body/现有附件token，严格成员/路径/链接校验和句柄流读；不修改源文件或创建新引用语法。
+
+## AG-134 概念图条件写入与历史
+
+ConceptMapRepository负责原JSON字节版本及PreparedConceptMapWrite；Repository只提供共享coordinated锁门面，HTTP负责expected_revision强制边界/400、404、409映射。原normalize仍是图的领域可信边界，create/update/分类迁移/历史恢复走同域实现，未开放Agent concept_map处理器。history.py扩展受控CMAP JSON快照，无第二索引、日志或自动恢复执行器；快照→目标两文件不是事务，失败后读取实际revision判断。
+
+concept-map.js仍唯一画布控制器，统一持有base revision、本地编辑序号/保存Promise、撤销栈、冲突状态、同一个open请求世代及恢复中保护。app.setPage等待feature.leave成功后才改变路由；leave只在flush成功时使未决open失效。请求返回还核对世代/空间与等待期间的未保存内容；不会用迟到图覆盖当前画布。冲突选择与历史恢复复用既有对话框和API，草稿只恢复交互，不代替JSON；保存成功只推进base/保存序号，保留期间继续输入。

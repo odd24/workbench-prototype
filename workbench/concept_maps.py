@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import Any
 
 from workbench.markdown_io import now_iso
-from workbench.persistence import atomic_write_json
+from workbench.persistence import atomic_write_json, atomic_write_bytes
+from .write_coordinator import content_revision, RevisionConflict
+from .history import save_concept_map_snapshot, list_concept_map_snapshots, read_concept_map_snapshot
+from dataclasses import dataclass
+from datetime import datetime
+import uuid
 from workbench.security import validate_category_name
 
 
@@ -18,10 +23,40 @@ CONCEPT_MAP_HEIGHT = 8_000.0
 TrashMover = Callable[[Path, str, str, str], dict]
 
 
+@dataclass
+class PreparedConceptMapWrite:
+    path: Path
+    item_id: str
+    before: bytes | None
+    after: bytes
+    history_version: str
+
+    def apply(self, history_dir, checkpoint=None):
+        current = self.path.read_bytes() if self.path.exists() else None
+        if current != self.before:
+            raise RevisionConflict("概念图在准备后变化，请重新读取并处理冲突")
+        if self.before is not None:
+            save_concept_map_snapshot(history_dir, self.item_id, self.before, self.history_version)
+        if checkpoint:
+            checkpoint('history')
+        # Recheck after history I/O; external editors do not hold the service lock.
+        current = self.path.read_bytes() if self.path.exists() else None
+        if current != self.before:
+            raise RevisionConflict("概念图在保存历史期间变化，请重新读取")
+        atomic_write_bytes(self.path, self.after)
+        if checkpoint:
+            checkpoint('target')
+        if self.path.read_bytes() != self.after:
+            raise RevisionConflict("概念图在提交期间变化，请查询磁盘当前版本")
+        item = json.loads(self.after.decode('utf-8'))
+        return {**item, 'revision':content_revision(self.after)}
+
+
 class ConceptMapRepository:
     def __init__(self, concept_maps_dir: Path, config_dir: Path, id_lock: Any, move_to_trash: TrashMover):
         self.concept_maps_dir = concept_maps_dir
         self.config_dir = config_dir
+        self.history_dir = concept_maps_dir.parent / "history"
         self._id_lock = id_lock
         self._move_to_trash = move_to_trash
 
@@ -133,16 +168,19 @@ class ConceptMapRepository:
         maps = []
         for path in self.concept_maps_dir.glob("CMAP-*.json"):
             try:
-                item = json.loads(path.read_text(encoding="utf-8"))
+                raw = path.read_bytes()
+                item = json.loads(raw.decode("utf-8"))
             except (OSError, json.JSONDecodeError):
                 continue
             if not isinstance(item, dict):
                 continue
-            concept_count = sum(1 for node in item.get("nodes", []) if node.get("type", "concept") != "linking_phrase")
-            relation_count = sum(1 for node in item.get("nodes", []) if node.get("type") == "linking_phrase")
+            if not isinstance(item.get("nodes", []), list) or not isinstance(item.get("edges", []), list):
+                continue
+            concept_count = sum(1 for node in item.get("nodes", []) if isinstance(node, dict) and node.get("type", "concept") != "linking_phrase")
+            relation_count = sum(1 for node in item.get("nodes", []) if isinstance(node, dict) and node.get("type") == "linking_phrase")
             if not relation_count:
-                relation_count = sum(1 for edge in item.get("edges", []) if edge.get("label"))
-            maps.append({key: item.get(key) for key in ("id", "title", "project_id", "focus_question", "category", "created", "updated")} | {"category": str(item.get("category") or "未分类"), "node_count": concept_count, "relation_count": relation_count, "edge_count": len(item.get("edges", []))})
+                relation_count = sum(1 for edge in item.get("edges", []) if isinstance(edge, dict) and edge.get("label"))
+            maps.append({key: item.get(key) for key in ("id", "title", "project_id", "focus_question", "category", "created", "updated")} | {"category": str(item.get("category") or "未分类"), "revision": content_revision(raw), "node_count": concept_count, "relation_count": relation_count, "edge_count": len(item.get("edges", []))})
         return sorted(maps, key=lambda item: item.get("updated", ""), reverse=True)
 
     def categories(self) -> list[str]:
@@ -201,8 +239,7 @@ class ConceptMapRepository:
                 continue
             item, path = self.get(summary["id"])
             if item and path:
-                item["category"], item["updated"] = new_name, now_iso()
-                self.write(path, item)
+                self.update(summary["id"], {"category":new_name, "expected_revision":item["revision"]})
                 changed += 1
         renamed = [new_name if category == old_name else category for category in categories]
         return {"categories": self.save_categories(list(dict.fromkeys(renamed))), "updated_maps": changed}
@@ -220,8 +257,7 @@ class ConceptMapRepository:
                 continue
             item, path = self.get(summary["id"])
             if item and path:
-                item["category"], item["updated"] = "未分类", now_iso()
-                self.write(path, item)
+                self.update(summary["id"], {"category":"未分类", "expected_revision":item["revision"]})
                 changed += 1
         remaining = [category for category in categories if category != name]
         if "未分类" not in remaining:
@@ -235,17 +271,64 @@ class ConceptMapRepository:
         if not path.is_file():
             return None, None
         try:
-            item = json.loads(path.read_text(encoding="utf-8"))
-            return (item, path) if isinstance(item, dict) else (None, None)
+            raw = path.read_bytes()
+            item = json.loads(raw.decode("utf-8"))
+            return ({**item, "revision":content_revision(raw)}, path) if isinstance(item, dict) else (None, None)
         except json.JSONDecodeError:
             return None, None
 
-    @staticmethod
-    def write(path: Path, item: dict) -> dict:
-        atomic_write_json(path, item)
+    def write(self, path: Path, item: dict) -> dict:
+        if type(item.get('version', 1)) is not int or item.get('version', 1) not in (1, 2):
+            raise ValueError('概念图版本尚不支持，保留原文件')
+        map_id = item.get('id')
+        if not re.fullmatch(r'CMAP-\d+', str(map_id)) or path != self.concept_maps_dir / f'{map_id}.json':
+            raise ValueError('概念图写入目标无效')
+        current, _ = self.get(map_id)
+        if current:
+            return self.update(map_id, {**item, 'expected_revision':item.get('revision', current['revision'])})
+        content = {k:v for k,v in item.items() if k not in {'revision', 'expected_revision'}}
+        return self._prepared(path, map_id, None, content).apply(self.history_dir)
+
+    def _prepared(self, path, map_id, before, item):
+        stamp = datetime.now().strftime('%Y%m%d-%H%M%S-%f') + '-' + uuid.uuid4().hex[:8]
+        return PreparedConceptMapWrite(path, map_id, before, json.dumps(item, ensure_ascii=False, indent=2).encode('utf-8'), stamp)
+
+    def prepare_update(self, map_id, payload):
+        if not isinstance(payload, dict):
+            raise ValueError('概念图数据无效')
+        if 'version' in payload and (type(payload['version']) is not int or payload['version'] not in (1, 2)):
+            raise ValueError('概念图候选版本尚不支持')
+        current, path = self.get(map_id)
+        if not current or not path:
+            raise FileNotFoundError(map_id)
+        if type(current.get('version', 1)) is not int or current.get('version', 1) not in (1, 2):
+            raise ValueError('概念图版本尚不支持，保留原文件，不能写回')
+        expected = payload.get('expected_revision', current['revision'])
+        if not isinstance(expected, str) or not re.fullmatch(r'[a-f0-9]{64}', expected):
+            raise ValueError('概念图版本签名无效')
+        before = path.read_bytes()
+        if expected != content_revision(before) or current['revision'] != content_revision(before):
+            raise RevisionConflict('概念图已变化，请处理版本冲突')
+        normalized = self.normalize(payload, current)
+        item = {**current, **normalized, 'id':map_id, 'updated':now_iso()}
+        item.pop('revision', None)
+        item.pop('expected_revision', None)
+        return self._prepared(path, map_id, before, item)
+
+    def list_history(self, map_id):
+        return list_concept_map_snapshots(self.history_dir, map_id)
+
+    def get_history(self, map_id, version):
+        item, _ = read_concept_map_snapshot(self.history_dir, map_id, version)
         return item
 
+    def restore_history(self, map_id, version, payload):
+        item = self.get_history(map_id, version)
+        return self.update(map_id, {**item, 'expected_revision':payload.get('expected_revision')})
+
     def create(self, payload: dict) -> dict:
+        if isinstance(payload, dict) and 'version' in payload and (type(payload['version']) is not int or payload['version'] not in (1, 2)):
+            raise ValueError('概念图候选版本尚不支持')
         with self._id_lock:
             used = [int(match.group(1)) for path in self.concept_maps_dir.glob("CMAP-*.json") if (match := re.fullmatch(r"CMAP-(\d+)", path.stem))]
             map_id, stamp = f"CMAP-{max(used, default=0) + 1:04d}", now_iso()
@@ -258,13 +341,7 @@ class ConceptMapRepository:
             return self.write(self.concept_maps_dir / f"{map_id}.json", item)
 
     def update(self, map_id: str, payload: dict) -> dict:
-        current, path = self.get(map_id)
-        if not current or not path:
-            raise FileNotFoundError(map_id)
-        normalized = self.normalize(payload, current)
-        normalized["category"] = self.ensure_category(normalized["category"])
-        item = {**current, **normalized, "id": map_id, "updated": now_iso()}
-        return self.write(path, item)
+        return self.prepare_update(map_id, payload).apply(self.history_dir)
 
     def delete(self, map_id: str) -> dict:
         item, path = self.get(map_id)

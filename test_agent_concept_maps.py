@@ -170,6 +170,33 @@ class GraphProposalTests(AgentFixture, unittest.TestCase):
         value['project_id'] = self.project['id']
         return {'request_id': uuid.uuid4().hex, 'kind': 'concept_map', 'operation': 'create', 'content': {'graph': value}, **extra}
 
+    def test_abandoned_local_graph_approval_queries_without_recreating(self):
+        from workbench.agent_proposal_management import ProposalManagement, recovery_status
+        from workbench.agent_runtime import AgentRuntime
+        runtime = AgentRuntime(self.repo, base=self.base / 'credentials')
+        runtime.status(session=True)
+        management = ProposalManagement(runtime)
+        proposal = self.service.prepare_proposal(self.client, self.graph_spec(confirmation_mode='local_web'))
+        key = proposal['proposal_id']
+        preview = management.preview(key)
+        payload = {field:preview[field] for field in ('workspace_id', 'version', 'preview_digest', 'preview_ticket')}
+        payload['request_id'] = 'graph-interrupted-approval'
+
+        def fault(stage):
+            if stage == 'applying':
+                raise OSError('synthetic graph failure')
+
+        with patch.object(self.store, 'checkpoint', side_effect=fault), self.assertRaises(AgentError):
+            management.approve(key, payload)
+        operation_id = f'{key}-1'
+        self.store.abandon(operation_id)
+        self.assertEqual(recovery_status(runtime)['operations'], [dict(proposal_id=key, operation_id=operation_id, state='abandoned')])
+        result = management.action(payload['request_id'])
+        self.assertEqual(result['state'], 'abandoned')
+        self.assertIsNone(result['receipt'])
+        self.assertEqual(management.approve(key, payload), result)
+        self.assertEqual(self.repo.list_concept_maps(), [])
+
     def test_true_exit_before_and_after_atomic_proposal_identity_save(self):
         script = '''import sys,os,json
 from pathlib import Path

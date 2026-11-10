@@ -99,6 +99,9 @@ def dispatch(handler):
                         result = access.approve(parts[1], payload)
                     else:
                         raise AgentError('not_found', '项目访问授权接口不存在', 404)
+                elif handler.command == "GET" and route == "proposal-recovery":
+                    from .agent_proposal_management import recovery_status
+                    result = recovery_status(runtime)
                 elif parts[0] in {"proposals", "proposal-actions"}:
                     from .agent_proposal_management import ProposalManagement
                     proposals = ProposalManagement(runtime)

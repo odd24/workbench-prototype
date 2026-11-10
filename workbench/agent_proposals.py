@@ -34,7 +34,7 @@ def byte_digest(value):
 
 
 class ProposalStore:
-    def __init__(self, repository):
+    def __init__(self, repository, *, create_directories=True):
         self.repository = repository
         self.root = repository.root / ".agent"
         workspace = read_json(self.root / "workspace.json")
@@ -47,7 +47,8 @@ class ProposalStore:
         for directory in (self.proposals, self.operations, self.receipts):
             if directory.is_symlink() or not directory.resolve().is_relative_to(repository.root):
                 raise AgentError("unsafe_state_path", "Agent 状态目录路径无效", 503)
-            directory.mkdir(parents=True, exist_ok=True)
+            if create_directories:
+                directory.mkdir(parents=True, exist_ok=True)
         self.blocked = False
         self.recovery_errors = []
         self.executing = False
@@ -948,6 +949,33 @@ class ProposalStore:
             finally:
                 self.executing = False
         return {"blocked": self.blocked, "operations": self.recovery_errors}
+
+    def recovery_status(self):
+        """Summarize journal evidence without recovering, expiring or cleaning it."""
+        self.preflight()
+        operations = []
+        journaled = set()
+        for path in sorted(self.operations.glob('*/manifest.json')):
+            manifest = read_json(path)
+            proposal = self._load(manifest['proposal_id'], expire=False)
+            version = proposal['version']
+            if type(version) is not int or version < 1 or manifest['operation_id'] != f"{proposal['proposal_id']}-{version}":
+                raise ValueError('Invalid recovery operation identity')
+            journaled.add(proposal['proposal_id'])
+            state = manifest['state']
+            if state == 'committed' and proposal['state'] == 'committed':
+                receipt = self.receipts / f"{proposal['proposal_id']}.json"
+                if receipt.resolve() != receipt.absolute():
+                    raise ValueError('Invalid receipt path')
+                if receipt.exists() and read_json(receipt) == manifest['receipt'] == proposal.get('receipt'):
+                    continue
+            abandoned = state == 'abandoned' and proposal['state'] == 'cancelled' and proposal.get('outcome') == 'accepted_disk'
+            operations.append({'operation_id':manifest['operation_id'], 'proposal_id':proposal['proposal_id'],
+                               'state':'abandoned' if abandoned else 'needs_review'})
+        for path in self.proposals.glob('*.json'):
+            if path.stem not in journaled and self._load(path.stem, expire=False)['state'] in {'committing', 'recovery_required'}:
+                raise ValueError('Missing recovery operation evidence')
+        return operations
 
     def recovery_report(self):
         result = self.recover()

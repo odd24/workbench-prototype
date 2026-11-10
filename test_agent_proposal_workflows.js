@@ -37,6 +37,10 @@ async function main() {
     await waitForPage(client, "!!document.querySelector('[data-page=agent_proposals]') && !agentSettingsFeature.isBusy()");
     await click('[data-page=agent_proposals]');
     await waitForPage(client, "!agentProposalsFeature.isBusy() && !!document.querySelector('[data-proposal-filter=kind]')");
+    await click('[data-proposal-action=recovery]');
+    await waitForPage(client, "$('#proposalRecoveryTitle') === document.activeElement && $('#proposalRecoveryTitle').parentElement.textContent.includes('尚未初始化')");
+    await click('[data-proposal-action=close-recovery]');
+    assert.equal(await client.evaluate("!$('#proposalRecoveryTitle') && document.activeElement.dataset.proposalAction === 'recovery'"), true);
     assert.equal(fs.existsSync(path.join(data, '.agent')), false);
     assert.equal(fs.existsSync(credentials), false);
     const local = async (route, method = 'GET', body) => {
@@ -148,6 +152,11 @@ async function main() {
     await waitForPage(client, '!agentProposalsFeature.isBusy()');
     await client.evaluate(`document.querySelector('[data-proposal-id="${web.proposal_id}"]').click()`);
     await waitForPage(client, "!!document.querySelector('[data-proposal-action=approve]') && !document.querySelector('[data-proposal-action=approve]').disabled && !agentProposalsFeature.isBusy()");
+    await client.evaluate(`window.__ticketFetch = window.fetch.bind(window); window.fetch = async (...args) => { const response = await window.__ticketFetch(...args); if (!String(args[0]).endsWith('/preview')) return response; window.fetch = window.__ticketFetch; const data = await response.json(); return new Response(JSON.stringify({...data, preview_ticket_seconds:0.5}), {status:response.status, headers:{'Content-Type':'application/json'}}); };`);
+    await click('#proposalPreviewDialog [data-proposal-action=review]');
+    await waitForPage(client, "$('#proposalFeedback').textContent.includes('当前预览已失效') && document.querySelector('[data-proposal-action=approve]').disabled");
+    await click('#proposalPreviewDialog [data-proposal-action=review]');
+    await waitForPage(client, "!document.querySelector('[data-proposal-action=approve]')?.disabled && !agentProposalsFeature.isBusy()");
     await trustedClick('[data-proposal-action=approve]');
     await waitForPage(client, "$('#appDialog').open && document.activeElement.id === 'appDialogConfirm'");
     assert.equal(await client.evaluate("$('#proposalPreviewDialog').open && $('#appDialog').contains(document.activeElement)"), true);
@@ -175,6 +184,23 @@ async function main() {
     const approvalEpoch = await client.evaluate('performance.timeOrigin');
     await client.call('Page.reload');
     await waitForPage(client, `performance.timeOrigin !== ${approvalEpoch} && !!document.querySelector('[data-proposal-action=resolve]')`);
+    for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
+      await client.call('Emulation.setDeviceMetricsOverride', {width, height:1000, deviceScaleFactor:1, mobile:false});
+      await client.evaluate(`document.body.classList.toggle('dark', ${theme === 'dark'});`);
+      await delay(250);
+      await click('[data-proposal-action=recovery]');
+      await waitForPage(client, "$('#proposalRecoveryTitle') === document.activeElement && $('#proposalRecoveryTitle').parentElement.textContent.includes('当前报告没有待核查')");
+      assert.equal(await client.evaluate("document.documentElement.scrollWidth <= innerWidth + 1 && !!document.querySelector('[data-proposal-action=resolve]')"), true);
+      assert.equal(await client.evaluate("$('#proposalRecoveryTitle').getBoundingClientRect().top >= $('.topbar').getBoundingClientRect().bottom"), true);
+      const shot = await client.call('Page.captureScreenshot', {format:'png'});
+      fs.writeFileSync(path.join(screenshots, `recovery-${theme}-${width}.png`), Buffer.from(shot.data, 'base64'));
+      await click('[data-proposal-action=close-recovery]');
+    }
+    await client.evaluate(`window.__recoveryFetch = window.fetch.bind(window); window.fetch = async (...args) => { if (String(args[0]).endsWith('/proposal-recovery')) { window.fetch = window.__recoveryFetch; return new Response(JSON.stringify({message:'private-injected-path'}), {status:503, headers:{'Content-Type':'application/json'}}); } return window.__recoveryFetch(...args); };`);
+    await click('[data-proposal-action=recovery]');
+    await waitForPage(client, "$('#proposalRecoveryTitle') === document.activeElement && $('#proposalRecoveryTitle').parentElement.querySelector('[role=alert]')?.textContent.includes('请保留现场')");
+    assert.equal(await client.evaluate("$('#proposalRecoveryTitle').parentElement.textContent.includes('private-injected-path')"), false);
+    await click('[data-proposal-action=close-recovery]');
     await click('[data-proposal-action=resolve]');
     await waitForPage(client, "$('#proposalFeedback').textContent === '已查到原入库回执。' && !agentProposalsFeature.isBusy()");
     assert.equal((await agent(`proposals/${webLost.proposal_id}`)).state, 'committed');
@@ -188,7 +214,7 @@ async function main() {
     await waitForPage(client, "$('#proposalFeedback').textContent.includes('管理会话已失效') && !agentProposalsFeature.isBusy()");
     await click('[data-proposal-action=refresh]');
     await waitForPage(client, "$('#proposalFeedback').textContent === '' && !agentProposalsFeature.isBusy()");
-    console.log(`Proposal browser workflows passed: uninitialized,pagination,filters,modal,position-focus,continuous-preview,late-response,nested-confirmation,full-preview,disabled-approval,stale-version,cancel,response-loss,reload-query,session-failure,light/dark,desktop/narrow. Screenshots: ${screenshots}`);
+    console.log(`Proposal browser workflows passed: uninitialized,pagination,filters,modal,position-focus,continuous-preview,late-response,nested-confirmation,full-preview,disabled-approval,stale-version,cancel,response-loss,reload-query,recovery-report,recovery-error,session-failure,light/dark,desktop/narrow. Screenshots: ${screenshots}`);
   } catch (error) {
     console.error('Proposal workflow failure:', error.stack || error);
     if (client) console.error(await client.evaluate("({page:currentPage, content:$('#manageContent').innerText, busy:agentProposalsFeature.isBusy(), pages:navigationFeature.managePages, resolved:navigationFeature.resolvePage('agent_proposals', projects, selectedProjectId)})").catch(() => null));

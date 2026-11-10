@@ -721,6 +721,36 @@ class AttachmentHTTPTests(unittest.TestCase):
         self.assertEqual(result['state'], 'completed')
         self.assertEqual(self.request(f'/api/local/agent-management/proposals/{key}/approve', payload, 'POST', True), (200, result))
 
+    def test_abandoned_attachment_approval_queries_without_publishing(self):
+        proposal, upload_id = self.proposal('local_web')
+        key = proposal['proposal_id']
+        route = f'/api/local/agent-management/proposals/{key}'
+        code, preview = self.request(route + '/preview', management=True)
+        self.assertEqual(code, 200, preview)
+        payload = {field:preview[field] for field in ('workspace_id', 'version', 'preview_digest', 'preview_ticket')}
+        payload['request_id'] = 'attachment-interrupted-approval'
+        store = self.repo.agent_proposals
+
+        def fault(stage):
+            if stage == 'attachment_manifest':
+                raise OSError('synthetic attachment failure')
+
+        with patch.object(store, 'checkpoint', side_effect=fault):
+            self.assertGreaterEqual(self.request(route + '/approve', payload, 'POST', True)[0], 500)
+        operation_id = f'{key}-1'
+        store.abandon(operation_id)
+        code, report = self.request('/api/local/agent-management/proposal-recovery', management=True)
+        self.assertEqual(code, 200, report)
+        self.assertEqual(report['operations'], [dict(proposal_id=key, operation_id=operation_id, state='abandoned')])
+        action = '/api/local/agent-management/proposal-actions/' + payload['request_id']
+        code, result = self.request(action, management=True)
+        self.assertEqual(code, 200, result)
+        self.assertEqual(result['state'], 'abandoned')
+        self.assertIsNone(result['receipt'])
+        self.assertEqual(self.request(route + '/approve', payload, 'POST', True), (200, result))
+        self.assertFalse((self.repo.root / preview['preview']['content']['binary_relative']).exists())
+        self.assertEqual(self.repo.agent_service.uploads.load(upload_id)['state'], 'ready')
+
     def test_real_stdio_formal_attachment_uses_existing_proposal_tools(self):
         for kind in ('project', 'document'):
             with self.subTest(owner_kind=kind):

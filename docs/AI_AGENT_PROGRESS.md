@@ -8,7 +8,7 @@
 
 后续扩展详见 [AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。AG-115仅文档；AG-116～121、AG-126已完成；用户已明确仅本机使用，AG-122～125已取消当前实施、远程未实现。当前WorkBuddy5.9.3与本机最终交付证据见末尾及扩展验收，不影响首期历史状态。
 
-2026-11-09 用户在监督对话明确“现在开始执行方案”，解除此前暂停实施限制。AG-128～130及独立POST锁修复已通过监督审查，AG-131已通过监督审查，AG-132已通过监督审查，AG-133已通过监督审查，AG-134已提交9e43aa3并获监督接受，AG-135～136已完成。2026-11-10 用户明确“继续持续的推进方案”，AG-137～140 已完成，AG-141～143 待开始。历史 AG-127 的仅文档授权和暂停事实保留。
+2026-11-09 用户在监督对话明确“现在开始执行方案”，解除此前暂停实施限制。AG-128～130及独立POST锁修复已通过监督审查，AG-131已通过监督审查，AG-132已通过监督审查，AG-133已通过监督审查，AG-134已提交9e43aa3并获监督接受，AG-135～136已完成。2026-11-10 用户明确“继续持续的推进方案”，AG-137～141 已完成，AG-142～143 待开始。历史 AG-127 的仅文档授权和暂停事实保留。
 
 ## 工作项
 
@@ -55,7 +55,7 @@
 | AG-138 | 项目级联删除 | 已完成 | 2026-11-10 | 2026-11-10 | AG-136、137。独立授权、本机批准、固定目录移动及恢复，验收见分册 |
 | AG-139 | 三类分类变更与授权迁移 | 已完成 | 2026-11-10 | 2026-11-10 | AG-129、133、135。三类分类命令、身份代次及授权迁移已验收 |
 | AG-140 | 工作流变更、状态迁移与模板切换 | 已完成 | 2026-11-10 | 2026-11-10 | AG-129、137。工作流许可、状态映射及恢复已验收 |
-| AG-141 | 提案管理、恢复入口与诊断整体验收 | 待开始 | — | — | AG-132～140 |
+| AG-141 | 提案管理、恢复入口与诊断整体验收 | 已完成 | 2026-11-10 | 2026-11-10 | AG-132～140 |
 | AG-142 | 新能力真实 Codex、WorkBuddy 兼容验收 | 待开始 | — | — | AG-141；真实客户端环境 |
 | AG-143 | 新能力兼容、备份、运维与最终交付 | 待开始 | — | — | AG-142 |
 
@@ -1279,3 +1279,21 @@ AG-139 实际修改文件（54）：`AGENTS.md`、`app.js`、`codex_agent_accept
 - 剩余边界。未初始化空间使用同域 CAS 和历史而无 Agent 持久日志，多文件中断需人工核对。历史和回收原字节继续保留，模板外状态可读，悬空工作流绑定需本机明确修复。对外部无法观察的往返写入、缺失或损坏的配置不承诺自动修复。AG-141 按依赖交接。
 
 AG-140 实际修改文件（52）：`AGENTS.md`、`app.js`、`codex_agent_acceptance.py`、`docs/AGENT_INTEGRATION.md`、`docs/AGENT_USAGE.md`、`docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md`、`docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md`、`docs/AI_AGENT_PROGRESS.md`、`docs/ARCHITECTURE.md`、`docs/DATA_FORMAT.md`、`docs/MAINTENANCE.md`、`index.html`、`js/features/agent-proposals.js`、`js/features/agent-settings.js`、`README.md`、`test_agent_attachments.py`、`test_agent_capabilities.py`、`test_agent_files.py`、`test_agent_workflow_changes.py`、`test_agent_workflow_workflows.js`、`test_workflow_changes.py`、`workbench/agent_category_authorization.py`、`workbench/agent_category_management.py`、`workbench/agent_concept_authorization.py`、`workbench/agent_delete_authorization.py`、`workbench/agent_execution.py`、`workbench/agent_management_http.py`、`workbench/agent_management.py`、`workbench/agent_project_access.py`、`workbench/agent_project_authorization.py`、`workbench/agent_project_delete_authorization.py`、`workbench/agent_project_execution.py`、`workbench/agent_proposal_management.py`、`workbench/agent_proposals.py`、`workbench/agent_security.py`、`workbench/agent_service.py`、`workbench/agent_tools.py`、`workbench/agent_workflow_authorization.py`、`workbench/agent_workflow_execution.py`、`workbench/agent_workflow_management.py`、`workbench/agent_workflow_service.py`、`workbench/category_local.py`、`workbench/configuration.py`、`workbench/http_api.py`、`workbench/project_identity.py`、`workbench/projects.py`、`workbench/records.py`、`workbench/repository.py`、`workbench/workflow_changes.py`、`workbench/workflow_identity.py`、`workbench/workflow_local.py`、`workbench/workflow_prepared.py`。
+
+### AG-141 提案管理、恢复入口与诊断整体验收（2026-11-10 开始）
+
+- 范围。盘点 AG-132～140 的提案管理、审批、原回执、恢复入口和本机诊断，按实际证据补齐缺口。预计涉及提案管理服务、管理路由、提案管理界面及其回归测试，必要时同步诊断测试和维护文档。复用现有提案、执行与恢复逻辑。
+- 验收矩阵。项目、记录、知识库三类附件，概念图，单条删除和项目级联删除，项目创建与独立授权，三个分类域及工作流均检查完整预览和授权边界。跨类型检查状态、失效票据、迟到响应、取消和失败后禁用，区分原回执查询、恢复和接受当前盘态。管理入口检查同源与禁用，诊断检查超时、输出、子进程回收及隐私。浏览器检查浅深色、桌面窄屏、长中文、空列表、大量数据及焦点、错误与禁用反馈。
+- 验证计划。隔离数据的专项 Python、真实浏览器工作流、全量 Python 和 Node 回归、语法检查及 `git diff --check`。恢复操作涉及中断后的不确定盘态，沿用既有证据要求；真实客户端矩阵留待 AG-142。
+- 范围决定。监督接受只读脱敏的网页报告，停服 CLI 仍负责恢复和接受盘态。网页新增 GET `/api/local/agent-management/proposal-recovery`，无需启用 Agent。报告与原批准查询是两条独立调用链，沿用持久证据，不新增写权限或日志格式。
+- 独立清理待办。AG-140 的合成临时目录 `workbench-document-browser-mKOTbr` 仍存在。该目录的递归删除已被自动审批以 `blocked by policy` 拒绝，未再尝试或换工具。AG-141 开始时只读进程查询无命令行匹配，未检查所有系统句柄。该待办由监督确认与 AG-141 验收独立。
+
+### AG-141 完成（2026-11-10）
+
+- 决定记录。按本项开始记录中的监督审定范围交付网页只读报告。报告复用持久执行预检，返回工作空间、原事务和提案 ID 及状态。已初始化空间停用后可查，空空间零初始化，未知或损坏仅提示核查。报告不触发恢复、过期、清理、回执或业务写入。原批准查询显示三种处理器的已放弃状态，无原完成回执，重复原批准不重新发布。停服 CLI 继续负责恢复核查和显式接受盘态。
+- 兼容。复用原持久格式、授权和 Agent 工具。管理预览返回本次票据绑定的摘要，浏览器校验当前身份、版本、摘要和时限。附件缺执行计划禁用批准，分类和工作流详情可查看原回执。诊断结束立即清除 nonce。服务版本 2026.11.10.8，提案脚本缓存版本 20261110-8。
+- Python。首轮 `python -m unittest -v` 525 项，699.041 秒，524 通过，1 项 Windows 原生符号链接权限跳过。该轮启动后补强报告版本身份校验与诊断私有路径断言。最终相关 16 项专项通过。最终 Python 全量 525 项，659.554 秒，523 通过，1 跳过，1 项既有附件并发耗时断言失败。`first='agent'` 先通过功能断言后测得 4.3603718 秒，门槛 2 秒。该测试未调用本轮新增报告、原批准查询、浏览器或诊断。保持原门槛，两次单独复跑通过，其中全量退出后整项 4.212 秒。保留原失败证据，原因未进一步归因。
+- Node。27 个文件均有通过证据。初批 26 个通过，设置页一次刷新竞态后改用实际页面代次等待并通过。第二批删除页面初始化超时，原样单独复跑通过。附件缺执行计划、分类和工作流原回执、提案报告浅深色 1440/390 布局最终通过。窄屏标题遮挡在目视检查中发现并修正，加了顶栏可见性断言。
+- 语法及实机。137 个 Python 与 53 个 JS 通过语法检查，6 个 Markdown 文件与 83 个相对链接、`git diff --check` 通过。隔离 Codex CLI 0.167.0-alpha.3.2、MCP 2025-11-25 和 22 工具的既有兼容验证通过，0 个模型 turn，用户配置未改。详情与限制见[本机能力验收](AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md)。
+- 实际文件（22）。`AGENTS.md`、`README.md`、`docs/AGENT_USAGE.md`、`docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md`、`docs/AI_AGENT_PROGRESS.md`、`docs/MAINTENANCE.md`、`index.html`、`js/features/agent-proposals.js`、`test_agent_attachment_workflows.js`、`test_agent_attachments.py`、`test_agent_category_workflows.js`、`test_agent_concept_maps.py`、`test_agent_diagnostics.py`、`test_agent_proposal_management.py`、`test_agent_proposal_workflows.js`、`test_agent_settings.js`、`test_agent_workflow_workflows.js`、`workbench/agent_diagnostics.py`、`workbench/agent_management_http.py`、`workbench/agent_proposal_management.py`、`workbench/agent_proposals.py`、`workbench/http_api.py`。
+- 交接。AG-140 独立临时目录清理待办仍在，收口时只读结果一致。AG-142 待开始，待监督派发。

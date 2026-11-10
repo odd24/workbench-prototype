@@ -98,7 +98,15 @@ async function main() {
       await waitForPage(client, "$('#proposalPreviewDialog').open && !agentProposalsFeature.isBusy() && !!document.querySelector('[data-proposal-action=approve]:not(:disabled)')");
       assert.equal(await client.evaluate("$('#proposalPreviewDialog').textContent.includes('未解析') && $('#proposalPreviewDialog').textContent.includes('SHA')"), true);
       assert.equal(fs.existsSync(path.join(data, proposal.normalized_content.binary_relative)), false);
-      if (shots) await capture('attachment-preview', '.agent-proposal-detail');
+      if (shots) {
+        await capture('attachment-preview', '.agent-proposal-detail');
+        await client.evaluate(`window.__attachmentPreviewFetch = window.fetch.bind(window); window.fetch = async (...args) => { const response = await window.__attachmentPreviewFetch(...args); if (!String(args[0]).endsWith('/preview')) return response; window.fetch = window.__attachmentPreviewFetch; const data = await response.json(); data.preview.execution_plan = null; return new Response(JSON.stringify(data), {status:response.status, headers:{'Content-Type':'application/json'}}); };`);
+        await click('#proposalPreviewDialog [data-proposal-action=review]');
+        await waitForPage(client, "!agentProposalsFeature.isBusy() && !!document.querySelector('[data-proposal-fields]') && !document.querySelector('[data-proposal-execution]')");
+        assert.equal(await client.evaluate("document.querySelector('[data-proposal-action=approve]').disabled"), true);
+        await click('#proposalPreviewDialog [data-proposal-action=review]');
+        await waitForPage(client, "!agentProposalsFeature.isBusy() && !!document.querySelector('[data-proposal-action=approve]:not(:disabled)')");
+      }
       await click('[data-proposal-action=approve]'); await confirm();
       await waitForPage(client, "!agentProposalsFeature.isBusy() && $('#proposalPreviewDialog').textContent.includes('已入库')");
       const saved = await agent(`proposals/${proposal.proposal_id}`);

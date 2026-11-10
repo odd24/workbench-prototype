@@ -531,8 +531,9 @@ async function main() {
     await click('[data-agent-action="graph-confirm"]');
     await confirm();
     await waitForPage(client, "!!document.querySelector('[data-agent-action=graph-resolve]') && agentSettingsFeature.isBusy()");
+    const graphApprovalPage = await client.evaluate('performance.timeOrigin');
     await client.call('Page.reload');
-    await waitForPage(client, "currentPage === 'agent_settings' && !!document.querySelector('[data-agent-action=graph-resolve]')");
+    await waitForPage(client, `performance.timeOrigin !== ${graphApprovalPage} && currentPage === 'agent_settings' && !!document.querySelector('[data-agent-action=graph-resolve]')`);
     await click('[data-agent-action="graph-resolve"]');
     await waitForPage(client, "!!$('#agentGraphGrantsPanel') && !document.querySelector('[data-agent-action=graph-resolve]') && !agentSettingsFeature.isBusy()");
     let graphRegistry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));

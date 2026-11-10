@@ -79,13 +79,16 @@ class AgentDiagnosticTests(unittest.TestCase):
         steps = {item["name"]: item for item in result["steps"]}
         for name in ("service", "authorization", "configuration", "python", "mcp", "read"):
             self.assertEqual(steps[name]["state"], "passed", result)
-        self.assertIn("20", steps["mcp"]["message"])
+        self.assertIn('发现 22 个工具', steps['mcp']['message'])
+        self.assertIn('不代表当前聊天已接入', steps['mcp']['message'])
         self.assertEqual(self.start()[1]["operation_id"], operation["operation_id"])
         observed = self.runtime.diagnostics.observed(self.info["client_id"])
         self.assertIn("last_diagnostic_request_at", observed)
         self.assertNotIn("last_client_request_at", observed)
         self.assertNotIn(self.config["token"], json.dumps(result))
         self.assertNotIn("wbdiag-", json.dumps(result))
+        self.assertFalse(any(str(self.base) in step['message'] for step in result['steps']))
+        self.assertEqual(self.runtime.diagnostics.nonces, {})
         self.assertEqual(Repository(self.repo.root).list_records(), [])
         self.assertEqual(Repository(self.repo.root).list_documents(), [])
         self.assertEqual(self.repo.agent_service.list_proposals(self.security.clients()[self.info["client_id"]], {})["items"], [])
@@ -161,6 +164,7 @@ class AgentDiagnosticTests(unittest.TestCase):
             result = self.wait(self.start("timeout")[1])
             self.assertEqual(next(item for item in result["steps"] if item["name"] == "mcp")["state"], "failed")
             self.assertNotIn("secret-error", json.dumps(result))
+            self.assertEqual(self.runtime.diagnostics.nonces, {})
 
     def test_missing_codex_does_not_prevent_bridge_and_space_sessions_are_distinct(self):
         with patch("workbench.agent_setup.detect_codex", return_value=None):

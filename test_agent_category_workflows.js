@@ -98,6 +98,7 @@ async function main() {
     assert.equal((await json('/api/documents/' + document.id)).category, newName);
     const completed = await agent('proposals/' + proposal.proposal_id);
     assert.equal(completed.receipt.kind, 'category');
+    assert.equal(await client.evaluate("$('#proposalPreviewDialog').textContent.includes('原操作回执') && document.querySelector('[data-proposal-action=approve]').disabled"), true);
     async function fillCategoryName(name) {
       await waitForPage(client, "$('#appDialog').open && !$('#appDialogInput').readOnly && $('#appDialog').classList.contains('input-mode')");
       await client.evaluate(`$('#appDialogInput').value = ${JSON.stringify(name)}`);

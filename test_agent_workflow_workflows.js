@@ -119,6 +119,7 @@ async function main() {
     await confirm();
     await waitForPage(client,"!$('#appDialog').open && !agentProposalsFeature.isBusy()");
     const current = await json(recordRoute);
+    assert.equal(await client.evaluate("$('#proposalPreviewDialog').textContent.includes('原操作回执') && document.querySelector('[data-proposal-action=approve]').disabled"), true);
     assert.equal(current.status,'已完成');
     assert.equal(current.completed,true);
     const history = await json(recordRoute + '/history');

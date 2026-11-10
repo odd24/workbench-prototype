@@ -213,4 +213,5 @@ class AgentDiagnostics:
                 if name not in names:
                     step(name, "skipped", "前置检查未通过，本项未执行")
             with self.lock:
+                self.nonces.pop(nonce, None)
                 self.jobs[operation_id].update(state="completed", steps=steps, finished_at=timestamp())

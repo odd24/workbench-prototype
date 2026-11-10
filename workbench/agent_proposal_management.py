@@ -17,6 +17,23 @@ from .persistence import atomic_write_json
 STATES = {"draft", "previewed", "committing", "committed", "conflicted", "cancelled", "expired", "recovery_required"}
 
 
+def recovery_status(runtime):
+    status = runtime.status()
+    result = {'workspace_id':status['workspace_id'], 'operations':[], 'evidence_error':False}
+    if not status['workspace_id']:
+        result['evidence_error'] = bool(status['preference_error'])
+        return result
+    try:
+        repository = runtime.repository
+        store = getattr(repository, 'agent_proposals', None) or ProposalStore(repository, create_directories=False)
+        if store.workspace_id != status['workspace_id']:
+            raise ValueError('Invalid recovery workspace identity')
+        result['operations'] = store.recovery_status()
+    except (AgentError, KeyError, OSError, TypeError, ValueError):
+        result['evidence_error'] = True
+    return result
+
+
 class ProposalManagement:
     def __init__(self, runtime):
         self.runtime = runtime
@@ -141,7 +158,7 @@ class ProposalManagement:
             self.runtime.preview_tickets[ticket] = {"workspace_id": self.workspace_id, "proposal_id": proposal_id, "version": proposal["version"],
                 "digest": preview["preview_digest"], "confirmation_mode": proposal["confirmation_mode"], "client_version": client_version(client),
                 "session": self.runtime._token, "expires": now + 600}
-            result.update(preview_ticket=ticket, preview_ticket_seconds=600, state="previewed")
+            result.update(preview_ticket=ticket, preview_ticket_seconds=600, preview_digest=preview['preview_digest'], state="previewed")
         if proposal['operation'] == 'delete':
             checked_preview(result)
         return result
@@ -318,10 +335,12 @@ class ProposalManagement:
                 action.update(state="not_applied", result=None)
             else:
                 self.store.security = self.runtime.security()
-                self.store.recover()
+                recovery = self.store.recover()
                 proposal = self.store._load(action["proposal_id"])
                 manifest = read_json(manifest_path)
-                if (proposal.get('operation') == 'delete' or proposal.get('kind') in {'project', 'category','workflow'}) and manifest['state'] == 'abandoned' and proposal['state'] == 'cancelled':
+                if (not recovery.get('format_error') and manifest['state'] == 'abandoned'
+                        and proposal['state'] == 'cancelled' and proposal.get('outcome') == 'accepted_disk'
+                        and proposal.get('approval') == action['approval']):
                     return {'request_id':request_id, 'state':'abandoned', 'receipt':None, 'proposal_id':action['proposal_id'], 'outcome':'accepted_disk_not_undone'}
                 if proposal["state"] == "committed" and proposal.get("approval") == action["approval"]:
                     action.update(state="completed", result=proposal["receipt"])

@@ -28,6 +28,9 @@ PHASES = (
 
 
 def proposal_allows(client, proposal, *, writing=False):
+    if proposal['kind'] == 'workflow':
+        from .agent_workflow_service import proposal_access
+        return proposal_access(client, proposal)
     if proposal['kind'] == 'category':
         from .agent_category_authorization import REQUIRED, client_grants
         scope = proposal['access_target']

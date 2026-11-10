@@ -1626,6 +1626,10 @@ function renderProjectPage() {
   $('.project-heading .title-with-avatar .project-avatar').textContent = project.name.slice(0, 1);
   $('.project-heading .title-with-avatar .status-pill').textContent = project.status === 'archived' ? '已归档' : project.status === 'paused' ? '已暂停' : '进行中';
   $('.project-title-row p').textContent = project.description || '暂无项目描述';
+  const workflowWarning = $('#projectWorkflowWarning');
+  const binding = project.workflow_template || 'standard';
+  workflowWarning.hidden = (configData?.workflow_templates || []).some(template => template.id === binding);
+  workflowWarning.textContent = workflowWarning.hidden ? '' : `原工作流「${binding}」当前不可用。可在编辑资料中核对并切换工作流；原记录仍可查看。`;
   $('#projectTimes').innerHTML = timestampsHtml(project, true);
   $('#archiveProject').textContent = project.status === 'archived' ? '恢复项目' : '归档项目';
   const allProjectRecords = records.filter(record => record.project_id === project.id);
@@ -2231,7 +2235,7 @@ async function renderManagePage(page) {
     const workflows = configData?.workflow_templates || [];
     if (!workflows.some(item => item.id === selectedWorkflowId)) selectedWorkflowId = workflows[0]?.id;
     const selectedWorkflow = workflows.find(item => item.id === selectedWorkflowId) || workflows[0];
-    $('#manageActions').innerHTML = `<select class="filter-button" id="workflowSelector">${workflows.map(item => `<option value="${escapeHtml(item.id)}" ${item.id === selectedWorkflowId ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}</select><button class="secondary-button" id="statusUsageOverview">使用统计</button><button class="secondary-button" id="newWorkflow">＋ 新建</button><button class="secondary-button" id="duplicateWorkflow">复制</button><button class="secondary-button danger-button" id="deleteWorkflow">删除</button><button class="primary-button" id="saveTemplates">保存工作流</button>`;
+    $('#manageActions').innerHTML = `<select class="filter-button" id="workflowSelector">${workflows.map(item => `<option value="${escapeHtml(item.id)}" ${item.id === selectedWorkflowId ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}</select><button class="secondary-button" id="statusUsageOverview">使用统计</button><button class="secondary-button" id="newWorkflow">＋ 新建</button><button class="secondary-button" id="duplicateWorkflow">复制</button><button class="secondary-button" id="renameWorkflow" ${selectedWorkflowId === 'standard' ? 'disabled' : ''}>重命名</button><button class="secondary-button danger-button" id="deleteWorkflow" ${selectedWorkflowId === 'standard' ? 'disabled' : ''}>删除</button><button class="primary-button" id="saveTemplates">保存工作流</button>`;
     const names = {issue:'问题状态', todo:'待办状态'};
     $('#manageContent').innerHTML = `<div class="status-batch-bar"><label><input type="checkbox" id="selectAllStatuses"><span>全选</span></label><strong id="statusSelectionCount">已选择 0 个状态</strong><button type="button" class="secondary-button danger-button" id="batchDeleteStatuses" disabled>批量删除</button></div><div class="template-grid">${Object.entries(selectedWorkflow?.statuses || {}).filter(([type]) => type !== 'idea').map(([type, statuses]) => `<section class="template-panel" data-template-type="${type}"><header><h2>${names[type]}</h2><span class="count-badge">${statuses.length}</span></header><div class="status-edit-list">${statuses.map(status => statusEditorHtml(status, type)).join('')}</div><button class="add-status" data-add-status="${type}">＋ 添加状态</button></section>`).join('')}</div>`;
     captureManageSnapshot(page);
@@ -2351,6 +2355,55 @@ async function categoryCommand(operation, selection) {
   const changed = preview.impact.members.filter(member => member.before.category !== member.after.category).length;
   return {categories:preview.local.configuration.after, document_sort:preview.local.ordering.after,
     updated_documents:changed, updated_maps:changed};
+}
+
+async function workflowCommand(operation, selection, projectPatch) {
+  const directory = window.workbenchDataDir;
+  const labels = {create:'新建工作流', copy:'复制工作流', rename:'重命名工作流', delete_status:'删除状态并迁移',
+    switch:'切换项目工作流', compat_catalogue:'保存工作流', compat_status:'保存全局状态'};
+  const label = labels[operation] || '变更工作流';
+  let command = selection;
+  for (;;) {
+    const review = await api('/workflow-operations/preview', {method:'POST', body:JSON.stringify({
+      operation, selection:command, ...(projectPatch ? {project_patch:projectPatch} : {})
+    })});
+    if (directory !== window.workbenchDataDir) return null;
+    const detail = JSON.stringify({影响:review.impact, 本机计划:review.local}, null, 2);
+    if (review.approvable) {
+      const approved = await appConfirm({title:label, message:'核对完整状态映射、记录、看板排序和历史后批准。',
+        detail, confirmText:label, danger:operation === 'delete_status'});
+      if (!approved || directory !== window.workbenchDataDir) return null;
+      const approval = {method:'POST', body:JSON.stringify({ticket:review.ticket})};
+      try { await api('/workflow-operations/approve', approval); }
+      catch (error) {
+        if (directory !== window.workbenchDataDir || error.status && error.payload?.code !== 'recovery_required') throw error;
+        await api('/workflow-operations/approve', approval);
+      }
+      if (directory !== window.workbenchDataDir) return null;
+      const loadedConfig = await api('/config');
+      if (directory !== window.workbenchDataDir || loadedConfig.data_dir !== directory) return null;
+      configData = loadedConfig;
+      return review;
+    }
+    if (!['switch','delete_status'].includes(operation)) {
+      await appConfirm({title:'工作流仍有未映射状态', message:'请先用单个状态的删除按钮选择迁移目标，再保存剩余改动。', detail});
+      return null;
+    }
+    if (!await appConfirm({title:'需要选择状态映射', message:'请核对未映射状态。补齐后会重新生成完整预览。',
+      detail, confirmText:'选择迁移目标'})) return null;
+    const missing = new Map(review.impact.unmapped.map(row => [JSON.stringify([row.record_type,row.source_status]), row]));
+    const mapping = [...(command.mapping || [])];
+    const target = operation === 'switch' ? review.impact.projects[0].template_after : review.impact.templates.after;
+    for (const {record_type, source_status} of missing.values()) {
+      if (directory !== window.workbenchDataDir) return null;
+      const choices = target.statuses[record_type].map(status => ({value:status.id, label:status.name, color:status.color}));
+      const replacement = await appPrompt({title:`选择「${source_status}」的新状态`, input:{readOnly:true, choices}});
+      if (!replacement) return null;
+      if (operation === 'switch') mapping.push({record_type, source_status, target_status_id:replacement});
+      else command = {...command, target_status_id:replacement};
+    }
+    if (operation === 'switch') command = {...command, mapping};
+  }
 }
 
 function relativeCategoryMove(order, name) {
@@ -3462,41 +3515,23 @@ function syncColorPicker(picker, value) {
 
 async function saveTemplates() {
   const workflow = configData.workflow_templates.find(item => item.id === selectedWorkflowId);
-  const statuses = {idea:workflow?.statuses?.idea || []};
+  if (!workflow) return false;
+  const statuses = {...workflow.statuses};
   $$('.template-panel').forEach(panel => {
-    statuses[panel.dataset.templateType] = $$('.status-edit-row', panel).map((row, index) => ({id:row.dataset.statusId || `${panel.dataset.templateType}_${Date.now()}_${index}`, name:$('input[type="text"]', row).value.trim(), color:$('input[type="color"]', row).value, completed:$('.status-completed', row).checked})).filter(item => item.name);
+    const type = panel.dataset.templateType;
+    statuses[type] = $$('.status-edit-row', panel).map((row, index) => {
+      const id = row.dataset.statusId || `${type}_${Date.now()}_${index}`;
+      const original = workflow.statuses[type]?.find(status => status.id === id);
+      return {...original, id, name:$('input[type="text"]', row).value.trim(), color:$('input[type="color"]', row).value,
+        completed:$('.status-completed', row).checked};
+    }).filter(status => status.name);
   });
   try {
-    workflow.statuses = statuses;
-    configData.workflow_templates = await api('/workflow-templates', {method:'PUT', body:JSON.stringify(configData.workflow_templates)});
-    await Promise.allSettled([refreshRecords()]);
-    if (activeManagePage === 'status_templates') {
-      const savedWorkflow = configData.workflow_templates.find(item => item.id === selectedWorkflowId);
-      $$('.template-panel').forEach(panel => {
-        const savedStatuses = savedWorkflow?.statuses?.[panel.dataset.templateType] || [];
-        const savedById = new Map(savedStatuses.map(status => [status.id, status]));
-        const seen = new Set();
-        $$('.status-edit-row', panel).forEach(row => {
-          const saved = savedById.get(row.dataset.statusId);
-          if (!saved || seen.has(saved.id)) { row.remove(); return; }
-          seen.add(saved.id);
-          row.dataset.originalName = saved.name;
-          row.dataset.originalColor = safeColor(saved.color || '#64748b');
-          row.dataset.originalCompleted = String(Boolean(saved.completed));
-          $('input[type="text"]', row).value = saved.name;
-          $('.status-completed', row).checked = Boolean(saved.completed);
-          syncColorPicker($('[data-color-picker]', row), row.dataset.originalColor);
-          row.classList.remove('new-config-row');
-          updateStatusRowDirtyState(row);
-        });
-        const list = $('.status-edit-list', panel);
-        savedStatuses.filter(status => !seen.has(status.id)).forEach(status => list?.insertAdjacentHTML('beforeend', statusEditorHtml(status, panel.dataset.templateType)));
-        $('.count-badge', panel).textContent = savedStatuses.length;
-      });
-      updateStatusBatchUI();
-      captureManageSnapshot('status_templates');
-    }
-    notify('工作流已保存', '使用此模板的项目会立即采用新状态');
+    const templates = configData.workflow_templates.map(item => item.id === workflow.id ? {...item, statuses} : item);
+    if (!await workflowCommand('compat_catalogue', {templates})) return false;
+    await refreshData();
+    if (activeManagePage === 'status_templates') await renderManagePage('status_templates');
+    notify('工作流已保存', '使用此模板的项目已同步');
     return true;
   } catch (error) { notify('模板保存失败', error.message, true); return false; }
 }
@@ -4693,36 +4728,53 @@ document.addEventListener('click', async event => {
   const removeStatus = event.target.closest('.remove-status');
   if (removeStatus) {
     const row = removeStatus.closest('.status-edit-row');
-    const type = removeStatus.closest('.template-panel')?.dataset.templateType;
-    const name = $('input[type="text"]', row)?.value.trim();
-    const affected = statusUsageRecords(type, name, row.dataset.statusId || '');
-    if (affected.length) {
-      openUsageDetail({kind:'status', name, recordType:type, statusId:row.dataset.statusId || ''});
-      notify('无法删除正在使用的状态', `仍有 ${affected.length} 条记录，请先移动到其他状态`, true);
-    } else if (await appConfirm({title:`删除状态「${name}」？`, message:'状态将从当前工作流中移除。', detail:'删除后无法撤销。', confirmText:'删除状态', danger:true})) {
-      row.remove();
-      await saveTemplates();
+    const recordType = removeStatus.closest('.template-panel')?.dataset.templateType;
+    const workflow = configData.workflow_templates.find(item => item.id === selectedWorkflowId);
+    const statusId = row.dataset.statusId;
+    if (!workflow?.statuses[recordType]?.some(status => status.id === statusId)) {
+      row.remove(); updateStatusBatchUI(); return;
     }
+    if (hasUnsavedManageChanges()) {
+      notify('请先处理未保存的工作流改动', '单个状态删除需要使用已保存的工作流版本', true);
+      return;
+    }
+    try {
+      if (await workflowCommand('delete_status', {template_id:workflow.id, record_type:recordType, status_id:statusId})) {
+        await refreshData();
+        await renderManagePage('status_templates');
+        notify('状态已删除', '已同步受影响的记录和看板');
+      }
+    } catch (error) { notify('删除状态失败', error.message, true); }
     return;
   }
   if (event.target.closest('#batchDeleteStatuses')) { await deleteSelectedStatuses(); return; }
   if (event.target.closest('#saveTemplates')) { await saveTemplates(); return; }
-  if (event.target.closest('#newWorkflow')) {
+  const workflowAction = event.target.closest('#newWorkflow, #duplicateWorkflow, #renameWorkflow, #deleteWorkflow');
+  if (workflowAction) {
     if (!await confirmLeaveManagePage()) return;
-    const name = await appPrompt({title:'新建工作流', message:'创建一套独立的状态流程。', confirmText:'创建', input:{label:'工作流名称', placeholder:'例如：产品研发流程'}});
-    if (name?.trim()) { const base = configData.workflow_templates.find(item => item.id === selectedWorkflowId) || configData.workflow_templates[0]; const workflow = {id:`workflow_${Date.now()}`, name:name.trim(), statuses:JSON.parse(JSON.stringify(base.statuses))}; configData.workflow_templates.push(workflow); selectedWorkflowId = workflow.id; api('/workflow-templates', {method:'PUT', body:JSON.stringify(configData.workflow_templates)}).then(saved => { configData.workflow_templates = saved; renderManagePage('status_templates'); notify('已创建工作流'); }); }
-  }
-  if (event.target.closest('#duplicateWorkflow')) {
-    if (!await confirmLeaveManagePage()) return;
-    const base = configData.workflow_templates.find(item => item.id === selectedWorkflowId); const name = await appPrompt({title:'复制工作流', message:'复制当前工作流的全部状态与颜色。', confirmText:'创建副本', input:{label:'副本名称', value:`${base?.name || '工作流'} 副本`}});
-    if (base && name?.trim()) { const workflow = {id:`workflow_${Date.now()}`, name:name.trim(), statuses:JSON.parse(JSON.stringify(base.statuses))}; configData.workflow_templates.push(workflow); selectedWorkflowId = workflow.id; api('/workflow-templates', {method:'PUT', body:JSON.stringify(configData.workflow_templates)}).then(saved => { configData.workflow_templates = saved; renderManagePage('status_templates'); notify('工作流已复制'); }); }
-  }
-  if (event.target.closest('#deleteWorkflow')) {
-    if (!await confirmLeaveManagePage()) return;
-    const used = projects.some(project => (project.workflow_template || 'standard') === selectedWorkflowId);
-    if (used) notify('无法删除', '仍有项目正在使用这套工作流', true);
-    else if (configData.workflow_templates.length <= 1) notify('无法删除', '至少需要保留一套工作流', true);
-    else if (await appConfirm({title:'删除这套工作流？', message:'删除后无法恢复这套工作流配置。', detail:'只有未被任何项目使用的工作流才能删除。', confirmText:'删除工作流', danger:true})) { configData.workflow_templates = configData.workflow_templates.filter(item => item.id !== selectedWorkflowId); selectedWorkflowId = configData.workflow_templates[0].id; api('/workflow-templates', {method:'PUT', body:JSON.stringify(configData.workflow_templates)}).then(saved => { configData.workflow_templates = saved; renderManagePage('status_templates'); notify('工作流已删除'); }); }
+    const selected = configData.workflow_templates.find(item => item.id === selectedWorkflowId);
+    const operation = {newWorkflow:'create', duplicateWorkflow:'copy', renameWorkflow:'rename', deleteWorkflow:'compat_catalogue'}[workflowAction.id];
+    if (operation !== 'create' && !selected) return;
+    let selection;
+    if (operation === 'compat_catalogue') {
+      selection = {templates:configData.workflow_templates.filter(item => item.id !== selected.id)};
+    } else {
+      const title = {create:'新建工作流', copy:'复制工作流', rename:'重命名工作流'}[operation];
+      const initial = operation === 'copy' ? `${selected.name} 副本` : operation === 'rename' ? selected.name : '';
+      const name = (await appPrompt({title, input:{label:'工作流名称', value:initial}}))?.trim();
+      if (!name) return;
+      selection = {name, ...(operation === 'create' ? {} : {template_id:selected.id})};
+    }
+    try {
+      const review = await workflowCommand(operation, selection);
+      if (review) {
+        selectedWorkflowId = review.impact.allocated_id || selectedWorkflowId;
+        await refreshData();
+        await renderManagePage('status_templates');
+        notify('工作流已更新');
+      }
+    } catch (error) { notify('工作流变更失败', error.message, true); }
+    return;
   }
   const previewVersion = event.target.closest('[data-preview-version]');
   if (previewVersion && historyItem) {
@@ -4736,11 +4788,28 @@ document.addEventListener('click', async event => {
   }
   const restoreButton = event.target.closest('[data-restore-version]');
   if (restoreButton && historyItem) {
+    const item = historyItem, kind = historyKind, directory = window.workbenchDataDir;
     if (!await appConfirm({title:'恢复此历史版本？', message:'当前内容会先保存为历史版本。', confirmText:'恢复此版'})) return;
     try {
-      const restored = await api(`/${historyKind === 'document' ? 'documents' : 'records'}/${encodeURIComponent(historyItem.id)}/restore`, {method:'POST', body:JSON.stringify({version:restoreButton.dataset.restoreVersion, expected_revision:historyItem.revision})});
+      if (directory !== window.workbenchDataDir || item !== historyItem) return;
+      const route = `/${kind === 'document' ? 'documents' : 'records'}/${encodeURIComponent(item.id)}/restore`;
+      const payload = {version:restoreButton.dataset.restoreVersion, expected_revision:item.revision};
+      const restore = body => api(route, {method:'POST', body:JSON.stringify(body)});
+      let restored;
+      try { restored = await restore(payload); }
+      catch (error) {
+        if (error.payload?.code !== 'history_workflow_resolution_required' || directory !== window.workbenchDataDir || item !== historyItem) throw error;
+        const {historical_status, current_status, statuses} = error.payload.details;
+        const keep = {value:'keep', label:`保留当前状态「${current_status || '未设置'}」，仅恢复其它内容`};
+        const choice = await appPrompt({title:'选择历史恢复状态', message:`旧状态「${historical_status || '未设置'}」不适用于当前工作流。`,
+          input:{readOnly:true, choices:[keep, ...statuses.map(status => ({value:`replace:${status.id}`, label:status.name}))]}});
+        if (!choice || directory !== window.workbenchDataDir || item !== historyItem) return;
+        const statusResolution = choice === 'keep' ? {mode:'keep_current'} : {mode:'replace', status_id:choice.slice(8)};
+        restored = await restore({...payload, status_resolution:statusResolution});
+      }
+      if (directory !== window.workbenchDataDir || item !== historyItem) return;
       $('#historyDialog').close();
-      if (historyKind === 'document') { reloadCurrentDocumentFromDisk(restored); await refreshDocuments(); }
+      if (kind === 'document') { reloadCurrentDocumentFromDisk(restored); await refreshDocuments(); }
       else { currentRecord = restored; await refreshData(); await openDrawer(restored.id); }
       notify('历史版本已恢复');
     } catch (error) { notify('恢复失败', error.message, true); }
@@ -5129,7 +5198,15 @@ $('#deleteProject').addEventListener('click', async () => {
 });
 async function saveProjectEdit() {
   try {
-    await api(`/projects/${encodeURIComponent(selectedProjectId)}`, {method:'PATCH', body:JSON.stringify({name:$('#projectEditName').value.trim(), description:$('#projectEditDescription').value, workflow_template:$('#projectWorkflow').value})});
+    const projectId = selectedProjectId;
+    const current = projects.find(item => item.id === projectId);
+    const target = $('#projectWorkflow').value;
+    const patch = {name:$('#projectEditName').value.trim(), description:$('#projectEditDescription').value};
+    if (target !== (current?.workflow_template || 'standard')) {
+      if (!await workflowCommand('switch', {project_id:projectId, target_template_id:target}, patch) || projectId !== selectedProjectId) return false;
+    } else {
+      await api(`/projects/${encodeURIComponent(projectId)}`, {method:'PATCH', body:JSON.stringify(patch)});
+    }
     projectEditSnapshot = currentProjectEditSnapshot();
     $('#projectEditDialog').close(); await refreshData(); renderProjectPage(); notify('项目资料已保存'); return true;
   } catch (error) { notify('项目保存失败', error.message, true); return false; }

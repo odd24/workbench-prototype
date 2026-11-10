@@ -160,6 +160,7 @@
         if (client.enabled && !client.recovery_required) node.querySelector('.settings-actions')?.insertAdjacentHTML('beforeend', button('project-creation-open', '项目创建授权', `data-client-id="${esc(client.client_id)}"`));
         if (client.enabled && !client.recovery_required) node.querySelector('.settings-actions')?.insertAdjacentHTML('beforeend', button('project-creation-delete', '项目级联删除授权', `data-client-id="${esc(client.client_id)}"`));
         if (client.enabled && !client.recovery_required) node.querySelector('.settings-actions')?.insertAdjacentHTML('beforeend', button('project-creation-category', '分类变更授权', `data-client-id="${esc(client.client_id)}"`));
+        if (client.enabled && !client.recovery_required) node.querySelector('.settings-actions')?.insertAdjacentHTML('beforeend', button('project-creation-workflow', '工作流变更授权', `data-client-id="${esc(client.client_id)}"`));
         if (client.project_create_grant) node.querySelector('div')?.insertAdjacentHTML('beforeend', `<p>项目创建权限：${client.project_create_grant.enabled ? '已独立批准（每次仍须网页批准）' : '未启用'}</p>`);
         if ([5, 6, 7, 8].includes(client.authorization_schema_version)) node.querySelector('div')?.insertAdjacentHTML('beforeend', `<p>已批准图权限：${esc(client.concept_map_grants?.grants?.map(grantSummary).join('；') || '无')}</p>`);
         if ([6, 7, 8].includes(client.authorization_schema_version)) node.querySelector('div')?.insertAdjacentHTML('beforeend', `<p>已批准删除权限：${esc(client.delete_grants?.grants?.map(grantSummary).join('；') || '无')}（每次仍须本机网页独立批准）</p>`);
@@ -381,6 +382,7 @@
       return `<section class="settings-card agent-setup" id="agentDeleteGrantsPanel"><h2>删除授权 · ${esc(deletePanel.name)}</h2><p class="agent-error">独立新鲜授权；旧休眠items.delete不会生效。只允许移入回收站，每次仍须完整影响预览后本机网页批准，不增加读取权限或条目类型。仅Windows本机固定NTFS。</p><fieldset class="agent-scope"><legend>待批准删除范围</legend><label>具体资源<select id="agentDeleteGrantResource">${options.map(item => `<option value="${esc(JSON.stringify(item.resource))}">${esc(item.label)}</option>`).join('')}</select></label>${button('delete-add', '加入待批准范围')}<ol>${deletePanel.draft.grants.map((grant, index) => `<li><p>${esc(grantSummary(grant))}</p>${button('delete-remove', '移除此项', `data-grant-index="${index}"`)}</li>`).join('') || '<li>尚未选择范围。</li>'}</ol>${button('delete-preview', '查看完整删除授权预览')}</fieldset>${deletePreview ? `<div id="agentDeleteGrantPreview"><h3>完整删除授权预览</h3><p>${esc(deletePreview.client_name)} · ${esc(deletePreview.disclosure)}</p><pre>${esc(JSON.stringify(deletePreview, null, 2))}</pre>${button('delete-confirm', '明确批准此删除授权')}${button('delete-cancel-preview', '取消预览')}</div>` : ''}${deletePending ? `<p>原删除授权操作待查询：${esc(deletePending.request_id)}</p>${button('delete-resolve', '查询原删除授权结果')}` : ''}<div class="settings-actions">${button('delete-revoke', '撤销全部删除授权')}${button('delete-close', '关闭删除授权')}</div></section>`;
     }
     function projectCreationHtml() {
+      if (projectCreation?.workflow || projectCreationPending?.workflow) return workflowGrantHtml();
       if (projectCreation?.category || projectCreationPending?.category) return categoryGrantHtml();
       if (projectCreation?.deletion || projectCreationPending?.deletion) return projectDeletionHtml();
       const client = catalog.items.find(item => item.client_id === projectCreation?.client_id);
@@ -401,6 +403,32 @@
       const editor = panel && `<fieldset class="agent-scope"><legend>具体项目和独立附件</legend><label>项目<select id="agentProjectDeleteProject">${projects.map(project => `<option value="${esc(project.id)}" ${project.id === (panel.choice || panel.projectId) ? 'selected' : ''}>${esc(project.name)}（${esc(project.id)}）</option>`).join('')}</select></label>${button('project-creation-assets', '读取独立附件清单', projects.length ? '' : 'disabled')}${panel.projectId ? `<p>请明确勾选允许随项目移动的每个独立附件。</p>${assets.map(asset => `<label><input type="checkbox" data-project-delete-asset value="${esc(asset.id)}" ${panel.assetIds.includes(asset.id) ? 'checked' : ''}> ${esc(asset.name)} · ${esc(asset.id)} · ${esc(asset.size)} 字节</label>`).join('') || '<p>该项目没有独立附件。</p>'}${button('project-creation-preview', '查看完整项目级联授权预览')}` : ''}</fieldset>`;
       return `<section class="settings-card agent-setup" id="agentProjectDeletionPanel"><h2>项目级联删除授权</h2><p>按具体项目及逐个独立附件授权。子记录另需现有读、删权，每次移动均需本机完整预览和独立批准。</p>${editor || ''}${panel?.grants.grants.length ? `<p>现有级联范围</p><pre>${esc(JSON.stringify(panel.grants, null, 2))}</pre>${button('project-creation-revoke', '撤销全部项目级联授权')}` : ''}${preview ? `<h3>完整项目级联授权预览</h3><p>${esc(preview.disclosure)}</p><pre id="agentProjectCreationFull">${esc(JSON.stringify(preview, null, 2))}</pre>${button('project-creation-confirm', '明确批准此项目级联授权')}${button('project-creation-cancel', '取消预览')}` : ''}${projectCreationPending ? button('project-creation-resolve', '查询原项目级联授权结果') : button('project-creation-close', '关闭项目级联授权')}</section>`;
     }
+    function workflowGrantHtml() {
+      const panel = projectCreation, preview = projectCreationPreview;
+      const choice = panel?.selection || {};
+      const choices = (items, selected) => items.map(({id,name}) => `<option value="${esc(id)}" ${id === selected ? 'selected' : ''}>${esc(name)}</option>`).join('');
+      const ops = {create:'新建模板',copy:'复制模板',rename:'重命名模板',add_status:'新增状态',rename_status:'重命名状态',
+        delete_status:'删除状态',reorder:'调整状态顺序',switch:'切换项目工作流'};
+      const operations = choices(Object.entries(ops).map(([id,name]) => ({id,name})), choice.operation);
+      const editor = panel ? `<fieldset class="agent-scope"><legend>工作流许可范围</legend>
+        <label>操作<select id="agentWorkflowOperation">${operations}</select></label>
+        <label>源模板（新建和切换时由服务核验）<select id="agentWorkflowTemplate"><option value="">请选择</option>${choices(panel.templates,choice.template_id)}</select></label>
+        <label>精确新名称（新建或复制）<input id="agentWorkflowName" value="${esc(choice.name || '')}"></label>
+        <label>记录类型（状态操作）<select id="agentWorkflowKind">${choices([{id:'issue',name:'问题'},{id:'todo',name:'待办'}],choice.record_type)}</select></label>
+        <label>具体项目（切换）<select id="agentWorkflowProject"><option value="">请选择</option>${choices(panel.projects,choice.project_id)}</select></label>
+        <label>目标模板（切换）<select id="agentWorkflowTarget"><option value="">请选择</option>${choices(panel.templates,choice.target_template_id)}</select></label>
+        ${button('project-creation-preview','查看完整工作流授权预览')}</fieldset>` : '';
+      return `<section class="settings-card agent-setup" id="agentWorkflowGrantPanel"><h2>工作流变更授权</h2><p>状态许可覆盖同一模板和类型的当前及以后合法状态。每次变更仍需完整预览和本机独立批准。</p>${editor}${panel?.grants.grants.length ? `<pre>${esc(JSON.stringify(panel.grants,null,2))}</pre>${button('project-creation-revoke','撤销全部工作流授权')}` : ''}${preview ? `<h3>完整工作流授权预览</h3><p>${esc(preview.disclosure)}</p><pre id="agentProjectCreationFull">${esc(JSON.stringify(preview,null,2))}</pre>${button('project-creation-confirm','明确批准工作流授权')}${button('project-creation-cancel','取消预览')}` : ''}${projectCreationPending ? button('project-creation-resolve','查询原工作流授权结果') : button('project-creation-close','关闭工作流授权')}</section>`;
+    }
+    function workflowGrantSelection() {
+      const operation = find('#agentWorkflowOperation').value;
+      if (operation === 'switch') return {operation, project_id:find('#agentWorkflowProject').value, target_template_id:find('#agentWorkflowTarget').value};
+      const choice = {operation};
+      if (operation !== 'create') choice.template_id = find('#agentWorkflowTemplate').value;
+      if (['create','copy'].includes(operation)) choice.name = find('#agentWorkflowName').value.trim();
+      if (['add_status','rename_status','delete_status','reorder'].includes(operation)) choice.record_type = find('#agentWorkflowKind').value;
+      return choice;
+    }
     async function projectCreationAction(name, key) {
       if (name === 'project-creation-close' || name === 'project-creation-cancel') {
         if (projectCreationPending) return;
@@ -409,12 +437,13 @@
         paint(); return;
       }
       const clientId = key || projectCreation?.client_id || projectCreationPending?.client_id;
-      const opening = ['project-creation-open', 'project-creation-delete', 'project-creation-category'].includes(name);
+      const opening = ['project-creation-open', 'project-creation-delete', 'project-creation-category','project-creation-workflow'].includes(name);
       const category = opening ? name === 'project-creation-category' : Boolean(projectCreation?.category || projectCreationPending?.category);
       const deletion = opening ? name === 'project-creation-delete' : Boolean(projectCreation?.deletion || projectCreationPending?.deletion);
-      const grantLabel = category ? '分类变更授权' : deletion ? '项目级联删除授权' : '项目创建授权';
-      const route = `clients/${encodeURIComponent(clientId)}/${category ? 'category-writes' : deletion ? 'project-deletions' : 'project-creation'}`;
-      const openAction = category ? 'project-creation-category' : deletion ? 'project-creation-delete' : 'project-creation-open';
+      const workflow = opening ? name === 'project-creation-workflow' : Boolean(projectCreation?.workflow || projectCreationPending?.workflow);
+      const grantLabel = workflow ? '工作流变更授权' : category ? '分类变更授权' : deletion ? '项目级联删除授权' : '项目创建授权';
+      const route = `clients/${encodeURIComponent(clientId)}/${workflow ? 'workflow-writes' : category ? 'category-writes' : deletion ? 'project-deletions' : 'project-creation'}`;
+      const openAction = workflow ? 'project-creation-workflow' : category ? 'project-creation-category' : deletion ? 'project-creation-delete' : 'project-creation-open';
       const version = epoch;
       const panel = projectCreation, preview = projectCreationPreview;
       const confirmGrant = name === 'project-creation-confirm';
@@ -437,15 +466,16 @@
         panel.selection = {family, name:find('#agentCategoryName').value.trim(), operation:find('#agentCategoryOperation').value,
           project_id:family === 'project_attachment_category' ? find('#agentCategoryProject').value : null};
       }
+      if (workflow && name === 'project-creation-preview') panel.selection = workflowGrantSelection();
       busy = true; paint();
       try {
         if (opening) {
           const value = await request(route);
           if (!valid(version)) return;
-          projectCreation = category ? {...value, category:true} : deletion ? {...value, deletion:true, assetIds:[]} : value; projectCreationPreview = null;
+          projectCreation = workflow ? {...value, workflow:true} : category ? {...value, category:true} : deletion ? {...value, deletion:true, assetIds:[]} : value; projectCreationPreview = null;
         } else if (name === 'project-creation-preview' || name === 'project-creation-assets') {
           if (deletion && (!projectId || name === 'project-creation-preview' && panel.projectId !== projectId)) throw new Error('请先读取所选项目的独立附件清单');
-          const selection = category ? {selection:panel.selection} : deletion ? {project_id:projectId, asset_ids:assetIds} : {};
+          const selection = category || workflow ? {selection:panel.selection} : deletion ? {project_id:projectId, asset_ids:assetIds} : {};
           const value = await request(route + '/preview', {method:'POST',body:JSON.stringify({workspace_id:status.workspace_id,expected_version:panel.expected_version,...selection})});
           if (!valid(version) || panel !== projectCreation) return;
           if (deletion) projectCreation = {...panel, projectId, choice:projectId, assetIds, assets:[...value.selection.selected_assets, ...value.selection.unselected_assets]};
@@ -453,7 +483,7 @@
         } else if (confirmGrant || revokeGrant) {
           const payload = {workspace_id:status.workspace_id,expected_version:panel.expected_version,request_id:id()};
           if (confirmGrant) Object.assign(payload,{preview_id:preview.preview_id,preview_digest:preview.preview_digest,approved:true});
-          rememberProjectCreation({client_id:clientId,request_id:payload.request_id,...(category ? {category:true} : deletion ? {deletion:true} : {})});
+          rememberProjectCreation({client_id:clientId,request_id:payload.request_id,...(workflow ? {workflow:true} : category ? {category:true} : deletion ? {deletion:true} : {})});
           const result = await request(route + (confirmGrant ? '/confirm' : ''), {method:confirmGrant ? 'POST' : 'DELETE',body:JSON.stringify(payload)});
           if (!valid(version)) return;
           if (result.client_id !== clientId) throw new Error('原授权回执客户端不一致');
@@ -923,6 +953,14 @@
     root.addEventListener('change', event => {
       if (!isActive() || busy) return;
       const node = event.target;
+      if (projectCreation?.workflow && node.closest('#agentWorkflowGrantPanel fieldset')) {
+        projectCreation.selection = workflowGrantSelection();
+        if (projectCreationPreview) {
+          projectCreationPreview = null;
+          paint();
+        }
+        return;
+      }
       if (projectCreation?.category && node.closest('#agentCategoryGrantPanel fieldset')) {
         const family = find('#agentCategoryFamily').value;
         projectCreation.selection = {family, name:find('#agentCategoryName').value, operation:find('#agentCategoryOperation').value,

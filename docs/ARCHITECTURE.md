@@ -204,3 +204,9 @@ agent_project_execution 只提供静态 project_create@1 及阶段证据，状�
 `category_changes` 计算目录及成员归属，`category_prepared` 从现有 Markdown、JSON、排序和原字节历史准备文件计划。`category_identity` 仅记录名称代次和墓碑，原配置和成员仍是分类事实源。网页分类命令与 Agent 复用这套领域准备和文件 CAS。旧全量保存及隐式建类复用身份检查与凭据收窄。旧项目附件全量保存保留已有的记录附件清理语义。
 
 `agent_category_service` 分开可授权成员与本机配置/授权计划。唯一 ProposalStore 中的 `category_mutation@1` 使用 CredentialManager 依次执行收窄、业务发布、等价补发和回执。普通本机起源也使用该日志，条件是工作空间已初始化并能核验私人配置。
+
+## 工作流迁移（AG-140）
+
+`workflow_changes` 验证八类操作、映射、终态及看板排序。`workflow_prepared` 扫描受控活动项目与记录，准备原字节计划和历史。`workflow_identity` 记录模板身份、名称代次及墓碑。`workflow_local` 为普通本机和旧 API 适配器复用同一计划。
+
+`agent_workflow_service` 分开 Agent 有权影响与本机的完整配置、README 和授权变化。`agent_workflow_execution` 在唯一 ProposalStore 中使用静态 `workflow_mutation@1`，经 CredentialManager 先收窄、再核验和写入成员及配置、最后持久回执。旧入口遇实质影响也需要同一预览批准。

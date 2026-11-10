@@ -298,9 +298,11 @@ class RecordRepository:
     def list_history(self, record_id: str) -> list[dict]:
         return list_snapshots(self.history_dir, record_id)
 
-    def restore_history(self, record_id: str, version: str, expected_revision=None) -> dict:
+    def restore_history(self, record_id: str, version: str, expected_revision=None, *, normalize=None) -> dict:
         restored = read_snapshot(self.history_dir, record_id, version)
         payload = {key: value for key, value in restored.items() if key not in {"id", "type", "project_id", "created", "updated", "version"}}
+        if normalize:
+            payload = normalize(payload)
         payload["expected_revision"] = expected_revision
         return self.update_record(record_id, payload)
 

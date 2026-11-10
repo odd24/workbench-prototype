@@ -24,6 +24,9 @@ def authorization_revision(client):
 
 
 def logical_plan(proposal):
+    if proposal['kind'] == 'workflow':
+        from .agent_workflow_execution import logical_plan as workflow_plan
+        return workflow_plan(proposal)
     if proposal['kind'] == 'category':
         from .agent_category_execution import logical_plan as category_plan
         return category_plan(proposal)
@@ -68,6 +71,9 @@ def validate_context(proposal):
     binding = proposal.get("authorization_revision")
     if not isinstance(binding, dict) or set(binding) != {"management_revision", "client_version"} or type(binding["management_revision"]) is not int or binding["management_revision"] < 0 or not re.fullmatch(r"[a-f0-9]{64}", str(binding["client_version"])):
         raise ValueError("提案授权版本无效")
+    if proposal['kind'] == 'workflow':
+        from .agent_workflow_execution import validate_context as workflow_context
+        return workflow_context(proposal)
     if proposal['kind'] == 'category':
         from .agent_category_execution import validate_context as category_context
         return category_context(proposal)
@@ -113,6 +119,9 @@ def validate_context(proposal):
 
 
 def concrete_plan(manifest, proposal):
+    if proposal['kind'] == 'workflow':
+        from .agent_workflow_execution import concrete_plan as workflow_plan
+        return workflow_plan(manifest, proposal)
     if proposal['kind'] == 'category':
         from .agent_category_execution import concrete_plan as category_plan
         return category_plan(manifest, proposal)
@@ -134,6 +143,9 @@ def concrete_plan(manifest, proposal):
 
 
 def validate_manifest(manifest, proposal):
+    if proposal['kind'] == 'workflow':
+        from .agent_workflow_execution import validate_execution
+        return validate_execution(None, manifest, proposal)
     if proposal['kind'] == 'category':
         from .agent_category_execution import validate_execution
         return validate_execution(None, manifest, proposal)

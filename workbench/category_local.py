@@ -58,13 +58,14 @@ def preview(repository, payload):
     return value
 
 
-def _commit_origin(repository, security, bundle, token):
+def commit_local_origin(repository, bundle, token, *, kind):
     store = repository.agent_proposals
     _, impact, dependencies, local, _, _ = bundle
-    origin = {'client_id':store.workspace_id, 'local_category_origin':True}
-    request = {'request_id':token, 'kind':'category', 'operation':impact['operation']}
+    origin_key = f'local_{kind}_origin'
+    origin = {'client_id':store.workspace_id, origin_key:True}
+    request = {'request_id':token, 'kind':kind, 'operation':impact['operation']}
     created = store.create(origin, request, impact, {}, 'local_web', dependencies=dependencies,
-                           category_local_details=local, local_category_origin=True)
+                           **{f'{kind}_local_details':local, origin_key:True})
     proposal = store._load(created['proposal_id'], expire=False)
     store.preview(proposal)
     action_id = hashlib.sha256(token.encode()).hexdigest()
@@ -125,7 +126,7 @@ def approve(repository, payload):
             raise RevisionConflict('分类、成员或授权已经变化，请重新预览')
         if security:
             del repository.category_preview_tickets[token]
-            return _commit_origin(repository, security, bundle, token)
+            return commit_local_origin(repository, bundle, token, kind='category')
         apply_category_files(repository.root, prepared.change.family, prepared.files, prepared.watch,
                              project_id=prepared.project_id)
         receipt = {'kind':'category', 'operation':prepared.change.operation, 'family':prepared.change.family,

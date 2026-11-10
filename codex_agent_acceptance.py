@@ -272,9 +272,36 @@ def run_acceptance(codex=None):
                 "request_id":"codex-category-approve"}, session)
             assert category_result["state"] == "completed"
             assert call("get_proposal", {"proposal_id":category_id})["receipt"] == category_result["receipt"]
+            workflow_route = f"clients/{info['client_id']}/workflow-writes"
+            workflow_name = "Codex 工作流隔离验收"
+            workflow_grants = local_request(workflow_route, token=session)
+            workflow_grant = local_request(workflow_route + "/preview", "POST", {
+                "workspace_id":info["workspace_id"], "expected_version":workflow_grants["expected_version"],
+                "selection":{"operation":"create", "name":workflow_name}}, session)
+            grant_request = {key:workflow_grant[key] for key in ("workspace_id","expected_version","preview_id","preview_digest")}
+            local_request(workflow_route + "/confirm", "POST", {**grant_request,"approved":True,"request_id":"codex-workflow-grant"}, session)
+            workflow = call("prepare_proposal", {"request_id":"codex-workflow","kind":"workflow",
+                "operation":"create","content":{"name":workflow_name}})
+            workflow_id = workflow["proposal_id"]
+            workflow_preview = call("preview_proposal", {"proposal_id":workflow_id})
+            assert workflow_preview["content"]["templates"]["after"]["name"] == workflow_name
+            assert "workflow_local_details" not in workflow
+            denied = call("commit_proposal", {"proposal_id":workflow_id, "version":1,
+                "preview_digest":workflow_preview["preview_digest"],
+                "confirmation":{"mode":"agent_attested","user_confirmed":True}}, error=True)
+            assert denied["code"] == "confirmation_required"
+            proposal_route = "proposals/" + workflow_id
+            review = local_request(proposal_route + "/preview", token=session)
+            assert review["local_workflow_plan"]["catalogue"]["after"][-1]["name"] == workflow_name
+            workflow_result = local_request(proposal_route + "/approve", "POST", {"workspace_id":info["workspace_id"],
+                "version":1,"preview_digest":review["preview"]["preview_digest"],"preview_ticket":review["preview_ticket"],
+                "request_id":"codex-workflow-approve"}, session)
+            assert workflow_result["state"] == "completed"
+            assert call("get_proposal", {"proposal_id":workflow_id})["receipt"] == workflow_result["receipt"]
             workbench.close()
             workbench = LocalWorkbench(data, credentials)
             assert selected["name"] in workbench.repository.document_categories()
+            assert workflow_name in {item["name"] for item in workbench.repository.config()["workflow_templates"]}
             private_write(client_config, {**read_json(client_config), "base_url": workbench.base_url})
             for receipt in receipts:
                 assert call("get_item", {"kind": receipt["kind"], "item_id": receipt["item_id"]})["revision"] == receipt["revision"]
@@ -283,7 +310,7 @@ def run_acceptance(codex=None):
             version = subprocess.run([executable, "--version"], capture_output=True, text=True, check=True).stdout.strip()
             return {"passed": True, "codex_version": version, "protocol": "2025-11-25", "tool_count": len(inventory["tools"]),
                     "created": [item["kind"] for item in receipts], "preview_revision_confirmation": True,
-                    "issue_append_document_update": True, "local_web_independent_approval": True, "category_local_web":True,
+                    "issue_append_document_update": True, "local_web_independent_approval": True, "category_local_web":True, "workflow_local_web":True,
                     "retry_cancel_restart_revoke": True, "model_turns_started": 0, "user_config_changed": False}
         except Exception as error:
             diagnostics = "\n".join(rpc.errors[-12:]) if rpc else ""

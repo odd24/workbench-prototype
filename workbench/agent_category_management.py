@@ -14,6 +14,9 @@ from .agent_security import AgentError
 
 
 class CategoryGrantManagement(ProjectDeleteGrantManagement):
+    ticket_key = 'category_preview'
+    approve_action = 'category_grant'
+    revoke_action = 'category_grant_revoke'
     def list(self, key):
         client = self.management.client(key, enabled=False)
         return {'workspace_id':self.security.workspace_id, 'client_id':key, 'expected_version':client_version(client),
@@ -36,7 +39,7 @@ class CategoryGrantManagement(ProjectDeleteGrantManagement):
             if len(tickets) >= 1000:
                 raise AgentError('preview_limit', '管理预览过多，请稍后重试', 429)
             result = checked_preview({**preview, 'preview_id':token, 'preview_digest':signature})
-            tickets[token] = {'category_preview':preview, 'digest':signature, 'session':self.runtime._token,
+            tickets[token] = {self.ticket_key:preview, 'digest':signature, 'session':self.runtime._token,
                               'runtime_version':self.runtime.status()['version'], 'expires':now + 600}
             return result
 
@@ -50,14 +53,14 @@ class CategoryGrantManagement(ProjectDeleteGrantManagement):
             operation_id = hashlib.sha256(payload['request_id'].encode()).hexdigest()
             if not (manager.directory / f'{operation_id}.json').exists():
                 ticket = self.runtime.preview_tickets.get(payload['preview_id'], {})
-                preview = ticket.get('category_preview', {})
+                preview = ticket.get(self.ticket_key, {})
                 if ticket.get('expires', 0) <= time.monotonic() or ticket.get('session') != self.runtime._token or ticket.get('runtime_version') != self.runtime.status()['version'] or ticket.get('digest') != payload['preview_digest'] or fingerprint(preview) != payload['preview_digest'] or preview.get('client_id') != key or preview.get('expected_version') != payload['expected_version']:
                     raise AgentError('preview_expired', '分类授权预览已变化，请重新核对', 409)
                 self.management.client(key, payload['expected_version'])
                 params['grant'] = preview['grant']
-            return manager.run('category_grant', params, key, payload['expected_version'], payload['request_id'])
+            return manager.run(self.approve_action, params, key, payload['expected_version'], payload['request_id'])
 
     def revoke(self, key, payload):
         self._check(payload, ('request_id',))
         with self.repository.write_lock:
-            return self.security.manager().run('category_grant_revoke', {}, key, payload['expected_version'], payload['request_id'])
+            return self.security.manager().run(self.revoke_action, {}, key, payload['expected_version'], payload['request_id'])

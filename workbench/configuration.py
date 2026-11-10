@@ -182,7 +182,6 @@ class ConfigurationRepository:
             self.before_category_change(set(previous) - set(cleaned))
             atomic_write_json(self.config_dir / "document-categories.json", cleaned)
         return cleaned
-
     def ensure_document_category(self, category: str) -> str:
         name = validate_category_name(category)
         categories = self.document_categories()
@@ -251,96 +250,9 @@ class ConfigurationRepository:
         saved_sort = self.save_document_sort({**sorting, "category_order": category_order, "file_modes": file_modes, "file_orders": file_orders})
         return {"categories": saved_categories, "document_sort": saved_sort, "updated_documents": changed}
 
-    def save_workflow_templates(self, workflows: list[dict]) -> list[dict]:
-        if not isinstance(workflows, list) or not workflows:
-            raise ValueError("至少需要一套工作流模板")
-        ids = set()
-        for workflow in workflows:
-            if not workflow.get("id") or not workflow.get("name") or workflow["id"] in ids:
-                raise ValueError("工作流标识和名称不能为空且标识不能重复")
-            ids.add(workflow["id"])
-            statuses = workflow.get("statuses", {})
-            self._validate_statuses(statuses)
-
-        # 状态名称可以编辑，但记录中保存的是状态名称。用稳定的状态 ID
-        # 识别重命名并同步记录，避免改名后记录落入不可见的旧状态。
-        try:
-            previous = json.loads((self.config_dir / "workflow-templates.json").read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            previous = []
-        previous_by_id = {item.get("id"): item for item in previous if isinstance(item, dict)}
-        renames: dict[str, dict[str, dict[str, str]]] = {}
-        removed_statuses: dict[tuple[str, str, str], str] = {}
-        for workflow in workflows:
-            old_workflow = previous_by_id.get(workflow["id"])
-            if not old_workflow:
-                continue
-            for record_type in ("issue", "todo", "idea"):
-                new_by_id = {item.get("id"): item for item in workflow["statuses"].get(record_type, [])}
-                for old_status in old_workflow.get("statuses", {}).get(record_type, []):
-                    new_status = new_by_id.get(old_status.get("id"))
-                    old_name, new_name = old_status.get("name"), new_status.get("name") if new_status else None
-                    if old_name and new_name and old_name != new_name:
-                        renames.setdefault(workflow["id"], {}).setdefault(record_type, {})[old_name] = new_name
-
-                    if old_name and not new_status:
-                        removed_statuses[(workflow["id"], record_type, old_name)] = old_status.get("id", "")
-
-        previous_ids = {item.get("id") for item in previous if isinstance(item, dict)}
-        default_workflow = "standard" if "standard" in previous_ids else (previous[0].get("id") if previous else workflows[0]["id"])
-        all_projects = self.list_projects()
-        project_workflows = {project["id"]: project.get("workflow_template") or default_workflow for project in all_projects}
-        if removed_statuses:
-            usage: dict[tuple[str, str, str], list[dict]] = {}
-            for record in self.list_records():
-                workflow_id = project_workflows.get(record.get("project_id"), default_workflow)
-                key = (workflow_id, record.get("type"), record.get("status"))
-                if key in removed_statuses:
-                    usage.setdefault(key, []).append(record)
-            if usage:
-                details = []
-                for (_, _, status_name), used_records in usage.items():
-                    preview = "、".join(f"{item['id']} {item.get('title', '')}" for item in used_records[:5])
-                    suffix = f" 等 {len(used_records)} 条" if len(used_records) > 5 else ""
-                    details.append(f"状态「{status_name}」正在被使用：{preview}{suffix}")
-                raise ValueError("；".join(details) + "。请先把这些记录移动到其他状态")
-
-        atomic_write_json(self.config_dir / "workflow-templates.json", workflows)
-        if renames:
-            for record in self.list_records():
-                workflow_id = project_workflows.get(record.get("project_id"), default_workflow)
-                renamed = renames.get(workflow_id, {}).get(record.get("type"), {}).get(record.get("status"))
-                if renamed:
-                    self.update_record(record["id"], {"status": renamed})
-            # 项目中还保存了按状态排序的辅助配置，状态改名时一并更新，
-            # 防止产生不可见的旧键或丢失用户已有的排序规则。
-            for project in all_projects:
-                workflow_renames = renames.get(project_workflows[project["id"]], {})
-                changes = {}
-                for record_type in ("issue", "todo", "idea"):
-                    mapping = workflow_renames.get(record_type, {})
-                    if not mapping:
-                        continue
-                    order_key = f"{record_type}_status_order"
-                    sorts_key = f"{record_type}_status_record_sorts"
-                    if isinstance(project.get(order_key), list):
-                        changes[order_key] = [mapping.get(name, name) for name in project[order_key]]
-                    if isinstance(project.get(sorts_key), dict):
-                        changes[sorts_key] = {mapping.get(name, name): mode for name, mode in project[sorts_key].items()}
-                if changes:
-                    self.update_project(project["id"], changes)
-        return workflows
-
     def _validate_statuses(self, templates: dict):
-        required = {"issue", "todo", "idea"}
-        if not isinstance(templates, dict) or not required.issubset(templates):
-            raise ValueError("状态模板必须包含问题、待办和想法")
-        for record_type in required:
-            if not isinstance(templates[record_type], list) or not templates[record_type]:
-                raise ValueError("每种记录至少需要一个状态")
-            for status in templates[record_type]:
-                if not status.get("id") or not status.get("name"):
-                    raise ValueError("状态必须包含标识和名称")
+        from .workflow_changes import validate_statuses
+        validate_statuses(templates)
 
     def list_tags(self) -> list[dict]:
         configured = json.loads((self.config_dir / "labels.json").read_text(encoding="utf-8"))
@@ -416,9 +328,3 @@ class ConfigurationRepository:
                 if new_tags != old_tags:
                     self.update_document(document["id"], {"tags": new_tags})
         return cleaned
-
-    def save_status_templates(self, templates: dict) -> dict:
-        self._validate_statuses(templates)
-        path = self.config_dir / "status-templates.json"
-        atomic_write_json(path, templates)
-        return templates

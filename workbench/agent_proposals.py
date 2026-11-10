@@ -123,6 +123,10 @@ class ProposalStore:
             scope = proposal['access_target']
             if not visible_impact(self.repository, security_for(self.repository), client, scope['family'], scope['project_id'], proposal['normalized_content']):
                 raise AgentError('not_found', '提案不存在或不可访问', 404)
+        if proposal['kind'] == 'workflow' and not proposal.get('content_cleaned') and proposal['state'] != 'committed':
+            from .agent_workflow_service import visible_impact
+            if not visible_impact(client, proposal['normalized_content']):
+                raise AgentError('not_found', '提案不存在或不可访问', 404)
         if proposal['operation'] == 'delete' and proposal['kind'] != 'category' and not proposal.get('content_cleaned'):
             from .agent_delete_service import access_target
             if proposal['kind'] == 'project':
@@ -141,8 +145,8 @@ class ProposalStore:
         return proposal
 
     def public(self, proposal):
-        hidden = {"request_hash", "base_content", "delete_binding", "project_sort_details", "category_local_details"}
-        if proposal['kind'] == 'category' and proposal['state'] == 'committed':
+        hidden = {"request_hash", "base_content", "delete_binding", "project_sort_details", "category_local_details", "workflow_local_details"}
+        if proposal['kind'] in {'category','workflow'} and proposal['state'] == 'committed':
             hidden.add('normalized_content')
         return {key: value for key, value in proposal.items() if key not in hidden}
 
@@ -155,7 +159,7 @@ class ProposalStore:
                 return self.public(self.owned(client, old["proposal_id"]))
         return None
 
-    def create(self, client, request, content, base_content, confirmation_mode="agent_attested", *, dependencies=None, graph_warnings=None, delete_binding=None, project_sort_details=None, category_local_details=None, local_category_origin=False):
+    def create(self, client, request, content, base_content, confirmation_mode="agent_attested", *, dependencies=None, graph_warnings=None, delete_binding=None, project_sort_details=None, category_local_details=None, local_category_origin=False, workflow_local_details=None, local_workflow_origin=False):
         self.preflight()
         request_hash = digest(request)
         active = 0
@@ -178,6 +182,17 @@ class ProposalStore:
                     "created_at": stamp(), "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
                     "previewed_version": None, "preview_digest": None,
                     "access_target": {"type": request["kind"], "project_id": content.get("project_id"), "category": content.get("category")}}
+        if proposal['kind'] == 'workflow':
+            from .agent_workflow_service import target
+            proposal.update(base_revision=content['revision'], workflow_local_details=workflow_local_details,
+                            access_target=target(proposal['operation'], content['selection']))
+            if local_workflow_origin:
+                proposal['local_workflow_origin'] = True
+            bind_context(proposal, client, dependencies)
+            validate_context(proposal)
+            self.preview_result(proposal)
+            self._save(proposal)
+            return self.public(proposal)
         if proposal['kind'] == 'category':
             selection = content['selection']
             proposal.update(base_revision=content['revision'], category_local_details=category_local_details,
@@ -232,13 +247,21 @@ class ProposalStore:
         self._save(proposal)
         return self.public(proposal)
 
-    def revise(self, proposal, expected_version, content, base_revision, base_content, *, client=None, dependencies=None, graph_warnings=None, delete_binding=None, project_sort_details=None, category_local_details=None):
+    def revise(self, proposal, expected_version, content, base_revision, base_content, *, client=None, dependencies=None, graph_warnings=None, delete_binding=None, project_sort_details=None, category_local_details=None, workflow_local_details=None):
         self.preflight()
         self.editable(proposal, expected_version)
         proposal.update(approval=None, version=proposal["version"] + 1, state="draft", normalized_content=content,
                         base_revision=base_revision, base_content=base_content, previewed_version=None, preview_digest=None,
                         expires_at=(datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
                         access_target={"type": proposal["kind"], "project_id": content.get("project_id"), "category": content.get("category")})
+        if proposal['kind'] == 'workflow':
+            from .agent_workflow_service import target
+            proposal.update(access_target=target(proposal['operation'], content['selection']), workflow_local_details=workflow_local_details)
+            bind_context(proposal, client, dependencies)
+            validate_context(proposal)
+            self.preview_result(proposal)
+            self._save(proposal)
+            return self.public(proposal)
         if proposal['kind'] == 'category':
             selection = content['selection']
             proposal.update(access_target={'type':'category', 'family':selection['family'],
@@ -297,7 +320,7 @@ class ProposalStore:
             preview.update(confirmation_mode=proposal["confirmation_mode"], digest_algorithm=proposal["digest_algorithm"])
         if proposal.get("schema_version") == 3:
             preview.update(**{key: proposal[key] for key in ("authorization_revision", "dependencies", "execution_plan", "plan_digest")})
-        if proposal['kind'] == 'category':
+        if proposal['kind'] in {'category','workflow'}:
             return {**preview, 'content':proposal['normalized_content'], 'warnings':proposal['normalized_content']['warnings']}
         if proposal['kind'] == 'project' and proposal['operation'] == 'create':
             return {**preview, 'content':proposal['normalized_content'], 'warnings':proposal['normalized_content']['warnings']}
@@ -315,7 +338,7 @@ class ProposalStore:
         content = proposal["normalized_content"]
         preview = self.preview_payload(proposal)
         preview_digest = digest(preview)
-        if proposal['kind'] == 'category':
+        if proposal['kind'] in {'category','workflow'}:
             from .agent_delete_service import checked_preview
             return checked_preview({**preview, 'preview_digest':preview_digest, 'expires_at':proposal['expires_at'], 'changes':{}, 'body_diff':''})
         if proposal['kind'] == 'project' and proposal['operation'] == 'create':
@@ -392,11 +415,14 @@ class ProposalStore:
         self.checkpoint("proposal")
         manifest["state"] = "committed"
         if manifest["schema_version"] == 3:
-            manifest["step_states"] = ['completed'] * 4 if proposal['operation'] == 'delete' or proposal['kind'] in {'project', 'category'} else dict.fromkeys(manifest["step_states"], "completed") if proposal["kind"] == "attachment" else ["completed", "completed"]
+            manifest["step_states"] = ['completed'] * 4 if proposal['operation'] == 'delete' or proposal['kind'] in {'project', 'category','workflow'} else dict.fromkeys(manifest["step_states"], "completed") if proposal["kind"] == "attachment" else ["completed", "completed"]
         atomic_write_json(self.operations / manifest["operation_id"] / "manifest.json", manifest)
         if proposal['kind'] == 'category':
             from .agent_category_execution import discard_committed_private_plan
             discard_committed_private_plan(self, manifest)
+        elif proposal['kind'] == 'workflow':
+            from .agent_workflow_execution import discard_private
+            discard_private(self, manifest)
 
     def check_commit(self, proposal, version, preview_digest, confirmation, *, local_approval=None):
         if proposal["state"] == "committed":
@@ -424,6 +450,9 @@ class ProposalStore:
         previous = self.check_commit(proposal, version, preview_digest, confirmation, local_approval=local_approval)
         if previous is not None:
             return previous
+        if proposal['kind'] == 'workflow':
+            from .agent_workflow_execution import commit
+            return commit(self, proposal, prepared, local_approval)
         if proposal['kind'] == 'category':
             from .agent_category_execution import commit
             return commit(self, proposal, prepared, local_approval)
@@ -635,6 +664,9 @@ class ProposalStore:
         return path
 
     def _validate_execution(self, manifest, proposal, *, snapshots=False):
+        if proposal['kind'] == 'workflow':
+            from .agent_workflow_execution import validate_execution
+            return validate_execution(self, manifest, proposal, snapshots)
         if proposal['kind'] == 'category':
             from .agent_category_execution import validate_execution
             return validate_execution(self, manifest, proposal, snapshots)
@@ -756,7 +788,10 @@ class ProposalStore:
             raise AgentError("invalid_approval", "缺少持久网页批准证据", 503)
         if proposal["schema_version"] == 3 and (approval.get("plan_digest") != proposal["plan_digest"] or approval.get("authorization_revision") != proposal["authorization_revision"] or approval.get("dependencies_digest") != fingerprint(proposal["dependencies"]) or action.get("plan_digest") != proposal["plan_digest"]):
             raise AgentError("invalid_approval", "网页批准未绑定当前执行计划及授权", 503)
-        if check_authorization and not (proposal['kind'] == 'category' and proposal.get('local_category_origin') is True and proposal['client_id'] == self.workspace_id):
+        local_origin = (proposal['kind'] in {'category','workflow'}
+                        and proposal.get(f"local_{proposal['kind']}_origin") is True
+                        and proposal['client_id'] == self.workspace_id)
+        if check_authorization and not local_origin:
             runtime = getattr(self.repository, "agent_runtime", None)
             security = runtime.security() if runtime else getattr(self, "security", None)
             if not security:
@@ -812,6 +847,9 @@ class ProposalStore:
                     elif proposal['kind'] == 'category':
                         from .agent_category_execution import discard_committed_private_plan
                         discard_committed_private_plan(self, manifest)
+                    elif proposal['kind'] == 'workflow':
+                        from .agent_workflow_execution import discard_private
+                        discard_private(self, manifest)
                     continue
                 if manifest["state"] == "committed":
                     # Later ordinary edits/deletion never replay an already completed operation.
@@ -822,6 +860,11 @@ class ProposalStore:
                     from .agent_category_execution import _run
                     self.executing = True
                     _run(self, manifest, proposal)
+                    continue
+                if proposal['kind'] == 'workflow':
+                    from .agent_workflow_execution import run
+                    self.executing = True
+                    run(self, manifest, proposal)
                     continue
                 if proposal['kind'] == 'project' and proposal['operation'] == 'create':
                     from .agent_project_execution import apply_steps
@@ -913,9 +956,9 @@ class ProposalStore:
             path = self.operations / operation_id / "manifest.json"
             try:
                 manifest = read_json(path)
-                if manifest.get('kind') == 'category':
+                if manifest.get('kind') in {'category','workflow'}:
                     self._validate_execution(manifest, self._load(manifest['proposal_id'], expire=False), snapshots=True)
-                    details.append({'operation_id':operation_id, 'kind':'category',
+                    details.append({'operation_id':operation_id, 'kind':manifest['kind'],
                                     'step_states':manifest['step_states'], 'scope':manifest['access_target']})
                     continue
                 if manifest.get('kind') == 'project' and manifest['operation'] == 'create':
@@ -953,11 +996,11 @@ class ProposalStore:
             try:
                 if (proposal['operation'] == 'delete' or proposal['kind'] == 'project'):
                     self.preflight()
-                self._validate_execution(manifest, proposal, snapshots=(proposal['operation'] == 'delete' or proposal['kind'] in {'project', 'category'}))
+                self._validate_execution(manifest, proposal, snapshots=(proposal['operation'] == 'delete' or proposal['kind'] in {'project', 'category','workflow'}))
             except (ValueError, KeyError, TypeError):
                 raise AgentError("invalid_manifest", "不能放弃不受支持或身份不一致的执行计划", 503) from None
         manifest.update(state="abandoned", abandoned_at=stamp())
-        if proposal['operation'] == 'delete' or proposal['kind'] in {'project', 'category'}:
+        if proposal['operation'] == 'delete' or proposal['kind'] in {'project', 'category','workflow'}:
             manifest['manual_review_required'] = True
         atomic_write_json(path, manifest)
         proposal.update(state="cancelled", finished_at=manifest["abandoned_at"], outcome="accepted_disk")
@@ -981,6 +1024,7 @@ class ProposalStore:
             proposal.pop("base_content", None)
             proposal.pop("project_sort_details", None)
             proposal.pop('category_local_details', None)
+            proposal.pop('workflow_local_details', None)
             proposal["source_note"] = ""
             proposal["content_cleaned"] = True
             self._save(proposal)
@@ -995,6 +1039,8 @@ class ProposalStore:
                 if not manifest_path.exists() or manifest.get("state") in {"committed", "abandoned"}:
                     if proposal['kind'] == 'category':
                         (directory / 'category-files.json').unlink(missing_ok=True)
+                    elif proposal['kind'] == 'workflow':
+                        (directory / 'workflow-files.json').unlink(missing_ok=True)
                     elif proposal['operation'] == 'delete':
                         (directory / 'index-before.json').unlink(missing_ok=True)
                         if proposal['kind'] == 'project':

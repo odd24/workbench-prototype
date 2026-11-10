@@ -293,3 +293,9 @@ proposal3 与 manifest3 的执行分支为 `project_trash@1`、execution6。`bef
 `config/category-identities.json` 和 `config/category-identities-fence.json` 为配对的 schema1 身份记录。按体系和项目记录 active UUID、名称代次、退役 UUID，改名沿用身份，名称复用获得新身份。两文件不一致或分类集合与已记录身份不一致时拒绝分类写入。完整备份保留配对文件。只读查询不会初始化身份文件。
 
 `category_write_grants` schema1 仅允许具体体系、项目、名称与操作。创建许可绑定空缺名称、配置摘要和代次。现有分类许可绑定 UUID 和代次。持久格式门槛为 registry8、授权9、管理日志9、transport2、proposal3/manifest3、`category_mutation@1`/execution7。业务前后原字节与完整扫描摘要存原操作目录，客户端迁移计划存私人凭据目录。单原文件 1 MiB，活动文档或概念图清单 4096 个文件、32 MiB，完整 UTF-8 JSON 预览 2 MiB。
+
+## 工作流迁移（AG-140）
+
+`config/workflow-templates.json` 与 `config/status-templates.json` 仍沿用原配置。模板和状态使用原稳定 ID，记录的 `status` 仍为名称。系统 `standard` 的现有显示名及 ID 保留。项目 README 继续持久化模板绑定、分类型与 mixed 的状态排序及手动记录 ID 顺序。迁移快照保存记录原字节至原历史路径，README 原字节存 `history/workflow-projects/<project-id>/<version>.md`。
+
+`config/workflow-identities.json` 和 `config/workflow-identities-fence.json` 配对记录 schema1 身份、显示名代次与退役 ID。只读不初始化。新鲜 `workflow_write_grants` schema1 使用 registry9、授权10、管理日志10、transport2。工作流使用 proposal3/manifest3、`workflow_mutation@1`/execution8。操作目录保存原文件/候选字节及集合摘要，私人目录保存凭据收窄计划。单文件 1 MiB，活动集合 4096 文件/32 MiB，完整预览 2 MiB。

@@ -41,7 +41,7 @@ def normalize_project_delete_grants(value):
 
 
 def client_project_delete_grants(client):
-    if client.get('authorization_schema_version', 1) not in (8, 9):
+    if client.get('authorization_schema_version', 1) not in (8, 9, 10):
         if 'project_delete_grants' in client:
             raise AgentError('invalid_configuration', '旧授权不能包含生效的项目级联删除授权', 503)
         return grant_value()
@@ -101,7 +101,7 @@ def validate_delete_grant_intent(value):
     from .agent_management import digest
     try:
         action, selection = value['project_delete_action'], value['project_delete_selection']
-        if value['schema_version'] not in (8, 9) or action not in {'approve', 'revoke'} or not SHA256.fullmatch(value['project_delete_digest']):
+        if value['schema_version'] not in (8, 9, 10) or action not in {'approve', 'revoke'} or not SHA256.fullmatch(value['project_delete_digest']):
             raise ValueError()
         if action == 'approve':
             if set(selection) != {'project_id', 'tree_digest', 'assets'} or not SHA256.fullmatch(selection['tree_digest']):
@@ -117,7 +117,7 @@ def validate_delete_grant_intent(value):
                 raise ValueError()
             grants = grant_value([grant for grant in client_project_delete_grants(before)['grants'] if grant['project_id'] != selected['project_id']] + [selected])
         else:
-            if before.get('authorization_schema_version') not in (8, 9):
+            if before.get('authorization_schema_version') not in (8, 9, 10):
                 raise ValueError()
             grants = grant_value()
         if before['client_id'] != value['client_id'] or after != upgraded_project_delete_client(before, grants) or value['before_config'] != value['after_config'] or digest(after['project_delete_grants']) != value['project_delete_digest']:

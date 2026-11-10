@@ -11,6 +11,27 @@ from .records import TYPE_DIRS
 
 
 PROJECT_DIRECTORIES = (*TYPE_DIRS.values(), 'assets/images', 'assets/files')
+PROJECT_EDIT_FIELDS = ("name", "status", "color", "workflow_template", "issue_status_order", "todo_status_order",
+                       "idea_status_order", "mixed_status_order", "issue_record_sort", "todo_record_sort",
+                       "idea_record_sort", "info_record_sort", "mixed_record_sort", "issue_record_order",
+                       "todo_record_order", "idea_record_order", "info_record_order", "mixed_record_order",
+                       "issue_status_record_sorts", "todo_status_record_sorts", "idea_status_record_sorts",
+                       "mixed_status_record_sorts")
+
+
+def project_metadata_patch(payload):
+    from .workflow_changes import SORT_MODES
+    changes = {key:payload[key] for key in PROJECT_EDIT_FIELDS if key in payload}
+    for key, value in changes.items():
+        if key == "name" and not str(value).strip():
+            raise ValueError("项目名称不能为空")
+        if key.endswith("_order") and (not isinstance(value, list) or any(not isinstance(item, str) for item in value)):
+            raise ValueError("顺序必须是字符串列表")
+        if key.endswith("_record_sort") and value not in SORT_MODES:
+            raise ValueError("不支持的记录排序规则")
+        if key.endswith("_status_record_sorts") and (not isinstance(value, dict) or any(not isinstance(status, str) or mode not in SORT_MODES for status, mode in value.items())):
+            raise ValueError("不支持的状态记录排序设置")
+    return changes
 
 
 def project_readme(project_id, payload, stamp):
@@ -102,17 +123,7 @@ class ProjectRepository:
             raise FileNotFoundError(project_id)
         readme = self.projects_dir / project_id / "README.md"
         meta, body = self.load_markdown(readme)
-        for key in ("name", "status", "color", "workflow_template", "issue_status_order", "todo_status_order", "idea_status_order", "mixed_status_order", "issue_record_sort", "todo_record_sort", "idea_record_sort", "info_record_sort", "mixed_record_sort", "issue_record_order", "todo_record_order", "idea_record_order", "info_record_order", "mixed_record_order", "issue_status_record_sorts", "todo_status_record_sorts", "idea_status_record_sorts", "mixed_status_record_sorts"):
-            if key in payload:
-                if key == "name" and not str(payload[key]).strip():
-                    raise ValueError("项目名称不能为空")
-                if key.endswith("_order") and (not isinstance(payload[key], list) or any(not isinstance(item, str) for item in payload[key])):
-                    raise ValueError("顺序必须是字符串列表")
-                if key.endswith("_record_sort") and payload[key] not in {"manual", "updated", "priority", "due", "title", "created"}:
-                    raise ValueError("不支持的记录排序规则")
-                if key.endswith("_status_record_sorts") and (not isinstance(payload[key], dict) or any(not isinstance(status, str) or mode not in {"manual", "updated", "priority", "due", "title", "created"} for status, mode in payload[key].items())):
-                    raise ValueError("不支持的状态记录排序设置")
-                meta[key] = payload[key]
+        meta.update(project_metadata_patch(payload))
         meta["updated"] = now_iso()
         description = payload.get("description", project.get("description", ""))
         body = f"# {meta['name']}\n\n{str(description).strip()}"

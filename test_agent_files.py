@@ -256,7 +256,7 @@ class FileTests(AgentFixture, unittest.TestCase):
         with patch("workbench.agent_file_handles.SUPPORTED", False), patch("workbench.agent_files.SUPPORTED", False):
             capabilities = self.service.capabilities(self.client)
             authorization = capabilities["capability_authorization"]
-            self.assertEqual(authorization["implemented"], ["concept_maps.read", "concept_maps.write", "categories.write"])
+            self.assertEqual(authorization["implemented"], ["concept_maps.read", "concept_maps.write", "categories.write", "workflows.write"])
             self.assertEqual(authorization["effective"], [])
             self.assertEqual(capabilities["concept_maps"]["grants"], {"schema_version": 1, "grants": []})
             self.assertEqual(capabilities["concept_maps"]["operations"], [])

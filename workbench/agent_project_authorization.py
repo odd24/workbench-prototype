@@ -20,7 +20,7 @@ def normalize_project_create_grant(value):
 
 
 def client_project_create_grant(client):
-    if client.get('authorization_schema_version', 1) not in (7, 8, 9):
+    if client.get('authorization_schema_version', 1) not in (7, 8, 9, 10):
         if 'project_create_grant' in client:
             raise AgentError('invalid_configuration', '旧授权不能包含已生效项目创建授权', 503)
         return grant_value(False)
@@ -58,7 +58,7 @@ def validate_project_grant_intent(value):
     from .agent_management import digest
     try:
         action = value['project_grant_action']
-        if value['schema_version'] not in (7, 8, 9) or action not in {'approve', 'revoke'} or not re.fullmatch(r'[0-9a-f]{64}', value['project_grant_digest']):
+        if value['schema_version'] not in (7, 8, 9, 10) or action not in {'approve', 'revoke'} or not re.fullmatch(r'[0-9a-f]{64}', value['project_grant_digest']):
             raise ValueError()
         if value['state'] in {'prepared', 'recovery_required'}:
             before, after = value['before_client'], value['after_client']
@@ -67,7 +67,7 @@ def validate_project_grant_intent(value):
                 raise ValueError()
             if action == 'approve' and (before['enabled'] is not True or not {'read', 'propose', 'commit'} <= set(before['scopes'])):
                 raise ValueError()
-            if action == 'revoke' and before.get('authorization_schema_version') not in (7, 8, 9):
+            if action == 'revoke' and before.get('authorization_schema_version') not in (7, 8, 9, 10):
                 raise ValueError()
     except (KeyError, TypeError, ValueError):
         raise AgentError('management_recovery_required', '项目创建授权意图与客户端证据不一致', 503) from None

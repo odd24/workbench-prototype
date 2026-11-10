@@ -35,6 +35,7 @@ class Repository:
         self.write_lock = threading.RLock()
         self.write_guard = None
         self.category_preview_tickets = {}
+        self.workflow_preview_tickets = {}
         self._record_id_lock = self.write_lock
         self.projects_dir = self.root / "projects"
         self.global_ideas_dir = self.root / "ideas"
@@ -192,8 +193,11 @@ class Repository:
     def _ensure_config(self):
         settings = self.config_dir / "settings.json"
         atomic_write_json(settings, {"version": 1, "data_dir": str(self.root)})
+        workflow_claimed = (any((self.config_dir / name).exists() for name in
+                                ('workflow-identities.json','workflow-identities-fence.json'))
+                            or any((self.root / '.agent' / 'operations').glob('*/workflow-files.json')))
         templates = self.config_dir / "status-templates.json"
-        if not templates.exists():
+        if not templates.exists() and not workflow_claimed:
             data = {
                 "issue": [
                     {"id": "backlog", "name": "待处理", "color": "#87919e"},
@@ -214,7 +218,7 @@ class Repository:
             }
             atomic_write_json(templates, data)
         workflows = self.config_dir / "workflow-templates.json"
-        if not workflows.exists():
+        if not workflows.exists() and not workflow_claimed:
             default_statuses = json.loads(templates.read_text(encoding="utf-8"))
             atomic_write_json(workflows, [{"id": "standard", "name": "标准工作流", "statuses": default_statuses}])
         labels = self.config_dir / "labels.json"
@@ -293,8 +297,19 @@ class Repository:
         return self._configuration_repository.delete_document_category(name)
 
     @coordinated
-    def save_workflow_templates(self, payload) -> list[dict]:
-        return self._configuration_repository.save_workflow_templates(payload)
+    def save_workflow_templates(self, payload, *, require_preview=False) -> list[dict]:
+        from .workflow_local import legacy_write
+        return legacy_write(self, 'compat_catalogue', {'templates':payload}, require_preview=require_preview)
+
+    @coordinated
+    def preview_workflow_change(self, payload):
+        from .workflow_local import preview
+        return preview(self, payload)
+
+    def approve_workflow_change(self, payload):
+        from .workflow_local import approve
+        with self.write_lock:
+            return approve(self, payload)
 
     def _validate_statuses(self, templates: dict):
         return self._configuration_repository._validate_statuses(templates)
@@ -307,8 +322,9 @@ class Repository:
         return self._configuration_repository.save_tags(payload)
 
     @coordinated
-    def save_status_templates(self, templates: dict) -> dict:
-        return self._configuration_repository.save_status_templates(templates)
+    def save_status_templates(self, templates: dict, *, require_preview=False) -> dict:
+        from .workflow_local import legacy_write
+        return legacy_write(self, 'compat_status', {'templates':templates}, require_preview=require_preview)
 
     def _unsorted_projects(self) -> list[dict]:
         return self._project_repository._unsorted_projects()
@@ -334,7 +350,16 @@ class Repository:
         return self._project_repository.create_project(payload)
 
     @coordinated
-    def update_project(self, project_id: str, payload: dict) -> dict:
+    def update_project(self, project_id: str, payload: dict, *, require_workflow_preview=False) -> dict:
+        if 'workflow_template' in payload:
+            project = self.project(project_id)
+            if project is None:
+                raise FileNotFoundError(project_id)
+            if payload['workflow_template'] != project.get('workflow_template', 'standard'):
+                from .workflow_local import legacy_write
+                patch = {key:value for key,value in payload.items() if key != 'workflow_template'}
+                return legacy_write(self, 'switch', {'project_id':project_id, 'target_template_id':payload['workflow_template']},
+                                    require_preview=require_workflow_preview, project_patch=patch)
         return self._project_repository.update_project(project_id, payload)
 
     def _trash_index(self) -> dict:
@@ -703,8 +728,11 @@ class Repository:
         return self._document_repository.apply_document_write(self._document_repository.prepare_document_update(document_id, {**snapshot, "expected_revision": expected_revision}, restore_attachments=True))
 
     @coordinated
-    def restore_history(self, record_id: str, version: str, expected_revision=None) -> dict:
-        return self._record_repository.restore_history(record_id, version, expected_revision)
+    def restore_history(self, record_id: str, version: str, expected_revision=None, status_resolution=None) -> dict:
+        from .workflow_local import history_state
+        return self._record_repository.restore_history(
+            record_id, version, expected_revision,
+            normalize=lambda payload:history_state(self, record_id, payload, status_resolution))
 
     @coordinated
     def add_attachment(self, record_id: str, filename: str, encoded_content: str) -> dict:

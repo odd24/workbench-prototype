@@ -70,15 +70,16 @@ def dispatch(handler):
                 if len(parts) in (3, 4) and parts[0] == "clients" and parts[2] == "upload-policy":
                     from .agent_upload_http import dispatch_policy
                     result = dispatch_policy(handler, parts, runtime, payload)
-                elif len(parts) in (3, 4) and parts[0] == 'clients' and parts[2] in {'concept-maps', 'deletions', 'project-creation', 'project-deletions', 'category-writes'}:
+                elif len(parts) in (3, 4) and parts[0] == 'clients' and parts[2] in {'concept-maps', 'deletions', 'project-creation', 'project-deletions', 'category-writes', 'workflow-writes'}:
                     from .agent_concept_authorization import GraphGrantManagement
                     from .agent_delete_authorization import DeleteGrantManagement
                     from .agent_project_authorization import ProjectCreateGrantManagement
                     from .agent_project_delete_authorization import ProjectDeleteGrantManagement
                     from .agent_category_management import CategoryGrantManagement
+                    from .agent_workflow_management import WorkflowGrantManagement
                     grants = {'concept-maps':GraphGrantManagement, 'deletions':DeleteGrantManagement,
                               'project-creation':ProjectCreateGrantManagement, 'project-deletions':ProjectDeleteGrantManagement,
-                              'category-writes':CategoryGrantManagement}[parts[2]](runtime)
+                              'category-writes':CategoryGrantManagement, 'workflow-writes':WorkflowGrantManagement}[parts[2]](runtime)
                     if len(parts) == 3 and handler.command == 'GET':
                         result = grants.list(parts[1])
                     elif len(parts) == 4 and parts[3] == 'preview' and handler.command == 'POST':

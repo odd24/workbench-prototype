@@ -42,7 +42,7 @@ def normalize_grants(value):
 
 
 def client_grants(client):
-    if client.get('authorization_schema_version', 1) != 9:
+    if client.get('authorization_schema_version', 1) not in (9, 10):
         if FIELD in client:
             raise AgentError('invalid_configuration', '分类授权格式门槛缺失', 503)
         return empty_grants()
@@ -55,7 +55,7 @@ def client_grants(client):
 def upgraded_client(before, grants):
     from .agent_project_authorization import grant_value as create_grant
     from .agent_project_delete_authorization import grant_value as delete_grant
-    after = {**before, 'authorization_schema_version':9, FIELD:normalize_grants(grants),
+    after = {**before, 'authorization_schema_version':max(9, before.get('authorization_schema_version', 1)), FIELD:normalize_grants(grants),
              'management_revision':before.get('management_revision', 0) + 1}
     for key in ('concept_map_grants', 'delete_grants'):
         after.setdefault(key, empty_grants())
@@ -125,7 +125,7 @@ def management_candidate(security, action, params, before, expected_version):
                                              'before_client':before, 'after_client':after})
         return after, intent
     if action == 'category_grant_revoke':
-        if params or before.get('authorization_schema_version') != 9:
+        if params or before.get('authorization_schema_version') not in (9, 10):
             raise ValueError('当前没有可撤销的分类授权')
         grant = None
         after = upgraded_client(before, empty_grants())
@@ -170,7 +170,7 @@ def validate_management_intent(value):
         return
     try:
         action, proof = value['category_action'], value['category_proof']
-        if value['schema_version'] != 9 or not HASH.fullmatch(value['category_digest']):
+        if value['schema_version'] not in (9, 10) or not HASH.fullmatch(value['category_digest']):
             raise ValueError()
         if family == 'category_grant':
             if action == 'approve':

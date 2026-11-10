@@ -291,3 +291,9 @@ capabilities报告静态trash_delete@1/execution4及平台/目标有效性，imp
 沿用现有 22 个 MCP 工具。`prepare_proposal` 使用 `kind=category`、`operation=create|rename|delete|reorder`、`request_id` 和 `content`。`content` 含 `family` 和具体 `name`。体系为 `document_category`、`concept_map_category` 或 `project_attachment_category`。第三种必须传 `project_id`。改名增加 `new_name`，重排增加 `anchor` 和 `position=before|after`。省略确认模式时使用 `local_web`。修订可替换完整选择并保留体系、原名及项目。禁止上传配置或许可内容。原回执保留操作、体系、名称、项目及审批摘要。
 
 本机授权使用 `clients/<id>/category-writes` 的 GET、`POST /preview`、`POST /confirm`、DELETE。预览绑定当前工作空间与客户端版本，`selection` 含 `family/name/operation/project_id`，全局体系项目传 null。普通本机分类命令另用同源 `POST /api/category-operations/preview`（`operation` 与 `selection`）和 `POST /api/category-operations/approve`（`ticket`）。两个入口都按原预览核验当前业务状态。
+
+## 工作流迁移（AG-140）
+
+沿用 22 个 MCP 工具及提案 API。`kind=workflow` 支持 `create|copy|rename|add_status|rename_status|delete_status|reorder|switch`，最低确认策略为 `local_web`。新建用 `name`；复制或模板改名另用 `template_id`；状态操作用 `template_id`、`record_type`，并按操作传 `status_id`、`name`、`color`、`terminal`、`target_status_id` 或 `anchor_status_id/position`。切换用 `project_id`、`target_template_id` 及有序的 `mapping` 对象列表，每项含 `record_type/source_status/target_status_id`。使用中状态缺映射时只能预览和修订。
+
+本机授权使用 `clients/<id>/workflow-writes` 的 GET、`POST /preview`、`POST /confirm` 与 DELETE，复用管理会话和稳定请求标识。普通工作流使用同源 `/api/workflow-operations/preview` 与 `/approve`。Agent 只能看到已有可读范围和相关变更，完整 README、未变手动 ID 顺序和脱敏授权计划留本机管理页。

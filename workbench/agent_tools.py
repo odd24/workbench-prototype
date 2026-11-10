@@ -31,6 +31,7 @@ AGENT_RULES = (
     "project/create需要独立新鲜projects.create许可，强制本机网页完整预览后独立批准；content只接受name/description/status/color/workflow_template，禁止指定路径、ID或授权内容。完整展示固定身份、README、空目录、模板、排序规则、警告和摘要；无关排序明细只在本机批准页可见。创建不授予访问权限，既有通配语义保留；可选精确范围授权由本机另行预览批准，独立查询，不重建项目。"
     "project/delete需独立新鲜projects.delete许可，先从list_projects读取已授权项目的README原始revision。必须完整展示原项目、全部子记录、独立附件与目录树、外部引用、保留原归属的关联图、保留规则和执行依据。每个子记录须有已有读删权，所有独立附件须逐个经本机授权。外部活动引用项目内附件、未知或未授权影响会拒绝整案。仅同一项目目录移入回收站，关联图、共享附件、历史、排序保留。"
     "category/create|rename|delete|reorder需要新鲜精确categories.write授权、全部实际成员的已有读权和独立本机批准。content只接受family/name/project_id及new_name或相对anchor/position；不传配置和授权。展示全部可见受影响成员及摘要，本机另核对完整配置和脱敏授权。删除分类只迁入该领域默认分类。"
+    "workflow/create|copy|rename|add_status|rename_status|delete_status|reorder|switch需要新鲜精确workflows.write授权、实际受影响项目和记录的已有读权和独立本机批准。状态许可按模板与记录类型，实际状态每案单独批准。完整展示映射、排序、终态、全部影响和摘要。使用中状态缺映射不能提交；不得传整份配置、记录正文、completed、路径或授权。"
 )
 
 
@@ -50,11 +51,15 @@ CONTENT = obj({"title": {"type": "string", "maxLength": 200}, "body": {"type": "
 CONTENT['properties'].update({'owner_kind':{'type':'string', 'enum':['project', 'issue', 'todo', 'info', 'document']},
                               'owner_id':TEXT, 'upload_id':PROPOSAL_ID,
                               'display_name':{'type':'string', 'maxLength':200}, 'insert_link':{'type':'boolean'}})
-PROPOSAL_KIND = {'type':'string', 'enum':KIND['enum'] + ['attachment', 'project', 'category']}
+PROPOSAL_KIND = {'type':'string', 'enum':KIND['enum'] + ['attachment', 'project', 'category','workflow']}
 CONTENT['properties'].update({'family':{'type':'string', 'enum':['document_category', 'concept_map_category', 'project_attachment_category']},
                               'new_name':TEXT, 'anchor':TEXT, 'position':{'type':'string', 'enum':['before', 'after']}})
 CONTENT['properties'].update({'name':{'type':'string','maxLength':160}, 'description':{'type':'string','maxLength':65536},
                               'color':{'type':'string','pattern':'^#[0-9a-fA-F]{6}$'}, 'workflow_template':{'type':'string','maxLength':160}})
+CONTENT['properties'].update({'template_id':TEXT, 'target_template_id':TEXT, 'status_id':TEXT, 'target_status_id':TEXT,
+                              'anchor_status_id':TEXT, 'record_type':{'type':'string','enum':['issue','todo']}, 'terminal':{'type':'boolean'},
+                              'mapping':{'type':'array','maxItems':200,'items':obj({'record_type':{'type':'string','enum':['issue','todo','idea']},
+                                   'source_status':TEXT,'target_status_id':TEXT}, ['record_type','source_status','target_status_id'])}})
 GRAPH_ID = {'type':'string', 'pattern':'^CMAP-[0-9]+$'}
 COLOR = {'type':'string', 'pattern':'^#[a-fA-F0-9]{6}$'}
 COORDINATE = {'type':'number', 'minimum':-100000, 'maximum':100000}
@@ -103,7 +108,7 @@ TOOLS = [
     tool("cancel_upload", "终结未消费暂存", "不创建或撤销正式业务。传输在途返回busy须停止传输后查询原会话；已绑定受保护对象不能取消。", "uploads/{upload_id}/cancel", {"upload_id": PROPOSAL_ID}, ["upload_id"], "POST", False),
     tool('get_attachment_target', '检查附件目标版本', '仅限当前共同附件许可的具体已有owner，返回正文或项目索引revision、附件元数据及已有分类。不下载字节，不改分类。', 'attachment-targets/{owner_kind}/{owner_id}', {'owner_kind':{'type':'string', 'enum':['project', 'issue', 'todo', 'info', 'document']}, 'owner_id':TEXT}, ['owner_kind', 'owner_id']),
     tool("list_proposals", "查看自己的提案", "分页返回当前客户端可访问提案的摘要和状态。", "proposals", PAGINATION),
-    tool("prepare_proposal", "整理入库提案", "只生成提案，不正式入库。request_id 必须稳定以便重试；更新/追加须先完整读取目标及其 revision。只能使用现有归属和配置。" + AGENT_RULES, "proposals", {"request_id": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$"}, "kind": PROPOSAL_KIND, "operation": {"type": "string", "enum": ["create", "append", "update", "delete", "rename", "reorder"]}, "target_id": TEXT, "base_revision": HASH, "content": CONTENT, "source_note": {"type": "string", "maxLength": 1000}, "confirmation_mode": {"type": "string", "enum": ["agent_attested", "local_web"]}}, ["request_id", "kind", "operation"], "POST", False),
+    tool("prepare_proposal", "整理入库提案", "只生成提案，不正式入库。request_id 必须稳定以便重试；更新/追加须先完整读取目标及其 revision。只能使用现有归属和配置。" + AGENT_RULES, "proposals", {"request_id": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$"}, "kind": PROPOSAL_KIND, "operation": {"type": "string", "enum": ["create", "append", "update", "delete", "rename", "reorder","copy","add_status","rename_status","delete_status","switch"]}, "target_id": TEXT, "base_revision": HASH, "content": CONTENT, "source_note": {"type": "string", "maxLength": 1000}, "confirmation_mode": {"type": "string", "enum": ["agent_attested", "local_web"]}}, ["request_id", "kind", "operation"], "POST", False),
     tool("revise_proposal", "修改提案", "内容写入传完整目标候选，追加也传合成后的全文；删除仅传新base_revision不传content；不传服务端计算的 completed。返回新版本后必须重新预览和确认。", "proposals/{proposal_id}", {"proposal_id": PROPOSAL_ID, "expected_version": VERSION, "base_revision": HASH, "content": CONTENT}, ["proposal_id", "expected_version"], "PATCH", False),
     tool("preview_proposal", "展示完整入库预览", "将返回的完整正文、字段、差异和警告展示给用户，明确提案版本；无法完整展示时停止提交。必须等待之后的用户明确确认，不自动调用 commit。", "proposals/{proposal_id}/preview", {"proposal_id": PROPOSAL_ID}, ["proposal_id"], readonly=False),
     tool("commit_proposal", "确认当前预览入库", "仅在用户看过完整当前预览并在之后的新消息明确确认后调用。只传该版本和摘要，不得替换正文。失败/超时先 get_proposal，不重新创建。", "proposals/{proposal_id}/commit", {"proposal_id": PROPOSAL_ID, "version": VERSION, "preview_digest": HASH, "confirmation": CONFIRMATION}, ["proposal_id", "version", "preview_digest", "confirmation"], "POST", False),

@@ -28,7 +28,7 @@ from .paths import (
 
 
 APP_DIR = Path(__file__).resolve().parent.parent
-APP_VERSION = "2026.11.10.6"
+APP_VERSION = "2026.11.10.7"
 MAX_JSON_BODY_BYTES = 15_000_000
 
 
@@ -184,14 +184,14 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             raise ValueError("请求内容过大")
         return length
 
-    def _body(self):
+    def _body(self, *, expected_type=dict):
         length = self._content_length(MAX_JSON_BODY_BYTES)
         raw = self.rfile.read(length)
         if len(raw) != length:
             raise ValueError("请求内容不完整")
         payload = json.loads(raw.decode("utf-8")) if raw else {}
-        if not isinstance(payload, dict):
-            raise ValueError("请求内容必须是 JSON 对象")
+        if not isinstance(payload, expected_type):
+            raise ValueError("请求内容必须是 JSON 数组" if expected_type is list else "请求内容必须是 JSON 对象")
         return payload
 
     def _route(self):
@@ -388,13 +388,17 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             return
         path, query = self._route()
         try:
-            if path in {'/api/category-operations/preview', '/api/category-operations/approve'}:
+            if path in {'/api/category-operations/preview', '/api/category-operations/approve',
+                        '/api/workflow-operations/preview', '/api/workflow-operations/approve'}:
                 from .agent_runtime import LOOPBACK
                 if (self.server.server_address[0] not in LOOPBACK or self.client_address[0] not in LOOPBACK
                         or self.headers.get('Origin') != 'http://' + self.headers.get('Host', '')
                         or self.headers.get('Content-Type', '').split(';')[0] != 'application/json'):
-                    raise AgentError('forbidden', '分类操作需要本机同源 JSON 请求', 403)
-                method = self.repository.preview_category_change if path.endswith('/preview') else self.repository.approve_category_change
+                    raise AgentError('forbidden', '变更操作需要本机同源 JSON 请求', 403)
+                methods = ((self.repository.preview_workflow_change, self.repository.approve_workflow_change)
+                           if path.startswith('/api/workflow-operations/') else
+                           (self.repository.preview_category_change, self.repository.approve_category_change))
+                method = methods[0] if path.endswith('/preview') else methods[1]
                 return self._json(method(self._body()))
             if path == "/api/projects":
                 return self._json(self.repository.create_project(self._body()), HTTPStatus.CREATED)
@@ -474,7 +478,8 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
                     return self._json(self.repository.add_attachment(parts[-2], payload.get("name", ""), payload.get("content", "")), HTTPStatus.CREATED)
                 if len(parts) == 4 and parts[-1] == "restore":
                     payload = self._body()
-                    return self._json(self.repository.restore_history(parts[-2], payload.get("version", ""), payload.get("expected_revision")))
+                    return self._json(self.repository.restore_history(parts[-2], payload.get("version", ""),
+                                                                      payload.get("expected_revision"), payload.get("status_resolution")))
             return self._json({"error": "接口不存在"}, HTTPStatus.NOT_FOUND)
         except FileNotFoundError as exc:
             return self._json({"error": f"资源不存在：{exc}"}, HTTPStatus.NOT_FOUND)
@@ -524,9 +529,9 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             if path == "/api/concept-map-categories":
                 return self._json(self.repository.save_concept_map_categories(self._body().get("categories", [])))
             if path == "/api/status-templates":
-                return self._json(self.repository.save_status_templates(self._body()))
+                return self._json(self.repository.save_status_templates(self._body(), require_preview=True))
             if path == "/api/workflow-templates":
-                return self._json(self.repository.save_workflow_templates(self._body()))
+                return self._json(self.repository.save_workflow_templates(self._body(expected_type=list), require_preview=True))
             if path == "/api/tags":
                 return self._json(self.repository.save_tags(self._body()))
             return self._json({"error": "接口不存在"}, HTTPStatus.NOT_FOUND)
@@ -572,7 +577,7 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             if path.startswith("/api/records/"):
                 return self._json(self.repository.update_record(path.rsplit("/", 1)[-1], self._body()))
             if path.startswith("/api/projects/"):
-                return self._json(self.repository.update_project(path.rsplit("/", 1)[-1], self._body()))
+                return self._json(self.repository.update_project(path.rsplit("/", 1)[-1], self._body(), require_workflow_preview=True))
             return self._json({"error": "接口不存在"}, HTTPStatus.NOT_FOUND)
         except FileNotFoundError:
             return self._json({"error": "记录不存在"}, HTTPStatus.NOT_FOUND)

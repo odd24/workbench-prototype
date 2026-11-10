@@ -3183,7 +3183,7 @@ const agentProposalsFeature = window.Workbench.agentProposals.create({
   isActive:() => currentPage === 'agent_proposals',
   openItemLink:async link => {
     if (!await openItemLink(link)) return false;
-    history.replaceState(null, '', `/?item=concept_map&itemId=${encodeURIComponent(link.itemId)}`);
+    history.replaceState(null, '', `/?item=${encodeURIComponent(link.kind)}&itemId=${encodeURIComponent(link.itemId)}`);
     return true;
   },
 });
@@ -5481,7 +5481,7 @@ document.addEventListener('change', async event => {
 
 async function openItemLink(link = navigationFeature.readItemLink()) {
   if (!link) return false;
-  if (link.invalid || !['issue', 'document', 'todo', 'info', 'project', 'concept_map'].includes(link.kind) || link.kind === 'concept_map' && !/^CMAP-[0-9]+$/.test(link.itemId || '')) {
+  if (link.invalid || !['issue', 'document', 'todo', 'info', 'project', 'concept_map', 'trash'].includes(link.kind) || link.kind === 'concept_map' && !/^CMAP-[0-9]+$/.test(link.itemId || '') || link.kind === 'trash' && !/^(?:record|document|concept-map)-agent-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}-[1-9][0-9]*$/.test(link.itemId || '')) {
     navigationFeature.clearItemLink();
     notify('打开链接无效', '请检查条目类型和编号', true);
     return false;
@@ -5489,7 +5489,7 @@ async function openItemLink(link = navigationFeature.readItemLink()) {
   const request = requestRegistry.begin('item-link', link.itemId);
   try {
     const resource = link.kind === 'concept_map' ? 'concept-maps' : link.kind === 'document' ? 'documents' : 'records';
-    let item = link.kind === 'project' ? {...projects.find(project => project.id === link.itemId), type:'project'} : await api(`/${resource}/${encodeURIComponent(link.itemId)}`);
+    let item = link.kind === 'trash' ? {id:link.itemId, type:'trash'} : link.kind === 'project' ? {...projects.find(project => project.id === link.itemId), type:'project'} : await api(`/${resource}/${encodeURIComponent(link.itemId)}`);
     if (link.kind === 'concept_map') item = {...item, type:'concept_map'};
     if (!requestRegistry.isCurrent(request)) return false;
     if (!item || item.type !== link.kind || (link.kind === 'project' && !item.id)) throw new Error('链接类型与条目不符或目标不存在');
@@ -5501,6 +5501,13 @@ async function openItemLink(link = navigationFeature.readItemLink()) {
     if ($('#documentDialog').open && !await closeDocumentEditor({preserveItemLink:true})) return false;
     if (detailDrawer.classList.contains('visible') && !await closeDrawer({preserveItemLink:true})) return false;
     if (!requestRegistry.isCurrent(request)) return false;
+    if (link.kind === 'trash') {
+      if (await setPage('trash', {preserveItemLink:true}) === false || !requestRegistry.isCurrent(request)) return false;
+      const row = document.querySelector(`[data-trash-row="${CSS.escape(link.itemId)}"]`);
+      if (row) { row.tabIndex = -1; row.scrollIntoView({block:'center'}); row.focus({preventScroll:true}); }
+      else notify('原回收条目已不在当前列表', '可能已经恢复或清理；原回执不会再次删除任何内容。');
+      return currentPage === 'trash';
+    }
     if (link.kind === 'concept_map') {
       if (item.id !== link.itemId) throw new Error('概念图稳定身份与链接不符');
       if (await setPage('concept_maps', {preserveItemLink:true}) === false || !requestRegistry.isCurrent(request)) return false;

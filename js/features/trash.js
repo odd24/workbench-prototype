@@ -10,11 +10,13 @@
     const kindName = kind => kind === 'project' ? '项目' : kind === 'document' ? '文档' : kind === 'concept-map' ? '概念图' : '记录';
 
     function updateSelection() {
+      const eligible = items.filter(item => !item.protected);
       const count = selection.size;
       const selectAll = content.querySelector('#selectAllTrash');
       if (selectAll) {
-        selectAll.checked = Boolean(items.length) && count === items.length;
-        selectAll.indeterminate = count > 0 && count < items.length;
+        selectAll.checked = Boolean(eligible.length) && count === eligible.length;
+        selectAll.indeterminate = count > 0 && count < eligible.length;
+        selectAll.disabled = !eligible.length;
       }
       const countNode = actions.querySelector('#trashSelectionCount');
       if (countNode) countNode.textContent = `已选择 ${count} 项`;
@@ -27,7 +29,7 @@
     function render() {
       const selectedCount = selection.size;
       actions.innerHTML = items.length ? `<span class="trash-selection-count" id="trashSelectionCount">已选择 ${selectedCount} 项</span><button class="secondary-button" id="batchRestoreTrash" ${selectedCount ? '' : 'disabled'}>批量恢复</button><button class="secondary-button danger-button" id="batchPurgeTrash" ${selectedCount ? '' : 'disabled'}>批量永久删除</button>` : '';
-      content.innerHTML = items.length ? `<div class="trash-table-wrap"><table class="data-table trash-table"><thead><tr><th class="trash-select-cell"><input type="checkbox" id="selectAllTrash" aria-label="全选回收站内容" ${selectedCount === items.length ? 'checked' : ''}></th><th>名称</th><th>类型</th><th>删除时间</th><th>操作</th></tr></thead><tbody>${items.map(item => `<tr data-trash-row="${escapeHtml(item.token)}" class="${selection.has(item.token) ? 'selected' : ''}"><td class="trash-select-cell"><input type="checkbox" data-trash-select="${escapeHtml(item.token)}" aria-label="选择 ${escapeHtml(item.title)}" ${selection.has(item.token) ? 'checked' : ''}></td><td><strong>${escapeHtml(item.title)}</strong><br><small>${escapeHtml(item.id)}</small></td><td>${kindName(item.kind)}</td><td>${new Date(item.deleted_at).toLocaleString('zh-CN')}</td><td><div class="trash-row-actions"><button class="secondary-button" data-restore-trash="${escapeHtml(item.token)}">恢复</button><button class="secondary-button danger-button" data-purge-trash="${escapeHtml(item.token)}">永久删除</button></div></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-state">回收站为空</div>';
+      content.innerHTML = items.length ? `<div class="trash-table-wrap"><table class="data-table trash-table"><thead><tr><th class="trash-select-cell"><input type="checkbox" id="selectAllTrash" aria-label="全选回收站内容" ${selectedCount === items.length ? 'checked' : ''}></th><th>名称</th><th>类型</th><th>删除时间</th><th>操作</th></tr></thead><tbody>${items.map(item => `<tr data-trash-row="${escapeHtml(item.token)}" class="${selection.has(item.token) ? 'selected' : ''}"><td class="trash-select-cell"><input type="checkbox" data-trash-select="${escapeHtml(item.token)}" aria-label="选择 ${escapeHtml(item.title)}" ${item.protected ? 'disabled' : ''} ${selection.has(item.token) ? 'checked' : ''}></td><td><strong>${escapeHtml(item.title)}</strong><br><small>${escapeHtml(item.id)}</small>${item.protected ? `<p class="settings-hint">${escapeHtml(item.protection_reason || '操作在途，暂不能恢复或清理')}</p>` : ''}</td><td>${kindName(item.kind)}</td><td>${new Date(item.deleted_at).toLocaleString('zh-CN')}</td><td><div class="trash-row-actions"><button class="secondary-button" data-restore-trash="${escapeHtml(item.token)}" ${item.protected ? 'disabled' : ''}>恢复</button><button class="secondary-button danger-button" data-purge-trash="${escapeHtml(item.token)}" ${item.protected ? 'disabled' : ''}>永久删除</button></div></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-state">回收站为空</div>';
       updateSelection();
     }
     async function load() {
@@ -36,7 +38,7 @@
       const loaded = await api('/trash');
       if (version !== loadVersion || !isActive()) return false;
       items = loaded;
-      selection = new Set([...selection].filter(token => items.some(item => item.token === token)));
+      selection = new Set([...selection].filter(token => items.some(item => item.token === token && !item.protected)));
       render();
       return true;
     }
@@ -69,8 +71,8 @@
       bindCount += 1;
       root.addEventListener('change', event => {
         if (event.target.id === 'selectAllTrash') {
-          selection = event.target.checked ? new Set(items.map(item => item.token)) : new Set();
-          content.querySelectorAll('[data-trash-select]').forEach(input => { input.checked = event.target.checked; });
+          selection = event.target.checked ? new Set(items.filter(item => !item.protected).map(item => item.token)) : new Set();
+          content.querySelectorAll('[data-trash-select]').forEach(input => { input.checked = event.target.checked && !input.disabled; });
           updateSelection();
         } else if (event.target.matches('[data-trash-select]')) {
           if (event.target.checked) selection.add(event.target.dataset.trashSelect); else selection.delete(event.target.dataset.trashSelect);

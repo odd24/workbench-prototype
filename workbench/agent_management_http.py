@@ -70,9 +70,10 @@ def dispatch(handler):
                 if len(parts) in (3, 4) and parts[0] == "clients" and parts[2] == "upload-policy":
                     from .agent_upload_http import dispatch_policy
                     result = dispatch_policy(handler, parts, runtime, payload)
-                elif len(parts) in (3, 4) and parts[0] == 'clients' and parts[2] == 'concept-maps':
+                elif len(parts) in (3, 4) and parts[0] == 'clients' and parts[2] in {'concept-maps', 'deletions'}:
                     from .agent_concept_authorization import GraphGrantManagement
-                    grants = GraphGrantManagement(runtime)
+                    from .agent_delete_authorization import DeleteGrantManagement
+                    grants = GraphGrantManagement(runtime) if parts[2] == 'concept-maps' else DeleteGrantManagement(runtime)
                     if len(parts) == 3 and handler.command == 'GET':
                         result = grants.list(parts[1])
                     elif len(parts) == 4 and parts[3] == 'preview' and handler.command == 'POST':

@@ -13,6 +13,7 @@ from .markdown_io import dump_markdown, load_markdown, load_markdown_text, now_i
 from .persistence import atomic_write_text
 from .write_coordinator import check_revision, PreparedMarkdownWrite, read_versioned_markdown
 from .security import validate_portable_filename
+from .references import references
 
 
 class DocumentRepository:
@@ -114,15 +115,9 @@ class DocumentRepository:
         project_names = {str(item.get("id")): str(item.get("name", item.get("id", ""))) for item in self.list_projects()}
         backlinks = []
         for record in [*self.list_records(), *self.list_documents()]:
-            if record.get("type") not in {"issue", "todo", "document"} or record.get("id") == document_id:
+            if record.get("type") not in {"issue", "todo", "info", "document"} or record.get("id") == document_id:
                 continue
-            tokens = re.findall(r"\[\[([A-Za-z]+-\d+(?:#[^\]]+)?)\]\]", str(record.get("body", "")))
-            links = record.get("links", [])
-            if isinstance(links, str):
-                links = [links]
-            if isinstance(links, list):
-                tokens.extend(str(item) for item in links)
-            referenced_ids = {token.split("#", 1)[0].upper() for token in tokens}
+            referenced_ids = {item['id'] for item in references(record)}
             if normalized_id not in referenced_ids:
                 continue
             project_id = str(record.get("project_id", ""))
@@ -199,6 +194,13 @@ class DocumentRepository:
             raise FileNotFoundError(document_id)
         editor = self.open_markdown_external(path)
         return {"ok": True, "editor": editor, "document_id": document_id, "file": path.name}
+
+    def prepare_document_delete(self, document_id, revision):
+        from .deletion_prepared import PreparedDelete
+        document, path = self.get_document(document_id)
+        if not document or not path:
+            raise FileNotFoundError(document_id)
+        return PreparedDelete.from_path(self.documents_dir.parent, path, document_id, 'document', revision)
 
     def delete_document(self, document_id: str) -> dict:
         document, path = self.get_document(document_id)

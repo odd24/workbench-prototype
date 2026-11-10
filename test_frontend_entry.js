@@ -21,6 +21,13 @@ assert.equal(navigation.clearHash(), true);
 assert.equal(replaced, '/index.html?test=1');
 
 assert.equal(navigation.readItemLink(), null);
+const trashToken = 'record-agent-01234567-89ab-4def-8123-456789abcdef-1';
+location.search = `?item=trash&itemId=${trashToken}`;
+assert.deepEqual(navigation.readItemLink(), {kind:'trash', itemId:trashToken});
+for (const query of [`?item=trash&itemId=${trashToken}&extra=1`, `?item=trash&itemId=${trashToken}&itemId=${trashToken}`, '?item=trash&itemId=../file', `?item=trash&itemId=${trashToken.slice(0, -1)}0`]) {
+  location.search = query;
+  assert.deepEqual(navigation.readItemLink(), {invalid:true});
+}
 location.search = '?session=1&item=issue&itemId=ISSUE-0001';
 assert.deepEqual(navigation.readItemLink(), {kind:'issue', itemId:'ISSUE-0001'});
 location.search = '?item=info&itemId=INFO-0001';

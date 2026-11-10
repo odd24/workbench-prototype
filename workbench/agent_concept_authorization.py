@@ -34,7 +34,7 @@ def normalize_graph_grants(value):
 
 
 def client_graph_grants(client):
-    if client.get('authorization_schema_version', 1) != 5:
+    if client.get('authorization_schema_version', 1) not in (5, 6):
         if 'concept_map_grants' in client:
             raise AgentError('invalid_configuration', '旧授权不能包含已生效图授权', 503)
         return {'schema_version': 1, 'grants': []}
@@ -63,7 +63,7 @@ def resource_matches(resource, item):
 
 
 def matching_graph_grants(client, item, operation='read', *, destination=False):
-    if item.get('type') != 'concept_map' or client.get('authorization_schema_version') != 5 or client.get('enabled') is not True or 'concept_map' not in client.get('kinds', []):
+    if item.get('type') != 'concept_map' or client.get('authorization_schema_version') not in (5, 6) or client.get('enabled') is not True or 'concept_map' not in client.get('kinds', []):
         return []
     needed = {'read'} if operation == 'read' else {'read', 'propose', 'commit'}
     if not needed <= set(client.get('scopes', [])):
@@ -189,6 +189,8 @@ def validate_grant_dependencies(value, grants):
 
 def restrict_graph_categories(repository, names):
     """Persist narrowing before business changes; never restore implicitly."""
+    from .agent_delete_authorization import restrict_delete_categories
+    restrict_delete_categories(repository, names, 'concept_map_category')
     runtime = getattr(repository, 'agent_runtime', None)
     service = getattr(repository, 'agent_service', None)
     if runtime:

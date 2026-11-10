@@ -304,6 +304,13 @@ class RecordRepository:
         payload["expected_revision"] = expected_revision
         return self.update_record(record_id, payload)
 
+    def prepare_record_delete(self, record_id, revision):
+        from .deletion_prepared import PreparedDelete
+        record, path = self.get_record(record_id)
+        if not record or record.get('type') not in {'issue', 'todo', 'info'}:
+            raise FileNotFoundError(record_id)
+        return PreparedDelete.from_path(self.global_ideas_dir.parent, path, record_id, record['type'], revision)
+
     def delete_record(self, record_id: str) -> dict:
         record, path = self.get_record(record_id)
         if not record:

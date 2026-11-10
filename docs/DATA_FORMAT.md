@@ -255,3 +255,15 @@ GET `/api/concept-maps/<ID>/history`列出版本，后接`/<version>`读取完�
 图执行manifest外层schema3/execution_schema_version3、固定relative_path=concept-maps/<target_id>.json，before/after.json保存原始字节，managed_time在受理确认时定稿，history_version为固定时间UUID名。静态concrete plan绑定上述字段、身份、前后SHA及proposal plan；回执继续绑定原proposal/version/两个plan digest/after revision与批准。新建没有before/history旧字节；更新history/CMAP-ID/<history_version>.json必须等于原before。履行与恢复共用同一PreparedConceptMapWrite和唯一ProposalStore，不另开进程或状态机。历史落盘及进度记录后仍重查权限/依赖，目标发布前失效就停止；目标after与必要history证明后只补回执。create applying且目标缺失不重建；未知/第三方/缺历史保留503核查。receipt已证明完成后，后来正常编辑或删除仅返回原回执，不重放目标。终结30天后按原清理流程删除before/after.json与内容，identity/target/摘要/回执墓碑及单调游标仍保留。
 
 设置页sessionStorage新增workbench.agentGraphGrants.pending.<workspace_id>，仅存client_id/request_id供结果查询，不存令牌或正文。只读预览实例通过同一conceptMap.create({readOnly:true,...})工厂，共享几何、节点和关系渲染，root隔离、唯一marker ID、AbortController监听器及取消rAF的dispose；无写API、脏标记、草稿或撤销栈。管理票据绑定同一完整预览，前端完整画布和全部明细加载后才允许批准，不将票据视为DOM/人眼/现实身份认证。
+
+## AG-136 单条删除格式与证据（已完成）
+
+新鲜授权为`delete_grants={schema_version:1,grants:[...]}`；仅items.delete/delete/local_web，资源为具体project、item(kind+id)、document_category、concept_map或独立concept_map_category。无通配/idea/project cascade。读取范围、原kind/read/propose/commit与delete许可取交集，图另须新鲜图read。新批准后registry5/auth6/管理log6，transport2不变；auth6必须明确包含图和删除字段。其他管理家族保留全部字段及格式下界，清理/abandon不降版。旧休眠不激活，旧版遇新私人快照/日志拒绝恢复；首快照到格式围栏间旧普通业务仍可能写入，后续依赖CAS拒发布，不承诺整个窗口全业务零写。
+
+仍使用22工具及同prepare/revise/preview/commit。delete仅信封kind/target_id/base_revision/source_note等，无content/body/path/held_source。省略确认方式取local_web，显式agent_attested拒绝。服务生成完整原始UTF-8文件、SHA、元数据/正文/有序info_fields、图只读完整结构、附件元数据及存在/保留状态；不读取二进制。活动正式记录（含legacy idea）、文档、项目README、图全量清单按ID/类型/路径/revision绑定，仅保存目标/命中的全文。无权命中、README/idea无既有全文读契约、坏路径/未知数据或超限通用拒绝，不返回隐藏ID/数量。历史和回收站不计活动断链，明确保留旧引用；既有语法命中也可能只是代码示例。每文件1MiB、4096文件/32MiB实际原始字节、完整实际UTF-8 JSON响应2MiB，全部超限拒绝而非截断。图删除只读显示可处理1MiB原图，原图create/update的256KiB契约不变。
+
+proposal3/sha256-json-v3新增静态trash_delete@1，manifest3/execution_schema4；旧1/2/3处理器语义不改。token固定为record/document/concept-map-agent-<proposal UUID>-<version>，operation_id仍UUID-version。private delete_binding绑定受控相对源、卷/文件index/creation身份、原SHA、排序保留依据、trash_index_digest；dependencies绑定完整活动清单/排序/原索引摘要。实际接受批准时固定deleted_at及原回执；before.md或before.json和index-before.json先落，manifest交叉绑定计划、批准和全部摘要后才移动。原索引快照不提供重建权限。旧排序ID和位置原样保留，相关配置字节为依赖，不更新项目README/document-sort。
+
+执行步骤固定trash_move/trash_index/preserve_sort_and_cache/receipt。先persist move applying，使用同一Windows固定NTFS READ+DELETE句柄核身份/原字节，保持源句柄及祖先保护，基于内部仅句柄生存期有效的HeldDeleteSource核当前授权/全集/索引，再不覆盖rename；无copy fallback。该内部能力不能由HTTP/MCP提供。trash物理身份和原字节均匹配后仅添加本token索引成员，保留无关成员；缓存失效后落原回执。新索引成员delete_schema_version1、original_relative_path和agent_operation_id扩展原7字段；未知格式拒绝，不静默去字段。
+
+prepared且未进入移动时可按当前权限/依赖继续；applying但trash缺失无法区分未移动与已恢复，阻断而不重删source。原trash证据成立，即使源重建或权限撤销，也只补原索引/缓存/回执。异物/不完整证据先全预检拒写。committed重放永远只回原回执，后来恢复/修改/purge不重演。abandon接受当前盘态而非回滚，残留仍受保护。原历史/附件/图游标保留；30天私人内容清理可去before/index快照，但身份/manifest/receipt墓碑保留。默认trash30天，本机可提前purge；Agent无restore/purge/清空入口。

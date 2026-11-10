@@ -43,6 +43,10 @@
       if (!params.has('item') && !params.has('itemId')) return null;
       const kind = params.get('item');
       const itemId = params.get('itemId');
+      if (kind === 'trash') {
+        if (params.getAll('item').length !== 1 || params.getAll('itemId').length !== 1 || [...params.keys()].some(key => !['item', 'itemId'].includes(key)) || !/^(?:record|document|concept-map)-agent-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}-[1-9][0-9]*$/.test(itemId || '')) return {invalid:true};
+        return {kind, itemId};
+      }
       if (kind === 'concept_map') {
         if (params.getAll('item').length !== 1 || params.getAll('itemId').length !== 1 || [...params.keys()].some(key => !['item', 'itemId'].includes(key)) || !/^CMAP-[0-9]+$/.test(itemId || '')) return {invalid:true};
         return {kind, itemId};

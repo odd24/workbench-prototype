@@ -14,7 +14,7 @@ AI Agent 功能文档（实现事实以台账与验收记录为准）：
 
 - 实施方案：[docs/AI_AGENT_PLAN.md](docs/AI_AGENT_PLAN.md)
 - 后续扩展方案：[docs/AI_AGENT_EXTENSION_PLAN.md](docs/AI_AGENT_EXTENSION_PLAN.md)（AG-116 起逐项实施；状态以台账为准）
-- 本机能力扩展方案：[docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md](docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)（AG-127 仅文档；AG-128～135已完成，AG-136～143待开始）
+- 本机能力扩展方案：[docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md](docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)（AG-127 仅文档；AG-128～136已完成，AG-137～143待开始且已暂停后续）
 - 接入管理 UI 方案：[docs/AGENT_SETTINGS_PLAN.md](docs/AGENT_SETTINGS_PLAN.md)（实现状态以台账为准）
 - 实施台账：[docs/AI_AGENT_PROGRESS.md](docs/AI_AGENT_PROGRESS.md)
 - 接入与使用：[docs/AGENT_INTEGRATION.md](docs/AGENT_INTEGRATION.md)、[docs/AGENT_USAGE.md](docs/AGENT_USAGE.md)
@@ -198,7 +198,7 @@ workbench-data/
 - 自动保存、关闭前 flush、撤销重做和原子写入必须一起验证。
 
 - AG-134新增原JSON字节revision、Prepared条件写入及history/CMAP-ID/*.json原字节历史；HTTP已有图PATCH/历史恢复必须expected_revision，缺失409提示刷新以阻止旧缓存覆盖。Python省略版本仅服务锁内兼容。未知未来version拒写/恢复；历史全部保留、无自动重放/清理，失败后查询实际版本，不称多文件事务。画布冲突保留输入/撤销及草稿，明确选择后再CAS；成功flush才接受离开并失效同一open世代，迟到请求不能覆盖新图。详见数据格式/维护及134验收；该阶段未开放Agent概念图，135接点见下条。
-- AG-135已完成：新鲜concept_map_grants独立批准，registry4/auth5/log5；旧休眠/通配不扩权，其它管理家族和撤销/轮换保留新字段/格式下界。22工具含图list/get，写入仅完整create/update和既有提案两确认；原图/全部节点关系/元数据/布局/差异/警告与执行依据完整展示，禁止以缩略图或片段替代。唯一ProposalStore、concept_map@1与manifest3/execution_schema3复用同域Prepared/JSON历史，历史已落但图未发布仍重查权限；after及必要history证明后只补原回执，未知/缺历史/第三方状态保留，create applying目标缺失不重建。config/concept-map-ids.json为共享单调分配游标，真正领取才写；Agent身份仍由唯一原子proposal绑定并在取消/过期/清理后保留墓碑。坏占用/游标停止分配，完整ZIP/迁移保留；人为删除/部分恢复及旧进程忽略游标不保证无证据ID不复用。readonly通过同一工厂及共享渲染、root隔离与dispose，不写主画布/草稿/撤销；全量画布/明细载入失败或版本切换禁止批准，票据不证明人眼阅读。v2 label保留原ID/结构，自动迁移仅v1/历史缺version，未来版不迁移；图同ID恢复409，其它类型原策略不变。最终状态/范围以135台账验收为准，136不开始。
+- AG-135已完成：新鲜concept_map_grants独立批准，registry4/auth5/log5；旧休眠/通配不扩权，其它管理家族和撤销/轮换保留新字段/格式下界。22工具含图list/get，写入仅完整create/update和既有提案两确认；原图/全部节点关系/元数据/布局/差异/警告与执行依据完整展示，禁止以缩略图或片段替代。唯一ProposalStore、concept_map@1与manifest3/execution_schema3复用同域Prepared/JSON历史，历史已落但图未发布仍重查权限；after及必要history证明后只补原回执，未知/缺历史/第三方状态保留，create applying目标缺失不重建。config/concept-map-ids.json为共享单调分配游标，真正领取才写；Agent身份仍由唯一原子proposal绑定并在取消/过期/清理后保留墓碑。坏占用/游标停止分配，完整ZIP/迁移保留；人为删除/部分恢复及旧进程忽略游标不保证无证据ID不复用。readonly通过同一工厂及共享渲染、root隔离与dispose，不写主画布/草稿/撤销；全量画布/明细载入失败或版本切换禁止批准，票据不证明人眼阅读。v2 label保留原ID/结构，自动迁移仅v1/历史缺version，未来版不迁移；图同ID恢复409，其它类型原策略不变。最终状态/范围以135台账验收为准；136状态见独立台账。
 
 ### 附件与导入导出
 
@@ -267,6 +267,7 @@ Markdown
 - AG-131暂存独立uploads.stage策略需管理完整预览/批准，read及既有目标范围不变，旧附件来源/休眠grants不生效；policy绑定批准后client_version，变更即失效。19工具中的新4项只控制私人暂存，正式附件/绑定消费留132/133。声明长度预留与真实bytes/SHA、sealed/磁盘证据、目标/权限结束复验必须共存；原始流仅固定loopback octet-stream，拒TE/重复CL，余body关闭。长流/hash锁外，短目录锁共同保护配额统计、rename/DELETE句柄实际删除/removed发布；未知对象、在途、已绑定/消费保护不清理，失败预算不提前释放，墓碑保留幂等但不占活跃数。具体版本/恢复/限制见DATA_FORMAT。
 - AG-132正式附件仅既有project/issue/todo/info的attachment/create，共同policy2须完整本机预览批准，旧stage/schema1/dormant不扩权；双方绑定同一批准后client_version。先共同批准再建新ready，不迁移旧ready。唯一ProposalStore及领域Prepared接口，确认/固定名与计划先落manifest再锁外copy/hash；session引用镜像缺口各入口保护，消费ID严格映射原操作。最终同句柄不覆盖rename，metadata仍before重查权限，after只补原回执。完整committed回执证明后才可退休源并释放预算，未知/在途不清理；AG-133扩展知识库附件，范围与证据见对应台账。正文只保留原body或公共助手追加链接，服务端时间明确占位后在受理确认时定稿；共享Markdown文件名转义/URL及两个编辑器往返必须验证。
 - AG-133文档附件事实源仅文档front matter的有序attachments列表，path相对原documents文件指向全局assets/images或assets/files，category为原文档分类。普通网页上传独立于Agent授权，长流锁外、稳定UUID先存后查、Prepared领域计划及操作证据恢复；不能用上传响应正文覆盖当前输入。私人.workbench-document-uploads不是业务索引，不进入静态或可移植ZIP；终结保留幂等墓碑，先证明真实删除才释放预算。孤儿识别覆盖正文、历史原owner目录、回收站与在途，未知保守保留并报告。ZIP只改导出副本路径和附件元数据，不写回正式Markdown。文档仍只有分类，134以后不在133范围。
+- AG-136删除接点：独立新鲜delete_grants/schema1，仅items.delete/delete/local_web；registry5/auth6/log6，旧休眠不激活，其他家族保留全部字段/格式下界。只开放issue/todo/info/document/concept_map单条移入回收站，无Agent恢复/purge/项目级联。完整目标/匹配活动来源/附件元数据/原图全字段预览，单文件1MiB、实际UTF8 JSON预览2MiB、活动集合4096文件/32MiB；有权读取且有删除许可才可执行，无权命中通用拒绝不泄露详情。唯一ProposalStore/trash_delete@1/execution4，manifest及原索引快照先落；同一NTFS句柄最后重验后不覆盖rename，原trash身份/字节证明后只补原索引/cache/receipt。移动中但trash缺失不重删恢复源，不从快照重建；committed重放只回原回执。索引/排序为保守依赖，排序ID/位置、历史、共享附件保留。全局在途保护涵盖普通恢复/purge/cleanup/孤儿清理；abandon接受盘态而非回滚，残留仍保护。已完成完整目录迁移须匹配私人配置/日志，ZIP不含删除事务。实现和验收状态以136台账为准，137以后不开始。
 - Agent 功能按 `docs/AI_AGENT_PLAN.md` 的 `AG-*` 工作项实施；开工和完成必须更新独立台账，不改写已完成 RF 工作项的历史状态。超出已登记边界的重构另行登记。
 - 业务接口不得绑定 Codex、特定模型或聊天 ID。MCP 是协议适配层，必须调用工作台服务，不直接写业务文件或另建 Repository 进程。
 - 整理入库的日志证据按 docs/AGENT_USAGE.md：关键原文摘录至正文代码块，保留必要时间/错误码/上下文并脱敏，省略明确标注，区分事实与推测。外部日志路径仅作来源补充；确认文件已存工作台时才可引用已有文件/附件，关键片段仍优先入正文。未取得原文须标注待补充，不补造摘录或附件链接；维护时同步 MCP 的 AGENT_RULES，不能只依赖本文件约束其他客户端。

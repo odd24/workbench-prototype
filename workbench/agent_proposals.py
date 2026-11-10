@@ -61,6 +61,24 @@ class ProposalStore:
         if self.blocked and not self.executing:
             raise AgentError("recovery_required", "存在未解决的 Agent 写入，请先检查恢复日志", 503, False)
 
+    def trash_protection(self, index):
+        """Read-only protection inventory; never starts recovery or expires drafts."""
+        self.preflight()
+        protected = {}
+        active = self.blocked
+        for path in self.operations.glob('*/manifest.json'):
+            manifest = read_json(path)
+            if manifest['state'] not in {'committed', 'abandoned'}:
+                active = True
+            if manifest.get('operation') == 'delete' and manifest['state'] != 'committed':
+                key = manifest['trash_token']
+                if manifest['state'] != 'abandoned' or key in index or (self.repository.trash_dir / key).exists():
+                    protected[key] = '删除计划尚在处理或放弃后仍需人工核查，保留回收证据'
+        if active:
+            for key in index:
+                protected.setdefault(key, '存在未解决的Agent操作，请先核查恢复日志')
+        return protected
+
     def _save(self, proposal):
         atomic_write_json(self.proposals / f"{proposal['proposal_id']}.json", proposal)
 
@@ -99,10 +117,16 @@ class ProposalStore:
         proposal = self._load(proposal_id)
         if proposal["client_id"] != client["client_id"] or not allows(client, proposal["access_target"]) or proposal.get('source_target') is not None and not allows(client, proposal['source_target']):
             raise AgentError("not_found", "提案不存在或不可访问", 404)
+        if proposal['operation'] == 'delete' and not proposal.get('content_cleaned'):
+            from .agent_delete_service import access_target
+            for impact in proposal['normalized_content']['impacts']:
+                item = impact['source']['item']
+                if not allows(client, access_target(item['type'], item)):
+                    raise AgentError('not_found', '提案不存在或不可访问', 404)
         return proposal
 
     def public(self, proposal):
-        return {key: value for key, value in proposal.items() if key not in {"request_hash", "base_content"}}
+        return {key: value for key, value in proposal.items() if key not in {"request_hash", "base_content", "delete_binding"}}
 
     def find_request(self, client, request):
         for path in self.proposals.glob("*.json"):
@@ -113,7 +137,7 @@ class ProposalStore:
                 return self.public(self.owned(client, old["proposal_id"]))
         return None
 
-    def create(self, client, request, content, base_content, confirmation_mode="agent_attested", *, dependencies=None, graph_warnings=None):
+    def create(self, client, request, content, base_content, confirmation_mode="agent_attested", *, dependencies=None, graph_warnings=None, delete_binding=None):
         self.preflight()
         request_hash = digest(request)
         active = 0
@@ -136,6 +160,14 @@ class ProposalStore:
                     "created_at": stamp(), "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
                     "previewed_version": None, "preview_digest": None,
                     "access_target": {"type": request["kind"], "project_id": content.get("project_id"), "category": content.get("category")}}
+        if proposal['operation'] == 'delete':
+            from .agent_delete_service import access_target
+            proposal.update(delete_binding=delete_binding, access_target=access_target(proposal['kind'], content['target']['item']))
+            bind_context(proposal, client, dependencies)
+            validate_context(proposal)
+            self.preview_result(proposal)
+            self._save(proposal)
+            return self.public(proposal)
         if proposal['kind'] == 'attachment':
             proposal['access_target'] = {'project_id':content['project_id']} if content['owner_kind'] == 'project' else {'type':'document', 'category':content['metadata_before'].get('category', '未分类')} if content['owner_kind'] == 'document' else {'type':content['owner_kind'], 'project_id':content['project_id']}
         if proposal['kind'] == 'concept_map':
@@ -159,13 +191,21 @@ class ProposalStore:
         self._save(proposal)
         return self.public(proposal)
 
-    def revise(self, proposal, expected_version, content, base_revision, base_content, *, client=None, dependencies=None, graph_warnings=None):
+    def revise(self, proposal, expected_version, content, base_revision, base_content, *, client=None, dependencies=None, graph_warnings=None, delete_binding=None):
         self.preflight()
         self.editable(proposal, expected_version)
         proposal.update(approval=None, version=proposal["version"] + 1, state="draft", normalized_content=content,
                         base_revision=base_revision, base_content=base_content, previewed_version=None, preview_digest=None,
                         expires_at=(datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
                         access_target={"type": proposal["kind"], "project_id": content.get("project_id"), "category": content.get("category")})
+        if proposal['operation'] == 'delete':
+            from .agent_delete_service import access_target
+            proposal.update(delete_binding=delete_binding, access_target=access_target(proposal['kind'], content['target']['item']))
+            bind_context(proposal, client, dependencies)
+            validate_context(proposal)
+            self.preview_result(proposal)
+            self._save(proposal)
+            return self.public(proposal)
         if proposal['kind'] == 'attachment':
             proposal['access_target'] = {'project_id':content['project_id']} if content['owner_kind'] == 'project' else {'type':'document', 'category':content['metadata_before'].get('category', '未分类')} if content['owner_kind'] == 'document' else {'type':content['owner_kind'], 'project_id':content['project_id']}
         if proposal['kind'] == 'concept_map':
@@ -194,6 +234,9 @@ class ProposalStore:
             preview.update(confirmation_mode=proposal["confirmation_mode"], digest_algorithm=proposal["digest_algorithm"])
         if proposal.get("schema_version") == 3:
             preview.update(**{key: proposal[key] for key in ("authorization_revision", "dependencies", "execution_plan", "plan_digest")})
+        if proposal['operation'] == 'delete':
+            from .agent_delete_execution import token
+            return {**preview, 'content':proposal['normalized_content'], 'trash_token':token(proposal), 'warnings':proposal['normalized_content']['warnings']}
         if proposal['kind'] == 'attachment':
             warnings = ['二进制仅按名称、大小、MIME及SHA-256预览，未解析内容；不执行或解压。', '创建/修改时间显示占位；服务端在接受本次确认时生成实际时间并持久记入执行计划，不使用草稿时间。', '最终名称和相对链接已固定；同名占位必须重新预览。', '请展示完整正文、元数据差异及来源，等待当前版本明确确认。']
         if proposal['kind'] == 'concept_map':
@@ -205,6 +248,9 @@ class ProposalStore:
         content = proposal["normalized_content"]
         preview = self.preview_payload(proposal)
         preview_digest = digest(preview)
+        if proposal['operation'] == 'delete':
+            from .agent_delete_service import checked_preview
+            return checked_preview({**preview, 'preview_digest':preview_digest, 'expires_at':proposal['expires_at'], 'changes':{'operation':{'before':'正式条目', 'after':'回收站'}}, 'body_diff':''})
         if proposal['kind'] == 'concept_map':
             from .agent_concept_execution import checked_preview
             return checked_preview({**preview, 'preview_digest': preview_digest, 'expires_at': proposal['expires_at'], 'changes': preview['graph_diff'], 'body_diff': ''})
@@ -266,7 +312,7 @@ class ProposalStore:
         self.checkpoint("proposal")
         manifest["state"] = "committed"
         if manifest["schema_version"] == 3:
-            manifest["step_states"] = dict.fromkeys(manifest["step_states"], "completed") if proposal["kind"] == "attachment" else ["completed", "completed"]
+            manifest["step_states"] = ['completed'] * 4 if proposal['operation'] == 'delete' else dict.fromkeys(manifest["step_states"], "completed") if proposal["kind"] == "attachment" else ["completed", "completed"]
         atomic_write_json(self.operations / manifest["operation_id"] / "manifest.json", manifest)
 
     def check_commit(self, proposal, version, preview_digest, confirmation, *, local_approval=None):
@@ -295,6 +341,8 @@ class ProposalStore:
         previous = self.check_commit(proposal, version, preview_digest, confirmation, local_approval=local_approval)
         if previous is not None:
             return previous
+        if proposal['operation'] == 'delete':
+            return self._commit_delete(proposal, version, preview_digest, prepared, local_approval)
         operation_id = f"{proposal['proposal_id']}-{version}"
         directory = self.operations / operation_id
         directory.mkdir(parents=True, exist_ok=True)
@@ -364,6 +412,55 @@ class ProposalStore:
         finally:
             self.executing = False
 
+    def _commit_delete(self, proposal, version, preview_digest, prepared, approval):
+        from .agent_delete_execution import token, concrete_plan as delete_plan, apply_steps
+        operation_id = f"{proposal['proposal_id']}-{version}"
+        directory = self.operations / operation_id
+        directory.mkdir(parents=True, exist_ok=True)
+        accepted = stamp()
+        content = proposal['normalized_content']
+        receipt = {'proposal_id':proposal['proposal_id'], 'version':version, 'kind':proposal['kind'],
+                   'item_id':prepared.item_id, 'revision':proposal['base_revision'], 'committed_at':accepted,
+                   'title':content['title'], 'project_id':content['project_id'], 'category':content['category'],
+                   'deleted':True, 'trash_token':token(proposal), 'web_path':'/?item=trash&itemId=' + token(proposal), 'approval':approval,
+                   'plan_digest':proposal['plan_digest']}
+        manifest = {'schema_version':3, 'execution_schema_version':4, 'workspace_id':self.workspace_id,
+                    'operation_id':operation_id, 'proposal_id':proposal['proposal_id'], 'version':version,
+                    'client_id':proposal['client_id'], 'kind':proposal['kind'], 'operation':'delete',
+                    'item_id':prepared.item_id, 'relative_path':prepared.relative_path, 'before_digest':proposal['base_revision'],
+                    'trash_token':token(proposal), 'deleted_at':accepted, 'state':'prepared', 'step_states':['pending'] * 4,
+                    'receipt':receipt, 'confirmation':{'mode':'local_web'}, 'approval':approval,
+                    **{key:proposal[key] for key in ('authorization_revision', 'dependencies', 'preview_digest', 'confirmation_mode', 'digest_algorithm', 'access_target')}}
+        manifest['execution_plan'] = delete_plan(manifest, proposal)
+        manifest['execution_plan_digest'] = fingerprint(manifest['execution_plan'])
+        receipt['execution_plan_digest'] = manifest['execution_plan_digest']
+        self._validate_execution(manifest, proposal)
+        try:
+            atomic_write_bytes(directory / ('before.json' if proposal['kind'] == 'concept_map' else 'before.md'), prepared.before)
+            from .deletion_prepared import read_trash_index
+            index_raw, index = read_trash_index(self.repository.root)
+            if byte_digest(index_raw) != proposal['delete_binding']['trash_index_digest'] or manifest['trash_token'] in index:
+                raise ValueError('回收站索引变化或token被占用，请重新完整预览')
+            atomic_write_bytes(directory / 'index-before.json', index_raw)
+            self.checkpoint('snapshots')
+            self._validate_execution(manifest, proposal, snapshots=True)
+            atomic_write_json(directory / 'manifest.json', manifest)
+            self.blocked = True
+            self.checkpoint('manifest')
+            proposal['state'] = 'committing'
+            self._save(proposal)
+            self.checkpoint('committing')
+            self.executing = True
+            apply_steps(self, manifest, proposal, prepared)
+            self._finish(manifest, proposal)
+            self.blocked = False
+            return receipt
+        except Exception:
+            self.blocked = (directory / 'manifest.json').exists()
+            raise AgentError('commit_interrupted', '删除结果尚未确认，请查询原提案，不要重新创建或生成回收token', 503, True) from None
+        finally:
+            self.executing = False
+
     def _progress(self, manifest, path):
         def checkpoint(stage):
             self.checkpoint(stage)  # An exit here occurs AFTER disk write, BEFORE progress log.
@@ -389,6 +486,9 @@ class ProposalStore:
         return path
 
     def _validate_execution(self, manifest, proposal, *, snapshots=False):
+        if proposal['operation'] == 'delete':
+            from .agent_delete_execution import validate_execution
+            return validate_execution(self, manifest, proposal, snapshots)
         if proposal['kind'] == 'concept_map':
             from .agent_concept_execution import validate_snapshots
             return validate_snapshots(self, manifest, proposal, snapshots)
@@ -467,7 +567,7 @@ class ProposalStore:
             if action["schema_version"] == 3:
                 validate_action(action, path.stem)
 
-    def _current_authorization(self, proposal):
+    def _current_authorization(self, proposal, *, held_source=None):
         runtime = getattr(self.repository, "agent_runtime", None)
         security = runtime.security() if runtime and runtime.status()["workspace_id"] else getattr(self, "security", None)
         if not security:
@@ -479,8 +579,8 @@ class ProposalStore:
             raise AgentError("authorization_changed", "原客户端授权版本已变化", 409)
         from .agent_service import AgentService
         service = AgentService(self.repository, security)
-        if proposal['kind'] == 'concept_map':
-            service.prepare_submission(client, proposal)
+        if proposal['operation'] == 'delete' or proposal['kind'] == 'concept_map':
+            service.prepare_submission(client, proposal, held_source=held_source)
             return client
         if service.execution_dependencies(client, proposal["kind"], proposal["normalized_content"]) != proposal["dependencies"]:
             raise AgentError("dependency_changed", "提案依赖或集合已变化", 409)
@@ -559,6 +659,13 @@ class ProposalStore:
                     # Later ordinary edits/deletion never replay an already completed operation.
                     if not (self.receipts / f"{proposal['proposal_id']}.json").exists() or proposal["state"] != "committed":
                         self._finish(manifest, proposal)
+                    continue
+                if proposal['operation'] == 'delete':
+                    from .agent_delete_execution import prepared_from_manifest, apply_steps
+                    prepared = prepared_from_manifest(self, manifest, proposal)
+                    self.executing = True
+                    apply_steps(self, manifest, proposal, prepared, recovery=True)
+                    self._finish(manifest, proposal)
                     continue
                 if proposal['kind'] == 'attachment':
                     # Dedicated entry points recover binary evidence outside all
@@ -658,10 +765,14 @@ class ProposalStore:
             raise AgentError("invalid_manifest", "事务身份不一致，拒绝修改", 503)
         if manifest["schema_version"] == 3:
             try:
-                self._validate_execution(manifest, proposal)
+                if proposal['operation'] == 'delete':
+                    self.preflight()
+                self._validate_execution(manifest, proposal, snapshots=proposal['operation'] == 'delete')
             except (ValueError, KeyError, TypeError):
                 raise AgentError("invalid_manifest", "不能放弃不受支持或身份不一致的执行计划", 503) from None
         manifest.update(state="abandoned", abandoned_at=stamp())
+        if proposal['operation'] == 'delete':
+            manifest['manual_review_required'] = True
         atomic_write_json(path, manifest)
         proposal.update(state="cancelled", finished_at=manifest["abandoned_at"], outcome="accepted_disk")
         self._save(proposal)
@@ -694,5 +805,7 @@ class ProposalStore:
                     if manifest.get("schema_version") not in (1, 2, 3):
                         raise AgentError("unsupported_schema", "不能清理未知格式的事务", 503)
                 if not manifest_path.exists() or manifest.get("state") in {"committed", "abandoned"}:
+                    if proposal['operation'] == 'delete':
+                        (directory / 'index-before.json').unlink(missing_ok=True)
                     for filename in (("before.json", "after.json") if proposal['kind'] == 'concept_map' else ("before.md", "after.md")):
                         (directory / filename).unlink(missing_ok=True)

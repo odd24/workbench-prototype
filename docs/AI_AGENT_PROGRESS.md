@@ -1,6 +1,6 @@
 # 通用 AI Agent 接入进度台账
 
-最后更新：2026-11-09。
+最后更新：2026-11-10。
 
 方案：[AI_AGENT_PLAN.md](AI_AGENT_PLAN.md)。执行规范：[AGENTS.md](../AGENTS.md)。本台账只记录 AG-* 新功能；原重构台账继续保留历史事实。
 
@@ -8,7 +8,7 @@
 
 后续扩展详见 [AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。AG-115仅文档；AG-116～121、AG-126已完成；用户已明确仅本机使用，AG-122～125已取消当前实施、远程未实现。当前WorkBuddy5.9.3与本机最终交付证据见末尾及扩展验收，不影响首期历史状态。
 
-2026-11-09 用户在监督对话明确“现在开始执行方案”，解除此前暂停实施限制。AG-128～130及独立POST锁修复已通过监督审查，AG-131已通过监督审查，AG-132已通过监督审查，AG-133已通过监督审查，AG-134已提交9e43aa3并获监督接受，AG-135已完成、AG-136～143待开始。历史 AG-127 的仅文档授权和暂停事实保留。
+2026-11-09 用户在监督对话明确“现在开始执行方案”，解除此前暂停实施限制。AG-128～130及独立POST锁修复已通过监督审查，AG-131已通过监督审查，AG-132已通过监督审查，AG-133已通过监督审查，AG-134已提交9e43aa3并获监督接受，AG-135～136已完成、AG-137～143待开始且后续已按用户指令暂停。历史 AG-127 的仅文档授权和暂停事实保留。
 
 ## 工作项
 
@@ -50,7 +50,7 @@
 | AG-133 | 知识库附件领域能力与网页接入 | 已完成 | 2026-11-09 | 2026-11-09 | AG-131、132；监督接受6c28f12后派发；实测见末节 |
 | AG-134 | 概念图版本、历史与准备写入 | 已完成 | 2026-11-09 | 2026-11-10 | AG-129；监督接受e0a5a88后派发 |
 | AG-135 | 概念图 Agent 提案与完整预览 | 已完成 | 2026-11-10 | 2026-11-10 | AG-128、134；新鲜授权/唯一提案/22工具/完整预览；433Python、23Node分批及隔离Codex通过；决策047/048 |
-| AG-136 | 条目删除与回收站持久恢复 | 待开始 | — | — | AG-129、135 |
+| AG-136 | 条目删除与回收站持久恢复 | 已完成 | 2026-11-10 | 2026-11-10 | AG-129、135；完整删除预览/强制网页批准/原回执及恢复保护验收完成；后续暂停 |
 | AG-137 | 项目创建、排序与可选独立授权 | 待开始 | — | — | AG-129 |
 | AG-138 | 项目级联删除 | 待开始 | — | — | AG-136、137 |
 | AG-139 | 三类分类变更与授权迁移 | 待开始 | — | — | AG-129、133、135 |
@@ -1130,3 +1130,60 @@ AG-135设置复验第三次38.428秒失败在新增图撤销尾部第548行：�
 - 决策：AG-LOCAL-DEC-047（单调分配）、048（v2稳定label/只迁移旧版）。本次无真实业务数据/私人配置变更、无新增清理拒绝或fixture残留；历史清理回复仅补充闭合。最终目标diff不含数据/凭据/日志/截图/缓存或用户既有修改。下一工作项AG-136仅为交接候选，尚未开始，等待监督派发。
 
 AG-135实际修改文件（46）：`AGENTS.md`、`README.md`、`app.js`、`codex_agent_acceptance.py`、`concept-map.js`、`css/concept-map.css`、`docs/AGENT_INTEGRATION.md`、`docs/AGENT_USAGE.md`、`docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md`、`docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md`、`docs/AI_AGENT_PROGRESS.md`、`docs/ARCHITECTURE.md`、`docs/DATA_FORMAT.md`、`docs/MAINTENANCE.md`、`index.html`、`js/core/navigation.js`、`js/features/agent-proposals.js`、`js/features/agent-settings.js`、`test_agent_attachments.py`、`test_agent_capabilities.py`、`test_agent_concept_map_workflows.js`、`test_agent_concept_maps.py`、`test_agent_files.py`、`test_agent_settings.js`、`test_agent_uploads.py`、`test_concept_map_ids.py`、`test_frontend_entry.js`、`test_mcp_stdio.py`、`workbench/agent_concept_authorization.py`、`workbench/agent_concept_execution.py`、`workbench/agent_concept_maps.py`、`workbench/agent_concept_service.py`、`workbench/agent_execution.py`、`workbench/agent_http.py`、`workbench/agent_management.py`、`workbench/agent_management_http.py`、`workbench/agent_proposal_management.py`、`workbench/agent_proposals.py`、`workbench/agent_security.py`、`workbench/agent_service.py`、`workbench/agent_tools.py`、`workbench/agent_upload_policy.py`、`workbench/concept_map_ids.py`、`workbench/concept_maps.py`、`workbench/http_api.py`、`workbench/repository.py`。
+
+### 2026-11-10 / AG-136 / 开始（读码与设计）
+
+- 起始fe32140，git status --short干净；监督已接受135并派发仅136，继续唯一仓库写入者；137～143不开始。
+- 精确范围：issue/todo/info/document/concept_map删除，新鲜独立许可、强制local_web、完整内容/结构/附件/引用影响预览；唯一ProposalStore静态版本处理器与领域PreparedDelete、稳定trash token/原操作、移动/索引/排序/缓存/回执证据及在途保护。无idea新增暴露、项目级联、Agent恢复/purge/空回收站/孤儿清理工具。
+- 预计接点：repository及records/documents/concept_maps、统一删除Prepared基础、Agent授权/管理/服务/静态执行/ProposalStore/工具/HTTP、现有提案预览/设置/回收站必要UI、测试与AGENTS/README/计划/台账/格式/架构/维护/验收文档。精确文件在设计审查后按最小范围确定，不另建CRUD或恢复进程。
+- 计划验证：完整授权/预览/取消、CAS/依赖集合变化、强制网页批准、未知版本零写；逐阶段异常与真实退出、移动后索引前恢复、并发外部移动/恢复/删除/异物、重复/丢响应/关闭Agent重启恢复；网页恢复后旧提交不再删、清理/purge/普通写在途保护、稳定ID及历史/游标/备份迁移、缓存排序真实重读。真实浏览器浅深1440/390与旧流程；稳定后冻结全量Python/必要Node/隔离真实Codex0模型turn，只用临时数据/配置。
+- 已知风险：现有回收站移动后写索引不是事务，源/目标同时存在或丢失、索引异物和用户恢复会形成不确定状态；必须保持未知保守不写、不扩大授权，已移动仅凭原证据补原状态，不能重删恢复条目。附件与历史需保留，引用影响完整读取不能靠摘要替代。先报告设计、监督定稿后实现。
+
+AG-136独立读码/测试盘点补充（2026-11-10，尚未实现）：原有test_records覆盖仓储共用回收边界/索引路径篡改；test_server覆盖单项/批量恢复永久删除、文档/图及排序；test_agent_recovery已具snapshots/manifest/committing/applying/history/target/receipt/proposal中断模式；test_agent_concept_maps与test_concept_map_ids覆盖真实退出、未来格式零写、图游标/同ID恢复409与其他类型原恢复冲突策略。136应新增五类型删除阶段矩阵，不把旧写入测试冒充新删除证据；保留旧四类create/update/append和graph/attachment执行语义。现有普通record/document冲突恢复会改文件名但不改内部ID，136不借机改此旧规则；Agent旧回执必须无论恢复位置只回原结果。现有全量433基线是135交付，不是136门禁。方案23节等待监督定稿，继续未动产品/测试。
+
+AG-136设计已获监督定稿（2026-11-10）：23节及补充边界接受，开始实现，无需再等启动。先同域PreparedDelete（新workbench/deletion_prepared.py，records/documents/concept_maps/repository轻量接点）与test_deletions.py验证纯准备/唯一对象/原字节/同句柄NTFS无覆盖move、排序保留及缓存阶段；再新鲜delete授权（agent_delete_authorization及security/management/http/settings）、唯一提案静态执行（agent_delete_execution/service及现有Store接点）、共享引用识别器/完整预览/回执/在途保护与专项/浏览器，文件按实际最小接点增加并在完成清单列出。新首期平台限制如实capabilities，不影响普通网页旧删除规则。已接受引用宇宙和无权命中通用拒绝、每文件1MiB/实际preview2MiB、默认30天但本机可提前purge、abandon非回滚；137以后不开始。
+
+AG-136领域基础阶段：新增deletion_prepared纯计划/受控来源/1MiB读/NTFS同句柄identity+原字节绑定/不覆盖rename，四仓储门面新增prepare_delete接点，未改普通删除/未开放Agent handler。test_deletions新增7项加旧records/concept_maps共24项3.654秒OK，覆盖五类型准备零磁盘写、目标同原对象和原字节、错误类型/缺失/idea/过期版本、相同字节替换身份拒绝、最后检查后新建异物目标仍不覆盖、权限失败/硬链接/超限、trash同字节换对象拒绝、模拟不支持平台和恶意token。索引/缓存/恢复仍留唯一执行引擎后续接入，不把领域move当完整删除事务通过。
+
+AG-136活动引用/授权阶段（未接工具）：共享references识别既有[[ID]]/body/attachment与受控item深链及links字段，遍历info/其它用户文本；document backlinks复用同一识别器补info而不建立反链持久索引。严格active_inventory扫描正式四MD/legacy idea/项目README/图，历史和trash非活动源；拒未知未来/重复/超单文件，绑定完整清单摘要。另设内部扫描预算4096文件/32MiB总原始字节，超过即拒完整影响计划，不截断；每原文件1MiB/preview2MiB仍独立。初次41项20.776秒2错误为Temp短路径根未规范化，已按可信Repository根规范化；12项1.764秒（新增inventory/deletion及旧文档反链）复验OK。原生删除准备仍只表示领域阶段。
+
+新鲜delete_grants/auth6/root5/log6基础和同CredentialManager快照/日志/恢复/终结保留接点已加入；尚无新Agent handler/工具/UI路由，不声称能力已开放。旧capabilities/管理/图授权42项38.005秒OK。新增5项新授权专项首轮1.943秒3错误暴露Path对象也有root属性导致CLI资源重查误取盘根，已改为识别Repository领域门面；同5项2.432秒复验全过，证明完整范围零写预览/原回执重放、空或无scope/kind/read不生效、显式attested拒绝、版本/会话/资源变化拒绝、图/删除字段及格式下界在edit/rotate/revoke保留。真实退出/旧版本拒绝/其它授权家族与分类收窄仍待验证，不提前标该阶段完成。
+
+AG-136新管理真实退出及扫描边界：新增新授权6项7.994秒OK，含7个os._exit点及实际fe32140旧管理零JSON变化拒绝；新版按原证据恢复，首snapshot孤儿不激活，保持root5，终结私人快照清理。增量inventory已改逐文件读取/解析，不保留32MiB全量raw；只保存内部摘要/显示元数据，target调用仅留目标和命中全文，原量先拒超2MiB，最终实际UTF8 JSON响应独立计量。真4096/4097文件、32MiB/超1字节、单file1MiB/超1字节及新授权共12项21.027秒OK；未知结构/超限拒绝，不截断。
+
+AG-136唯一提案引擎阶段：新增server-derived DeleteCandidateService、static trash_delete@1/outer3/execution4与同ProposalStore删除分支，固定token/source identity/raw SHA/完整影响/排序保留/本机批准。五类型完整prepare/preview/local approve/trash原字节/原index操作/restore/旧commit不再次删除的1项五子例4.927秒OK。首轮1项5错误，第一例原生DELETE句柄持有时permit复开源native read被SHARE_READ规则拒绝，随后全局保护正确阻止其余例创建；定向诊断确认无移动。修复为最终同句柄核验后保持源锁，permit基于该句柄已核验before字节重扫其它活动来源并重验权限/依赖，不再次打开被持有的同一源，不放宽句柄share模式或释放句柄后rename；正常路由不接受held_source参数。该阶段无真实浏览器/完整退出矩阵结论，guard/read状态/普通恢复保护/工具/UI仍在接入，136保持进行中。
+
+AG-136恢复/保护阶段实际验证：test_agent_delete_recovery共4项85.006秒OK，包含五类型×12真实os._exit共60场景（snapshots/manifest/committing/move applying/实际move/移动log/index/index log/cache/cache log/receipt/proposal），关闭Agent式启动先恢复再清理、manifest前批准只查询not_applied、applying但无trash拒重删并明确abandon、全局guard阻止普通restore/purge/batch/cleanup/项目删除/创建/孤儿清理。移动后源重建及撤销只补原index/receipt，不碰新源；token异物index保留、abandon后残留仍保护且孤儿报告保守；未知执行版本/handler/跨字段/路径/token/时间/回执零JSON写预检，不能以abandon绕过。后续加强held-source为只在真实DELETE句柄生存期有效的内部能力，普通HTTP/Agent参数拒held_source，伪造PreparedDelete/失效能力拒绝；不开放重新构造快照写源。
+
+新增授权/来源/领域19项20.334秒OK，含文件/暂存/附件family保持auth6/delete字段、分类后续失败已收窄且不扩大未分类、无权活动命中通用拒绝且不漏未匹配ID/标题/路径、README命中不隐式授全文读、集合变化/CAS和禁止替换content/path/body/held_source/attested；另旧capabilities/原生文件模拟及相关28项35.695秒OK。新图只读删除显示不产生图候选，独立1MiB读取/2MiB响应预算；原create/update的256KiB默认验证接口不放宽。
+
+浏览器接点正在验收：删除新鲜范围完整预览/取消/批准丢响应后reload查询、删除影响全部source/双readonly图、回执/原回收站链接、保护按钮及原流程。首轮400来自夹具授权未先建立既有未分类；后续夹具误假设记录文件名仅ID，改为既有file_path；Windows短路径/大小写边界用native realpath规范化保持同目录断言。一次授权reload后显示home并超时，原因尚未确定，后续加实际startup路径/状态诊断原样越过，不据此归因；取消后续点确认超时为等待只看dialog关闭，已补现有isBusy/confirming结束的状态同步，未增超时或删产品断言。完整浏览器尚未通过，不先宣称UI完成。
+
+
+AG-136收口补充：原索引必须在移动前完整验证并绑定原字节SHA，before.md/json与index-before.json先落manifest。移动前索引任何变化（含无关变化）保守要求重预览；移动后的恢复仅并入原token，不覆盖其他成员，快照不授权重建索引/源。补充后29项128.360秒OK，含60真实退出。实际HTTP+原始stdio两项首轮夹具缺管理标记403；补齐后发现HTTP通用回执装饰错误改写删除链接，产品严格核对服务端稳定token/受控trash path并保留，2项2.522秒复验OK，普通四类/附件/图旧链接随后全量回归。工具不能输入任意path影响该分支。
+
+新必要负例：未知/重复回收索引预览零JSON写、移动前index变化、相同字节替换源物理身份拒绝、实际UTF8 JSON2MiB及超1字节、终结30天原文/索引快照清理后仍恢复/返回旧回执、已完成完整目录+匹配私人配置copy迁移及游标保留。初次7项17.474秒1失败仅Temp长短目录未规范化，改resolve保持受控目录断言并增加旧源仍不存在，迁移专项1项1.400秒OK。增量活动JSON解析拒重复字段，防止正文引用被后字段覆盖。无数据格式迁移或真实配置变更。
+
+最新node test_agent_delete_workflows.js完整exit0，新增撤销真DELETE200/operation version与GET重载expected_version一致、空delete grant及原图read仍保留；不是在响应前读磁盘。8张布局稳定后的浅深×1440/390授权/完整双图预览逐张目视，JSON正常换行、按钮/focus可见、无页面横向溢出。第一次reload未知原因继续保留，后续完整reload初始化诊断及最终流程通过。APP_VERSION2026.11.10.3，实际修改app/navigation/agent-settings/agent-proposals/trash五资源20261110-3，图工厂/CSS版本不变。
+
+2026-11-10用户监督对话新指令：“完成当前任务后，先暂停下任务执行，等待我的指令”。当前任务边界为AG-136收口、必要门禁、独立本地提交及交监督审查；完成后暂停后续，不登记开工/设计/实施AG-137或其他后续任务。此前持续执行授权保留为历史，不再作为自动衔接后续工作的授权。
+
+AG-136最终冻结Python：python -m unittest -v，469项569.157秒OK/1原生symlink权限skip。163源码/测试摘要仍冻结，无实现或测试修改。24Node正按文件顺序执行，隔离真实Codex尚待；仍保持进行中。100MiB附件copy/staging/文档网页流实测有界Python内存，非独立性能基线。
+
+AG-136冻结Node首轮：附件17.984秒/图16.826秒/新删除15.058秒exit0；旧提案25.563秒因精确回执提示断言超时，实页为“已查到原操作回执。”而旧契约为“已查到原入库回执。”。定位为136把通用提示改名影响旧入库流程，恢复产品按operation分支：旧入库提示原样，delete明确删除回执/移入回收站。不改测试断言或超时。撤销首轮JS冻结，仅agent-proposals.js两处文案变更，163重新冻结；全部100 Python/测试摘要未变，其469项569.157秒证据保留。完整24Node重新顺序运行，首轮失败/日志保留，不称首轮全绿。
+
+AG-136最终冻结Node复验：24个文件顺序全部exit0；附件21.544秒、图16.837秒、删除15.150秒、旧提案14.926秒、设置38.193秒、旧Agent23.090秒、主图49.857秒、知识库附件12.499秒、双编辑器72.039秒、项目筛选8.194秒、时间戳12.152秒，其余模型/核心/选择器/CSS契约通过。首轮提示失败继续保留，最终只有agent-proposals.js两文案分支变化。额外在Temp载入冻结删除浏览器测试并加入两处精确UI等待，实际完整运行exit0，确认“已查到原删除回执。”及“已批准并移入回收站。”；旧提案冻结测试已验证原入库回执提示。未修改仓库测试或超时。额外驱动初次只加载module未调用main，不计验收；随后显式调用完整main并输出实际通过记录。隔离Codex正运行，尚不标完成。
+
+
+### 2026-11-10 / AG-136 / 完成，后续暂停
+
+- 完成范围：issue/todo/info/document/concept_map单条delete，新鲜独立delete_grants、强制local_web、完整原文/匹配来源/结构图/附件元数据预览；唯一ProposalStore/trash_delete@1/execution4、领域PreparedDelete、NTFS同句柄不覆盖移动、原索引快照/CAS/仅本token合并、排序保留与cache、原回执及在途保护。无Agent恢复/purge/项目级联/新建配置，137～143未开始。
+- 最终自动检查：python -m unittest -v，469项569.157秒OK，1项Windows原生symlink权限skip；100 Python/50 JS全文件语法、163文件最终SHA一致、10修改Markdown UTF8/围栏/相对链接及git diff --check通过。24Node最终逐项全过，包含设置/新删除/旧入库、图、附件、双编辑器/保存重开、核心和CSS契约；首轮旧提示失败及仅JS两文案恢复过程已保留，不称首轮全绿。Python源码/测试摘要未变，其完整证据保持有效。
+- 真实兼容：python codex_agent_acceptance.py exit0，codex-cli 0.163.0-alpha.10.2、协议2025-11-25、22工具，旧四类型与两确认/追加更新/重试取消重启撤销通过；临时数据/隔离CODEX_HOME，model_turns_started=0、user_config_changed=false。不是AG-142真实模型/对话遵规矩阵；新增删除的实际stdio/HTTP与强制网页批准由专项证明。
+- 必要手工/浏览器验证：授权完整预览/取消/真实200后丢响应reload原操作查询、完整info与共享附件保留、全部匹配文档、双readonly图及全部字段、取消/关闭重开、原回执/回收恢复/旧重放不再删、后台输入草稿不变及结果导航flush、撤销DELETE200/当前版本与空grant和旧图read保留通过。浅深1440/390八图逐张目视，长中文/完整JSON换行、focus/disabled/错误和空范围、全图/明细清楚，无页面横向溢出；截图只留Temp。两删除精确提示另做完整浏览器实际验证。首次授权reload超时原因未知保留，后续完整初始化诊断和流程通过，不归因全部为同一问题。
+- 数据/API兼容：旧Markdown、图原字节/JSON历史、附件二进制/共享资源及排序ID位置保留；新鲜批准才registry5/auth6/log6，transport2/旧执行1～3语义保持，其他授权家族与终结/abandon保留下界。工具仍22个，delete禁止替换内容/路径，旧写入仍须content。完整集合/排序/原索引依赖保守，变化需重预览。完成态完整目录迁移+匹配私人配置/日志实际恢复、游标保留；私人终结内容30天清理后原回执/恢复依据仍可用。ZIP排除.agent/.trash，不是删除事务备份。
+- 风险和边界：不是多文件事务；移动证据不明、异物/未来格式保守阻断，不能从快照重建source/trash或重删恢复源。abandon接受盘态非回滚，残留仍保护且孤儿报告保守。历史/回执/身份墓碑保留增长；外部文件系统剩余竞态、原生等待/平台限制不承诺消除，非Windows只有模拟分支。全部活动扫描上限4096文件/32MiB、单文件1MiB、实际响应2MiB，超限拒绝无截断；潜在文本引用不证明任意自然语言关联。票据不证明现实身份或人眼阅读。普通记录/文档冲突恢复原文件名规则保留，图同ID仍409。
+- 决策AG-LOCAL-DEC-049；无真实业务数据/私人配置变更。无新增工具清理拒绝或fixture残留；Temp日志/截图用于本机评审不提交。历史tmp清理仅当前不存在事实已闭合，不重问。最终diff只含本工作项代码/测试/文档/缓存版本，无用户既有修改、运行数据或生成物。
+- 后续：遵守用户“完成当前任务后，先暂停下任务执行，等待我的指令”，136独立本地提交交审后暂停全部后续；137不登记开工/设计/实施，不自行衔接。
+
+AG-136实际修改文件（48）：`AGENTS.md`、`README.md`、`app.js`、`docs/AGENT_INTEGRATION.md`、`docs/AGENT_USAGE.md`、`docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md`、`docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md`、`docs/AI_AGENT_PROGRESS.md`、`docs/ARCHITECTURE.md`、`docs/DATA_FORMAT.md`、`docs/MAINTENANCE.md`、`index.html`、`js/core/navigation.js`、`js/features/agent-proposals.js`、`js/features/agent-settings.js`、`js/features/trash.js`、`test_agent_attachments.py`、`test_agent_capabilities.py`、`test_agent_delete_http.py`、`test_agent_delete_recovery.py`、`test_agent_delete_workflows.js`、`test_agent_deletions.py`、`test_deletion_inventory.py`、`test_deletions.py`、`test_frontend_entry.js`、`workbench/agent_concept_authorization.py`、`workbench/agent_concept_maps.py`、`workbench/agent_delete_authorization.py`、`workbench/agent_delete_execution.py`、`workbench/agent_delete_service.py`、`workbench/agent_execution.py`、`workbench/agent_http.py`、`workbench/agent_management.py`、`workbench/agent_management_http.py`、`workbench/agent_proposal_management.py`、`workbench/agent_proposals.py`、`workbench/agent_security.py`、`workbench/agent_service.py`、`workbench/agent_tools.py`、`workbench/asset_references.py`、`workbench/concept_maps.py`、`workbench/deletion_inventory.py`、`workbench/deletion_prepared.py`、`workbench/documents.py`、`workbench/http_api.py`、`workbench/records.py`、`workbench/references.py`、`workbench/repository.py`。

@@ -374,6 +374,13 @@ class ConceptMapRepository:
     def update(self, map_id: str, payload: dict) -> dict:
         return self.prepare_update(map_id, payload).apply(self.history_dir)
 
+    def prepare_delete(self, map_id, revision):
+        from .deletion_prepared import PreparedDelete
+        item, path = self.get(map_id)
+        if not item or not path:
+            raise FileNotFoundError(map_id)
+        return PreparedDelete.from_path(self.concept_maps_dir.parent, path, map_id, 'concept_map', revision)
+
     def delete(self, map_id: str) -> dict:
         item, path = self.get(map_id)
         if not item or not path:

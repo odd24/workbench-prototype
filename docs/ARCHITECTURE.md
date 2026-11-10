@@ -169,7 +169,7 @@ ConceptMapRepository负责原JSON字节版本及PreparedConceptMapWrite；Reposi
 
 concept-map.js仍唯一画布控制器，统一持有base revision、本地编辑序号/保存Promise、撤销栈、冲突状态、同一个open请求世代及恢复中保护。app.setPage等待feature.leave成功后才改变路由；leave只在flush成功时使未决open失效。请求返回还核对世代/空间与等待期间的未保存内容；不会用迟到图覆盖当前画布。冲突选择与历史恢复复用既有对话框和API，草稿只恢复交互，不代替JSON；保存成功只推进base/保存序号，保留期间继续输入。
 
-## AG-135图接点（实施中）
+## AG-135图接点（已完成）
 
 concept_maps仍是JSON归一化/Prepared/历史的唯一领域实现；新增纯prepare_create及可固定managed_time的prepare_update，预览不创建分类/正式图/历史。concept_map_ids为共享单调分配器，合并正式/历史/回收/全部提案证据；Repository注入库存并与既有RLock协调。config/concept-map-ids.json仅是分配游标，Agent预留仍只由唯一proposal原子记录绑定，不另建预留日志。
 
@@ -178,3 +178,11 @@ agent_concept_maps严格验证完整Agent候选、字节预算、稳定ID证明�
 concept-map.js同一工厂新增readOnly选项：共享几何/节点/边markup，独立root和局部视口，pan/zoom只影响该实例；dispose中断root监听器、取消frame并清除DOM。原主画布全局事件忽略readonly根，键盘/粘贴还检查当前页面；主画布排队frame检查原current/open世代，主节点查询限主root。agent-proposals展示完整候选画布、全部字段/原图/差异/警告，成功加载同一proposal/version/digest后才启用本机批准，失败/关闭/切换/迟到结果清除旧前端许可。结果回调复用app.openItemLink及AG-134 leave/flush/open/request保护；不会通过新平行画布打开正式结果。
 
 v2带edge.label的原自动拆边会改变Agent稳定身份，本项明确改为保留v2结构并用原标签编辑宿主显示/编辑；仅v1或历史缺version执行旧迁移，未来版本不迁移。图同ID回收恢复冲突409，其它资源原恢复策略保持。完整数据ZIP与迁移自然携带单调游标，私人Agent状态仍排除可移植ZIP。最终实现状态与验收证据以独立台账为准。
+
+## AG-136 删除接点（已完成）
+
+records/documents/concept_maps定位并产生deletion_prepared.PreparedDelete，由repository门面装配；它只核受控来源/身份/原字节及同NTFS句柄不覆盖移动，不自行管理事务。agent_delete_service生成完整服务端影响候选，deletion_inventory增量严格扫描活动全集，references复用既有引用识别并补知识库对info反链。HTTP仍只负责协议与严格回执链接，新增业务没有回填server.py。
+
+独立agent_delete_authorization复用CredentialManager的快照/日志/围栏/幂等与管理会话。agent_delete_execution仅静态trash_delete@1计划/证据/步骤，恢复分支仍在唯一ProposalStore；不另建恢复循环或CRUD。原索引快照、NTFS身份、raw SHA、完整活动/排序/索引摘要一起约束移动；同句柄最终许可不复开被DELETE锁住的源。已移动只补原回执，不触碰后来出现的源。Repository守卫统一普通写/恢复/purge/清理，回收站读列表只展示保护，不产生恢复。
+
+设置页复用既有范围组件和持久请求查询，提案页全量目标/引用原文与多个独立readonly概念图实例，全部ready且同版本/摘要才启用批准；关闭/切换/失败清除前端许可。结果导航走既有dirty/flush/leave链路，再定位原token；工厂/选择器隔离不写主图草稿或撤销。

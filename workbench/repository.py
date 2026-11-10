@@ -143,6 +143,18 @@ class Repository:
             ids.add(json.loads(path.read_text(encoding="utf-8")).get("item_id", ""))
         return ids
 
+    def prepare_delete(self, kind, item_id, base_revision):
+        if kind == 'concept_map':
+            return self._concept_map_repository.prepare_delete(item_id, base_revision)
+        if kind == 'document':
+            return self._document_repository.prepare_document_delete(item_id, base_revision)
+        if kind not in {'issue', 'todo', 'info'}:
+            raise ValueError('该类型不支持Agent删除')
+        prepared = self._record_repository.prepare_record_delete(item_id, base_revision)
+        if prepared.kind != kind:
+            raise FileNotFoundError(item_id)
+        return prepared
+
     def prepare_markdown_write(self, kind, content, target_id=None, base_revision=None):
         domain = self._document_repository if kind == "document" else self._record_repository
         name = "document" if kind == "document" else "record"
@@ -306,14 +318,16 @@ class Repository:
 
     def list_trash(self) -> list[dict]:
         index = self._trash_index()
+        store = getattr(self, 'agent_proposals', None)
+        protected = store.trash_protection(index) if store else {}
         valid = []
         for item in index.values():
             try:
                 if not isinstance(item, dict):
                     continue
-                path = Path(item["trash_path"]).resolve()
+                path = self.trash_dir / item['token'] if 'delete_schema_version' in item else Path(item["trash_path"]).resolve()
                 if path.parent == self.trash_dir and path.exists():
-                    valid.append(item)
+                    valid.append({**item, 'protected':item['token'] in protected, 'protection_reason':protected.get(item['token'], '')})
             except (KeyError, OSError, TypeError):
                 continue
         return sorted(valid, key=lambda item: str(item.get("deleted_at", "")), reverse=True)
@@ -327,6 +341,8 @@ class Repository:
             except (ValueError, TypeError):
                 continue
             if deleted < cutoff:
+                if item.get('protected'):
+                    continue
                 self.purge_trash(item["token"])
 
     @coordinated
@@ -335,10 +351,13 @@ class Repository:
         item = index.get(token)
         if not item:
             raise FileNotFoundError(token)
-        source = Path(item["trash_path"]).resolve()
+        self._guard_trash_token(token, index)
+        from .agent_delete_execution import validated_trash_paths
+        planned_paths = validated_trash_paths(self, item)
+        source = planned_paths[0] if planned_paths else Path(item["trash_path"]).resolve()
         if source.parent != self.trash_dir or not source.exists():
             raise FileNotFoundError(token)
-        destination = Path(item["original_path"]).resolve()
+        destination = planned_paths[1] if planned_paths else Path(item["original_path"]).resolve()
         if not destination.is_relative_to(self.root) or destination.is_relative_to(self.trash_dir):
             raise ValueError("回收站恢复路径无效")
         if destination.exists():
@@ -348,6 +367,7 @@ class Repository:
             destination = destination.with_name(f"{destination.stem}-restored-{datetime.now().strftime('%H%M%S')}{destination.suffix}")
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(source), str(destination))
+        self._forget_record(destination)
         del index[token]
         self._write_trash_index(index)
         return {**item, "restored_path": str(destination)}
@@ -358,7 +378,10 @@ class Repository:
         item = index.get(token)
         if not item:
             raise FileNotFoundError(token)
-        target = Path(item["trash_path"]).resolve()
+        self._guard_trash_token(token, index)
+        from .agent_delete_execution import validated_trash_paths
+        planned_paths = validated_trash_paths(self, item)
+        target = planned_paths[0] if planned_paths else Path(item["trash_path"]).resolve()
         if target.parent != self.trash_dir:
             raise ValueError("回收站路径无效")
         if item.get('kind') == 'concept-map':
@@ -370,6 +393,13 @@ class Repository:
         del index[token]
         self._write_trash_index(index)
         return {"token": token, "purged": True}
+
+    def _guard_trash_token(self, token, index):
+        store = getattr(self, 'agent_proposals', None)
+        protected = store.trash_protection(index) if store else {}
+        if token in protected:
+            from .agent_security import AgentError
+            raise AgentError('recovery_required', protected[token], 503)
 
     @staticmethod
     def _trash_tokens(payload: dict) -> list[str]:
@@ -388,6 +418,11 @@ class Repository:
         missing = [token for token in tokens if token not in index]
         if missing:
             raise FileNotFoundError(missing[0])
+        for token in tokens:
+            self._guard_trash_token(token, index)
+            if 'delete_schema_version' in index[token]:
+                from .agent_delete_execution import validated_trash_paths
+                validated_trash_paths(self, index[token])
         restored = [self.restore_trash(token) for token in tokens]
         return {"restored": restored, "count": len(restored)}
 
@@ -398,6 +433,11 @@ class Repository:
         missing = [token for token in tokens if token not in index]
         if missing:
             raise FileNotFoundError(missing[0])
+        for token in tokens:
+            self._guard_trash_token(token, index)
+            if 'delete_schema_version' in index[token]:
+                from .agent_delete_execution import validated_trash_paths
+                validated_trash_paths(self, index[token])
         purged = [self.purge_trash(token) for token in tokens]
         return {"purged": purged, "count": len(purged)}
 

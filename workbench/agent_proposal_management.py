@@ -42,7 +42,7 @@ class ProposalManagement:
     def _summary(self, proposal, clients):
         result = {key: proposal.get(key) for key in ("proposal_id", "client_id", "version", "state", "kind", "operation", "target_id", "created_at", "expires_at", "finished_at", "content_cleaned")}
         content = proposal.get('normalized_content', {})
-        if proposal['kind'] == 'concept_map':
+        if proposal['kind'] == 'concept_map' and proposal['operation'] != 'delete':
             content = content.get('graph', {})
         result.update(client_name=clients.get(proposal["client_id"], {}).get("name", "已移除客户端"),
                       title=content.get("title", proposal.get("receipt", {}).get("title", "正文已清理")),
@@ -53,7 +53,7 @@ class ProposalManagement:
     def list(self, params):
         if set(params) - {"limit", "cursor", "client_id", "kind", "state", "operation"}:
             raise AgentError("unknown_parameter", "提案筛选参数无效")
-        if params.get("kind") and params["kind"] not in {"issue", "todo", "info", "document", "attachment", "concept_map"} or params.get("state") and params["state"] not in STATES or params.get("operation") and params["operation"] not in {"create", "append", "update"}:
+        if params.get("kind") and params["kind"] not in {"issue", "todo", "info", "document", "attachment", "concept_map"} or params.get("state") and params["state"] not in STATES or params.get("operation") and params["operation"] not in {"create", "append", "update", "delete"}:
             raise AgentError("invalid_filter", "提案筛选值无效")
         clients = self._clients()
         items = []
@@ -73,7 +73,7 @@ class ProposalManagement:
         authorized = bool(client and client.get("enabled") and {"read", "propose", "commit"} <= set(client.get("scopes", [])) and allows(client, proposal["access_target"]))
         if authorized:
             authorized = client["client_id"] not in self.runtime.security().manager().blocked_clients()
-        if authorized and proposal['kind'] == 'concept_map' and not proposal.get('content_cleaned'):
+        if authorized and (proposal['kind'] == 'concept_map' or proposal['operation'] == 'delete') and not proposal.get('content_cleaned') and proposal['state'] in {'draft', 'previewed', 'conflicted'}:
             try:
                 AgentService(self.repository, self.runtime.security()).prepare_submission(client, proposal)
             except (AgentError, ValueError, OSError):
@@ -108,7 +108,12 @@ class ProposalManagement:
             detail = self.detail(proposal_id)
         preview = self.store.preview_result(proposal)
         result = {**detail, "preview": preview}
+        if proposal['operation'] == 'delete':
+            from .agent_delete_service import checked_preview
+            checked_preview(result)
         if client and detail["authorization_available"] and proposal.get("confirmation_mode") == "local_web" and proposal["state"] in {"draft", "previewed", "conflicted"}:
+            if proposal['operation'] == 'delete':
+                checked_preview({**result, 'preview_ticket':'x' * 43, 'preview_ticket_seconds':600, 'state':'previewed'})
             self.store.preview(proposal)
             ticket = secrets.token_urlsafe(32)
             now = time.monotonic()
@@ -119,6 +124,8 @@ class ProposalManagement:
                 "digest": preview["preview_digest"], "confirmation_mode": proposal["confirmation_mode"], "client_version": client_version(client),
                 "session": self.runtime._token, "expires": now + 600}
             result.update(preview_ticket=ticket, preview_ticket_seconds=600, state="previewed")
+        if proposal['operation'] == 'delete':
+            checked_preview(result)
         return result
 
     @staticmethod
@@ -295,6 +302,9 @@ class ProposalManagement:
                 self.store.security = self.runtime.security()
                 self.store.recover()
                 proposal = self.store._load(action["proposal_id"])
+                manifest = read_json(manifest_path)
+                if proposal.get('operation') == 'delete' and manifest['state'] == 'abandoned' and proposal['state'] == 'cancelled':
+                    return {'request_id':request_id, 'state':'abandoned', 'receipt':None, 'proposal_id':action['proposal_id'], 'outcome':'accepted_disk_not_undone'}
                 if proposal["state"] == "committed" and proposal.get("approval") == action["approval"]:
                     action.update(state="completed", result=proposal["receipt"])
                 else:

@@ -131,6 +131,15 @@ def check_stable_ids(base, candidate):
 
 
 def validate_graph(graph, *, base=None, create=False):
+    return _validate_graph(graph, base=base, create=create, byte_limit=GRAPH_BYTES)
+
+
+def validate_graph_view(graph, *, base):
+    """Deletion only displays existing data; it creates no graph candidate."""
+    return _validate_graph(graph, base=base, create=False, byte_limit=RAW_BASE_BYTES)
+
+
+def _validate_graph(graph, *, base, create, byte_limit):
     _object(graph, GRAPH_FIELDS, '完整图候选')
     if type(graph['version']) is not int or graph['version'] != 2:
         _invalid('Agent图候选仅支持version=2')
@@ -191,11 +200,11 @@ def validate_graph(graph, *, base=None, create=False):
     if base is not None and not isinstance(base, dict):
         _invalid('原图数据格式无效', 'invalid_base_concept_map')
     try:
-        too_large = len(json_bytes(graph)) > GRAPH_BYTES or base is not None and len(json_bytes(base)) > GRAPH_BYTES
+        too_large = len(json_bytes(graph)) > byte_limit or base is not None and len(json_bytes(base)) > byte_limit
     except (ValueError, TypeError, OverflowError, UnicodeError):
         _invalid('原图含不可完整表达的JSON数据，请先在本机核查', 'invalid_base_concept_map')
     if too_large:
-        raise AgentError('content_too_large', '图候选或原图JSON数据超过256KiB，不能完整预览', 413)
+        raise AgentError('content_too_large', f'图候选或原图JSON数据超过{byte_limit // 1024}KiB，不能完整预览', 413)
     try:
         normalized = ConceptMapRepository.normalize(graph)
     except (ValueError, TypeError, OverflowError):

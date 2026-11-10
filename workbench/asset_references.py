@@ -127,6 +127,10 @@ def orphan_report(domain):
     # second parser here. Inventory summaries retain no editor body snapshots.
     try:
         for value in domain.agent_operation_inventory():
+            if value.get('operation') == 'delete' and value.get('state') != 'committed':
+                # Even abandon accepts disk state rather than undoing deletion.
+                # Unindexed or uncertain moved sources may still own attachments.
+                warn()
             if value.get('kind') == 'attachment' and value.get('state') != 'committed':
                 referenced.add(safe_local_path(root, value['binary_relative'], all_asset_roots, decode=False))
         for value in domain.document_upload_inventory():

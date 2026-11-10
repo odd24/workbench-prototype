@@ -4,7 +4,7 @@
 
 主方案：[AI_AGENT_PLAN.md](AI_AGENT_PLAN.md)。前期扩展：[AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。实施事实与状态：[AI_AGENT_PROGRESS.md](AI_AGENT_PROGRESS.md)。执行规范：[AGENTS.md](../AGENTS.md)。
 
-**当前执行状态（2026-11-09）：用户最新明确“现在开始执行方案”，AG-128 已完成授权基础，尚未开放新增业务；AG-129执行基础、AG-130文件授权、AG-131私人暂存及AG-132记录/项目附件已完成，AG-133～135已完成、AG-136～143待开始，状态以台账为准。此前 AG-127 仅文档和暂停实施是历史事实。方案不等于能力已实现或验收；不得提前开放后续业务工具或操作真实客户端。**
+**当前执行状态（2026-11-10）：AG-128～136已完成相应授权/执行及本机能力，实际范围与限制以台账和验收为准。用户最新要求完成当前AG-136提交交审后暂停后续、等待指令，AG-137～143未开始。2026-11-09“现在开始执行方案”及更早AG-127仅文档/暂停记录保留为历史；不再自动衔接后续工作，不操作真实客户端。**
 
 ## 1. 目标与交付范围
 
@@ -253,7 +253,7 @@ capabilities 明示 authorized capabilities、kind_operations、kind_fields、�
 
 ## 12. 工作项、文件与独立验收
 
-以下是预计接点，不是要求创建所有候选文件。实施前确定最小变更，不复制现有 CRUD 或另建 Repository 进程。AG-127 为本文档治理；AG-128～132已完成、AG-133～135已完成、AG-136～143待开始，实际状态以台账为准。
+以下是预计接点，不是要求创建所有候选文件。实施前确定最小变更，不复制现有 CRUD 或另建 Repository 进程。AG-127 为本文档治理；AG-128～132已完成、AG-133～136已完成、AG-137～143待开始且已暂停后续，实际状态以台账为准。
 
 | ID | 范围/依赖 | 预计文件或模块 | 独立完成证据 |
 | --- | --- | --- | --- |
@@ -443,3 +443,24 @@ AG-LOCAL-DEC-047（2026-11-10，监督接受，135分配契约补充）：统一
 AG-LOCAL-DEC-048（2026-11-10，监督接受，135主画布贯通修复）：原主画布不只迁移旧v1，v2只要edge.label非空也自动拆边/新增linking_phrase并autosave；与135完整图候选及稳定ID冲突。自动迁移限定已支持version1及历史缺version约定，version2保留label和节点/边身份，不再因打开而改结构；未知未来版不得当旧版迁移或写回。复用同一共享几何/边/节点渲染，主图标签沿用已有标签编辑宿主，不另建画布。补完整Agent提交→深链打开→等待保存窗口字节不变→显式标签编辑保存重开身份和关系样式/箭头保留、旧v1迁移和原画布/readonly回归。此为有意修正旧v2自动迁移行为，不宣称该旧行为保留。
 
 AG-135实施收口（2026-11-10）：22节及决策047/048范围已完成，最终433项Python/23项Node分批与隔离真实Codex旧流兼容验收通过，实际结果、首次失败/复验、兼容及风险见独立台账与验收。上文拟定/尚未实现等表述保留为当时设计事实，不代表当前能力状态。136～143未开始。
+
+## 23. AG-136实施设计（2026-11-10，监督已定稿，已完成）
+
+以下为已定稿设计，实际实现/验收见台账；拟定措辞保留设计阶段原意。只覆盖四Markdown类型及concept_map单条删除；137以后不开始。
+
+1. **新鲜删除许可与格式门槛**：拟新增独立delete_grants（schema1、仅items.delete/delete/local_web），不读取休眠capability_grants为有效授权；资源沿用明确project/item(kind+id)/document_category/concept_map/concept_map_category，无通配。实际执行必须read/propose/commit、原类型/读取范围及新删除范围交集，图仍另需fresh graph read，删除批准不授予读取或增加kind。拟registry5/auth6/log6，transport2不变；auth6保留全部图/文件/休眠字段，并要求明确空或有效delete_grants。图/文件等所有家族和rotate/revoke/edit/withdraw/report-abandon保持新下界，首私人快照→日志→root顺序及旧入口拒新孤儿快照窗口按135限定，不概称旧普通业务全部零写。管理同源会话完整范围/资源版本预览、独立明确批准/撤销/收窄，复用CredentialManager/锁/持久幂等回执；不进入MCP。
+2. **输入与完整影响计划**：复用prepare/revise/preview/commit，新增operation=delete；只接kind/target_id/base_revision/source_note等提案信封，不接content/path/body替换；明确传agent_attested拒绝，默认local_web。服务精确读取原文件UTF-8/原SHA/身份归属，保留未知业务元数据、不归一化后替换。展示目标完整正文/front matter/有序info_fields，图沿用原图+readonly全图/全部节点边字段；附件为完整元数据与受控资源存在/保留说明，不读取或删除二进制。缺失资源明确列出；非法/未知结构或无法完整呈现拒绝。固定保留30天与历史/共享附件保留/断链说明，不改其他正文。
+3. **依赖/引用盘点**：不能直接把现有document backlinks当完整证据（只扫issue/todo/document，未覆盖info字段/图等）。拟严格扫描受控正式Markdown/图清单，绑定全部来源的ID/类型/原字节revision及集合，识别既有[[ID]]/body/attachment与可识别内部深链、info字段及图文字；匹配的影响来源完整读权与全文/结构预览均必需，否则拒绝，不泄露隐藏对象详情或给不完整影响。项目README/legacy idea/历史/回收站是否出现潜在引用、哪些仅保留规则而非活动断链，须在实现前与监督确定：无法证明完整的来源不可静默略过。全预览建议沿用2MiB实际响应上限，单原文件1MiB有界读，超限拒绝不截断；禁止用小摘要冒充完整影响。此保守全清单依赖可能因无关修改要求重新预览，需明确警告。
+4. **领域PreparedDelete与原回收站**：拟新增同域纯PreparedDelete，records/documents/concept_maps各自定位/校验身份和归属后产生唯一受控相对源路径、before原字节和trash_kind。token从proposal UUID+version与既有record/document/concept-map前缀确定（绑定operation_id），预览即固定，无正式目录/移动/索引写。deleted_at在接受当前确认时定稿，计划/批准/manifest交叉绑定。manifest3/execution_schema4、静态trash_delete@1；before.md/json与source/trash/索引成员/排序证据固定在唯一ProposalStore操作目录，不另建执行或恢复引擎。
+5. **移动/索引/缓存/排序阶段**：manifest先落，再持久move applying，再重验授权/完整依赖/源SHA/路径无重解析/目标不存在后同卷不覆盖rename；不得使用可退回copy+delete的shutil.move处理Agent计划。随后验证trash原字节/身份，按当前索引仅添加本token（不覆盖异物），处理cache，完成原回执。拟排序采用兼容原行为的显式保留：现有三类删除不删除项目README的*_record_order或document-sort.json中的ID；不改排序文件，预览说明保留旧位置以便恢复，记录相关配置/序列的前后不变证据，不凭Agent删除额外改项目元数据或清空分类。记录cache改为移动证实后失效，恢复始终再失效；不把内存cache当持久证据。此排序选择须监督确认。
+6. **恢复判定**：prepared且move尚未applying、source=before/trash缺失/索引token缺失，重查当前授权依赖后才可继续；move applying后source仍在而trash缺失，无法区分尚未move与外部恢复，不自动再次删除，保留现场走report/abandon。trash存在且完整before/身份匹配，即使source后来重新出现，也只补原索引/cache/原回执，不再接触source；token索引成员缺失可仅补本项，已有必须与计划完全相同，异物拒绝。trash缺失/不符、source与trash未知组合、计划/历史/索引损坏先零写阻断；不从快照重建被删源或trash。完整committed证据与回执后，无论目标后续恢复/修改/再删/purge，旧提交只返回原结果。具体每个可允许状态及abandon收口必须测试，不称多文件事务。
+7. **普通入口保护/ID/历史/附件**：沿用已有在途全局write_guard保守保护，不缩小为未经验证的局部锁；覆盖普通删除/项目删除/分类迁移/历史恢复、网页trash restore/purge/batch、保留期cleanup及孤儿清理，已确认且持久在途计划不能被绕过；读列表显式在途/受保护状态（最小UI变化）。Repository启动先ProposalStore全预检/恢复再cleanup，关闭Agent同样恢复；未知新格式旧程序不清理。全局阻断期间禁止孤儿清理，必要只读报告把删除before快照按原owner目录计引用；现有asset_references对record/concept-map回收kind仅保守保留，若调整只补正确识别，不借机放宽未知清理。历史不移动不删；Markdown receipt/manifest和既有trash保留ID占用，图继续共享单调游标/全占用源。完整ZIP当前明确排除.trash及.agent，不把它说成删除事务备份，不改变导出格式；停服完整目录迁移与匹配私有配置/日志保留边界另验。
+8. **预览/回执/UI**：同一提案预览新增删除影响分支，危险操作明确文字；所有源全文、结构/图、附件、全部匹配影响与保留规则/稳定token/版本/步骤依据载入成功后才允许网页批准，关闭/切换/迟到/失败禁批沿用现有epoch/dispose。回执只受控token/身份/删除时间/原操作及回收站结果链接，无机器路径，当前是否已恢复单列查询事实，不改原回执。Agent无恢复/purge/清空/孤儿清理新工具；工具目录预计仍22，实际以验收为准。
+
+待定稿重点：新许可版本与原家族保留；引用宇宙/读权和完整预览预算；排序保留不写；move applying后无trash不重删的保守恢复与abandon；普通入口全局保护与迁移/备份边界。定稿前不修改产品实现。
+
+2026-11-10监督定稿：23节整体接受，可实施。补充作为本节准绳：四MD明确issue/todo/info/document；显式agent_attested拒绝，省略默认local_web。活动引用宇宙为全部受控正式records（含legacy idea目录）、documents、project README、concept_maps，用户文本既有字段及图title/focus/node text/note/edge label复用单一共享识别器，代码块命中可标潜在文本引用，不证明任意自然语言。README/idea命中无既有全文读取契约则通用拒绝；未匹配者仅内部集合/revision，不泄露ID/标题/数量/正文。历史/.trash不计活动断链，明确仍含旧引用且原样保留，不扫描无限历史；未知/超预算集合拒绝。每原文件1MiB/完整实际UTF8 JSON preview2MiB，默认30天保留可由本机提前purge，Agent不开放。保留排序序列、不写相关配置；引用全集变化代价警告。复用LocalFileHandle同句柄无覆盖rename，首期Agent删除仅Windows固定NTFS，implemented/effective及错误明确平台限制，不假设POSIX os.rename不覆盖。abandon接受盘态解除保护，不回滚/撤销删除。普通全局保护、关闭Agent先恢复后cleanup、旧恢复规则及备份迁移边界保持。
+
+- AG-LOCAL-DEC-049：136复用唯一ProposalStore静态trash_delete@1/execution4与领域NTFS同句柄不覆盖移动；原索引快照/摘要先落且保守CAS，活动全集/排序绑定，不改变排序序列。移动证据不明不重删恢复源，原trash身份/字节证明后仅补本索引和旧回执；abandon接受盘态、残留仍保护。只授权单条local_web删除，不提前开放137以后。
+
+当前停止边界（2026-11-10用户最新指令）：仅继续AG-136必要验证、文档和独立提交收口；完成交审后暂停所有后续任务，等待用户新指令，不自动开始AG-137。此前持续执行授权保留为历史。

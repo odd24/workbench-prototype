@@ -1,6 +1,6 @@
 # 通用 Agent 接入
 
-规划提示（2026-11-09）：文件读取、附件上传、概念图、删除、项目创建及分类/工作流变更见 [本机能力扩展执行方案](AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)。AG-128～134已完成，AG-135进行中，AG-136～143待开始；下文当前接入命令、能力与限制不因此改变。
+规划提示（2026-11-09）：文件读取、附件上传、概念图、删除、项目创建及分类/工作流变更见 [本机能力扩展执行方案](AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)。AG-128～136已完成，AG-137～143待开始且已暂停后续；下文当前接入命令、能力与限制不因此改变。
 
 本文说明设置界面和备用 CLI 接入方式。AG-107～110 提供启停、授权管理、配置向导与分层诊断。设计见 [接入管理 UI 方案](AGENT_SETTINGS_PLAN.md)，实际状态见 [实施台账](AI_AGENT_PROGRESS.md)。
 
@@ -258,7 +258,7 @@ AG-133阶段工具数仍20，附件owner_kind白名单新增document；没有新
 
 Agent仍复用attachment@1/执行schema2及原uploads绑定/消费/回执恢复，分类变更和客户端revision在最终metadata前重验。普通网页上传和维护API属于浏览器业务操作，不加入MCP；Agent Authorization访问这些普通路由403。普通浏览器使用稳定UUID和独立日志，不声明Agent确认，也不绕过Agent提案批准。
 
-### AG-135图契约（实施中，最终验收以台账为准）
+### AG-135图契约（已完成，验收见台账）
 
 工具目录从20增至22：workbench_list_concept_maps（query/project_id/category/分页）与workbench_get_concept_map（map_id=CMAP-数字）只读；现有prepare/revise/preview/commit/get/cancel扩展concept_map的完整create/update，不另建写入工具。HTTP GET /api/agent/v1/concept-maps及/<ID>对应只读；图写入仅经既有proposals路由。新图schema3/sha256-json-v3保持，静态concept_map@1、manifest外层3/execution_schema3及history_snapshot/json_write；旧Markdown/attachment版本语义不变。capabilities如实列执行1/2/3、授权1～5、管理日志1～5，图effective仅报告读写资源交集后的操作，指定图无create。
 
@@ -267,3 +267,9 @@ Agent仍复用attachment@1/执行schema2及原uploads绑定/消费/回执恢复�
 首次明确图批准升registry4/client authorization5/management log5，实际concept_map_grants schema1独立于dormant capability_grants；清空/撤销/轮换和其它操作家族保留最高门槛与新字段。老管理/恢复扫描到新孤立快照或新格式必须拒绝变更；首快照→日志→注册表fence前新增图许可尚未发布，旧普通业务可依旧有效权限继续，不能宣称所有旧版本业务均零写。发布授权和提交图前重新查版本/依赖，使合法旧改动冲突而不覆盖。混用旧进程忽略新分配游标、外部FS竞态及非秘密摘要不能证明文件作者的界限保留。
 
 完整使用/字节上限/两确认/稳定ID与深链见[使用](AGENT_USAGE.md)。图操作不执行节点/关系/说明中的命令、脚本或指令；AGENT_RULES与工具说明同步此限制。没有新增shell、任意路径、通用HTTP代理、模型任务或运行时依赖。
+
+### AG-136删除契约（已完成）
+
+22工具目录不增加。prepare/revise现有信封支持四种Markdown条目及concept_map的delete，content在工具schema不再全局必填，但既有create/update/append仍按原业务校验；delete反而禁止content/body/path/held_source。最低确认强制local_web，不接受Agent自报替代。实际新鲜delete_grants schema1与旧读取/图read交集才生效；批准升级registry5/auth6/log6，transport2不变。独立管理接口clients/<id>/deletions的GET、preview、confirm、DELETE仅loopback同源管理会话，不进入MCP。
+
+capabilities报告静态trash_delete@1/execution4及平台/目标有效性，implemented不等于effective。完整原文/全部匹配活动来源/结构图/附件保留预览必须成功，实际响应2MiB、单文件1MiB、4096活动文件/32MiB限制不可截断。服务生成完整影响，无任意路径或内容替换。未知/无权命中通用拒绝；committed回执指向原回收token并长期幂等，恢复后重试不再删除。未知盘态查询原操作/report-abandon，abandon非回滚。新功能专项与旧真实CLI兼容均不代表AG-142模型遵规矩阵。

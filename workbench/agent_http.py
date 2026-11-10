@@ -127,6 +127,12 @@ def dispatch(handler):
             if isinstance(value.get("receipt"), dict):
                 value = {**value, "receipt": display_links(value["receipt"])}
             if value.get("proposal_id") and value.get("item_id") and value.get("kind") in {"issue", "document", "todo", "info", "concept_map"}:
+                if value.get('deleted') is True:
+                    from .deletion_prepared import deletion_token
+                    token = deletion_token(value['kind'], value['proposal_id'], value['version'])
+                    if value.get('trash_token') != token or value.get('web_path') != '/?item=trash&itemId=' + token:
+                        raise ValueError('删除回执链接与原操作不一致')
+                    return {**value, 'web_url':'http://' + handler.headers['Host'] + value['web_path']}
                 if value["kind"] == "todo" and not value["item_id"].startswith("TODO-"):
                     return {**value, "web_path": None, "web_url": None}
                 path = "/?" + urlencode({"item": value["kind"], "itemId": value["item_id"]})

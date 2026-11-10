@@ -22,8 +22,12 @@ AGENT_RULES = (
     "文件读取可能将内容发送至外部模型服务，撤销不能收回已发布内容。上传暂存须独立uploads.stage策略，旧附件来源意向/休眠attachments.write不自动生效。"
     "上传工具仅控制私人暂存会话，不创建正式附件或改写正文。stdio可用新策略明确批准的file_id来源；原始字节流只供具备独立HTTP认证能力的客户端，不在MCP JSON传base64或自行读取本机路径。"
     "暂存失败先查原upload_id；ready仍须校验当前策略/目标/磁盘才能消费。正式附件仅支持共同批准具体目标的attachment/create提案；先get_attachment_target取版本，ready后生成完整提案预览并等待新消息确认。旧read/propose或休眠grant不扩权。附件替换/删除、项目创建及配置能力仍未实现。"
-    "概念图仅在管理员重新明确批准concept_map_grants后使用；旧休眠配置、全项目/全分类不会自动获得图权限。先list_concept_maps/get_concept_map完整读取，再传content.graph全量候选，仅create/update，不支持局部patch/删除或新建项目分类。"
+    "概念图仅在管理员重新明确批准concept_map_grants后使用；旧休眠配置、全项目/全分类不会自动获得图权限。先list_concept_maps/get_concept_map完整读取，再传content.graph全量候选，图内容写入仅create/update，不支持局部patch或新建项目分类。删除另需独立delete_grants。"
     "图候选不传服务端ID/时间/revision/path；节点和边的全部字段必须明确，更新保留既有元素ID。完整图/原图/全部字段与稳定ID差异/警告/版本/执行依据都须展示，图像缩略或片段不能替代。无法完整显示时停止提交。图ID预览后已保留，取消不复用，服务端时间在接受确认时固定。"
+    "删除仅在本机管理员独立新鲜批准delete_grants后支持issue/todo/info/document/concept_map；旧休眠items.delete、普通范围或图写权限不授删除。仅Windows固定NTFS，必须原read/propose/commit与类型/资源读取交集。"
+    "operation=delete只传目标ID/base_revision/来源说明及信封，不传content/body/path/held_source。省略确认方式默认local_web，显式agent_attested拒绝；必须由本机提案管理页完整预览后独立批准，不索取票据或自报确认绕过。"
+    "完整展示原文/结构化字段/图画布与全部字段、附件清单、所有可完整授权的潜在活动引用、断链与保留规则、token/版本/摘要。无权或超限影响只返回通用拒绝，不能要求泄露隐藏来源或省略后提交。每源1MiB、完整预览2MiB、活动集合4096文件/32MiB，超限不截断。"
+    "删除只入回收站，默认30天保留但本机可提前永久删除；共享附件/历史/其他正文及排序位置保留。没有Agent恢复/purge/清空回收站/孤儿清理/项目级联。失败先查原提案/token，恢复后重放旧提交只回原回执，不再次删除；放弃只接受盘态，不代表撤销删除。"
 )
 
 
@@ -92,8 +96,8 @@ TOOLS = [
     tool("cancel_upload", "终结未消费暂存", "不创建或撤销正式业务。传输在途返回busy须停止传输后查询原会话；已绑定受保护对象不能取消。", "uploads/{upload_id}/cancel", {"upload_id": PROPOSAL_ID}, ["upload_id"], "POST", False),
     tool('get_attachment_target', '检查附件目标版本', '仅限当前共同附件许可的具体已有owner，返回正文或项目索引revision、附件元数据及已有分类。不下载字节，不改分类。', 'attachment-targets/{owner_kind}/{owner_id}', {'owner_kind':{'type':'string', 'enum':['project', 'issue', 'todo', 'info', 'document']}, 'owner_id':TEXT}, ['owner_kind', 'owner_id']),
     tool("list_proposals", "查看自己的提案", "分页返回当前客户端可访问提案的摘要和状态。", "proposals", PAGINATION),
-    tool("prepare_proposal", "整理入库提案", "只生成提案，不正式入库。request_id 必须稳定以便重试；更新/追加须先完整读取目标及其 revision。只能使用现有归属和配置。" + AGENT_RULES, "proposals", {"request_id": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$"}, "kind": PROPOSAL_KIND, "operation": {"type": "string", "enum": ["create", "append", "update"]}, "target_id": TEXT, "base_revision": HASH, "content": CONTENT, "source_note": {"type": "string", "maxLength": 1000}, "confirmation_mode": {"type": "string", "enum": ["agent_attested", "local_web"]}}, ["request_id", "kind", "operation", "content"], "POST", False),
-    tool("revise_proposal", "修改提案", "传完整目标候选内容，追加提案也传合成后的全文；不传服务端计算的 completed。返回新版本后必须重新预览和确认。", "proposals/{proposal_id}", {"proposal_id": PROPOSAL_ID, "expected_version": VERSION, "base_revision": HASH, "content": CONTENT}, ["proposal_id", "expected_version", "content"], "PATCH", False),
+    tool("prepare_proposal", "整理入库提案", "只生成提案，不正式入库。request_id 必须稳定以便重试；更新/追加须先完整读取目标及其 revision。只能使用现有归属和配置。" + AGENT_RULES, "proposals", {"request_id": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$"}, "kind": PROPOSAL_KIND, "operation": {"type": "string", "enum": ["create", "append", "update", "delete"]}, "target_id": TEXT, "base_revision": HASH, "content": CONTENT, "source_note": {"type": "string", "maxLength": 1000}, "confirmation_mode": {"type": "string", "enum": ["agent_attested", "local_web"]}}, ["request_id", "kind", "operation"], "POST", False),
+    tool("revise_proposal", "修改提案", "内容写入传完整目标候选，追加也传合成后的全文；删除仅传新base_revision不传content；不传服务端计算的 completed。返回新版本后必须重新预览和确认。", "proposals/{proposal_id}", {"proposal_id": PROPOSAL_ID, "expected_version": VERSION, "base_revision": HASH, "content": CONTENT}, ["proposal_id", "expected_version"], "PATCH", False),
     tool("preview_proposal", "展示完整入库预览", "将返回的完整正文、字段、差异和警告展示给用户，明确提案版本；无法完整展示时停止提交。必须等待之后的用户明确确认，不自动调用 commit。", "proposals/{proposal_id}/preview", {"proposal_id": PROPOSAL_ID}, ["proposal_id"], readonly=False),
     tool("commit_proposal", "确认当前预览入库", "仅在用户看过完整当前预览并在之后的新消息明确确认后调用。只传该版本和摘要，不得替换正文。失败/超时先 get_proposal，不重新创建。", "proposals/{proposal_id}/commit", {"proposal_id": PROPOSAL_ID, "version": VERSION, "preview_digest": HASH, "confirmation": CONFIRMATION}, ["proposal_id", "version", "preview_digest", "confirmation"], "POST", False),
     tool("get_proposal", "查询提案结果", "提交超时后优先查询。可能继续恢复已经确认过的事务，返回原回执和正式条目是否仍存在；不能因条目被删而重建。", "proposals/{proposal_id}", {"proposal_id": PROPOSAL_ID}, ["proposal_id"], readonly=False),

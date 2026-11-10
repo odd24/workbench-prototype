@@ -49,7 +49,7 @@ class CapabilityTests(AgentFixture, unittest.TestCase):
         capabilities = self.service.capabilities(client)
         self.assertEqual(capabilities["kinds"], [])
         from workbench.agent_file_handles import SUPPORTED
-        self.assertEqual(capabilities["capability_authorization"], {"configured": grants(), "implemented": (["files.read", "uploads.stage", "attachments.write"] if SUPPORTED else []) + ["concept_maps.read", "concept_maps.write"], "effective": [], "activation": "requires_reauthorization"})
+        self.assertEqual(capabilities["capability_authorization"], {"configured": grants(), "implemented": (["files.read", "uploads.stage", "attachments.write"] if SUPPORTED else []) + ["concept_maps.read", "concept_maps.write"] + (["items.delete"] if SUPPORTED else []), "effective": [], "activation": "requires_reauthorization"})
         self.assertEqual(self.service.projects(client, {})["items"], [])
         self.assertEqual(self.service.search(client, {})["items"], [])
         self.assertEqual(self.service.catalog(client, {}), {"tags": [], "document_categories": []})

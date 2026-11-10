@@ -20,10 +20,12 @@
     let savedRootStyle = null;
     let graphView = null;
     let graphReady = null;
+    let deletionReady = null;
+    let deletionViews = [];
     const graphKey = value => value?.preview ? `${value.proposal_id}:${value.version}:${value.preview.preview_digest}` : null;
-    function disposeGraph() { graphView?.dispose(); graphView = null; graphReady = null; }
+    function disposeGraph() { graphView?.dispose(); graphView = null; graphReady = null; deletionViews.forEach(view => view.dispose()); deletionViews = []; deletionReady = null; }
     function approvalEnabled() {
-      return !busy && !pending && detail?.preview_ticket && detail.authorization_available && !detail.content_cleaned && detail.confirmation_mode === 'local_web' && (detail.kind !== 'concept_map' || graphReady === graphKey(detail));
+      return !busy && !pending && detail?.preview_ticket && detail.authorization_available && !detail.content_cleaned && detail.confirmation_mode === 'local_web' && (detail.operation === 'delete' ? deletionReady === graphKey(detail) : detail.kind !== 'concept_map' || graphReady === graphKey(detail));
     }
     const dialog = () => root.querySelector('#proposalPreviewDialog');
     function closePreview({force = false} = {}) {
@@ -47,7 +49,7 @@
     }
     const states = {draft:'草案', previewed:'已预览', committing:'提交恢复中', committed:'已入库', conflicted:'有冲突', cancelled:'已取消', expired:'已过期', recovery_required:'需要恢复'};
     const kinds = {issue:'问题', todo:'待办', info:'信息', document:'知识文档', attachment:'附件', concept_map:'概念图'};
-    const operations = {create:'新建', append:'追加', update:'更新'};
+    const operations = {create:'新建', append:'追加', update:'更新', delete:'移入回收站'};
     const key = () => `workbench.proposalAction.pending.${status?.workspace_id}`;
     const current = version => version === epoch && isActive();
     function remember(value) {
@@ -72,6 +74,7 @@
     function detailHtml() {
       if (!detail) return `<p class="empty-state">${busy ? '正在加载完整预览…' : '完整预览未加载，请重新读取。'}</p>`;
       const preview = detail.preview;
+      if (detail.operation === 'delete') return deletionDetailHtml();
       if (detail.kind === 'concept_map') return graphDetailHtml();
       const content = preview?.content;
       const labels = {title:'标题', project_id:'所属项目', category:'分类', status:'状态', priority:'优先级', tags:'标签', due:'到期日', completed:'已完成', owner_kind:'归属类型', owner_id:'归属ID', upload_id:'源暂存ID', display_name:'请求名称', attachment:'正式附件元数据', source:'来源证据', metadata_before:'原元数据', metadata_after:'拟保存元数据', insert_link:'插入正文链接', binary_relative:'最终相对文件', metadata_relative:'目标元数据文件', unparsed_binary:'未解析二进制内容'};
@@ -88,8 +91,53 @@
       return `<section class="agent-proposal-detail"><p>客户端：${esc(detail.client_name)}（${esc(detail.client_id)}）</p><p>提案：${esc(detail.proposal_id)} · 版本 ${detail.version} · ${esc(states[detail.state])}</p><p>图ID：${esc(detail.target_id)} · ${esc(operations[detail.operation])} · 确认方式：${detail.confirmation_mode === 'local_web' ? '本机网页独立批准' : '对话内确认'} · 当前写入授权：${detail.authorization_available ? '可用' : '不可用'}</p><h3>警告</h3><ul class="agent-error">${preview.warnings.map(text => `<li>${esc(text)}</li>`).join('')}</ul><h3>完整拟保存图</h3><p>拖动平移、滚轮缩放；下方列出每个节点和关系的全部字段。画布操作只用于查看。</p><div data-proposal-graph-canvas></div><p data-proposal-graph-state role="status">正在载入完整画布和明细，完成前不能批准。</p><h3>图信息和视口</h3>${fields(Object.fromEntries(Object.entries(graph).filter(([key]) => !['nodes', 'edges'].includes(key))))}<h3>全部节点（${graph.nodes.length}）</h3><ol>${graph.nodes.map(node => `<li data-graph-node-details="${esc(node.id)}">${fields(node)}</li>`).join('') || '<li>无节点。</li>'}</ol><h3>全部关系（${graph.edges.length}）</h3><ol>${graph.edges.map(edge => `<li data-graph-edge-details="${esc(edge.id)}">${fields(edge)}</li>`).join('') || '<li>无关系。</li>'}</ol><h3>完整原图</h3><pre data-graph-base>${value(preview.base_graph)}</pre><h3>按稳定ID比较的全部差异及顺序</h3><pre data-graph-diff>${value(preview.graph_diff)}</pre><h3>来源说明</h3><pre>${esc(preview.source_note || '未提供来源说明')}</pre><p>原始字节版本：${esc(preview.base_revision || '新建')}；预览摘要：${esc(preview.preview_digest)}</p><details><summary>查看完整保存依据</summary><pre>${value({identity:preview.identity, authorization_revision:preview.authorization_revision, dependencies:preview.dependencies, execution_plan:preview.execution_plan, plan_digest:preview.plan_digest})}</pre></details><p>过期：${esc(detail.expires_at)}。修改后需重新完整预览并确认当前版本。</p></section>`;
     }
 
+    function deletionSources() {
+      const content = detail?.preview?.content;
+      return content ? [content.target, ...content.impacts.map(impact => impact.source)] : [];
+    }
+    function deletionDetailHtml() {
+      const preview = detail.preview;
+      if (!preview || detail.content_cleaned) return '<p>完整删除影响尚未载入或已清理，不能批准。</p>';
+      const json = value => esc(JSON.stringify(value, null, 2));
+      const sources = deletionSources();
+      return `<section class="agent-proposal-detail"><p class="agent-error">此操作将正式条目移入回收站，请核对完整删除影响。</p><p>目标：${esc(detail.target_id)} · 提案 ${esc(detail.proposal_id)} · 版本 ${detail.version}</p><p>固定回收身份：${esc(preview.trash_token)}</p><ul class="agent-error">${preview.warnings.map(warning => `<li>${esc(warning)}</li>`).join('')}</ul><p data-deletion-state role="status">正在载入完整内容和全部图画布，完成前不能批准。</p>${sources.map((source, index) => `<article data-deletion-source="${index}"><h3>${index === 0 ? '将删除的完整目标' : '潜在活动断链来源'}：${esc(source.item.title || source.item.id)}（${esc(source.item.id)}）</h3><p>原始字节版本：${esc(source.revision)}</p>${source.item.body !== undefined ? `<h4>完整正文</h4><div class="markdown-preview agent-proposal-markdown">${renderMarkdown(source.item.body, source.item)}</div>` : ''}<h4>全部元数据与有序结构字段</h4><pre data-deletion-structure>${json(source.item)}</pre><h4>完整原始文件</h4><pre data-deletion-raw>${esc(source.raw_source)}</pre><h4>完整附件清单（文件保留）</h4><pre data-deletion-assets>${json(source.attachments)}</pre>${source.graph ? `<h4>完整只读图画布</h4><div data-deletion-canvas="${index}"></div><ul>${source.graph_warnings.map(warning => `<li>${esc(warning)}</li>`).join('')}</ul><h4>全部节点</h4><ol>${source.graph.nodes.map(node => `<li data-deletion-node><pre>${json(node)}</pre></li>`).join('')}</ol><h4>全部关系</h4><ol>${source.graph.edges.map(edge => `<li data-deletion-edge><pre>${json(edge)}</pre></li>`).join('')}</ol>` : ''}</article>`).join('')}<h3>全部潜在引用与保留规则</h3><pre data-deletion-impact>${json({references:preview.content.impacts.map(impact => ({id:impact.source.item.id, references:impact.references})), retention:preview.content.retention})}</pre><h3>来源说明</h3><pre>${esc(preview.source_note || '未提供来源说明')}</pre><h3>完整执行依据</h3><pre>${json({authorization_revision:preview.authorization_revision, dependencies:preview.dependencies, execution_plan:preview.execution_plan, plan_digest:preview.plan_digest})}</pre><p>预览摘要：${esc(preview.preview_digest)}</p>${detail.receipt ? '<p>这是原删除回执；后续恢复或清理不会重放删除，当前回收站状态以打开后为准。</p>' : ''}</section>`;
+    }
+    function mountDeletionPreview(modal) {
+      if (detail?.operation !== 'delete' || !detail.preview || detail.content_cleaned) return;
+      const shown = detail, key = graphKey(shown), sources = deletionSources(), generation = deletionViews;
+      const state = modal.querySelector('[data-deletion-state]');
+      const fail = () => {
+        if (detail !== shown || deletionViews !== generation) return;
+        deletionReady = null; shown.preview_ticket = null;
+        state.textContent = '完整删除影响载入失败，不能批准。请重新读取当前版本。';
+        state.classList.add('agent-error');
+        const approve = modal.querySelector('[data-proposal-action="approve"]');
+        if (approve) approve.disabled = true;
+      };
+      try {
+        if (shown.preview.proposal_id !== shown.proposal_id || shown.preview.version !== shown.version || sources[0].item.id !== shown.target_id || modal.querySelectorAll('[data-deletion-source]').length !== sources.length) throw new Error('Incomplete deletion identity');
+        const waits = sources.map((source, index) => {
+          const block = modal.querySelector(`[data-deletion-source="${index}"]`);
+          if (block.querySelector('[data-deletion-raw]')?.textContent !== source.raw_source.replace(/\r\n?/g, '\n') || block.querySelector('[data-deletion-structure]')?.textContent !== JSON.stringify(source.item, null, 2) || block.querySelector('[data-deletion-assets]')?.textContent !== JSON.stringify(source.attachments, null, 2)) throw new Error('Incomplete source fields');
+          if (!source.graph) return Promise.resolve(true);
+          if (block.querySelectorAll('[data-deletion-node]').length !== source.graph.nodes.length || block.querySelectorAll('[data-deletion-edge]').length !== source.graph.edges.length) throw new Error('Incomplete graph fields');
+          const view = global.Workbench.conceptMap.create({readOnly:true, root:block.querySelector('[data-deletion-canvas]'), graph:{...source.graph, id:source.item.id}, escapeHtml:esc});
+          deletionViews.push(view);
+          return view.ready;
+        });
+        Promise.all(waits).then(results => {
+          if (detail !== shown || deletionViews !== generation || !isActive() || !modal.open || graphKey(detail) !== key) return;
+          if (!results.every(Boolean)) { fail(); return; }
+          deletionReady = key;
+          state.textContent = '目标、全部潜在断链来源、附件、保留规则和图画布已完整载入。';
+          const approve = modal.querySelector('[data-proposal-action="approve"]');
+          if (approve) approve.disabled = !approvalEnabled();
+        }).catch(fail);
+      } catch { fail(); }
+    }
+
     function mountGraphPreview(modal) {
-      if (detail?.kind !== 'concept_map' || !detail.preview || detail.content_cleaned) return;
+      if (detail?.operation === 'delete' || detail?.kind !== 'concept_map' || !detail.preview || detail.content_cleaned) return;
       const shown = detail, key = graphKey(shown);
       const state = modal.querySelector('[data-proposal-graph-state]');
       const fail = () => {
@@ -127,9 +175,10 @@
       const focused = modal.contains(global.document.activeElement) ? global.document.activeElement.dataset.proposalAction : null;
       const index = listing.items.findIndex(item => item.proposal_id === previewId);
       const receipt = detail?.receipt;
-      modal.innerHTML = `<header><div><p class="eyebrow">提案完整预览</p><h2 id="proposalPreviewTitle">${esc(detail?.title || '加载提案')}</h2><small>${detail ? `${esc(kinds[detail.kind] || detail.kind)} · ${esc(operations[detail.operation] || detail.operation)} · ${esc(states[detail.state] || detail.state)} · 版本 ${detail.version}` : ''}</small></div><button type="button" class="icon-button dialog-close" data-proposal-action="close-preview" aria-label="关闭预览" ${confirming ? 'disabled' : ''}>✕</button></header><div class="agent-proposal-preview-body" tabindex="0">${detailHtml()}</div><footer><p class="agent-feedback" data-proposal-feedback role="status" aria-live="polite"></p>${pending ? `<div class="settings-actions">上次操作结果尚未确定。${button('resolve', '查询提案操作结果')}</div>` : ''}<div class="settings-actions"><nav aria-label="本页提案切换">${button('preview-previous', '上一条', index <= 0 || pending ? 'disabled' : '')}<span>${index < 0 ? '当前提案不在本页' : `本页第 ${index + 1} / ${listing.items.length} 条`}</span>${button('preview-next', '下一条', index < 0 || index >= listing.items.length - 1 || pending ? 'disabled' : '')}</nav><div class="settings-actions">${button('review', '重新读取完整预览', `data-proposal-id="${esc(previewId || '')}" ${pending ? 'disabled' : ''}`)}${button('cancel', '取消当前版本', `data-proposal-id="${esc(detail?.proposal_id || '')}" ${!pending && detail && ['draft', 'previewed', 'conflicted'].includes(detail.state) && !detail.content_cleaned ? '' : 'disabled'}`)}<button type="button" class="primary-button" data-proposal-action="approve" ${!approvalEnabled() ? 'disabled' : ''}>批准并入库</button>${receipt?.web_path && (/^\/\?item=(issue|todo|info|document)&itemId=[A-Z]+-\d+$/.test(receipt.web_path) || /^\/\?item=concept_map&itemId=CMAP-\d+$/.test(receipt.web_path) || /^\/\?item=project&itemId=[^&]+&assetId=ASSET-[a-f0-9]{32}$/.test(receipt.web_path)) ? `<a class="secondary-button" href="${esc(receipt.web_path)}" ${receipt.kind === 'concept_map' ? `data-proposal-concept-result="${esc(receipt.item_id)}"` : ''}>打开入库结果</a>` : ''}</div></div></footer>`;
+      modal.innerHTML = `<header><div><p class="eyebrow">提案完整预览</p><h2 id="proposalPreviewTitle">${esc(detail?.title || '加载提案')}</h2><small>${detail ? `${esc(kinds[detail.kind] || detail.kind)} · ${esc(operations[detail.operation] || detail.operation)} · ${esc(states[detail.state] || detail.state)} · 版本 ${detail.version}` : ''}</small></div><button type="button" class="icon-button dialog-close" data-proposal-action="close-preview" aria-label="关闭预览" ${confirming ? 'disabled' : ''}>✕</button></header><div class="agent-proposal-preview-body" tabindex="0">${detailHtml()}</div><footer><p class="agent-feedback" data-proposal-feedback role="status" aria-live="polite"></p>${pending ? `<div class="settings-actions">上次操作结果尚未确定。${button('resolve', '查询提案操作结果')}</div>` : ''}<div class="settings-actions"><nav aria-label="本页提案切换">${button('preview-previous', '上一条', index <= 0 || pending ? 'disabled' : '')}<span>${index < 0 ? '当前提案不在本页' : `本页第 ${index + 1} / ${listing.items.length} 条`}</span>${button('preview-next', '下一条', index < 0 || index >= listing.items.length - 1 || pending ? 'disabled' : '')}</nav><div class="settings-actions">${button('review', '重新读取完整预览', `data-proposal-id="${esc(previewId || '')}" ${pending ? 'disabled' : ''}`)}${button('cancel', '取消当前版本', `data-proposal-id="${esc(detail?.proposal_id || '')}" ${!pending && detail && ['draft', 'previewed', 'conflicted'].includes(detail.state) && !detail.content_cleaned ? '' : 'disabled'}`)}<button type="button" class="primary-button" data-proposal-action="approve" ${!approvalEnabled() ? 'disabled' : ''}>${detail?.operation === 'delete' ? '批准移入回收站' : '批准并入库'}</button>${receipt?.web_path && ((receipt.deleted && /^\/\?item=trash&itemId=(?:record|document|concept-map)-agent-[a-f0-9-]{36}-[1-9][0-9]*$/.test(receipt.web_path)) || /^\/\?item=(issue|todo|info|document)&itemId=[A-Z]+-\d+$/.test(receipt.web_path) || /^\/\?item=concept_map&itemId=CMAP-\d+$/.test(receipt.web_path) || /^\/\?item=project&itemId=[^&]+&assetId=ASSET-[a-f0-9]{32}$/.test(receipt.web_path)) ? `<a class="secondary-button" href="${esc(receipt.web_path)}" ${receipt.deleted ? `data-proposal-trash-result="${esc(receipt.trash_token)}"` : receipt.kind === 'concept_map' ? `data-proposal-concept-result="${esc(receipt.item_id)}"` : ''}>${receipt.deleted ? '打开回收站结果' : '打开入库结果'}</a>` : ''}</div></div></footer>`;
       modal.querySelector('.agent-proposal-preview-body').scrollTop = scroll;
       mountGraphPreview(modal);
+      mountDeletionPreview(modal);
       if (focused) modal.querySelector(`[data-proposal-action="${focused}"]`)?.focus({preventScroll:true});
     }
     function paint() {
@@ -231,7 +280,7 @@
       if (!approvalEnabled() || confirming) return;
       confirming = true;
       let approved;
-      try { approved = await confirm({title:'批准当前完整预览并入库？', message:`${shown.title} · 版本 ${shown.version}`, detail:'将以原客户端当前权限写入此版本；修改后必须重新预览批准。', confirmText:'批准并入库'}); }
+      try { approved = await confirm({title:shown.operation === 'delete' ? '批准当前完整影响并移入回收站？' : '批准当前完整预览并入库？', message:`${shown.title} · 版本 ${shown.version}`, detail:shown.operation === 'delete' ? '只删除当前固定版本；附件、历史及其他正文保留。默认保留30天，本机可提前永久删除。修改后必须重新完整预览批准。' : '将以原客户端当前权限写入此版本；修改后必须重新预览批准。', confirmText:shown.operation === 'delete' ? '批准移入回收站' : '批准并入库', danger:shown.operation === 'delete'}); }
       finally { confirming = false; }
       if (!approved || shown !== detail || !isActive() || !approvalEnabled()) return;
       const payload = {workspace_id:status.workspace_id, version:shown.version, preview_digest:shown.preview.preview_digest, preview_ticket:shown.preview_ticket, request_id:global.crypto.randomUUID()};
@@ -244,7 +293,7 @@
         remember(null); busy = false;
         if (!await load({preservePreview:true})) return;
         await review(result.proposal_id);
-        message(result.state === 'completed' ? '已批准并入库。' : '原操作尚未完成，请重新核查。', result.state !== 'completed');
+        message(result.state === 'completed' ? (detail?.operation === 'delete' ? '已批准并移入回收站。' : '已批准并入库。') : '原操作尚未完成，请重新核查。', result.state !== 'completed');
       } catch (error) {
         if (current(version)) {
           if (error.status && error.status < 500) { remember(null); detail = null; }
@@ -259,11 +308,11 @@
       try {
         const result = await request(`proposal-actions/${encodeURIComponent(pending.request_id)}`);
         if (!current(version)) return;
-        if (['completed', 'not_applied'].includes(result.state)) {
+        if (['completed', 'not_applied', 'abandoned'].includes(result.state)) {
           remember(null); busy = false;
           if (!await load({preservePreview:true})) return;
           await review(result.proposal_id);
-          message(result.state === 'completed' ? '已查到原入库回执。' : '原批准未应用；请重新完整预览后批准。');
+          message(result.state === 'completed' ? (detail?.operation === 'delete' ? '已查到原删除回执。' : '已查到原入库回执。') : result.state === 'abandoned' ? '原操作已接受当前盘态并放弃；这不撤销删除或恢复文件，残留仍需人工核查。' : '原批准未应用；请重新完整预览后批准。');
         } else { busy = false; paint(); message('原事务需要恢复核查，请按维护说明处理。', true); }
       } catch (error) {
         if (current(version)) { busy = false; paint(); message(error.payload?.message || error.message, true); }
@@ -271,12 +320,12 @@
     }
     root.addEventListener('click', event => {
       if (!isActive()) return;
-      const result = event.target.closest('[data-proposal-concept-result]');
+      const result = event.target.closest('[data-proposal-concept-result], [data-proposal-trash-result]');
       if (result) {
         event.preventDefault();
         if (busy || confirming || pending) return;
         if (typeof openItemLink !== 'function') { message('结果导航尚未就绪，请刷新后重试。', true); return; }
-        openItemLink({kind:'concept_map', itemId:result.dataset.proposalConceptResult}).catch(error => notify('打开概念图失败', error.message, true));
+        openItemLink(result.dataset.proposalTrashResult ? {kind:'trash', itemId:result.dataset.proposalTrashResult} : {kind:'concept_map', itemId:result.dataset.proposalConceptResult}).catch(error => notify('打开操作结果失败', error.message, true));
         return;
       }
       const node = event.target.closest('[data-proposal-action]');

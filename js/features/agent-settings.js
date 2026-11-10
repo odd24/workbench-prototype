@@ -29,6 +29,18 @@
     let graphPreview = null;
     let graphPending = null;
     let graphRequest = 0;
+    let deletePanel = null;
+    let deletePreview = null;
+    let deletePending = null;
+    let deleteRequest = 0;
+    function rememberDelete(value) {
+      deletePending = value;
+      try {
+        const key = `workbench.agentDeleteGrants.pending.${status.workspace_id}`;
+        if (value) global.sessionStorage.setItem(key, JSON.stringify(value));
+        else global.sessionStorage.removeItem(key);
+      } catch { /* The original-operation query remains available on page. */ }
+    }
     function rememberGraph(value) {
       graphPending = value;
       try {
@@ -66,7 +78,7 @@
     const errorText = error => error.payload?.message || error.message;
     const permissionName = scopes => scopes.length === 1 && scopes[0] === 'read' ? '只读查询' : scopes.length === 3 ? '整理并确认入库' : `旧版权限：${scopes.join(' / ')}`;
     const isDirty = () => Boolean(draft && JSON.stringify(draft) !== original);
-    const isBusy = () => busy || registrationConfirming || Boolean(pending) || Boolean(registrationPending) || Boolean(filePending) || Boolean(uploadPending) || Boolean(graphPending);
+    const isBusy = () => busy || registrationConfirming || Boolean(pending) || Boolean(registrationPending) || Boolean(filePending) || Boolean(uploadPending) || Boolean(graphPending) || Boolean(deletePending);
     const valid = version => isActive() && version === epoch;
 
     async function request(path, options = {}) {
@@ -132,11 +144,14 @@
         if (client.enabled && !client.recovery_required) node.querySelector('.settings-actions')?.insertAdjacentHTML('beforeend', button('files', '具体文件授权', `data-client-id="${esc(client.client_id)}"`));
         if (client.enabled && !client.recovery_required) node.querySelector('.settings-actions')?.insertAdjacentHTML('beforeend', button('upload-policy', '上传暂存授权', `data-client-id="${esc(client.client_id)}"`));
         if (client.enabled && !client.recovery_required) node.querySelector('.settings-actions')?.insertAdjacentHTML('beforeend', button('graph-grants', '概念图授权', `data-client-id="${esc(client.client_id)}"`));
-        if (client.authorization_schema_version === 5) node.querySelector('div')?.insertAdjacentHTML('beforeend', `<p>已批准图权限：${esc(client.concept_map_grants?.grants?.map(grantSummary).join('；') || '无')}</p>`);
+        if (client.enabled && !client.recovery_required) node.querySelector('.settings-actions')?.insertAdjacentHTML('beforeend', button('delete-grants', '删除授权', `data-client-id="${esc(client.client_id)}"`));
+        if ([5, 6].includes(client.authorization_schema_version)) node.querySelector('div')?.insertAdjacentHTML('beforeend', `<p>已批准图权限：${esc(client.concept_map_grants?.grants?.map(grantSummary).join('；') || '无')}</p>`);
+        if (client.authorization_schema_version === 6) node.querySelector('div')?.insertAdjacentHTML('beforeend', `<p>已批准删除权限：${esc(client.delete_grants?.grants?.map(grantSummary).join('；') || '无')}（每次仍须本机网页独立批准）</p>`);
       });
       if (files) root.querySelector('.agent-settings').insertAdjacentHTML('beforeend', filePanelHtml());
       if (uploadPanel) root.querySelector('.agent-settings').insertAdjacentHTML('beforeend', uploadPanelHtml());
       if (graphPanel) root.querySelector('.agent-settings').insertAdjacentHTML('beforeend', graphPanelHtml());
+      if (deletePanel) root.querySelector('.agent-settings').insertAdjacentHTML('beforeend', deletePanelHtml());
       if (diagnostic) paintDiagnostic();
       if (registrationPending) {
         const panel = global.document.createElement('section');
@@ -159,10 +174,15 @@
           files = null; filePreview = null; filePending = null;
           uploadPanel = null; uploadPreview = null; uploadPending = null;
           graphPanel = null; graphPreview = null; graphPending = null;
+          deletePanel = null; deletePreview = null; deletePending = null;
           registration = null; registrationResult = null; registrationPending = null;
           root.innerHTML = '<div class="empty-state">工作空间已变化，正在重新加载授权…</div>';
         }
         status = loaded;
+        deletePreview = null;
+        if (!deletePending && status.workspace_id) {
+          try { deletePending = JSON.parse(global.sessionStorage.getItem(`workbench.agentDeleteGrants.pending.${status.workspace_id}`) || 'null'); } catch { deletePending = null; }
+        }
         graphPreview = null;
         if (!graphPending && status.workspace_id) {
           try { graphPending = JSON.parse(global.sessionStorage.getItem(`workbench.agentGraphGrants.pending.${status.workspace_id}`) || 'null'); } catch { graphPending = null; }
@@ -185,6 +205,7 @@
         if (filePending && !files) await fileAction('files', filePending.client_id);
         if (uploadPending && !uploadPanel) await uploadAction('upload-policy', uploadPending.client_id);
         if (graphPending && !graphPanel) await graphAction('graph-grants', graphPending.client_id);
+        if (deletePending && !deletePanel) await deleteAction('delete-grants', deletePending.client_id);
         return true;
       } catch (error) {
         if (valid(version)) {
@@ -325,6 +346,72 @@
         }
       } catch (error) {
         if (valid(version)) { if (name === 'upload-resolve' && error.status === 404) { rememberUpload(null); uploadPreview = null; } busy = false; paint(); message(`${errorText(error)}${uploadPending ? '；请查询原操作。' : ''}`, true); }
+      }
+    }
+
+    function deletePanelHtml() {
+      const options = [
+        ...deletePanel.projects.map(item => ({resource:{type:'project', id:item.id}, label:`项目内条目及关联图：${item.name}（${item.id}）`})),
+        ...deletePanel.document_categories.map(name => ({resource:{type:'document_category', name}, label:`知识库分类：${name}`})),
+        ...deletePanel.concept_map_categories.map(name => ({resource:{type:'concept_map_category', name}, label:`独立概念图分类：${name}`})),
+        ...deletePanel.items.map(item => ({resource:item.type === 'concept_map' ? {type:'concept_map', id:item.id} : {type:'item', kind:item.type, id:item.id}, label:`指定${kindNames[item.type] || item.type}：${item.title}（${item.id}）`})),
+      ];
+      return `<section class="settings-card agent-setup" id="agentDeleteGrantsPanel"><h2>删除授权 · ${esc(deletePanel.name)}</h2><p class="agent-error">独立新鲜授权；旧休眠items.delete不会生效。只允许移入回收站，每次仍须完整影响预览后本机网页批准，不增加读取权限或条目类型。仅Windows本机固定NTFS。</p><fieldset class="agent-scope"><legend>待批准删除范围</legend><label>具体资源<select id="agentDeleteGrantResource">${options.map(item => `<option value="${esc(JSON.stringify(item.resource))}">${esc(item.label)}</option>`).join('')}</select></label>${button('delete-add', '加入待批准范围')}<ol>${deletePanel.draft.grants.map((grant, index) => `<li><p>${esc(grantSummary(grant))}</p>${button('delete-remove', '移除此项', `data-grant-index="${index}"`)}</li>`).join('') || '<li>尚未选择范围。</li>'}</ol>${button('delete-preview', '查看完整删除授权预览')}</fieldset>${deletePreview ? `<div id="agentDeleteGrantPreview"><h3>完整删除授权预览</h3><p>${esc(deletePreview.client_name)} · ${esc(deletePreview.disclosure)}</p><pre>${esc(JSON.stringify(deletePreview, null, 2))}</pre>${button('delete-confirm', '明确批准此删除授权')}${button('delete-cancel-preview', '取消预览')}</div>` : ''}${deletePending ? `<p>原删除授权操作待查询：${esc(deletePending.request_id)}</p>${button('delete-resolve', '查询原删除授权结果')}` : ''}<div class="settings-actions">${button('delete-revoke', '撤销全部删除授权')}${button('delete-close', '关闭删除授权')}</div></section>`;
+    }
+    async function deleteAction(name, key, index) {
+      const version = epoch, panel = deletePanel;
+      if (pending || registrationPending || filePending || uploadPending || graphPending) { message('请先查询尚未确定的原操作。', true); return; }
+      if (name === 'delete-close') { if (!deletePending) { deleteRequest += 1; deletePanel = null; deletePreview = null; paint(); } return; }
+      if (name === 'delete-cancel-preview') { deletePreview = null; paint(); return; }
+      const clientId = name === 'delete-grants' ? key : deletePanel?.client_id;
+      if (!clientId) return;
+      if (deletePending && !['delete-grants', 'delete-resolve'].includes(name)) { message('请先查询原删除授权操作。', true); return; }
+      try {
+        if (name === 'delete-grants') {
+          if (deletePending && deletePending.client_id !== clientId) { message('请先查询原客户端的删除授权操作。', true); return; }
+          const generation = ++deleteRequest;
+          deletePanel = null; deletePreview = null; paint();
+          const value = await request(`clients/${clientId}/deletions`);
+          if (!valid(version) || generation !== deleteRequest) return;
+          deletePanel = {...value, draft:structuredClone(value.grants), name:catalog.items.find(item => item.client_id === clientId)?.name || clientId}; paint();
+        } else if (name === 'delete-add') {
+          const value = find('#agentDeleteGrantResource')?.value;
+          if (!value) { message('请先建立具体资源。', true); return; }
+          const grant = {capability:'items.delete', operations:['delete'], resources:[JSON.parse(value)], minimum_confirmation_mode:'local_web'};
+          if (!deletePanel.draft.grants.some(old => JSON.stringify(old) === JSON.stringify(grant))) deletePanel.draft.grants.push(grant);
+          deletePreview = null; paint();
+        } else if (name === 'delete-remove') {
+          deletePanel.draft.grants.splice(Number(index), 1); deletePreview = null; paint();
+        } else if (name === 'delete-preview') {
+          deletePreview = null; find('#agentDeleteGrantPreview')?.remove();
+          const candidate = JSON.stringify(deletePanel.draft);
+          const value = await request(`clients/${clientId}/deletions/preview`, {method:'POST', body:JSON.stringify({workspace_id:status.workspace_id, expected_version:deletePanel.expected_version, grants:deletePanel.draft})});
+          if (valid(version) && deletePanel === panel && JSON.stringify(deletePanel.draft) === candidate) { deletePreview = value; paint(); }
+        } else if (name === 'delete-confirm' && deletePreview) {
+          const preview = deletePreview;
+          if (!await confirm({title:'明确批准此完整删除授权？', message:preview.client_name, detail:JSON.stringify(preview, null, 2), confirmText:'批准删除授权', danger:true})) return;
+          if (!valid(version) || deletePanel !== panel || deletePreview !== preview) return;
+          const payload = {workspace_id:status.workspace_id, expected_version:preview.expected_version, preview_id:preview.preview_id, preview_digest:preview.preview_digest, request_id:id(), approved:true};
+          rememberDelete({client_id:clientId, request_id:payload.request_id}); busy = true; paint();
+          await request(`clients/${clientId}/deletions/confirm`, {method:'POST', body:JSON.stringify(payload)});
+          if (!valid(version)) return;
+          rememberDelete(null); deletePreview = null; busy = false; await load(); await deleteAction('delete-grants', clientId);
+        } else if (name === 'delete-resolve' && deletePending) {
+          const result = await request(`operations/${encodeURIComponent(deletePending.request_id)}`);
+          if (!valid(version)) return;
+          if (['completed', 'abandoned'].includes(result.state)) { rememberDelete(null); deletePreview = null; await load(); await deleteAction('delete-grants', clientId); }
+          else message('原删除授权操作需要恢复，请保留日志核查。', true);
+        } else if (name === 'delete-revoke') {
+          if (!await confirm({title:'撤销全部删除授权？', message:'后续删除提案将按收窄后的权限校验，已入回收站条目保留。', confirmText:'撤销删除授权', danger:true})) return;
+          if (!valid(version) || deletePanel !== panel) return;
+          const payload = {workspace_id:status.workspace_id, expected_version:deletePanel.expected_version, request_id:id()};
+          rememberDelete({client_id:clientId, request_id:payload.request_id}); busy = true; paint();
+          await request(`clients/${clientId}/deletions`, {method:'DELETE', body:JSON.stringify(payload)});
+          if (!valid(version)) return;
+          rememberDelete(null); deletePreview = null; busy = false; await load(); await deleteAction('delete-grants', clientId);
+        }
+      } catch (error) {
+        if (valid(version)) { if (name === 'delete-resolve' && error.status === 404) rememberDelete(null); deletePreview = null; busy = false; paint(); message(`${errorText(error)}${deletePending ? '；请查询原操作。' : ''}`, true); }
       }
     }
 
@@ -568,6 +655,8 @@
 
     async function action(name, clientId, grantIndex) {
       if (busy || registrationConfirming) return;
+      if (deletePending && !['delete-grants', 'delete-resolve', 'refresh'].includes(name)) { message('请先查询原删除授权操作。', true); return; }
+      if (name.startsWith('delete-')) return deleteAction(name, clientId, grantIndex);
       if (graphPending && !['graph-grants', 'graph-resolve', 'refresh'].includes(name)) { message('请先查询原概念图授权操作。', true); return; }
       if (name.startsWith('graph-')) return graphAction(name, clientId, grantIndex);
       if (name.startsWith('upload-')) return uploadAction(name, clientId);

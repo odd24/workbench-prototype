@@ -126,15 +126,26 @@ class AgentService:
         graph_read = 'concept_map' in client_kinds(client) and any(grant['capability'] == 'concept_maps.read' for grant in graph_grants['grants'])
         graph_operations = effective_operations(self.repository, client) if graph_read else []
         graph_write = bool(graph_operations)
-        return {"kind_operations": {**{kind: ["create", "append", "update"] for kind in kinds}, **({"attachment":["create"]} if attachment_policies else {}), **({'concept_map':graph_operations} if graph_write else {})},
-                "kind_fields": {**{kind: fields[kind] for kind in kinds}, **({'concept_map':{operation:['graph'] for operation in graph_operations}} if graph_write else {})}, "authorized_kinds": client_kinds(client),
+        from .agent_delete_authorization import client_delete_grants, effective_kinds
+        from .deletion_prepared import supported as deletion_supported
+        delete_supported = deletion_supported()
+        delete_grants = client_delete_grants(client)
+        delete_kinds = effective_kinds(self.repository, client)
+        kind_operations = {**{kind:['create', 'append', 'update'] for kind in kinds}, **({'attachment':['create']} if attachment_policies else {}), **({'concept_map':graph_operations} if graph_write else {})}
+        kind_fields = {**{kind:fields[kind] for kind in kinds}, **({'concept_map':{operation:['graph'] for operation in graph_operations}} if graph_write else {})}
+        for kind in delete_kinds:
+            kind_operations.setdefault(kind, []).append('delete')
+            kind_fields.setdefault(kind, {})['delete'] = []
+        return {"kind_operations":kind_operations,
+                "kind_fields":kind_fields, "authorized_kinds": client_kinds(client),
                 "confirmation_modes": ["agent_attested", "local_web"], "default_confirmation_mode": client_confirmation_mode(client),
-                "proposal_schema_versions": [1, 2, 3], "execution_schema_versions": [1, 2, 3], "api_version": "1", "workspace_id": self.security.workspace_id, "kinds": kinds + (['concept_map'] if graph_read else []),
-                "operations": ["create", "append", "update"], "limits": LIMITS, "scopes": client["scopes"],
+                "proposal_schema_versions": [1, 2, 3], "execution_schema_versions": [1, 2, 3, 4], "api_version": "1", "workspace_id": self.security.workspace_id, "kinds": kinds + (['concept_map'] if graph_read else []),
+                "operations": ["create", "append", "update"] + (['delete'] if delete_supported else []), "limits": LIMITS, "scopes": client["scopes"],
                 "project_ids": client["project_ids"], "categories": client["categories"], "confirmation_mode": client_confirmation_mode(client),
                 "capability_authorization": {"configured": client_capability_grants(client),
-                                             "implemented": (["files.read", "uploads.stage", "attachments.write"] if SUPPORTED else []) + ['concept_maps.read', 'concept_maps.write'], "effective": (["files.read"] if file_grants else []) + (["uploads.stage"] if upload_policies else []) + (["attachments.write"] if attachment_policies else []) + (['concept_maps.read'] if graph_read else []) + (['concept_maps.write'] if graph_write else []), "activation": "requires_reauthorization"},
-                'concept_maps': {'grants':graph_grants, 'operations':graph_operations, 'graph_json_bytes':262144, 'raw_base_bytes':1048576, 'preview_bytes':2097152, 'partial_update':False, 'delete':False, 'identity':'server-reserved stable CMAP ID; canceled/expired proposals retain it; timestamps fixed at confirmation acceptance', 'authorization':'fresh explicit grants; exact read/write/resource/operation intersection; existing projects/categories only'},
+                                             "implemented": (["files.read", "uploads.stage", "attachments.write"] if SUPPORTED else []) + ['concept_maps.read', 'concept_maps.write'] + (['items.delete'] if delete_supported else []), "effective": (["files.read"] if file_grants else []) + (["uploads.stage"] if upload_policies else []) + (["attachments.write"] if attachment_policies else []) + (['concept_maps.read'] if graph_read else []) + (['concept_maps.write'] if graph_write else []) + (['items.delete'] if delete_kinds else []), "activation": "requires_reauthorization"},
+                'deletion':{'grants':delete_grants, 'effective_kinds':delete_kinds, 'confirmation_mode':'local_web', 'platform':'Windows fixed NTFS only', 'raw_file_bytes':1048576, 'preview_bytes':2097152, 'inventory_files':4096, 'inventory_bytes':33554432, 'default_retention_days':30, 'local_early_purge':True, 'agent_restore':False, 'agent_purge':False, 'attachments':'retain', 'history':'retain', 'ordering':'preserve', 'source_note':'operation delete accepts target_id/base_revision/source_note; content/path/body forbidden; full impact or generic refusal'},
+                'concept_maps': {'grants':graph_grants, 'operations':graph_operations, 'graph_json_bytes':262144, 'raw_base_bytes':1048576, 'preview_bytes':2097152, 'partial_update':False, 'delete':'concept_map' in delete_kinds, 'identity':'server-reserved stable CMAP ID; canceled/expired proposals retain it; timestamps fixed at confirmation acceptance', 'authorization':'fresh explicit grants; exact read/write/resource/operation intersection; existing projects/categories only; delete requires independent delete_grants/local_web'},
                 "upload_staging": {"policies": upload_policies, "limits": UPLOAD_LIMITS, "formal_attachment_write": bool(attachment_policies),
                                    "transports": ["approved_file_id", "dedicated_loopback_octet_stream"], "mcp_binary_payload": False,
                                    "authorization": "read scope, existing owner access and fresh staging policy; any client authorization or token change requires reapproval"},
@@ -143,7 +154,7 @@ class AgentService:
                                 "raw_chunk_bytes": 65536, "default_max_bytes": 10485760, "max_bytes": 104857600, "default_duration_seconds": 3600, "max_duration_seconds": 86400,
                                 "verification": "each segment rehashes the full approved file; raw byte offsets; use next_offset; attachment_source grants do not permit text reads or uploads",
                                 "revocation": "checked at response permit; already permitted responses may arrive after revocation", "timeout": "5 seconds checked between local synchronous reads; OS waits may exceed this"},
-                "authorization_schema_versions": [1, 2, 3, 4, 5], "management_log_schema_versions": [1, 2, 3, 4, 5]}
+                "authorization_schema_versions": [1, 2, 3, 4, 5, 6], "management_log_schema_versions": [1, 2, 3, 4, 5, 6]}
 
     @service_operation
     def projects(self, client, params):
@@ -354,7 +365,10 @@ class AgentService:
             raise AgentError("invalid_request", "参数或 request_id 无效")
         if not isinstance(payload.get("source_note", ""), str) or len(payload.get("source_note", "")) > 1000:
             raise AgentError("invalid_source", "来源说明无效")
-        requested_mode = payload.get("confirmation_mode", client_confirmation_mode(client))
+        if payload.get('operation') == 'delete':
+            from .agent_delete_authorization import deletion_confirmation_mode
+            deletion_confirmation_mode(payload.get('confirmation_mode'))
+        requested_mode = payload.get("confirmation_mode", 'local_web' if payload.get('operation') == 'delete' else client_confirmation_mode(client))
         if requested_mode not in {"agent_attested", "local_web"}:
             raise AgentError("invalid_confirmation", "确认策略无效")
         mode = "local_web" if "local_web" in {requested_mode, client_confirmation_mode(client)} else "agent_attested"
@@ -362,6 +376,12 @@ class AgentService:
         if existing:
             return existing
         self.store.guard_writes()
+        if payload.get('operation') == 'delete':
+            from .agent_delete_service import DeleteCandidateService
+            if 'content' in payload:
+                raise AgentError('unknown_field', '删除不接受content、替换正文或路径')
+            content, dependencies, binding, _ = DeleteCandidateService(self.repository).normalize(client, payload.get('kind'), payload.get('target_id'), payload.get('base_revision'))
+            return self.store.create(client, payload, content, {}, 'local_web', dependencies=dependencies, delete_binding=binding)
         if payload.get('kind') == 'concept_map':
             from .agent_concept_service import GraphCandidateService, graph_target
             from .agent_concept_authorization import graph_confirmation_mode
@@ -430,6 +450,12 @@ class AgentService:
         self._enforce_confirmation_policy(client, proposal)
         self.store.editable(proposal, payload.get("expected_version"))
         revision = payload.get("base_revision", proposal["base_revision"])
+        if proposal['operation'] == 'delete':
+            from .agent_delete_service import DeleteCandidateService
+            if 'content' in payload:
+                raise AgentError('unknown_field', '删除修订不接受替换正文')
+            content, dependencies, binding, _ = DeleteCandidateService(self.repository).normalize(client, proposal['kind'], proposal['target_id'], revision)
+            return self.store.revise(proposal, payload['expected_version'], content, revision, {}, client=client, dependencies=dependencies, delete_binding=binding)
         if proposal['kind'] == 'concept_map':
             from .agent_concept_service import GraphCandidateService, graph_target
             from .agent_concept_authorization import graph_confirmation_mode
@@ -569,10 +595,13 @@ class AgentService:
         prepared = self.prepare_submission(client, proposal)
         return self.store.commit(proposal, payload.get("version"), payload.get("preview_digest"), payload.get("confirmation"), prepared)
 
-    def prepare_submission(self, client, proposal):
+    def prepare_submission(self, client, proposal, *, held_source=None):
         require_scope(client, "read")
         require_scope(client, "propose")
         require_scope(client, "commit")
+        if proposal['operation'] == 'delete':
+            from .agent_delete_service import DeleteCandidateService
+            return DeleteCandidateService(self.repository).prepare_submission(client, proposal, held_source=held_source)
         if proposal['kind'] == 'concept_map':
             from .agent_concept_service import GraphCandidateService
             from .markdown_io import now_iso

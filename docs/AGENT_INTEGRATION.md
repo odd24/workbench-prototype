@@ -285,3 +285,9 @@ capabilities报告静态trash_delete@1/execution4及平台/目标有效性，imp
 复用现有 22 个 MCP 工具和 `/api/agent/v1` 提案接口。`list_projects` 仅为原可见项目附可验证的 README `revision`，`project/delete` 仅接受目标 ID、此版本、请求标识和可选来源说明。工具调用方完整展示内容与警告。原提案同版本、完整本机页面预览票据和独立批准才可应用。删除回执使用 `/?item=trash&itemId=project-agent-<proposal_uuid>-<version>`。
 
 同源本机管理路由 `clients/<id>/project-deletions` 支持 GET、`POST /preview`、`POST /confirm` 及 DELETE。预览请求绑定 `workspace_id`、`expected_version`、`project_id` 和逐项 `asset_ids`。确认使用现有管理会话、预览标识/摘要、`approved=true` 及稳定 `request_id`。旧授权维持独立。本机授权查询沿用原操作管理，客户端提案凭据不能调用此管理接口。
+
+## 分类变更（AG-139）
+
+沿用现有 22 个 MCP 工具。`prepare_proposal` 使用 `kind=category`、`operation=create|rename|delete|reorder`、`request_id` 和 `content`。`content` 含 `family` 和具体 `name`。体系为 `document_category`、`concept_map_category` 或 `project_attachment_category`。第三种必须传 `project_id`。改名增加 `new_name`，重排增加 `anchor` 和 `position=before|after`。省略确认模式时使用 `local_web`。修订可替换完整选择并保留体系、原名及项目。禁止上传配置或许可内容。原回执保留操作、体系、名称、项目及审批摘要。
+
+本机授权使用 `clients/<id>/category-writes` 的 GET、`POST /preview`、`POST /confirm`、DELETE。预览绑定当前工作空间与客户端版本，`selection` 含 `family/name/operation/project_id`，全局体系项目传 null。普通本机分类命令另用同源 `POST /api/category-operations/preview`（`operation` 与 `selection`）和 `POST /api/category-operations/approve`（`ticket`）。两个入口都按原预览核验当前业务状态。

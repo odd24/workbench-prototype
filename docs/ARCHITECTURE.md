@@ -198,3 +198,9 @@ agent_project_execution 只提供静态 project_create@1 及阶段证据，状�
 `project_delete_tree` 核验原始树与归属并复用 NTFS 目录句柄。`project_delete_impact` 在原有活动来源盘点中选择匹配影响，再检查全文读取权限。`agent_project_delete_service` 用同一逻辑准备候选及最终校验，`agent_project_delete_execution` 在唯一 ProposalStore 内提供静态 `project_trash@1` 执行步骤。项目、子资源、活动集合、排序和回收索引均绑定原计划。正常本机回收站操作复用已提交证据及目录原语恢复固定身份。
 
 `agent_project_delete_authorization` 复用本机管理票据、CredentialManager 日志和客户端 CAS。浏览器复用授权管理流程、删除预览及概念图只读工厂。项目外关联图保留原 `project_id` 和原始字节。已有编辑器、历史和保存协议沿用现有路径。
+
+## 分类变更（AG-139）
+
+`category_changes` 计算目录及成员归属，`category_prepared` 从现有 Markdown、JSON、排序和原字节历史准备文件计划。`category_identity` 仅记录名称代次和墓碑，原配置和成员仍是分类事实源。网页分类命令与 Agent 复用这套领域准备和文件 CAS。旧全量保存及隐式建类复用身份检查与凭据收窄。旧项目附件全量保存保留已有的记录附件清理语义。
+
+`agent_category_service` 分开可授权成员与本机配置/授权计划。唯一 ProposalStore 中的 `category_mutation@1` 使用 CredentialManager 依次执行收窄、业务发布、等价补发和回执。普通本机起源也使用该日志，条件是工作空间已初始化并能核验私人配置。

@@ -733,7 +733,7 @@ class GraphManagementTests(AgentFixture, unittest.TestCase):
                 self.assertEqual(evidence, self.json_evidence())
                 self.assertNotIn('concept_map_grants', self.security.clients()[key])
 
-    def test_category_rename_delete_empty_removal_and_failure_keep_narrow_grants(self):
+    def test_category_rename_preserves_equivalent_scope_and_other_changes_narrow(self):
         management = self.grant_management()
         key = self.client['client_id']
         for action in ('rename', 'delete', 'empty', 'failure'):
@@ -747,13 +747,19 @@ class GraphManagementTests(AgentFixture, unittest.TestCase):
                 elif action == 'delete': self.repo.delete_concept_map_category(category)
                 elif action == 'empty': self.repo.save_concept_map_categories([name for name in self.repo.concept_map_categories() if name != category])
                 else:
-                    with patch.object(self.repo._concept_map_repository, 'update', side_effect=OSError('synthetic write failure')):
-                        with self.assertRaises(OSError): self.repo.delete_concept_map_category(category)
+                    def interrupted(point):
+                        if point == 'category_business_applying':
+                            raise OSError('synthetic write failure')
+                    with patch.object(self.repo.agent_proposals, 'checkpoint', side_effect=interrupted):
+                        with self.assertRaises(AgentError): self.repo.delete_concept_map_category(category)
                     self.assertIn(category, self.repo.concept_map_categories())
-                self.assertEqual(self.security.clients()[key]['concept_map_grants']['grants'], [])
+                expected = graph_grants({'type':'concept_map_category', 'name':'新分类'})['grants'] if action == 'rename' else []
+                self.assertEqual(self.security.clients()[key]['concept_map_grants']['grants'], expected)
+                if action == 'failure':
+                    self.assertFalse(self.repo.agent_proposals.recover()['blocked'])
                 self.repo.ensure_concept_map_category(category)
-                self.assertEqual(self.security.clients()[key]['concept_map_grants']['grants'], [])
-                self.assertEqual(self.security.registry_version(), 4)
+                self.assertEqual(self.security.clients()[key]['concept_map_grants']['grants'], expected)
+                self.assertEqual(self.security.registry_version(), 8)
 
     def test_narrow_cannot_expand_and_unknown_paths_never_become_grant_dependencies(self):
         self.approve()

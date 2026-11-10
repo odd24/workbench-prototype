@@ -159,6 +159,7 @@
         if (client.enabled && !client.recovery_required) node.querySelector('.settings-actions')?.insertAdjacentHTML('beforeend', button('delete-grants', '删除授权', `data-client-id="${esc(client.client_id)}"`));
         if (client.enabled && !client.recovery_required) node.querySelector('.settings-actions')?.insertAdjacentHTML('beforeend', button('project-creation-open', '项目创建授权', `data-client-id="${esc(client.client_id)}"`));
         if (client.enabled && !client.recovery_required) node.querySelector('.settings-actions')?.insertAdjacentHTML('beforeend', button('project-creation-delete', '项目级联删除授权', `data-client-id="${esc(client.client_id)}"`));
+        if (client.enabled && !client.recovery_required) node.querySelector('.settings-actions')?.insertAdjacentHTML('beforeend', button('project-creation-category', '分类变更授权', `data-client-id="${esc(client.client_id)}"`));
         if (client.project_create_grant) node.querySelector('div')?.insertAdjacentHTML('beforeend', `<p>项目创建权限：${client.project_create_grant.enabled ? '已独立批准（每次仍须网页批准）' : '未启用'}</p>`);
         if ([5, 6, 7, 8].includes(client.authorization_schema_version)) node.querySelector('div')?.insertAdjacentHTML('beforeend', `<p>已批准图权限：${esc(client.concept_map_grants?.grants?.map(grantSummary).join('；') || '无')}</p>`);
         if ([6, 7, 8].includes(client.authorization_schema_version)) node.querySelector('div')?.insertAdjacentHTML('beforeend', `<p>已批准删除权限：${esc(client.delete_grants?.grants?.map(grantSummary).join('；') || '无')}（每次仍须本机网页独立批准）</p>`);
@@ -380,9 +381,17 @@
       return `<section class="settings-card agent-setup" id="agentDeleteGrantsPanel"><h2>删除授权 · ${esc(deletePanel.name)}</h2><p class="agent-error">独立新鲜授权；旧休眠items.delete不会生效。只允许移入回收站，每次仍须完整影响预览后本机网页批准，不增加读取权限或条目类型。仅Windows本机固定NTFS。</p><fieldset class="agent-scope"><legend>待批准删除范围</legend><label>具体资源<select id="agentDeleteGrantResource">${options.map(item => `<option value="${esc(JSON.stringify(item.resource))}">${esc(item.label)}</option>`).join('')}</select></label>${button('delete-add', '加入待批准范围')}<ol>${deletePanel.draft.grants.map((grant, index) => `<li><p>${esc(grantSummary(grant))}</p>${button('delete-remove', '移除此项', `data-grant-index="${index}"`)}</li>`).join('') || '<li>尚未选择范围。</li>'}</ol>${button('delete-preview', '查看完整删除授权预览')}</fieldset>${deletePreview ? `<div id="agentDeleteGrantPreview"><h3>完整删除授权预览</h3><p>${esc(deletePreview.client_name)} · ${esc(deletePreview.disclosure)}</p><pre>${esc(JSON.stringify(deletePreview, null, 2))}</pre>${button('delete-confirm', '明确批准此删除授权')}${button('delete-cancel-preview', '取消预览')}</div>` : ''}${deletePending ? `<p>原删除授权操作待查询：${esc(deletePending.request_id)}</p>${button('delete-resolve', '查询原删除授权结果')}` : ''}<div class="settings-actions">${button('delete-revoke', '撤销全部删除授权')}${button('delete-close', '关闭删除授权')}</div></section>`;
     }
     function projectCreationHtml() {
+      if (projectCreation?.category || projectCreationPending?.category) return categoryGrantHtml();
       if (projectCreation?.deletion || projectCreationPending?.deletion) return projectDeletionHtml();
       const client = catalog.items.find(item => item.client_id === projectCreation?.client_id);
       return `<section class="settings-card agent-setup" id="agentProjectCreationPanel"><h2>项目创建授权${client ? ' · ' + esc(client.name) : ''}</h2><p>仅本机独立批准后允许生成单个新项目提案；不会自动授予访问新项目的权限。</p>${projectCreation ? `<p>当前：${projectCreation.grant.enabled ? '已启用' : '未启用'}</p>${button('project-creation-preview', '查看完整项目创建授权预览')}${projectCreation.grant.enabled ? button('project-creation-revoke','撤销项目创建授权') : ''}` : ''}${projectCreationPreview ? `<h3>完整项目创建授权预览</h3><p>${esc(projectCreationPreview.disclosure)}</p><pre id="agentProjectCreationFull">${esc(JSON.stringify(projectCreationPreview,null,2))}</pre>${button('project-creation-confirm','明确批准项目创建授权')}${button('project-creation-cancel','取消预览')}` : ''}${projectCreationPending ? button('project-creation-resolve','查询原项目创建授权结果') : button('project-creation-close','关闭项目创建授权')}</section>`;
+    }
+    function categoryGrantHtml() {
+      const panel = projectCreation;
+      const preview = projectCreationPreview;
+      const choice = panel?.selection || {};
+      const options = (values, selected) => Object.entries(values).map(([value, label]) => `<option value="${esc(value)}" ${value === selected ? 'selected' : ''}>${esc(label)}</option>`).join('');
+      return `<section class="settings-card agent-setup" id="agentCategoryGrantPanel"><h2>分类变更授权</h2><p>每次授予一个具体分类操作。变更仍须完整预览与本机独立批准。</p>${panel ? `<fieldset class="agent-scope"><legend>具体分类</legend><label>分类体系<select id="agentCategoryFamily">${options({document_category:'知识库', concept_map_category:'概念图', project_attachment_category:'项目独立附件'}, choice.family)}</select></label><label>项目（仅独立附件）<select id="agentCategoryProject"><option value="">请选择</option>${options(Object.fromEntries(panel.projects.map(item => [item.id, item.name])), choice.project_id)}</select></label><label>精确分类名称<input id="agentCategoryName" value="${esc(choice.name || '')}"></label><label>操作<select id="agentCategoryOperation">${options({create:'新建指定空缺名称', rename:'重命名', delete:'删除分类', reorder:'调整顺序'}, choice.operation)}</select></label>${button('project-creation-preview','查看完整分类授权预览')}</fieldset>${panel.grants.grants.length ? `<pre>${esc(JSON.stringify(panel.grants, null, 2))}</pre>${button('project-creation-revoke', '撤销全部分类变更授权')}` : ''}` : ''}${preview ? `<h3>完整分类授权预览</h3><pre id="agentProjectCreationFull">${esc(JSON.stringify(preview, null, 2))}</pre>${button('project-creation-confirm','明确批准分类授权')}${button('project-creation-cancel','取消预览')}` : ''}${projectCreationPending ? button('project-creation-resolve','查询原分类授权结果') : button('project-creation-close','关闭分类授权')}</section>`;
     }
     function projectDeletionHtml() {
       const panel = projectCreation;
@@ -400,10 +409,12 @@
         paint(); return;
       }
       const clientId = key || projectCreation?.client_id || projectCreationPending?.client_id;
-      const opening = ['project-creation-open', 'project-creation-delete'].includes(name);
+      const opening = ['project-creation-open', 'project-creation-delete', 'project-creation-category'].includes(name);
+      const category = opening ? name === 'project-creation-category' : Boolean(projectCreation?.category || projectCreationPending?.category);
       const deletion = opening ? name === 'project-creation-delete' : Boolean(projectCreation?.deletion || projectCreationPending?.deletion);
-      const grantLabel = deletion ? '项目级联删除授权' : '项目创建授权';
-      const route = `clients/${encodeURIComponent(clientId)}/${deletion ? 'project-deletions' : 'project-creation'}`;
+      const grantLabel = category ? '分类变更授权' : deletion ? '项目级联删除授权' : '项目创建授权';
+      const route = `clients/${encodeURIComponent(clientId)}/${category ? 'category-writes' : deletion ? 'project-deletions' : 'project-creation'}`;
+      const openAction = category ? 'project-creation-category' : deletion ? 'project-creation-delete' : 'project-creation-open';
       const version = epoch;
       const panel = projectCreation, preview = projectCreationPreview;
       const confirmGrant = name === 'project-creation-confirm';
@@ -421,15 +432,20 @@
       }
       const projectId = deletion ? find('#agentProjectDeleteProject')?.value : null;
       const assetIds = deletion && name === 'project-creation-preview' ? [...root.querySelectorAll('[data-project-delete-asset]:checked')].map(node => node.value) : [];
+      if (category && name === 'project-creation-preview') {
+        const family = find('#agentCategoryFamily').value;
+        panel.selection = {family, name:find('#agentCategoryName').value.trim(), operation:find('#agentCategoryOperation').value,
+          project_id:family === 'project_attachment_category' ? find('#agentCategoryProject').value : null};
+      }
       busy = true; paint();
       try {
         if (opening) {
           const value = await request(route);
           if (!valid(version)) return;
-          projectCreation = deletion ? {...value, deletion:true, assetIds:[]} : value; projectCreationPreview = null;
+          projectCreation = category ? {...value, category:true} : deletion ? {...value, deletion:true, assetIds:[]} : value; projectCreationPreview = null;
         } else if (name === 'project-creation-preview' || name === 'project-creation-assets') {
           if (deletion && (!projectId || name === 'project-creation-preview' && panel.projectId !== projectId)) throw new Error('请先读取所选项目的独立附件清单');
-          const selection = deletion ? {project_id:projectId, asset_ids:assetIds} : {};
+          const selection = category ? {selection:panel.selection} : deletion ? {project_id:projectId, asset_ids:assetIds} : {};
           const value = await request(route + '/preview', {method:'POST',body:JSON.stringify({workspace_id:status.workspace_id,expected_version:panel.expected_version,...selection})});
           if (!valid(version) || panel !== projectCreation) return;
           if (deletion) projectCreation = {...panel, projectId, choice:projectId, assetIds, assets:[...value.selection.selected_assets, ...value.selection.unselected_assets]};
@@ -437,19 +453,19 @@
         } else if (confirmGrant || revokeGrant) {
           const payload = {workspace_id:status.workspace_id,expected_version:panel.expected_version,request_id:id()};
           if (confirmGrant) Object.assign(payload,{preview_id:preview.preview_id,preview_digest:preview.preview_digest,approved:true});
-          rememberProjectCreation({client_id:clientId,request_id:payload.request_id,...(deletion ? {deletion:true} : {})});
+          rememberProjectCreation({client_id:clientId,request_id:payload.request_id,...(category ? {category:true} : deletion ? {deletion:true} : {})});
           const result = await request(route + (confirmGrant ? '/confirm' : ''), {method:confirmGrant ? 'POST' : 'DELETE',body:JSON.stringify(payload)});
           if (!valid(version)) return;
           if (result.client_id !== clientId) throw new Error('原授权回执客户端不一致');
           rememberProjectCreation(null); projectCreationPreview = null; busy = false;
-          if (await load({preserveDraft:true})) await projectCreationAction(deletion ? 'project-creation-delete' : 'project-creation-open',clientId);
+          if (await load({preserveDraft:true})) await projectCreationAction(openAction,clientId);
           return;
         } else if (name === 'project-creation-resolve' && projectCreationPending) {
           const result = await request(`operations/${encodeURIComponent(projectCreationPending.request_id)}`);
           if (!valid(version)) return;
           if (['completed','abandoned'].includes(result.state) && result.client_id === clientId) {
             rememberProjectCreation(null); projectCreationPreview = null; busy = false;
-            if (await load({preserveDraft:true})) await projectCreationAction(deletion ? 'project-creation-delete' : 'project-creation-open',clientId);
+            if (await load({preserveDraft:true})) await projectCreationAction(openAction,clientId);
             return;
           }
           busy = false; paint(); message(`原${grantLabel}需要恢复核查。`,true); return;
@@ -907,6 +923,16 @@
     root.addEventListener('change', event => {
       if (!isActive() || busy) return;
       const node = event.target;
+      if (projectCreation?.category && node.closest('#agentCategoryGrantPanel fieldset')) {
+        const family = find('#agentCategoryFamily').value;
+        projectCreation.selection = {family, name:find('#agentCategoryName').value, operation:find('#agentCategoryOperation').value,
+          project_id:family === 'project_attachment_category' ? find('#agentCategoryProject').value : null};
+        if (projectCreationPreview) {
+          projectCreationPreview = null;
+          paint();
+        }
+        return;
+      }
       if (projectCreation?.deletion && (node.id === 'agentProjectDeleteProject' || node.hasAttribute('data-project-delete-asset'))) {
         projectCreationPreview = null;
         if (node.id === 'agentProjectDeleteProject') {

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -61,6 +62,7 @@ class ConceptMapRepository:
         self._move_to_trash = move_to_trash
         self.reserved_ids = lambda: set()
         self.before_category_change = lambda names: None
+        self.category_catalogue = lambda before, after: nullcontext()
 
     @staticmethod
     def concept_map_number(value, default=0.0) -> float:
@@ -215,10 +217,12 @@ class ConceptMapRepository:
             category = str(concept_map.get("category") or "未分类").strip() or "未分类"
             if category not in cleaned:
                 cleaned.append(category)
-        removed = set(self.categories()) - set(cleaned)
-        if removed:
-            self.before_category_change(removed)
-        atomic_write_json(self.config_dir / "concept-map-categories.json", cleaned)
+        previous = self.categories()
+        with self.category_catalogue(previous, cleaned):
+            removed = set(previous) - set(cleaned)
+            if removed:
+                self.before_category_change(removed)
+            atomic_write_json(self.config_dir / "concept-map-categories.json", cleaned)
         return cleaned
 
     def ensure_category(self, category: str) -> str:

@@ -28,6 +28,14 @@ PHASES = (
 
 
 def proposal_allows(client, proposal, *, writing=False):
+    if proposal['kind'] == 'category':
+        from .agent_category_authorization import REQUIRED, client_grants
+        scope = proposal['access_target']
+        return (not proposal.get('local_category_origin') and client.get('enabled')
+                and REQUIRED <= set(client.get('scopes', ())) and (proposal['state'] == 'committed' or any(
+                    grant['operation'] == proposal['operation']
+                    and all(grant[key] == scope[key] for key in ('family', 'project_id', 'name'))
+                    for grant in client_grants(client)['grants'])))
     if proposal['kind'] != 'project':
         return allows(client, proposal['access_target'])
     if proposal['operation'] == 'delete':

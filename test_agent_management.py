@@ -204,7 +204,10 @@ security.add_client('crash', ['read'], ['*'], [], 'http://127.0.0.1:4173', reque
         with self.assertRaises(ValueError):
             self.repo.save_document_categories(["长" * 81])
         self.assertEqual(self.security.clients()[result["client_id"]], before)
-        with patch.object(self.repo._configuration_repository, "save_document_categories", side_effect=OSError("failed")), self.assertRaises(OSError):
+        def interrupted(point):
+            if point == 'category_business_applying':
+                raise OSError('failed')
+        with patch.object(self.repo.agent_proposals, 'checkpoint', side_effect=interrupted), self.assertRaises(AgentError):
             self.repo.rename_document_category("原分类", "新分类")
         self.assertEqual(self.security.clients()[result["client_id"]]["categories"], [])
         self.assertIn("原分类", self.repo.document_categories())

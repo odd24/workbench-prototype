@@ -34,6 +34,7 @@ class Repository:
         self.root = data_dir.resolve()
         self.write_lock = threading.RLock()
         self.write_guard = None
+        self.category_preview_tickets = {}
         self._record_id_lock = self.write_lock
         self.projects_dir = self.root / "projects"
         self.global_ideas_dir = self.root / "ideas"
@@ -106,6 +107,11 @@ class Repository:
             lambda path: open_file_external_callback(path),
         )
         self._attachment_repository.get_document = self.get_document
+        from .category_local import legacy_catalogue
+        from .category_prepared import DOCUMENT, GRAPH, PROJECT_ASSETS
+        self._configuration_repository.category_catalogue = lambda before, after: legacy_catalogue(self, DOCUMENT, None, before, after)
+        self._concept_map_repository.category_catalogue = lambda before, after: legacy_catalogue(self, GRAPH, None, before, after)
+        self._attachment_repository.category_catalogue = lambda project_id, before, after: legacy_catalogue(self, PROJECT_ASSETS, project_id, before, after)
         self._document_repository.resolve_attachment = self.attachment_path
         from .document_uploads import DocumentUploads
         self.document_uploads = DocumentUploads(self)
@@ -251,6 +257,16 @@ class Repository:
         return self._configuration_repository.document_categories()
 
     @coordinated
+    def preview_category_change(self, payload):
+        from .category_local import preview
+        return preview(self, payload)
+
+    def approve_category_change(self, payload):
+        from .category_local import approve
+        with self.write_lock:
+            return approve(self, payload)
+
+    @coordinated
     def save_document_categories(self, categories: list) -> list[str]:
         return self._configuration_repository.save_document_categories(categories)
 
@@ -260,10 +276,20 @@ class Repository:
 
     @coordinated
     def rename_document_category(self, old_name: str, new_name: str) -> dict:
+        from .category_local import active_identity, execute_legacy_command
+        if active_identity(self) and str(old_name).strip() != str(new_name).strip():
+            from .category_prepared import DOCUMENT
+            review = execute_legacy_command(self, DOCUMENT, 'rename', str(old_name).strip(), new_name=str(new_name).strip())
+            return {'categories':self.document_categories(), 'document_sort':self.document_sort(), 'updated_documents':len(review['impact']['members'])}
         return self._configuration_repository.rename_document_category(old_name, new_name)
 
     @coordinated
     def delete_document_category(self, name: str) -> dict:
+        from .category_local import active_identity, execute_legacy_command
+        if active_identity(self):
+            from .category_prepared import DOCUMENT
+            review = execute_legacy_command(self, DOCUMENT, 'delete', str(name).strip())
+            return {'categories':self.document_categories(), 'document_sort':self.document_sort(), 'updated_documents':len(review['impact']['members'])}
         return self._configuration_repository.delete_document_category(name)
 
     @coordinated
@@ -502,6 +528,11 @@ class Repository:
 
     @coordinated
     def rename_concept_map_category(self, old_name: str, new_name: str) -> dict:
+        from .category_local import active_identity, execute_legacy_command
+        if active_identity(self) and str(old_name).strip() != str(new_name).strip():
+            from .category_prepared import GRAPH
+            review = execute_legacy_command(self, GRAPH, 'rename', str(old_name).strip(), new_name=str(new_name).strip())
+            return {'categories':self.concept_map_categories(), 'updated_maps':len(review['impact']['members'])}
         return self._concept_map_repository.rename_category(old_name, new_name)
 
     def prepare_concept_map_update(self, map_id, payload):
@@ -525,6 +556,11 @@ class Repository:
 
     @coordinated
     def delete_concept_map_category(self, name: str) -> dict:
+        from .category_local import active_identity, execute_legacy_command
+        if active_identity(self):
+            from .category_prepared import GRAPH
+            review = execute_legacy_command(self, GRAPH, 'delete', str(name).strip())
+            return {'categories':self.concept_map_categories(), 'updated_maps':len(review['impact']['members'])}
         return self._concept_map_repository.delete_category(name)
 
     def get_concept_map(self, map_id: str) -> tuple[dict, Path] | tuple[None, None]:

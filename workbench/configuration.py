@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 from pathlib import Path
 
 from .markdown_io import dump_markdown, now_iso
@@ -38,6 +39,7 @@ class ConfigurationRepository:
         self.concept_map_categories = concept_map_categories
         self.before_category_change = lambda names: []
         self.after_category_rename = lambda changes, old, new: None
+        self.category_catalogue = lambda before, after: nullcontext()
 
     def config(self) -> dict:
         return {
@@ -175,8 +177,10 @@ class ConfigurationRepository:
             category = str(document.get("category") or "未分类").strip() or "未分类"
             if category not in cleaned:
                 cleaned.append(category)
-        self.before_category_change(set(self.document_categories()) - set(cleaned))
-        atomic_write_json(self.config_dir / "document-categories.json", cleaned)
+        previous = self.document_categories()
+        with self.category_catalogue(previous, cleaned):
+            self.before_category_change(set(previous) - set(cleaned))
+            atomic_write_json(self.config_dir / "document-categories.json", cleaned)
         return cleaned
 
     def ensure_document_category(self, category: str) -> str:

@@ -248,8 +248,33 @@ def run_acceptance(codex=None):
             assert approved["state"] == "completed"
             observed_receipt = call("get_proposal", {"proposal_id": web_proposal["proposal_id"]})["receipt"]
             assert all(observed_receipt[key] == value for key, value in approved["receipt"].items())
+            grant_route = f"clients/{info['client_id']}/category-writes"
+            selected = {"family":"document_category", "name":"Codex 验收空分类"}
+            current_grants = local_request(grant_route, token=session)
+            grant_preview = local_request(grant_route + "/preview", "POST", {
+                "workspace_id":info["workspace_id"], "expected_version":current_grants["expected_version"],
+                "selection":{**selected, "project_id":None, "operation":"create"}}, session)
+            grant_request = {key:grant_preview[key] for key in ("workspace_id","expected_version","preview_id","preview_digest")}
+            local_request(grant_route + "/confirm", "POST", {**grant_request, "approved":True, "request_id":"codex-category-grant"}, session)
+            category = call("prepare_proposal", {"request_id":"codex-category", "kind":"category", "operation":"create", "content":selected})
+            category_id = category["proposal_id"]
+            category_preview = call("preview_proposal", {"proposal_id":category_id})
+            assert not category_preview["content"]["members"] and "category_local_details" not in category
+            denied = call("commit_proposal", {"proposal_id":category_id, "version":1,
+                "preview_digest":category_preview["preview_digest"],
+                "confirmation":{"mode":"agent_attested", "user_confirmed":True}}, error=True)
+            assert denied["code"] == "confirmation_required"
+            category_route = "proposals/" + category_id
+            review = local_request(category_route + "/preview", token=session)
+            assert selected["name"] in review["local_category_plan"]["configuration"]["after"]
+            category_result = local_request(category_route + "/approve", "POST", {"workspace_id":info["workspace_id"],
+                "version":1, "preview_digest":review["preview"]["preview_digest"], "preview_ticket":review["preview_ticket"],
+                "request_id":"codex-category-approve"}, session)
+            assert category_result["state"] == "completed"
+            assert call("get_proposal", {"proposal_id":category_id})["receipt"] == category_result["receipt"]
             workbench.close()
             workbench = LocalWorkbench(data, credentials)
+            assert selected["name"] in workbench.repository.document_categories()
             private_write(client_config, {**read_json(client_config), "base_url": workbench.base_url})
             for receipt in receipts:
                 assert call("get_item", {"kind": receipt["kind"], "item_id": receipt["item_id"]})["revision"] == receipt["revision"]
@@ -258,7 +283,8 @@ def run_acceptance(codex=None):
             version = subprocess.run([executable, "--version"], capture_output=True, text=True, check=True).stdout.strip()
             return {"passed": True, "codex_version": version, "protocol": "2025-11-25", "tool_count": len(inventory["tools"]),
                     "created": [item["kind"] for item in receipts], "preview_revision_confirmation": True,
-                    "issue_append_document_update": True, "local_web_independent_approval": True, "retry_cancel_restart_revoke": True, "model_turns_started": 0, "user_config_changed": False}
+                    "issue_append_document_update": True, "local_web_independent_approval": True, "category_local_web":True,
+                    "retry_cancel_restart_revoke": True, "model_turns_started": 0, "user_config_changed": False}
         except Exception as error:
             diagnostics = "\n".join(rpc.errors[-12:]) if rpc else ""
             raise RuntimeError(str(error) + "\n" + diagnostics) from error

@@ -99,15 +99,18 @@ def disk_occupied(root):
 
 def reserved_projects(repository, *, exclude_proposal=None):
     """Read validated permanent Agent reservations without expiry or repair."""
+    from .category_changes import PROJECT_ASSETS
+    from .category_identity import load_category_identities
     root = repository.root
+    used = {identity_key(project_id) for family, project_id in
+            map(json.loads, load_category_identities(root).namespaces) if family == PROJECT_ASSETS}
     agent = controlled(root, root / '.agent')
     store = getattr(repository, 'agent_proposals', None)
     if store is None:
         if any((agent / name).exists() for name in ('proposals', 'operations', 'receipts')):
             raise ValueError('缺少项目身份所需的提案读取器')
-        return set()
+        return used
     store.preflight()
-    used = set()
     for path in store.proposals.glob('*.json'):
         proposal = store._load(path.stem, expire=False)
         if proposal.get('kind') == 'project' and path.stem != exclude_proposal:
@@ -127,6 +130,7 @@ def reserved_projects(repository, *, exclude_proposal=None):
 
 def scoped_project_ids(security):
     """Exclude still configured exact scopes, even for disabled clients."""
+    from .agent_category_authorization import client_grants
     from .agent_concept_authorization import client_graph_grants
     from .agent_delete_authorization import client_delete_grants
     from .agent_project_delete_authorization import client_project_delete_grants
@@ -141,6 +145,7 @@ def scoped_project_ids(security):
             raise ValueError('现有项目范围格式未知，不能确认编号占用')
         used.update(identity_key(key) for key in client['project_ids'] if key != '*')
         used.update(identity_key(grant['project_id']) for grant in client_project_delete_grants(client)['grants'])
+        used.update(identity_key(grant['project_id']) for grant in client_grants(client)['grants'] if grant['project_id'])
         for policy in (client_graph_grants(client), client_delete_grants(client)):
             for grant in policy['grants']:
                 used.update(identity_key(resource['id']) for resource in grant['resources'] if resource['type'] == 'project')

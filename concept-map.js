@@ -107,7 +107,7 @@ function createConceptMapPreview({root, graph, escapeHtml:esc}) {
 
 function createConceptMapFeature(options) {
   if (options?.readOnly === true) return createConceptMapPreview(options);
-  const {dom, api:apiClient, dialogs, appState} = options;
+  const {dom, api:apiClient, dialogs, appState, categoryCommand} = options;
   if (!dom || !apiClient || !dialogs || !appState) throw new Error('Concept map requires DOM, API, dialogs, and app state dependencies');
   const {$, $$, escapeHtml} = dom;
   const api = typeof apiClient === 'function' ? apiClient : apiClient.request;
@@ -251,7 +251,13 @@ function bindConceptMapCategoryDrag(enabled) {
       if (!dragged) return;
       event.preventDefault();
       const order = conceptMapCategoriesUncategorizedLast($$('.concept-map-category-group', list).map(item => item.dataset.conceptMapCategory));
-      try { conceptMapCategories = await api('/concept-map-categories', {method:'PUT', body:JSON.stringify({categories:order})}); notify('分类顺序已保存', '刷新页面后仍会保持当前顺序'); }
+      const name = dragged.dataset.conceptMapCategory, index = order.indexOf(name);
+      const move = index + 1 < order.length ? {anchor:order[index + 1], position:'before'} : {anchor:order[index - 1], position:'after'};
+      try {
+        const result = order.length > 1 && await categoryCommand('reorder', {family:'concept_map_category', name, ...move});
+        if (result) { conceptMapCategories = result.categories; notify('分类顺序已保存', '刷新页面后仍会保持当前顺序'); }
+        else await renderConceptMapLibrary();
+      }
       catch (error) { notify('分类顺序保存失败', error.message, true); await renderConceptMapLibrary(); }
     });
   });
@@ -270,7 +276,9 @@ async function createConceptMapCategory() {
   const category = value?.trim(); if (!category) return;
   if (conceptMapCategories.includes(category)) { notify('分类已存在', `「${category}」已经存在`, true); return; }
   try {
-    conceptMapCategories = await api('/concept-map-categories', {method:'PUT', body:JSON.stringify({categories:conceptMapCategoriesUncategorizedLast([...conceptMapCategories, category])})});
+    const result = await categoryCommand('create', {family:'concept_map_category', name:category});
+    if (!result) return;
+    conceptMapCategories = result.categories;
     await renderConceptMapLibrary(); notify('分类已创建', `「${category}」现在可以接收概念图；当前筛选保持不变`);
   } catch (error) { notify('创建分类失败', error.message, true); }
 }
@@ -279,7 +287,8 @@ async function renameConceptMapCategory(oldName) {
   const value = await appPrompt({title:'重命名概念图分类', message:'分类中的概念图会一起迁移。', confirmText:'保存名称', input:{label:'新分类名称', value:oldName}});
   const newName = value?.trim(); if (!newName || newName === oldName) return;
   try {
-    const result = await api('/concept-map-categories/rename', {method:'PATCH', body:JSON.stringify({old_name:oldName, new_name:newName})});
+    const result = await categoryCommand('rename', {family:'concept_map_category', name:oldName, new_name:newName});
+    if (!result) return;
     conceptMapCategories = result.categories;
     if (conceptMapCollapsedCategories.delete(oldName)) { conceptMapCollapsedCategories.add(newName); persistConceptMapCollapsedCategories(); }
     if (conceptMapCategoryFilter === oldName) conceptMapCategoryFilter = newName;
@@ -288,11 +297,9 @@ async function renameConceptMapCategory(oldName) {
 }
 
 async function deleteConceptMapCategory(name) {
-  const count = conceptState.maps.filter(item => (item.category || '未分类') === name).length;
-  const approved = await appConfirm({title:`删除分类「${name}」？`, message:count ? `其中 ${count} 张概念图将移动到“未分类”。` : '这是一个空分类。', detail:'只删除分类，不会删除任何概念图。', confirmText:'删除分类', danger:true});
-  if (!approved) return;
   try {
-    const result = await api(`/concept-map-categories/${encodeURIComponent(name)}`, {method:'DELETE'});
+    const result = await categoryCommand('delete', {family:'concept_map_category', name});
+    if (!result) return;
     conceptMapCategories = result.categories;
     conceptMapCollapsedCategories.delete(name); persistConceptMapCollapsedCategories();
     if (conceptMapCategoryFilter === name) conceptMapCategoryFilter = '';

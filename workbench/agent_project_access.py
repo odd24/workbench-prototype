@@ -76,7 +76,7 @@ def validate_access_intent(value):
         return
     try:
         evidence = value['project_access_evidence']
-        if value['schema_version'] not in (7, 8) or set(evidence) != {'proposal_id','project_id','receipt_digest','project_revision','identity'} or str(uuid.UUID(evidence['proposal_id'])) != evidence['proposal_id'] or any(not re.fullmatch(r'[a-f0-9]{64}', evidence[name]) for name in ('receipt_digest','project_revision')):
+        if value['schema_version'] not in (7, 8, 9) or set(evidence) != {'proposal_id','project_id','receipt_digest','project_revision','identity'} or str(uuid.UUID(evidence['proposal_id'])) != evidence['proposal_id'] or any(not re.fullmatch(r'[a-f0-9]{64}', evidence[name]) for name in ('receipt_digest','project_revision')):
             raise ValueError()
         if valid_new_id(evidence['project_id']) != evidence['project_id'].casefold() or set(evidence['identity']) != {'volume','index','created'} or any(type(v) is not int or v < 0 for v in evidence['identity'].values()):
             raise ValueError()

@@ -8,6 +8,7 @@ import mimetypes
 import os
 import re
 import time
+from contextlib import nullcontext
 from pathlib import Path
 from urllib.parse import quote, unquote
 
@@ -86,6 +87,7 @@ class AttachmentRepository:
         self.open_file_external = open_file_external
         self.get_document = lambda key: (None, None)
         self.document_upload_inventory = None
+        self.category_catalogue = lambda project_id, before, after: nullcontext()
         self.agent_operation_inventory = None
 
     def get_record(self, record_id: str):
@@ -284,26 +286,27 @@ class AttachmentRepository:
                 continue
             cleaned.append({"name": name, "tag": str(item.get("tag", "")).strip()[:80]})
             known.add(name)
-        assets = self.project_assets(project_id)
-        changed = False
-        for asset in assets:
-            if asset.get("category") and asset["category"] not in known:
-                asset["category"] = ""
-                changed = True
-        if changed:
-            self._save_project_assets(project_id, assets)
-        removed = previous_names - known
-        if removed:
-            for record in self.list_records(project_id=project_id):
-                for raw in list(record.get("attachments") or []):
-                    try:
-                        attachment = json.loads(raw) if isinstance(raw, str) else raw
-                    except (json.JSONDecodeError, TypeError):
-                        continue
-                    if attachment.get("category") in removed:
-                        self.update_record_attachment_category(record["id"], attachment.get("name", ""), "")
-        path = self.projects_dir / project_id / "assets" / "categories.json"
-        atomic_write_json(path, cleaned)
+        with self.category_catalogue(project_id, previous_names, known):
+            assets = self.project_assets(project_id)
+            changed = False
+            for asset in assets:
+                if asset.get("category") and asset["category"] not in known:
+                    asset["category"] = ""
+                    changed = True
+            if changed:
+                self._save_project_assets(project_id, assets)
+            removed = previous_names - known
+            if removed:
+                for record in self.list_records(project_id=project_id):
+                    for raw in list(record.get("attachments") or []):
+                        try:
+                            attachment = json.loads(raw) if isinstance(raw, str) else raw
+                        except (json.JSONDecodeError, TypeError):
+                            continue
+                        if attachment.get("category") in removed:
+                            self.update_record_attachment_category(record["id"], attachment.get("name", ""), "")
+            path = self.projects_dir / project_id / "assets" / "categories.json"
+            atomic_write_json(path, cleaned)
         return cleaned
 
     def ensure_project_asset_category(self, project_id: str, category: str) -> str:

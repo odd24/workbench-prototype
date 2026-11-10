@@ -28,7 +28,7 @@ from .paths import (
 
 
 APP_DIR = Path(__file__).resolve().parent.parent
-APP_VERSION = "2026.11.10.5"
+APP_VERSION = "2026.11.10.6"
 MAX_JSON_BODY_BYTES = 15_000_000
 
 
@@ -388,6 +388,14 @@ class WorkbenchHandler(SimpleHTTPRequestHandler):
             return
         path, query = self._route()
         try:
+            if path in {'/api/category-operations/preview', '/api/category-operations/approve'}:
+                from .agent_runtime import LOOPBACK
+                if (self.server.server_address[0] not in LOOPBACK or self.client_address[0] not in LOOPBACK
+                        or self.headers.get('Origin') != 'http://' + self.headers.get('Host', '')
+                        or self.headers.get('Content-Type', '').split(';')[0] != 'application/json'):
+                    raise AgentError('forbidden', '分类操作需要本机同源 JSON 请求', 403)
+                method = self.repository.preview_category_change if path.endswith('/preview') else self.repository.approve_category_change
+                return self._json(method(self._body()))
             if path == "/api/projects":
                 return self._json(self.repository.create_project(self._body()), HTTPStatus.CREATED)
             if path == "/api/documents/export":

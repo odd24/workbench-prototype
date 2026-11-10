@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 import re
+import uuid
 from datetime import date
 from collections import deque
 from functools import wraps
@@ -154,14 +155,30 @@ class AgentService:
             kind_fields.setdefault('project', {})['delete'] = []
         project_capabilities = (['projects.create', 'projects.delete'] if SUPPORTED else [])
         effective_project = (['projects.create'] if project_create else []) + (['projects.delete'] if project_delete else [])
+        from .agent_category_authorization import REQUIRED, client_grants, grant_from_selection
+        configured_categories = client_grants(client)['grants']
+        category_operations = set()
+        category_inventory = {}
+        if REQUIRED <= set(client.get('scopes', ())):
+            for grant in configured_categories:
+                try:
+                    selection = {key:grant[key] for key in ('family', 'project_id', 'name', 'operation')}
+                    if grant_from_selection(self.repository, selection, inventory_cache=category_inventory) == grant:
+                        category_operations.add(grant['operation'])
+                except (ValueError, OSError, AgentError):
+                    continue
+        if category_operations:
+            kind_operations['category'] = sorted(category_operations)
+            kind_fields['category'] = {op:['family', 'project_id', 'name'] + (['new_name'] if op == 'rename' else ['anchor', 'position'] if op == 'reorder' else []) for op in category_operations}
         return {"kind_operations":kind_operations,
                 "kind_fields":kind_fields, "authorized_kinds": client_kinds(client),
                 "confirmation_modes": ["agent_attested", "local_web"], "default_confirmation_mode": client_confirmation_mode(client),
-                "proposal_schema_versions": [1, 2, 3], "execution_schema_versions": [1, 2, 3, 4, 5, 6], "api_version": "1", "workspace_id": self.security.workspace_id, "kinds": kinds + (['concept_map'] if graph_read else []),
+                "proposal_schema_versions": [1, 2, 3], "execution_schema_versions": [1, 2, 3, 4, 5, 6, 7], "api_version": "1", "workspace_id": self.security.workspace_id, "kinds": kinds + (['concept_map'] if graph_read else []),
                 "operations": ["create", "append", "update"] + (['delete'] if delete_supported else []), "limits": LIMITS, "scopes": client["scopes"],
                 "project_ids": client["project_ids"], "categories": client["categories"], "confirmation_mode": client_confirmation_mode(client),
                 "capability_authorization": {"configured": client_capability_grants(client),
-                                             "implemented": (["files.read", "uploads.stage", "attachments.write"] if SUPPORTED else []) + ['concept_maps.read', 'concept_maps.write'] + (['items.delete'] if delete_supported else []) + project_capabilities, "effective": (["files.read"] if file_grants else []) + (["uploads.stage"] if upload_policies else []) + (["attachments.write"] if attachment_policies else []) + (['concept_maps.read'] if graph_read else []) + (['concept_maps.write'] if graph_write else []) + (['items.delete'] if delete_kinds else []) + effective_project, "activation": "requires_reauthorization"},
+                                             "implemented": (["files.read", "uploads.stage", "attachments.write"] if SUPPORTED else []) + ['concept_maps.read', 'concept_maps.write'] + (['items.delete'] if delete_supported else []) + project_capabilities + ['categories.write'], "effective": (["files.read"] if file_grants else []) + (["uploads.stage"] if upload_policies else []) + (["attachments.write"] if attachment_policies else []) + (['concept_maps.read'] if graph_read else []) + (['concept_maps.write'] if graph_write else []) + (['items.delete'] if delete_kinds else []) + effective_project + (['categories.write'] if category_operations else []), "activation": "requires_reauthorization"},
+                'category_changes':{'operations':sorted(category_operations), 'confirmation_mode':'local_web', 'preview_bytes':2097152},
                 'project_creation':{'grant':project_grant, 'effective':project_create, 'confirmation_mode':'local_web', 'platform':'Windows fixed NTFS only', 'fields':list(PROJECT_FIELDS), 'grants_access':False, 'preview_bytes':2097152},
                 'project_deletion':{'effective':project_delete, 'confirmation_mode':'local_web', 'tree_members':4096,
                                     'tree_bytes':67108864, 'preview_bytes':2097152, 'scope':'fresh exact grant; actual children, assets and all external impacts are separately checked per proposal'},
@@ -175,7 +192,7 @@ class AgentService:
                                 "raw_chunk_bytes": 65536, "default_max_bytes": 10485760, "max_bytes": 104857600, "default_duration_seconds": 3600, "max_duration_seconds": 86400,
                                 "verification": "each segment rehashes the full approved file; raw byte offsets; use next_offset; attachment_source grants do not permit text reads or uploads",
                                 "revocation": "checked at response permit; already permitted responses may arrive after revocation", "timeout": "5 seconds checked between local synchronous reads; OS waits may exceed this"},
-                "authorization_schema_versions": [1, 2, 3, 4, 5, 6, 7, 8], "management_log_schema_versions": [1, 2, 3, 4, 5, 6, 7, 8]}
+                "authorization_schema_versions": [1, 2, 3, 4, 5, 6, 7, 8, 9], "management_log_schema_versions": [1, 2, 3, 4, 5, 6, 7, 8, 9]}
 
     @service_operation
     def projects(self, client, params):
@@ -415,6 +432,14 @@ class AgentService:
         if existing:
             return existing
         self.store.guard_writes()
+        if payload.get('kind') == 'category':
+            from .agent_category_service import candidate
+            from .markdown_io import now_iso
+            if payload.get('confirmation_mode', 'local_web') != 'local_web' or {'target_id', 'base_revision'} & payload.keys():
+                raise AgentError('invalid_category_selection', '分类变更只接受具体选择及本机批准')
+            epoch = str(uuid.uuid5(uuid.NAMESPACE_URL, self.security.workspace_id))
+            _, content, dependencies, local, _, _ = candidate(self.repository, self.security, payload.get('content'), payload.get('operation'), epoch, now_iso(), client=client)
+            return self.store.create(client, payload, content, {}, 'local_web', dependencies=dependencies, category_local_details=local)
         if payload.get('kind') == 'project' and payload.get('operation') != 'delete':
             from .agent_project_service import ProjectCandidateService
             content, dependencies, details, _ = ProjectCandidateService(self.repository, self.security).normalize(client, payload.get('content'))
@@ -499,6 +524,19 @@ class AgentService:
         self._enforce_confirmation_policy(client, proposal)
         self.store.editable(proposal, payload.get("expected_version"))
         revision = payload.get("base_revision", proposal["base_revision"])
+        if proposal['kind'] == 'category':
+            from .agent_category_service import candidate, validate_selection
+            from .markdown_io import now_iso
+            old = proposal['normalized_content']
+            selection = validate_selection(payload.get('content', old['selection']))
+            if any(selection.get(key) != old['selection'].get(key) for key in ('family', 'name', 'project_id')):
+                raise AgentError('invalid_category_selection', '分类修订必须保留原分类体系、名称和项目')
+            _, content, dependencies, details, _, _ = candidate(
+                self.repository, self.security, selection, proposal['operation'], old['epoch'], now_iso(), client=client)
+            if 'base_revision' in payload and revision != content['revision']:
+                raise AgentError('version_conflict', '分类基础版本已变化，请重新预览', 409)
+            return self.store.revise(proposal, payload['expected_version'], content, content['revision'], {}, client=client,
+                                     dependencies=dependencies, category_local_details=details)
         if proposal['kind'] == 'project' and proposal['operation'] == 'create':
             from .agent_project_service import ProjectCandidateService
             if 'base_revision' in payload:
@@ -572,7 +610,7 @@ class AgentService:
         proposal = self.store.owned(client, proposal_id)
         self._enforce_confirmation_policy(client, proposal)
         result = self.store.public(proposal)
-        if proposal["state"] == "committed" and proposal["kind"] != "project":
+        if proposal["state"] == "committed" and proposal["kind"] not in {"project", "category"}:
             try:
                 if proposal['kind'] == 'concept_map':
                     from .agent_concept_service import authorized_graph
@@ -651,6 +689,9 @@ class AgentService:
         return self.store.commit(proposal, payload.get("version"), payload.get("preview_digest"), payload.get("confirmation"), prepared)
 
     def prepare_submission(self, client, proposal, *, held_source=None):
+        if proposal['kind'] == 'category':
+            from .agent_category_service import prepare_submission
+            return prepare_submission(self.repository, self.security, client, proposal)
         require_scope(client, "read")
         require_scope(client, "propose")
         require_scope(client, "commit")

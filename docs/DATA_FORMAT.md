@@ -285,3 +285,11 @@ proposal3/manifest3 新增 project_create@1/execution5，依次 project_stage/pr
 proposal3 与 manifest3 的执行分支为 `project_trash@1`、execution6。`before.md` 保存 README 原字节，`index-before.json` 保存原回收索引，`tree-before.json` 保存原树物理身份与全部相对成员证据，若项目排序文件存在，`sort-before.json` 保存其原字节。固定 token 为 `project-agent-<UUID>-<正整数版本>`。回收项 `delete_schema_version=2` 用当前根相对路径，保留原操作 ID，便于完整停机副本核验。项目和子记录 ID 在终结提案证据中长期保留。schema1 仍用于单条删除。可移植 ZIP 保持排除 `.agent` 和 `.trash`。
 
 树最多 4096 个目录和文件成员、64 MiB 原始字节，单文本 1 MiB。完整活动集合最多 4096 文件、32 MiB，完整 UTF-8 JSON 预览最多 2 MiB。二进制仅记录元数据、大小及 SHA-256；保留原字节的完整目录直接移动。额外 NTFS 数据流、硬链接、重解析和未知成员均拒绝。[FindFirstStreamW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-findfirststreamw)、[FindNextStreamW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-findnextstreamw)
+
+## 分类变更和授权（AG-139）
+
+原文档分类、文档排序、图分类及项目独立附件分类继续使用原 JSON 路径。独立附件索引只迁移成员的 `category`。知识库及图默认名称为「未分类」，独立附件默认值为空字符串。旧独立附件目录中的字面「未分类」仍可作为现有普通分类迁移。文档改名保留分类内模式和文件顺序，概念图保留项目归属，独立附件改名保留分类关联标签。
+
+`config/category-identities.json` 和 `config/category-identities-fence.json` 为配对的 schema1 身份记录。按体系和项目记录 active UUID、名称代次、退役 UUID，改名沿用身份，名称复用获得新身份。两文件不一致或分类集合与已记录身份不一致时拒绝分类写入。完整备份保留配对文件。只读查询不会初始化身份文件。
+
+`category_write_grants` schema1 仅允许具体体系、项目、名称与操作。创建许可绑定空缺名称、配置摘要和代次。现有分类许可绑定 UUID 和代次。持久格式门槛为 registry8、授权9、管理日志9、transport2、proposal3/manifest3、`category_mutation@1`/execution7。业务前后原字节与完整扫描摘要存原操作目录，客户端迁移计划存私人凭据目录。单原文件 1 MiB，活动文档或概念图清单 4096 个文件、32 MiB，完整 UTF-8 JSON 预览 2 MiB。

@@ -18,7 +18,7 @@
   </script>
   <link rel="stylesheet" href="css/tokens.css?v=20260918-1">
   <link rel="stylesheet" href="css/base.css?v=20260918-1">
-  <link rel="stylesheet" href="css/components.css?v=20261107-3">
+  <link rel="stylesheet" href="css/components.css?v=20261110-6">
   <link rel="stylesheet" href="css/layout.css?v=20260918-1">
   <link rel="stylesheet" href="css/records.css?v=20261107-4">
   <link rel="stylesheet" href="css/management.css?v=20261110-4">
@@ -277,7 +277,7 @@
   <dialog class="app-dialog" id="appDialog" aria-labelledby="appDialogTitle">
     <form method="dialog">
       <div class="app-dialog-heading"><span class="app-dialog-icon" aria-hidden="true">?</span><div><p class="eyebrow" id="appDialogEyebrow">请确认操作</p><h2 id="appDialogTitle">确认操作</h2></div><button value="cancel" formnovalidate class="icon-button dialog-close" aria-label="关闭" title="关闭">✕</button></div>
-      <div class="app-dialog-body"><p id="appDialogMessage"></p><small id="appDialogDetail"></small><div class="app-dialog-options" id="appDialogOptions" hidden></div><label id="appDialogInputField"><span id="appDialogInputLabel">请输入内容</span><input id="appDialogInput" autocomplete="off" spellcheck="false"></label></div>
+      <div class="app-dialog-body"><p id="appDialogMessage"></p><small id="appDialogDetail" tabindex="0"></small><div class="app-dialog-options" id="appDialogOptions" hidden></div><label id="appDialogInputField"><span id="appDialogInputLabel">请输入内容</span><input id="appDialogInput" autocomplete="off" spellcheck="false"></label></div>
       <footer><button value="cancel" formnovalidate class="secondary-button">取消</button><button value="confirm" class="primary-button" id="appDialogConfirm">确认</button></footer>
     </form>
   </dialog>
@@ -316,7 +316,8 @@
   <dialog class="create-dialog asset-category-dialog" id="assetCategoryDialog">
     <form method="dialog">
       <header><div><p class="eyebrow">附件与标签</p><h2>管理附件分类</h2></div><button value="cancel" class="icon-button dialog-close" aria-label="关闭" title="关闭">✕</button></header>
-      <p class="asset-category-help">分类可自由新增或删除，并可关联一个工作台标签来继承颜色。删除分类后，其中附件会变为“无分类”。</p>
+      <p class="asset-category-help">独立附件分类操作只影响项目文件库。旧分类编辑器支持关联标签，使用旧保存删除分类时也会清除记录附件的同名分类。</p>
+      <button type="button" class="secondary-button" id="changeIndependentAssetCategory">独立附件分类操作</button>
       <div class="asset-category-editor" id="assetCategoryEditor"></div>
       <button type="button" class="secondary-button" id="addAssetCategory">＋ 新增分类</button>
       <footer><button value="cancel" class="secondary-button">取消</button><button type="button" class="primary-button" id="saveAssetCategories">保存分类</button></footer>
@@ -375,8 +376,8 @@
   <script src="js/features/search.js?v=20260916-1"></script>
   <script src="js/features/trash.js?v=20261110-3"></script>
   <script src="js/features/manage.js?v=20260916-1"></script>
-  <script src="js/features/agent-proposals.js?v=20261110-5"></script>
-  <script src="js/features/agent-settings.js?v=20261110-5"></script>
+  <script src="js/features/agent-proposals.js?v=20261110-6"></script>
+  <script src="js/features/agent-settings.js?v=20261110-6"></script>
   <script src="js/features/home.js?v=20260917-1"></script>
   <script src="js/features/project-view.js?v=20260917-1"></script>
   <script src="js/features/editor-session.js?v=20260917-1"></script>
@@ -386,7 +387,7 @@
   <script src="js/editor/editor-selection.js?v=20260916-1"></script>
   <script src="js/editor/editor-blocks.js?v=20260923-1"></script>
   <script src="js/editor/editor-host.js?v=20260923-1"></script>
-  <script src="concept-map.js?v=20261110-2"></script>
-  <script src="app.js?v=20261110-5"></script>
+  <script src="concept-map.js?v=20261110-6"></script>
+  <script src="app.js?v=20261110-6"></script>
 </body>
 </html>

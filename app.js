@@ -202,7 +202,7 @@ const appState = stateCore.create({
 });
 window.Workbench.appState = appState;
 const requestRegistry = appState.requests;
-const conceptMapFeature = conceptMapCore.create({dom:domCore, api:apiCore, dialogs:dialogCore, appState});
+const conceptMapFeature = conceptMapCore.create({dom:domCore, api:apiCore, dialogs:dialogCore, appState, categoryCommand});
 const navigationFeature = navigationCore.create({storage:localStorage, location, history});
 
 const PROJECT_CARD_COLLAPSE_LIMIT = 5;
@@ -1460,6 +1460,42 @@ function openAssetCategoryManager() {
   $('#assetCategoryDialog').showModal();
 }
 
+async function changeIndependentAssetCategory() {
+  const projectId = selectedProjectId;
+  const rows = $$('[data-asset-category-row]', $('#assetCategoryEditor'));
+  if (rows.length !== projectAssetCategories.length || rows.some((row, index) => row.dataset.categoryName !== projectAssetCategories[index]?.name || $('.asset-category-tag', row).value !== projectAssetCategories[index]?.tag)) {
+    notify('请先保存或取消旧分类编辑', '独立附件操作会重新读取项目分类', true);
+    return;
+  }
+  const actions = {create:'新建分类', rename:'重命名', delete:'删除分类', reorder:'调整顺序'};
+  const choices = values => Object.entries(values).map(([value, label]) => ({value, label}));
+  const operation = await appPrompt({title:'独立附件分类操作', input:{readOnly:true, choices:choices(actions)}});
+  if (!operation) return;
+  const names = projectAssetCategories.map(category => category.name);
+  const chooseCategory = (title, available) => appPrompt({title, input:{readOnly:true, choices:available.map(name => ({value:name, label:name}))}});
+  const name = operation === 'create' ? (await appPrompt({title:'新建独立附件分类', input:{label:'分类名称'}}))?.trim() : names.length ? await chooseCategory('选择具体分类', names) : null;
+  if (!name) return;
+  const selection = {family:'project_attachment_category', project_id:projectId, name};
+  if (operation === 'rename') {
+    selection.new_name = (await appPrompt({title:'重命名独立附件分类', input:{label:'新名称', value:name}}))?.trim();
+    if (!selection.new_name || selection.new_name === name) return;
+  } else if (operation === 'reorder') {
+    if (names.length < 2) return;
+    selection.anchor = await chooseCategory('选择相对位置的分类', names.filter(category => category !== name));
+    if (!selection.anchor) return;
+    selection.position = await appPrompt({title:'选择位置', input:{readOnly:true, choices:choices({before:'移到该分类前面', after:'移到该分类后面'})}});
+    if (!selection.position) return;
+  }
+  if (selectedProjectId !== projectId) return;
+  try {
+    const result = await categoryCommand(operation, selection);
+    if (!result || selectedProjectId !== projectId) return;
+    $('#assetCategoryDialog').close();
+    await reloadProjectAssetPage(projectId);
+    if (selectedProjectId === projectId) openAssetCategoryManager();
+  } catch (error) { notify('分类变更失败', error.message, true); }
+}
+
 async function saveAssetCategories() {
   const categories = $$('[data-asset-category-row]', $('#assetCategoryEditor')).map(row => ({
     name:row.dataset.categoryName || $('.asset-new-category-name', row)?.value.trim() || '',
@@ -1645,7 +1681,9 @@ function renderProjectPage() {
   if (projectTab === 'assets') {
     if (projectAssetProjectId !== project.id) {
       content.innerHTML = '<div class="empty-state">正在读取项目附件…</div>';
-      loadProjectAssets(project.id).then(() => { if (selectedProjectId === project.id && projectTab === 'assets') renderProjectPage(); });
+      loadProjectAssets(project.id).then(() => {
+        if (projectAssetProjectId === project.id && selectedProjectId === project.id && projectTab === 'assets') renderProjectPage();
+      });
       return;
     }
     renderProjectAssets(project, projectAssetRecords);
@@ -2294,6 +2332,33 @@ function renderDocumentActions() {
   }
 }
 
+async function categoryCommand(operation, selection) {
+  const directory = window.workbenchDataDir;
+  const preview = await api('/category-operations/preview', {method:'POST', body:JSON.stringify({operation, selection})});
+  if (directory !== window.workbenchDataDir) return null;
+  const labels = {create:'新建分类', rename:'重命名分类', delete:'删除分类', reorder:'调整分类顺序'};
+  const approved = await appConfirm({title:labels[operation], message:`请核对「${selection.name}」的完整变更计划。`,
+    detail:JSON.stringify({影响:preview.impact, 本机计划:preview.local}, null, 2), confirmText:labels[operation], danger:operation === 'delete'});
+  if (!approved || directory !== window.workbenchDataDir) return null;
+  const approval = {method:'POST', body:JSON.stringify({ticket:preview.ticket})};
+  try {
+    await api('/category-operations/approve', approval);
+  } catch (error) {
+    if (directory !== window.workbenchDataDir || error.status && error.payload?.code !== 'recovery_required') throw error;
+    await api('/category-operations/approve', approval);
+  }
+  if (directory !== window.workbenchDataDir) return null;
+  const changed = preview.impact.members.filter(member => member.before.category !== member.after.category).length;
+  return {categories:preview.local.configuration.after, document_sort:preview.local.ordering.after,
+    updated_documents:changed, updated_maps:changed};
+}
+
+function relativeCategoryMove(order, name) {
+  const index = order.indexOf(name);
+  if (index < 0 || order.length < 2) return null;
+  return index + 1 < order.length ? {anchor:order[index + 1], position:'before'} : {anchor:order[index - 1], position:'after'};
+}
+
 async function createDocumentCategory() {
   const name = await appPrompt({title:'新建知识库分类', message:'新分类可以先保持为空，也可以直接拖入文档。', confirmText:'创建分类', input:{label:'分类名称', placeholder:'例如：产品设计'}});
   const category = name?.trim();
@@ -2301,9 +2366,10 @@ async function createDocumentCategory() {
   const currentCategories = configData?.document_categories || [];
   if (currentCategories.includes(category)) { notify('分类已存在', `「${category}」已经在知识库中`, true); return; }
   try {
-    configData.document_categories = await api('/document-categories', {method:'PUT', body:JSON.stringify({categories:[...currentCategories, category]})});
-    const sort = knowledgeSortConfig();
-    configData.document_sort = await api('/document-sort', {method:'PUT', body:JSON.stringify({...sort, category_order:[...sort.category_order.filter(item => item !== category), category]})});
+    const result = await categoryCommand('create', {family:'document_category', name:category});
+    if (!result) return;
+    configData.document_categories = result.categories;
+    configData.document_sort = result.document_sort;
     documentOpenCategories.add(category);
     renderDocumentsPage();
     notify('分类已创建', `「${category}」现在可以接收文档`);
@@ -2315,7 +2381,8 @@ async function renameDocumentCategory(oldName) {
   const newName = value?.trim();
   if (!newName || newName === oldName) return;
   try {
-    const result = await api('/document-categories/rename', {method:'PATCH', body:JSON.stringify({old_name:oldName, new_name:newName})});
+    const result = await categoryCommand('rename', {family:'document_category', name:oldName, new_name:newName});
+    if (!result) return;
     configData.document_categories = result.categories;
     configData.document_sort = result.document_sort;
     await refreshDocuments();
@@ -2331,11 +2398,9 @@ async function renameDocumentCategory(oldName) {
 }
 
 async function deleteDocumentCategory(name) {
-  const count = documents.filter(item => (item.category || '未分类') === name).length;
-  const approved = await appConfirm({title:`删除分类「${name}」？`, message:count ? `其中 ${count} 篇文档将移动到“未分类”。` : '这是一个空分类。', detail:'只删除分类，不会删除任何文档。', confirmText:'删除分类', danger:true});
-  if (!approved) return;
   try {
-    const result = await api(`/document-categories/${encodeURIComponent(name)}`, {method:'DELETE'});
+    const result = await categoryCommand('delete', {family:'document_category', name});
+    if (!result) return;
     configData.document_categories = result.categories;
     configData.document_sort = result.document_sort;
     await refreshDocuments();
@@ -2485,7 +2550,13 @@ function bindKnowledgeDragAndDrop() {
         event.preventDefault();
         const currentOrder = $$('.document-category-group', $('#manageContent')).map(item => item.dataset.documentCategory);
         const order = [...currentOrder.filter(name => name !== '未分类'), ...currentOrder.filter(name => name === '未分类')];
-        await saveKnowledgeSort({category_mode:'manual', category_order:order}, '分类顺序已保存', '可继续拖动分类调整位置');
+        const name = draggedCategory.dataset.documentCategory;
+        const move = relativeCategoryMove(order, name);
+        try {
+          const result = move && await categoryCommand('reorder', {family:'document_category', name, ...move});
+          if (result) { configData.document_sort = result.document_sort; notify('分类顺序已保存', '可继续拖动分类调整位置'); }
+        } catch (error) { notify('分类顺序保存失败', error.message, true); }
+        renderDocumentsPage();
       });
     });
   }
@@ -4268,6 +4339,7 @@ document.addEventListener('click', async event => {
   }
   if (event.target.closest('#uploadProjectAsset')) { $('#projectAssetInput')?.click(); return; }
   if (event.target.closest('#manageAssetCategories')) { openAssetCategoryManager(); return; }
+  if (event.target.closest('#changeIndependentAssetCategory')) { await changeIndependentAssetCategory(); return; }
   if (event.target.closest('#addAssetCategory')) {
     const editor = $('#assetCategoryEditor');
     $('.asset-category-empty', editor)?.remove();

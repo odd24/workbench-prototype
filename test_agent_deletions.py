@@ -246,7 +246,10 @@ else:
         grants = delete_grants({'type':'document_category', 'name':'允许'})
         preview = self.management.preview(self.client['client_id'], {'workspace_id':self.security.workspace_id, 'expected_version':client_version(self.client), 'grants':grants})
         self.approve(preview)
-        with patch.object(self.repo._configuration_repository, 'update_document', side_effect=OSError('synthetic category failure')), self.assertRaises(OSError):
+        def interrupted(point):
+            if point == 'category_business_applying':
+                raise OSError('synthetic category failure')
+        with patch.object(self.repo.agent_proposals, 'checkpoint', side_effect=interrupted), self.assertRaises(AgentError):
             self.repo.rename_document_category('允许', '新名称')
         current = self.security.clients()[self.client['client_id']]
         self.assertEqual(current['authorization_schema_version'], 6)

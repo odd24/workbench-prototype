@@ -8,7 +8,7 @@
 
 后续扩展详见 [AI_AGENT_EXTENSION_PLAN.md](AI_AGENT_EXTENSION_PLAN.md)。AG-115仅文档；AG-116～121、AG-126已完成；用户已明确仅本机使用，AG-122～125已取消当前实施、远程未实现。当前WorkBuddy5.9.3与本机最终交付证据见末尾及扩展验收，不影响首期历史状态。
 
-2026-11-09 用户在监督对话明确“现在开始执行方案”，解除此前暂停实施限制。AG-128～130及独立POST锁修复已通过监督审查，AG-131已通过监督审查，AG-132已通过监督审查，AG-133已通过监督审查，AG-134已提交9e43aa3并获监督接受，AG-135～136已完成。2026-11-10 用户明确“继续持续的推进方案”，AG-137～138 已完成，AG-139～143 待开始。历史 AG-127 的仅文档授权和暂停事实保留。
+2026-11-09 用户在监督对话明确“现在开始执行方案”，解除此前暂停实施限制。AG-128～130及独立POST锁修复已通过监督审查，AG-131已通过监督审查，AG-132已通过监督审查，AG-133已通过监督审查，AG-134已提交9e43aa3并获监督接受，AG-135～136已完成。2026-11-10 用户明确“继续持续的推进方案”，AG-137～139 已完成，AG-140～143 待开始。历史 AG-127 的仅文档授权和暂停事实保留。
 
 ## 工作项
 
@@ -53,7 +53,7 @@
 | AG-136 | 条目删除与回收站持久恢复 | 已完成 | 2026-11-10 | 2026-11-10 | AG-129、135；完整删除预览/强制网页批准/原回执及恢复保护验收完成；后续暂停 |
 | AG-137 | 项目创建、排序与可选独立授权 | 已完成 | 2026-11-10 | 2026-11-10 | AG-129；同卷目录发布、排序和独立范围授权已验收 |
 | AG-138 | 项目级联删除 | 已完成 | 2026-11-10 | 2026-11-10 | AG-136、137。独立授权、本机批准、固定目录移动及恢复，验收见分册 |
-| AG-139 | 三类分类变更与授权迁移 | 待开始 | — | — | AG-129、133、135 |
+| AG-139 | 三类分类变更与授权迁移 | 已完成 | 2026-11-10 | 2026-11-10 | AG-129、133、135。三类分类命令、身份代次及授权迁移已验收 |
 | AG-140 | 工作流变更、状态迁移与模板切换 | 待开始 | — | — | AG-129、137 |
 | AG-141 | 提案管理、恢复入口与诊断整体验收 | 待开始 | — | — | AG-132～140 |
 | AG-142 | 新能力真实 Codex、WorkBuddy 兼容验收 | 待开始 | — | — | AG-141；真实客户端环境 |
@@ -1237,3 +1237,24 @@ AG-137实际修改文件（48）：`AGENTS.md`、`README.md`、`app.js`、`css/m
 - 剩余边界：NTFS 目录句柄无法冻结外部子目录写入，最终校验之后的竞争可能移动到不匹配状态，保留现场且不补成功回执。未决迁移仍需原物理身份，停机完整副本的已提交树可用便携摘要核验。下一项 AG-139 按依赖另行交接。
 
 AG-138 实际修改文件（49）：`AGENTS.md`、`README.md`、`app.js`、`docs/AGENT_INTEGRATION.md`、`docs/AGENT_USAGE.md`、`docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md`、`docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md`、`docs/AI_AGENT_PROGRESS.md`、`docs/ARCHITECTURE.md`、`docs/DATA_FORMAT.md`、`docs/MAINTENANCE.md`、`index.html`、`js/core/navigation.js`、`js/features/agent-proposals.js`、`js/features/agent-settings.js`、`test_agent_attachments.py`、`test_agent_capabilities.py`、`test_agent_delete_http.py`、`test_agent_delete_workflows.js`、`test_agent_project_delete.py`、`test_project_delete_tree.py`、`workbench/agent_concept_authorization.py`、`workbench/agent_delete_authorization.py`、`workbench/agent_delete_execution.py`、`workbench/agent_delete_service.py`、`workbench/agent_execution.py`、`workbench/agent_http.py`、`workbench/agent_management.py`、`workbench/agent_management_http.py`、`workbench/agent_project_access.py`、`workbench/agent_project_authorization.py`、`workbench/agent_project_delete_authorization.py`、`workbench/agent_project_delete_execution.py`、`workbench/agent_project_delete_service.py`、`workbench/agent_project_execution.py`、`workbench/agent_proposal_management.py`、`workbench/agent_proposals.py`、`workbench/agent_security.py`、`workbench/agent_service.py`、`workbench/agent_tools.py`、`workbench/asset_references.py`、`workbench/deletion_inventory.py`、`workbench/deletion_prepared.py`、`workbench/http_api.py`、`workbench/project_delete_impact.py`、`workbench/project_delete_tree.py`、`workbench/project_identity.py`、`workbench/references.py`、`workbench/repository.py`。
+
+### 2026-11-10 / AG-139 / 开始
+
+- 起点 `9ed9006`，`git status --short` 干净。监督验收 AG-138 并派发仅 AG-139。先盘点与评审协议，AG-140～143 待依赖交接。
+- 范围：知识库、概念图和项目独立附件的 create/rename/delete/reorder。保留空分类与排序语义。删除只迁默认分类。源内容及附件字节保留。复用同一领域准备、网页和 Agent 写入协调、唯一 ProposalStore 与现有授权日志。
+- 首轮盘点：知识库保留分类列表和独立 `document-sort.json`，普通 create 当前为两次 PUT，现有改名钩子只尝试恢复普通文档读取名。图分类普通改名/删除会迁移同名的项目关联图，现有钩子移除命名图读写和单删范围。项目附件 `PUT` 以全量列表保存，并会清除记录附件的同名分类。这是新独立附件分类事务必须隔离的兼容点。项目独立附件级联授权虽以 ID 选择，证据摘要实际含分类元数据，改名可能使该证据失效。上传/正式附件策略按 owner ID 与 client_version 绑定，提交候选另有分类版本依赖。
+- 拟接点：`configuration.py`、`documents.py`、`concept_maps.py`、`assets.py`、仓储和网页路由、已有管理日志、唯一提案引擎、设置和完整预览、集成测试和契约文档。验证计划覆盖三类四操作、空分类和排序重读、精确/通配/未来成员及名称复用、权限差异和默认分类、多文件真实中断与恢复、实际 HTTP/stdio/浏览器及全量门禁。
+- 风险：当前普通全量列表和隐式 `ensure` 可增删分类，须共同约束授权生效点。现有精确授权按名称匹配，改名/复用有悬空权限风险。私有客户端授权和日志不得进入 Agent 可见预览。记录附件旧路径、项目图的既有归属、附件策略版本及多文件中断需先定稿。
+- 监督接受 AG-LOCAL-DEC-052，范围及格式见本机能力方案 §26。确认新独立附件命令与旧混合 PUT 分开，项目默认空字符串与旧字面「未分类」分别保留。确认默认授权导致可见/可写成员扩张时保守拒绝，以及已初始化/未初始化普通路径的不同日志边界。开始纯领域计划与身份核验，协议及验收尚待实施。
+- 首个纯领域专项 `python -m unittest -v test_category_changes` 3 项通过。覆盖三类四操作的目录计划、项目空默认与历史字面值、改名保留身份、名称复用换代、只读不写和单边身份文件缺失拒绝。现有网页与 Agent 路径尚未接入此计划。
+
+### 2026-11-10 / AG-139 / 完成
+
+- 决策 AG-LOCAL-DEC-052。三类目录支持 create/rename/delete/reorder，保留原 ID、正文、历史、图项目归属及附件字节。删除迁入对应默认分类，独立附件命令保留记录附件分类，旧混合全量 PUT 保留原语义。正常网页和 Agent 分类命令共用领域准备与原字节核验。新管理接口仅本机同源，现有 22 个 MCP 工具复用提案契约。
+- 格式与兼容。registry8、authorization9、管理日志9、transport2、proposal3/manifest3、`category_mutation@1`/execution7。分类身份配对文件保留名称代次与墓碑，旧业务配置继续是事实源。先收窄精确授权，业务与历史完整且客户端版本匹配后才补发等价权限。服务版本 2026.11.10.6，更新相关静态资源缓存版本。
+- Python 全量 `python -m unittest -v` 506 项，700.716 秒，505 通过，1 项 Windows 原生符号链接权限跳过，同域原生 junction 另有测试。全量启动后补了同一 UUID 但过期代次不得等价补发的限制，该限制的直接反例与最终 13 项分类专项均通过。初轮旧断言与故障注入点按新契约更新，另一次修改中启动的试跑因混合模块导入失效，均不作为最终通过证据。
+- 最终 26 项 Node 用例均有通过结果，其中 24 项同批通过。设置重载等待及概念图加载分别超时、遇页面脚本尚未定义，两个用例和产品保持原样后逐项复验通过。分类浏览器通过浅深色、1440/390，含精确授权、完整预览、取消、三类普通入口、中文项目路径、带符号分类名及批准响应丢失后的重放。127 Python、52 JS 语法检查、10 Markdown UTF-8/围栏和 97 个相对链接均通过。
+- 实际进程在六处退出后核对原操作、历史、权限与回执。实际旧版在四个授权日志阶段拒绝且零 JSON 改写。独立附件授权和关联图专项验证了两次并发批准返回同一回执。隔离真实 Codex CLI 0.167.0-alpha.3.2、协议 2025-11-25、22 工具验证分类提案、本机批准和重启，0 模型 turn，用户配置未改。详见[本机能力验收](AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md)。
+- 剩余边界。旧全量兼容入口或未初始化空间的多文件中断可能需要人工核查。Agent 独立附件分类沿用现有附件索引读取平台和策略门槛。外部未观察到的往返修改、旧程序绕过或双侧身份记录被移除时，无法识别所有代次变化。AG-140 按依赖另行交接。
+
+AG-139 实际修改文件（54）：`AGENTS.md`、`app.js`、`codex_agent_acceptance.py`、`concept-map.js`、`css/components.css`、`docs/AGENT_INTEGRATION.md`、`docs/AGENT_USAGE.md`、`docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md`、`docs/AI_AGENT_LOCAL_CAPABILITIES_PLAN.md`、`docs/AI_AGENT_PROGRESS.md`、`docs/ARCHITECTURE.md`、`docs/DATA_FORMAT.md`、`docs/MAINTENANCE.md`、`index.html`、`js/features/agent-proposals.js`、`js/features/agent-settings.js`、`README.md`、`test_agent_attachments.py`、`test_agent_capabilities.py`、`test_agent_category_changes.py`、`test_agent_category_workflows.js`、`test_agent_concept_maps.py`、`test_agent_deletions.py`、`test_agent_files.py`、`test_agent_management.py`、`test_category_changes.py`、`workbench/agent_category_authorization.py`、`workbench/agent_category_execution.py`、`workbench/agent_category_management.py`、`workbench/agent_category_service.py`、`workbench/agent_concept_authorization.py`、`workbench/agent_delete_authorization.py`、`workbench/agent_execution.py`、`workbench/agent_management_http.py`、`workbench/agent_management.py`、`workbench/agent_project_access.py`、`workbench/agent_project_authorization.py`、`workbench/agent_project_delete_authorization.py`、`workbench/agent_project_execution.py`、`workbench/agent_proposal_management.py`、`workbench/agent_proposals.py`、`workbench/agent_security.py`、`workbench/agent_service.py`、`workbench/agent_tools.py`、`workbench/assets.py`、`workbench/category_changes.py`、`workbench/category_identity.py`、`workbench/category_local.py`、`workbench/category_prepared.py`、`workbench/concept_maps.py`、`workbench/configuration.py`、`workbench/http_api.py`、`workbench/project_identity.py`、`workbench/repository.py`。

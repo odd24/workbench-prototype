@@ -88,3 +88,4 @@
 
 /* Shared creation and modification metadata. */
 .entity-times{display:flex;flex-wrap:wrap;gap:2px 14px;min-width:0;color:var(--muted);font-size:var(--type-meta,12px);font-weight:400;line-height:1.6;text-align:left}.entity-times>span{white-space:nowrap}.entity-times time{font:inherit;color:inherit;font-variant-numeric:tabular-nums}.entity-times-detail{margin:6px 0 12px}.data-table time{white-space:nowrap;font-variant-numeric:tabular-nums}
+#appDialogDetail{max-height:48vh;overflow:auto;overflow-wrap:anywhere;white-space:pre-wrap}

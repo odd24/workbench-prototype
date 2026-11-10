@@ -1311,3 +1311,8 @@ AG-140 实际修改文件（52）：`AGENTS.md`、`app.js`、`codex_agent_accept
 - 原始 stdio、HTTP、领域持久化与管理回归 207 项，288.623 秒，206 通过、1 项 Windows 符号链接权限跳过。两份只读试点分别预演完整读回、写入拒绝、撤销后 401、ready/STOP、端口关闭和目录删除。无活动试点服务，无真实配置改动、桌面启动或模型回合。实际步骤、完整候选和预算见[兼容矩阵](AGENT_CLIENT_COMPATIBILITY.md)。
 - 阶段门禁 `python -m unittest -v` 共 525 项，931.041 秒，524 通过，1 项同样因 Windows 原生符号链接权限跳过。新脚本最终版本分别执行 Codex 直调、WorkBuddy 默认/故障和两份试点预演通过。Python/JS 语法、两份 Markdown UTF-8/围栏及 12 个相对链接、`git diff --check` 通过。范围仅验收脚本和文档，实际文件为 `codex_agent_acceptance.py`、`workbuddy_agent_acceptance.py`、`docs/AGENT_CLIENT_COMPATIBILITY.md` 与 `docs/AI_AGENT_PROGRESS.md`。继续使用既有业务、协议、数据格式和应用版本。
 - 等待本次桌面安排。监督接收每客户端最多一轮只读试点的审查稿，两个试点合计最多两轮，后续写入、额外额度和用户级配置另行决定。AG-142 保持进行中，AG-143 未开始。
+
+### AG-142 桌面只读试点观察（2026-11-10）
+
+- 用户批准两客户端只读试点，另授权监督自行验证 WorkBuddy 并指定 Hy4。实际桌面显示 WorkBuddy V5.9.3，新建任务选择本次临时 `desktop-project`，模型选择器显示 Hy4。项目级配置由夹具生成。至少 60 秒内未见 `protocol.jsonl`，无 initialize 或 tools/list 证据。按约定在发送前停止，0 个模型回合，未切用户级配置或使用其他模型。结论仅为本次项目级发现未证实，原装 CLI 结果继续单列。
+- WorkBuddy 夹具按 STOP 退出 0，记录端口关闭、撤销凭据拒绝和临时目录已移除。随后只读 `Test-Path` 复核该试点目录不存在。Codex 的独立夹具已交用户手工执行，截至本条记录尚无中继轨迹，待用户结果。AG-142 保持进行中，AG-143 待开始。详见[兼容矩阵](AGENT_CLIENT_COMPATIBILITY.md)。

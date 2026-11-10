@@ -60,6 +60,13 @@ class ConfigurationRepository:
         return {"mode": value.get("mode", "custom"), "order": value.get("order", []) if isinstance(value.get("order", []), list) else []}
 
     def save_project_sort(self, payload: dict) -> dict:
+        value = self.canonical_project_sort(payload, self._unsorted_projects())
+        atomic_write_json(self.config_dir / "project-sort.json", value)
+        return value
+
+    @staticmethod
+    def canonical_project_sort(payload: dict, projects) -> dict:
+        """Normalize explicit ordering against the supplied project snapshot."""
         modes = {"custom", "updated", "name", "created", "record_count"}
         mode = str(payload.get("mode", "custom"))
         order = payload.get("order", [])
@@ -67,13 +74,11 @@ class ConfigurationRepository:
             raise ValueError("项目排序规则无效")
         if not isinstance(order, list) or any(not isinstance(item, str) for item in order):
             raise ValueError("项目顺序必须是项目编号列表")
-        known = [project["id"] for project in sorted(self._unsorted_projects(), key=lambda item: item.get("created", ""))]
+        known = [project["id"] for project in sorted(projects, key=lambda item: item.get("created", ""))]
         known_set = set(known)
         cleaned = list(dict.fromkeys(item for item in order if item in known_set))
         cleaned.extend(project_id for project_id in known if project_id not in cleaned)
-        value = {"mode": mode, "order": cleaned}
-        atomic_write_json(self.config_dir / "project-sort.json", value)
-        return value
+        return {"mode": mode, "order": cleaned}
 
     def document_sort(self) -> dict:
         path = self.config_dir / "document-sort.json"

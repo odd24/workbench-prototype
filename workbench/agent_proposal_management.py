@@ -9,7 +9,8 @@ import time
 from .agent_proposals import ProposalStore, digest, stamp
 from .agent_management import client_version, credential_lock
 from .agent_execution import validate_action
-from .agent_security import AgentError, allows, read_json
+from .agent_project_execution import proposal_allows
+from .agent_security import AgentError, read_json
 from .agent_service import page, service_operation, AgentService
 from .persistence import atomic_write_json
 
@@ -53,7 +54,7 @@ class ProposalManagement:
     def list(self, params):
         if set(params) - {"limit", "cursor", "client_id", "kind", "state", "operation"}:
             raise AgentError("unknown_parameter", "提案筛选参数无效")
-        if params.get("kind") and params["kind"] not in {"issue", "todo", "info", "document", "attachment", "concept_map"} or params.get("state") and params["state"] not in STATES or params.get("operation") and params["operation"] not in {"create", "append", "update", "delete"}:
+        if params.get("kind") and params["kind"] not in {"issue", "todo", "info", "document", "attachment", "concept_map", "project"} or params.get("state") and params["state"] not in STATES or params.get("operation") and params["operation"] not in {"create", "append", "update", "delete"}:
             raise AgentError("invalid_filter", "提案筛选值无效")
         clients = self._clients()
         items = []
@@ -70,10 +71,10 @@ class ProposalManagement:
         proposal = self._require_store()._load(proposal_id)
         clients = self._clients()
         client = clients.get(proposal["client_id"])
-        authorized = bool(client and client.get("enabled") and {"read", "propose", "commit"} <= set(client.get("scopes", [])) and allows(client, proposal["access_target"]))
+        authorized = bool(client and client.get("enabled") and {"read", "propose", "commit"} <= set(client.get("scopes", [])) and proposal_allows(client, proposal, writing=True))
         if authorized:
             authorized = client["client_id"] not in self.runtime.security().manager().blocked_clients()
-        if authorized and (proposal['kind'] == 'concept_map' or proposal['operation'] == 'delete') and not proposal.get('content_cleaned') and proposal['state'] in {'draft', 'previewed', 'conflicted'}:
+        if authorized and (proposal['kind'] in {'concept_map','project'} or proposal['operation'] == 'delete') and not proposal.get('content_cleaned') and proposal['state'] in {'draft', 'previewed', 'conflicted'}:
             try:
                 AgentService(self.repository, self.runtime.security()).prepare_submission(client, proposal)
             except (AgentError, ValueError, OSError):
@@ -108,6 +109,10 @@ class ProposalManagement:
             detail = self.detail(proposal_id)
         preview = self.store.preview_result(proposal)
         result = {**detail, "preview": preview}
+        if proposal['kind'] == 'project':
+            from .agent_project_service import checked_preview
+            result['local_project_plan'] = proposal['project_sort_details']
+            checked_preview({**result, 'preview_ticket':'x' * 43, 'preview_ticket_seconds':600, 'state':'previewed'})
         if proposal['operation'] == 'delete':
             from .agent_delete_service import checked_preview
             checked_preview(result)
@@ -303,7 +308,7 @@ class ProposalManagement:
                 self.store.recover()
                 proposal = self.store._load(action["proposal_id"])
                 manifest = read_json(manifest_path)
-                if proposal.get('operation') == 'delete' and manifest['state'] == 'abandoned' and proposal['state'] == 'cancelled':
+                if (proposal.get('operation') == 'delete' or proposal.get('kind') == 'project') and manifest['state'] == 'abandoned' and proposal['state'] == 'cancelled':
                     return {'request_id':request_id, 'state':'abandoned', 'receipt':None, 'proposal_id':action['proposal_id'], 'outcome':'accepted_disk_not_undone'}
                 if proposal["state"] == "committed" and proposal.get("approval") == action["approval"]:
                     action.update(state="completed", result=proposal["receipt"])

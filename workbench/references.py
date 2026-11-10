@@ -46,6 +46,14 @@ def references(value, *, strict=False):
             kind, key = query.get('item', []), query.get('itemId', [])
             if kind == ['trash'] and len(key) == 1 and set(query) == {'item', 'itemId'} and re.fullmatch(r'(?:record|document|concept-map)-agent-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}-[1-9][0-9]*', key[0]):
                 continue  # A receipt link addresses retained trash, not a formal item.
+            if kind == ['project'] and len(key) == 1 and set(query) == {'item', 'itemId'}:
+                from .project_identity import valid_new_id
+                try:
+                    valid_new_id(key[0])
+                except ValueError:
+                    pass
+                else:
+                    continue  # Project results are outside the single-item deletion surface.
             valid = len(kind) == len(key) == 1 and kind[0] in {'issue', 'todo', 'info', 'document', 'concept_map'} and re.fullmatch(r'(?:ISSUE|TODO|INFO|IDEA|DOC|CMAP)-[0-9]+', key[0])
             if valid and kind[0] in {'document', 'todo', 'info', 'concept_map'}:
                 valid = key[0].startswith({'document':'DOC-', 'todo':'TODO-', 'info':'INFO-', 'concept_map':'CMAP-'}[kind[0]])

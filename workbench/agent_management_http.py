@@ -70,10 +70,12 @@ def dispatch(handler):
                 if len(parts) in (3, 4) and parts[0] == "clients" and parts[2] == "upload-policy":
                     from .agent_upload_http import dispatch_policy
                     result = dispatch_policy(handler, parts, runtime, payload)
-                elif len(parts) in (3, 4) and parts[0] == 'clients' and parts[2] in {'concept-maps', 'deletions'}:
+                elif len(parts) in (3, 4) and parts[0] == 'clients' and parts[2] in {'concept-maps', 'deletions', 'project-creation'}:
                     from .agent_concept_authorization import GraphGrantManagement
                     from .agent_delete_authorization import DeleteGrantManagement
-                    grants = GraphGrantManagement(runtime) if parts[2] == 'concept-maps' else DeleteGrantManagement(runtime)
+                    from .agent_project_authorization import ProjectCreateGrantManagement
+                    grants = {'concept-maps':GraphGrantManagement, 'deletions':DeleteGrantManagement,
+                              'project-creation':ProjectCreateGrantManagement}[parts[2]](runtime)
                     if len(parts) == 3 and handler.command == 'GET':
                         result = grants.list(parts[1])
                     elif len(parts) == 4 and parts[3] == 'preview' and handler.command == 'POST':
@@ -84,6 +86,15 @@ def dispatch(handler):
                         result = grants.revoke(parts[1], payload)
                     else:
                         raise AgentError('not_found', '图授权管理接口不存在', 404)
+                elif len(parts) == 4 and parts[0] == 'proposals' and parts[2] == 'project-access':
+                    from .agent_project_access import ProjectAccessManagement
+                    access = ProjectAccessManagement(runtime)
+                    if handler.command == 'GET' and parts[3] == 'preview':
+                        result = access.preview(parts[1])
+                    elif handler.command == 'POST' and parts[3] == 'confirm':
+                        result = access.approve(parts[1], payload)
+                    else:
+                        raise AgentError('not_found', '项目访问授权接口不存在', 404)
                 elif parts[0] in {"proposals", "proposal-actions"}:
                     from .agent_proposal_management import ProposalManagement
                     proposals = ProposalManagement(runtime)

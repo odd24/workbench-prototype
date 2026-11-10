@@ -186,3 +186,9 @@ records/documents/concept_maps定位并产生deletion_prepared.PreparedDelete，
 独立agent_delete_authorization复用CredentialManager的快照/日志/围栏/幂等与管理会话。agent_delete_execution仅静态trash_delete@1计划/证据/步骤，恢复分支仍在唯一ProposalStore；不另建恢复循环或CRUD。原索引快照、NTFS身份、raw SHA、完整活动/排序/索引摘要一起约束移动；同句柄最终许可不复开被DELETE锁住的源。已移动只补原回执，不触碰后来出现的源。Repository守卫统一普通写/恢复/purge/清理，回收站读列表只展示保护，不产生恢复。
 
 设置页复用既有范围组件和持久请求查询，提案页全量目标/引用原文与多个独立readonly概念图实例，全部ready且同版本/摘要才启用批准；关闭/切换/失败清除前端许可。结果导航走既有dirty/flush/leave链路，再定位原token；工厂/选择器隔离不写主图草稿或撤销。
+
+## AG-137 项目创建（已完成）
+
+projects 共享 README 序列化和 slug 分配；project_identity 核实际目录、回收、持久身份与显式范围，project_prepared 纯生成严格五字段、模板、项目集合及排序计划。普通创建仍用原领域入口和排序，但独占创建目录，不能接管残留。ConfigurationRepository 的纯排序归一化由普通写与 Agent 共用。
+
+agent_project_execution 只提供静态 project_create@1 及阶段证据，状态循环、持久批准和回执仍由唯一 ProposalStore 管理。project_directory 复用原生句柄底座，目录叶能力仅内部使用，不扩展 Agent 任意文件读取；私人同卷暂存完整树后按同句柄无覆盖发布。agent_project_authorization 与 agent_project_access 复用 CredentialManager，项目访问独立检查原提交和当前客户端版本，保持目录及 README 句柄至 registry 发布。HTTP/MCP 层只做路由和受控链接返回。

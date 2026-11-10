@@ -33,6 +33,18 @@
     let deletePreview = null;
     let deletePending = null;
     let deleteRequest = 0;
+    let projectCreation = null;
+    let projectCreationPreview = null;
+    let projectCreationPending = null;
+    let projectCreationConfirming = false;
+    const projectCreationKey = () => `workbench.agentProjectCreation.pending.${status?.workspace_id}`;
+    function rememberProjectCreation(value) {
+      projectCreationPending = value;
+      try {
+        if (value) global.sessionStorage.setItem(projectCreationKey(), JSON.stringify(value));
+        else global.sessionStorage.removeItem(projectCreationKey());
+      } catch { /* The current page retains the original-operation query. */ }
+    }
     function rememberDelete(value) {
       deletePending = value;
       try {
@@ -78,7 +90,7 @@
     const errorText = error => error.payload?.message || error.message;
     const permissionName = scopes => scopes.length === 1 && scopes[0] === 'read' ? '只读查询' : scopes.length === 3 ? '整理并确认入库' : `旧版权限：${scopes.join(' / ')}`;
     const isDirty = () => Boolean(draft && JSON.stringify(draft) !== original);
-    const isBusy = () => busy || registrationConfirming || Boolean(pending) || Boolean(registrationPending) || Boolean(filePending) || Boolean(uploadPending) || Boolean(graphPending) || Boolean(deletePending);
+    const isBusy = () => busy || registrationConfirming || Boolean(pending) || Boolean(registrationPending) || Boolean(filePending) || Boolean(uploadPending) || Boolean(graphPending) || Boolean(deletePending) || Boolean(projectCreationPending) || projectCreationConfirming;
     const valid = version => isActive() && version === epoch;
 
     async function request(path, options = {}) {
@@ -145,13 +157,16 @@
         if (client.enabled && !client.recovery_required) node.querySelector('.settings-actions')?.insertAdjacentHTML('beforeend', button('upload-policy', '上传暂存授权', `data-client-id="${esc(client.client_id)}"`));
         if (client.enabled && !client.recovery_required) node.querySelector('.settings-actions')?.insertAdjacentHTML('beforeend', button('graph-grants', '概念图授权', `data-client-id="${esc(client.client_id)}"`));
         if (client.enabled && !client.recovery_required) node.querySelector('.settings-actions')?.insertAdjacentHTML('beforeend', button('delete-grants', '删除授权', `data-client-id="${esc(client.client_id)}"`));
-        if ([5, 6].includes(client.authorization_schema_version)) node.querySelector('div')?.insertAdjacentHTML('beforeend', `<p>已批准图权限：${esc(client.concept_map_grants?.grants?.map(grantSummary).join('；') || '无')}</p>`);
-        if (client.authorization_schema_version === 6) node.querySelector('div')?.insertAdjacentHTML('beforeend', `<p>已批准删除权限：${esc(client.delete_grants?.grants?.map(grantSummary).join('；') || '无')}（每次仍须本机网页独立批准）</p>`);
+        if (client.enabled && !client.recovery_required) node.querySelector('.settings-actions')?.insertAdjacentHTML('beforeend', button('project-creation-open', '项目创建授权', `data-client-id="${esc(client.client_id)}"`));
+        if (client.authorization_schema_version === 7) node.querySelector('div')?.insertAdjacentHTML('beforeend', `<p>项目创建权限：${client.project_create_grant?.enabled ? '已独立批准（每次仍须网页批准）' : '未启用'}</p>`);
+        if ([5, 6, 7].includes(client.authorization_schema_version)) node.querySelector('div')?.insertAdjacentHTML('beforeend', `<p>已批准图权限：${esc(client.concept_map_grants?.grants?.map(grantSummary).join('；') || '无')}</p>`);
+        if ([6, 7].includes(client.authorization_schema_version)) node.querySelector('div')?.insertAdjacentHTML('beforeend', `<p>已批准删除权限：${esc(client.delete_grants?.grants?.map(grantSummary).join('；') || '无')}（每次仍须本机网页独立批准）</p>`);
       });
       if (files) root.querySelector('.agent-settings').insertAdjacentHTML('beforeend', filePanelHtml());
       if (uploadPanel) root.querySelector('.agent-settings').insertAdjacentHTML('beforeend', uploadPanelHtml());
       if (graphPanel) root.querySelector('.agent-settings').insertAdjacentHTML('beforeend', graphPanelHtml());
       if (deletePanel) root.querySelector('.agent-settings').insertAdjacentHTML('beforeend', deletePanelHtml());
+      if (projectCreation || projectCreationPending) root.querySelector('.agent-settings').insertAdjacentHTML('beforeend', projectCreationHtml());
       if (diagnostic) paintDiagnostic();
       if (registrationPending) {
         const panel = global.document.createElement('section');
@@ -175,10 +190,15 @@
           uploadPanel = null; uploadPreview = null; uploadPending = null;
           graphPanel = null; graphPreview = null; graphPending = null;
           deletePanel = null; deletePreview = null; deletePending = null;
+          projectCreation = null; projectCreationPreview = null; projectCreationPending = null;
           registration = null; registrationResult = null; registrationPending = null;
           root.innerHTML = '<div class="empty-state">工作空间已变化，正在重新加载授权…</div>';
         }
         status = loaded;
+        projectCreationPreview = null;
+        if (!projectCreationPending && status.workspace_id) {
+          try { projectCreationPending = JSON.parse(global.sessionStorage.getItem(projectCreationKey()) || 'null'); } catch { projectCreationPending = null; }
+        }
         deletePreview = null;
         if (!deletePending && status.workspace_id) {
           try { deletePending = JSON.parse(global.sessionStorage.getItem(`workbench.agentDeleteGrants.pending.${status.workspace_id}`) || 'null'); } catch { deletePending = null; }
@@ -358,6 +378,72 @@
       ];
       return `<section class="settings-card agent-setup" id="agentDeleteGrantsPanel"><h2>删除授权 · ${esc(deletePanel.name)}</h2><p class="agent-error">独立新鲜授权；旧休眠items.delete不会生效。只允许移入回收站，每次仍须完整影响预览后本机网页批准，不增加读取权限或条目类型。仅Windows本机固定NTFS。</p><fieldset class="agent-scope"><legend>待批准删除范围</legend><label>具体资源<select id="agentDeleteGrantResource">${options.map(item => `<option value="${esc(JSON.stringify(item.resource))}">${esc(item.label)}</option>`).join('')}</select></label>${button('delete-add', '加入待批准范围')}<ol>${deletePanel.draft.grants.map((grant, index) => `<li><p>${esc(grantSummary(grant))}</p>${button('delete-remove', '移除此项', `data-grant-index="${index}"`)}</li>`).join('') || '<li>尚未选择范围。</li>'}</ol>${button('delete-preview', '查看完整删除授权预览')}</fieldset>${deletePreview ? `<div id="agentDeleteGrantPreview"><h3>完整删除授权预览</h3><p>${esc(deletePreview.client_name)} · ${esc(deletePreview.disclosure)}</p><pre>${esc(JSON.stringify(deletePreview, null, 2))}</pre>${button('delete-confirm', '明确批准此删除授权')}${button('delete-cancel-preview', '取消预览')}</div>` : ''}${deletePending ? `<p>原删除授权操作待查询：${esc(deletePending.request_id)}</p>${button('delete-resolve', '查询原删除授权结果')}` : ''}<div class="settings-actions">${button('delete-revoke', '撤销全部删除授权')}${button('delete-close', '关闭删除授权')}</div></section>`;
     }
+    function projectCreationHtml() {
+      const client = catalog.items.find(item => item.client_id === projectCreation?.client_id);
+      return `<section class="settings-card agent-setup" id="agentProjectCreationPanel"><h2>项目创建授权${client ? ' · ' + esc(client.name) : ''}</h2><p>仅本机独立批准后允许生成单个新项目提案；不会自动授予访问新项目的权限。</p>${projectCreation ? `<p>当前：${projectCreation.grant.enabled ? '已启用' : '未启用'}</p>${button('project-creation-preview', '查看完整项目创建授权预览')}${projectCreation.grant.enabled ? button('project-creation-revoke','撤销项目创建授权') : ''}` : ''}${projectCreationPreview ? `<h3>完整项目创建授权预览</h3><p>${esc(projectCreationPreview.disclosure)}</p><pre id="agentProjectCreationFull">${esc(JSON.stringify(projectCreationPreview,null,2))}</pre>${button('project-creation-confirm','明确批准项目创建授权')}${button('project-creation-cancel','取消预览')}` : ''}${projectCreationPending ? button('project-creation-resolve','查询原项目创建授权结果') : button('project-creation-close','关闭项目创建授权')}</section>`;
+    }
+    async function projectCreationAction(name, key) {
+      if (name === 'project-creation-close' || name === 'project-creation-cancel') {
+        if (projectCreationPending) return;
+        projectCreationPreview = null;
+        if (name === 'project-creation-close') projectCreation = null;
+        paint(); return;
+      }
+      const clientId = key || projectCreation?.client_id || projectCreationPending?.client_id;
+      const route = `clients/${encodeURIComponent(clientId)}/project-creation`;
+      const version = epoch;
+      const panel = projectCreation, preview = projectCreationPreview;
+      const confirmGrant = name === 'project-creation-confirm';
+      const revokeGrant = name === 'project-creation-revoke';
+      if (confirmGrant || revokeGrant) {
+        if (confirmGrant && (!preview || find('#agentProjectCreationFull')?.textContent !== JSON.stringify(preview,null,2))) return;
+        projectCreationConfirming = true;
+        let approved;
+        try { approved = await confirm({title:confirmGrant ? '明确批准项目创建授权？' : '撤销项目创建授权？',
+          message:catalog.items.find(item => item.client_id === clientId)?.name || clientId,
+          detail:confirmGrant ? preview.disclosure : '后续项目创建提案不能应用；已经创建的项目保留。',
+          confirmText:confirmGrant ? '批准项目创建授权' : '撤销项目创建授权', danger:revokeGrant}); }
+        finally { projectCreationConfirming = false; }
+        if (!approved || !valid(version) || projectCreation !== panel || projectCreationPreview !== preview) return;
+      }
+      busy = true; paint();
+      try {
+        if (name === 'project-creation-open') {
+          const value = await request(route);
+          if (!valid(version)) return;
+          projectCreation = value; projectCreationPreview = null;
+        } else if (name === 'project-creation-preview') {
+          const value = await request(route + '/preview', {method:'POST',body:JSON.stringify({workspace_id:status.workspace_id,expected_version:panel.expected_version})});
+          if (!valid(version) || panel !== projectCreation) return;
+          projectCreationPreview = value;
+        } else if (confirmGrant || revokeGrant) {
+          const payload = {workspace_id:status.workspace_id,expected_version:panel.expected_version,request_id:id()};
+          if (confirmGrant) Object.assign(payload,{preview_id:preview.preview_id,preview_digest:preview.preview_digest,approved:true});
+          rememberProjectCreation({client_id:clientId,request_id:payload.request_id});
+          const result = await request(route + (confirmGrant ? '/confirm' : ''), {method:confirmGrant ? 'POST' : 'DELETE',body:JSON.stringify(payload)});
+          if (!valid(version)) return;
+          if (result.client_id !== clientId) throw new Error('原授权回执客户端不一致');
+          rememberProjectCreation(null); projectCreationPreview = null; busy = false;
+          if (await load({preserveDraft:true})) await projectCreationAction('project-creation-open',clientId);
+          return;
+        } else if (name === 'project-creation-resolve' && projectCreationPending) {
+          const result = await request(`operations/${encodeURIComponent(projectCreationPending.request_id)}`);
+          if (!valid(version)) return;
+          if (['completed','abandoned'].includes(result.state) && result.client_id === clientId) {
+            rememberProjectCreation(null); projectCreationPreview = null; busy = false;
+            if (await load({preserveDraft:true})) await projectCreationAction('project-creation-open',clientId);
+            return;
+          }
+          busy = false; paint(); message('原项目创建授权需要恢复核查。',true); return;
+        }
+        if (valid(version)) { busy = false; paint(); }
+      } catch (error) {
+        if (!valid(version)) return;
+        if ((name === 'project-creation-resolve' && error.status === 404) || ((confirmGrant || revokeGrant) && error.status && error.status < 500)) rememberProjectCreation(null);
+        busy = false; projectCreationPreview = null; paint(); message(errorText(error),true);
+      }
+    }
+
     async function deleteAction(name, key, index) {
       const version = epoch, panel = deletePanel;
       if (pending || registrationPending || filePending || uploadPending || graphPending) { message('请先查询尚未确定的原操作。', true); return; }
@@ -655,6 +741,12 @@
 
     async function action(name, clientId, grantIndex) {
       if (busy || registrationConfirming) return;
+      if (projectCreationConfirming) return;
+      if (projectCreationPending && !['project-creation-resolve','refresh'].includes(name)) { message('请先查询原项目创建授权操作。',true); return; }
+      if (name.startsWith('project-creation-')) {
+        if (deletePending || graphPending || uploadPending || filePending || registrationPending || pending) { message('请先查询其他未确认的管理操作。',true); return; }
+        return projectCreationAction(name,clientId);
+      }
       if (deletePending && !['delete-grants', 'delete-resolve', 'refresh'].includes(name)) { message('请先查询原删除授权操作。', true); return; }
       if (name.startsWith('delete-')) return deleteAction(name, clientId, grantIndex);
       if (graphPending && !['graph-grants', 'graph-resolve', 'refresh'].includes(name)) { message('请先查询原概念图授权操作。', true); return; }

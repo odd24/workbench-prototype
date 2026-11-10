@@ -101,10 +101,10 @@ class LocalFileHandle:
         self.handles = []
         self.handle = None
 
-    def _open(self, path, directory=False):
+    def _open(self, path, directory=False, directory_delete=False):
         flags = 0x00200000 | (0x02000000 if directory else 0)  # OPEN_REPARSE_POINT / BACKUP_SEMANTICS
         access = 0x80 if directory or not self.read_allowed else 0x80000000
-        if not directory and self.delete_allowed:
+        if self.delete_allowed and (not directory or directory_delete):
             access |= 0x10000  # DELETE, for verified private staging cleanup only.
         handle = self.library.CreateFileW(path, access, 1, None, 3, flags, None)  # SHARE_READ only, OPEN_EXISTING
         if handle == ctypes.c_void_p(-1).value:
@@ -119,6 +119,9 @@ class LocalFileHandle:
             raise AgentError("unsupported_file", "不支持硬链接或无法确认唯一身份的文件", 403)
         return handle
 
+    def _open_leaf(self):
+        return self._open(self.path)
+
     def __enter__(self):
         try:
             root = self.path[:3]
@@ -132,7 +135,7 @@ class LocalFileHandle:
             parts = self.path[3:].split("\\")
             for index in range(1, len(parts)):
                 self._open(root + "\\".join(parts[:index]), directory=True)
-            self.handle = self._open(self.path)
+            self.handle = self._open_leaf()
             buffer = ctypes.create_unicode_buffer(32768)
             length = self.library.GetFinalPathNameByHandleW(self.handle, buffer, len(buffer), 0)
             if not 0 < length < len(buffer) or not buffer.value.startswith("\\\\?\\"):
@@ -146,10 +149,13 @@ class LocalFileHandle:
             raise
 
     def identity(self):
+        return self._identity(directory=False)
+
+    def _identity(self, *, directory):
         information, basic = FileInformation(), BasicInformation()
         if not self.library.GetFileInformationByHandle(self.handle, ctypes.byref(information)) or not self.library.GetFileInformationByHandleEx(self.handle, 0, ctypes.byref(basic), ctypes.sizeof(basic)):
             raise AgentError("unsupported_file", "无法确认文件身份或版本", 403)
-        if information.links != 1 or information.attributes & (0x10 | 0x400 | 0x40 | 0x1000 | 0x40000 | 0x400000):
+        if bool(information.attributes & 0x10) != directory or not directory and information.links != 1 or information.attributes & (0x400 | 0x40 | 0x1000 | 0x40000 | 0x400000):
             raise AgentError("source_changed", "源文件身份或属性已变化", 409)
         return {"volume": information.volume, "index": (information.index_high << 32) | information.index_low,
                 "size": (information.size_high << 32) | information.size_low, "created": basic.created,

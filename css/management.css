@@ -47,7 +47,7 @@
 .agent-proposal-fields{display:grid;grid-template-columns:minmax(70px,120px) minmax(0,1fr);gap:8px 14px;align-items:start}
 .agent-proposal-fields dt{color:var(--muted);padding-top:12px;overflow-wrap:anywhere}
 .agent-proposal-fields dd{margin:0;min-width:0}
-.agent-proposal-fields pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.agent-proposal-fields pre,.agent-proposal-detail pre.agent-proposal-full-text{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
 .agent-proposal-detail summary{cursor:pointer;color:var(--accent);padding:12px 0}
 
 .dark .agent-proposal-dialog{color-scheme:dark}

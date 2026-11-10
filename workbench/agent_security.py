@@ -130,7 +130,7 @@ def normalize_capability_grants(value):
 def client_capability_grants(client):
     try:
         value = normalize_capability_grants(client.get("capability_grants", {"schema_version": 1, "grants": []}))
-        if "capability_grants" in client and (client.get("authorization_schema_version") not in (3, 4, 5, 6) or client.get("capability_grant_state") != "dormant"):
+        if "capability_grants" in client and (client.get("authorization_schema_version") not in (3, 4, 5, 6, 7) or client.get("capability_grant_state") != "dormant"):
             raise ValueError("授权必须休眠")
         return value
     except ValueError:
@@ -147,10 +147,10 @@ def client_confirmation_mode(client):
 def client_kinds(client):
     kinds = client.get("kinds", list(LEGACY_KINDS))
     version = client.get("authorization_schema_version", 1)
-    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6):
+    if type(version) is not int or version not in (1, 2, 3, 4, 5, 6, 7):
         raise AgentError("unsupported_schema", "客户端授权版本不受支持", 503)
-    allowed = (*AGENT_KINDS, 'concept_map') if version in (5, 6) else AGENT_KINDS
-    if not isinstance(kinds, list) or (not kinds and version not in (3, 4, 5, 6)) or any(not isinstance(kind, str) or kind not in allowed for kind in kinds):
+    allowed = (*AGENT_KINDS, 'concept_map') if version in (5, 6, 7) else AGENT_KINDS
+    if not isinstance(kinds, list) or (not kinds and version not in (3, 4, 5, 6, 7)) or any(not isinstance(kind, str) or kind not in allowed for kind in kinds):
         raise AgentError("invalid_configuration", "客户端类型授权无效", 503)
     client_capability_grants(client)
     client_file_ids(client)
@@ -158,13 +158,15 @@ def client_kinds(client):
     client_graph_grants(client)
     from .agent_delete_authorization import client_delete_grants
     client_delete_grants(client)
+    from .agent_project_authorization import client_project_create_grant
+    client_project_create_grant(client)
     return list(dict.fromkeys(kinds))
 
 
 def client_file_ids(client):
     values = client.get("active_file_ids", [])
     try:
-        if "active_file_ids" in client and client.get("authorization_schema_version") not in (4, 5, 6):
+        if "active_file_ids" in client and client.get("authorization_schema_version") not in (4, 5, 6, 7):
             raise ValueError()
         if not isinstance(values, list) or len(values) > 100 or len(set(values)) != len(values) or any(not isinstance(value, str) or str(uuid.UUID(value)) != value for value in values):
             raise ValueError()
@@ -196,12 +198,14 @@ class AgentSecurity:
         if not self.registry.exists():
             return {}
         value = read_json(self.registry)
-        if not isinstance(value, dict) or type(value.get("schema_version")) is not int or value.get("schema_version") not in (1, 2, 3, 4, 5) or value.get("workspace_id") != self.workspace_id or not isinstance(value.get("clients"), dict):
+        if not isinstance(value, dict) or type(value.get("schema_version")) is not int or value.get("schema_version") not in (1, 2, 3, 4, 5, 6) or value.get("workspace_id") != self.workspace_id or not isinstance(value.get("clients"), dict):
             raise AgentError("unsupported_schema", "客户端配置格式或工作空间不匹配", 503)
         if value['schema_version'] < 4 and any(isinstance(client, dict) and client.get('authorization_schema_version') == 5 for client in value['clients'].values()):
             raise AgentError('invalid_configuration', '图授权缺少registry4格式门槛，保留配置核查', 503)
         if value['schema_version'] < 5 and any(isinstance(client, dict) and client.get('authorization_schema_version') == 6 for client in value['clients'].values()):
             raise AgentError('invalid_configuration', '删除授权缺少registry5格式门槛，保留配置核查', 503)
+        if value['schema_version'] < 6 and any(isinstance(client, dict) and client.get('authorization_schema_version') == 7 for client in value['clients'].values()):
+            raise AgentError('invalid_configuration', '项目创建授权缺少registry6格式门槛', 503)
         return value["clients"]
 
     def registry_version(self):
@@ -218,19 +222,24 @@ class AgentSecurity:
             version = max(version, 4)
         if any(client.get('authorization_schema_version') == 6 for client in clients.values()):
             version = max(version, 5)
+        if any(client.get('authorization_schema_version') == 7 for client in clients.values()):
+            version = max(version, 6)
         private_write(self.registry, {"schema_version": version, "workspace_id": self.workspace_id, "clients": clients})
 
     @staticmethod
-    def validate_client(name, scopes, project_ids, categories, kinds=None, minimum_confirmation_mode="agent_attested", capability_grants=None, authorization_schema_version=2, concept_map_grants=None, delete_grants=None):
+    def validate_client(name, scopes, project_ids, categories, kinds=None, minimum_confirmation_mode="agent_attested", capability_grants=None, authorization_schema_version=2, concept_map_grants=None, delete_grants=None, project_create_grant=None):
         if minimum_confirmation_mode not in CONFIRMATION_MODES:
             raise ValueError("客户端确认策略无效")
         try:
-            version = authorization_schema_version if authorization_schema_version in (5, 6) else 3 if capability_grants is not None else authorization_schema_version
+            version = authorization_schema_version if authorization_schema_version in (5, 6, 7) else 3 if capability_grants is not None else authorization_schema_version
             candidate = {"kinds": list(LEGACY_KINDS) if kinds is None else kinds, "authorization_schema_version": version}
-            if version in (5, 6):
+            if version in (5, 6, 7):
                 candidate['concept_map_grants'] = concept_map_grants if concept_map_grants is not None else {'schema_version': 1, 'grants': []}
-            if version == 6:
+            if version in (6, 7):
                 candidate['delete_grants'] = delete_grants if delete_grants is not None else {'schema_version': 1, 'grants': []}
+            if version == 7:
+                from .agent_project_authorization import grant_value
+                candidate['project_create_grant'] = grant_value(False) if project_create_grant is None else project_create_grant
             client_kinds(candidate)
         except AgentError:
             raise ValueError("客户端类型授权无效") from None

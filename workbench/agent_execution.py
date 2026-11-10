@@ -24,6 +24,9 @@ def authorization_revision(client):
 
 
 def logical_plan(proposal):
+    if proposal['kind'] == 'project':
+        from .agent_project_execution import logical_plan as project_plan
+        return project_plan(proposal)
     if proposal['operation'] == 'delete':
         from .agent_delete_execution import logical_plan as delete_plan
         return delete_plan(proposal)
@@ -62,6 +65,9 @@ def validate_context(proposal):
     binding = proposal.get("authorization_revision")
     if not isinstance(binding, dict) or set(binding) != {"management_revision", "client_version"} or type(binding["management_revision"]) is not int or binding["management_revision"] < 0 or not re.fullmatch(r"[a-f0-9]{64}", str(binding["client_version"])):
         raise ValueError("提案授权版本无效")
+    if proposal['kind'] == 'project':
+        from .agent_project_execution import validate_context as project_context
+        return project_context(proposal)
     if proposal['operation'] == 'delete':
         from .agent_delete_execution import validate_context as delete_context
         delete_context(proposal)
@@ -101,6 +107,9 @@ def validate_context(proposal):
 
 
 def concrete_plan(manifest, proposal):
+    if proposal['kind'] == 'project':
+        from .agent_project_execution import concrete_plan as project_plan
+        return project_plan(manifest, proposal)
     if proposal['operation'] == 'delete':
         from .agent_delete_execution import concrete_plan as delete_plan
         return delete_plan(manifest, proposal)
@@ -116,6 +125,9 @@ def concrete_plan(manifest, proposal):
 
 
 def validate_manifest(manifest, proposal):
+    if proposal['kind'] == 'project':
+        from .agent_project_execution import validate_execution
+        return validate_execution(None, manifest, proposal)
     if proposal['operation'] == 'delete':
         from .agent_delete_execution import validate_execution
         return validate_execution(None, manifest, proposal, False)

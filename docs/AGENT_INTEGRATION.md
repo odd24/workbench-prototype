@@ -1,6 +1,6 @@
 # 通用 Agent 接入
 
-规划提示（2026-11-09）：文件读取、附件上传、概念图、删除、项目创建及分类/工作流变更见 [本机能力扩展执行方案](AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)。AG-128～136已完成，AG-137～143待开始且已暂停后续；下文当前接入命令、能力与限制不因此改变。
+规划提示（2026-11-09）：文件读取、附件上传、概念图、删除、项目创建及分类/工作流变更见 [本机能力扩展执行方案](AI_AGENT_LOCAL_CAPABILITIES_PLAN.md)。AG-128～137已完成，AG-138～143待开始；下文当前接入命令、能力与限制不因此改变。
 
 本文说明设置界面和备用 CLI 接入方式。AG-107～110 提供启停、授权管理、配置向导与分层诊断。设计见 [接入管理 UI 方案](AGENT_SETTINGS_PLAN.md)，实际状态见 [实施台账](AI_AGENT_PROGRESS.md)。
 
@@ -273,3 +273,9 @@ Agent仍复用attachment@1/执行schema2及原uploads绑定/消费/回执恢复�
 22工具目录不增加。prepare/revise现有信封支持四种Markdown条目及concept_map的delete，content在工具schema不再全局必填，但既有create/update/append仍按原业务校验；delete反而禁止content/body/path/held_source。最低确认强制local_web，不接受Agent自报替代。实际新鲜delete_grants schema1与旧读取/图read交集才生效；批准升级registry5/auth6/log6，transport2不变。独立管理接口clients/<id>/deletions的GET、preview、confirm、DELETE仅loopback同源管理会话，不进入MCP。
 
 capabilities报告静态trash_delete@1/execution4及平台/目标有效性，implemented不等于effective。完整原文/全部匹配活动来源/结构图/附件保留预览必须成功，实际响应2MiB、单文件1MiB、4096活动文件/32MiB限制不可截断。服务生成完整影响，无任意路径或内容替换。未知/无权命中通用拒绝；committed回执指向原回收token并长期幂等，恢复后重试不再删除。未知盘态查询原操作/report-abandon，abandon非回滚。新功能专项与旧真实CLI兼容均不代表AG-142模型遵规矩阵。
+
+### AG-137 项目创建（已完成）
+
+仍为 22 工具。新增 project/create 提案操作，不把 project 加进旧业务 kind 或任意读取接口。新鲜 project_create_grant 仅 projects.create/create/local_web，需基础 read/propose/commit，适用于可核验的同卷 Windows 固定 NTFS。项目内容严格五字段，不能控制 ID、路径、时间或授权。完整 Agent 候选提供项目与排序规则/摘要，本机管理预览才提供排序完整原配置和 before/after；无关 ID 不进入 Agent 回执/依赖。复用已有版本、摘要、独立网页批准及原回执，创建后不会因响应丢失而重建。
+
+独立管理路由 clients/<id>/project-creation 的 GET、preview、confirm、DELETE；项目访问走 proposals/<id>/project-access/{preview,confirm} 及原管理操作查询。它们均只接受本机管理会话，未初始化读不创建工作区，不加入 MCP；创建与访问是两个独立持久操作。新授权保留全部历史能力与格式下界，实际版本见[数据格式](DATA_FORMAT.md)。

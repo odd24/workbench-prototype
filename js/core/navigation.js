@@ -53,6 +53,10 @@
       }
       if (kind === 'project') {
         const assetId = params.get('assetId');
+        if (!params.has('assetId')) {
+          if (params.getAll('item').length !== 1 || params.getAll('itemId').length !== 1 || [...params.keys()].some(key => !['item', 'itemId'].includes(key)) || !itemId || itemId.length > 110 || /[\\/\x00-\x1f<>:"|?*]/.test(itemId) || /[ .]$/.test(itemId)) return {invalid:true};
+          return {kind, itemId};
+        }
         if (params.getAll('item').length !== 1 || params.getAll('itemId').length !== 1 || params.getAll('assetId').length !== 1 || !itemId || itemId.length > 100 || /[\\/\x00-\x1f]/.test(itemId) || ['.', '..'].includes(itemId) || !/^ASSET-[a-f0-9]{32}$/.test(assetId || '')) return {invalid:true};
         return {kind, itemId, assetId};
       }

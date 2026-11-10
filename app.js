@@ -5488,6 +5488,11 @@ async function openItemLink(link = navigationFeature.readItemLink()) {
   }
   const request = requestRegistry.begin('item-link', link.itemId);
   try {
+    if (link.kind === 'project' && !link.assetId) {
+      const updatedProjects = await api('/projects');
+      if (!requestRegistry.isCurrent(request)) return false;
+      projects = updatedProjects;
+    }
     const resource = link.kind === 'concept_map' ? 'concept-maps' : link.kind === 'document' ? 'documents' : 'records';
     let item = link.kind === 'trash' ? {id:link.itemId, type:'trash'} : link.kind === 'project' ? {...projects.find(project => project.id === link.itemId), type:'project'} : await api(`/${resource}/${encodeURIComponent(link.itemId)}`);
     if (link.kind === 'concept_map') item = {...item, type:'concept_map'};
@@ -5517,6 +5522,11 @@ async function openItemLink(link = navigationFeature.readItemLink()) {
     if (link.kind === 'project') {
       if (!item.id) throw new Error('链接中的项目不存在');
       selectedProjectId = item.id;
+      if (!link.assetId) {
+        projectTab = 'overview';
+        projectFilters = {status:'', tag:'', priority:''};
+        return await setPage('project', {preserveItemLink:true}) !== false && requestRegistry.isCurrent(request);
+      }
       projectTab = 'assets';
       projectAssetCategoryFilter = ''; projectAssetSearch = '';
       await loadProjectAssets(item.id, {force:true});

@@ -16,6 +16,7 @@ from .markdown_io import load_markdown_text
 from .persistence import atomic_write_bytes, atomic_write_json
 from .security import validate_archive_member
 from .write_coordinator import PreparedMarkdownWrite
+from .agent_project_execution import proposal_allows
 from .agent_execution import bind_context, validate_context, concrete_plan, validate_manifest, fingerprint, authorization_revision, validate_action
 from .history import history_path
 
@@ -115,7 +116,7 @@ class ProposalStore:
 
     def owned(self, client, proposal_id):
         proposal = self._load(proposal_id)
-        if proposal["client_id"] != client["client_id"] or not allows(client, proposal["access_target"]) or proposal.get('source_target') is not None and not allows(client, proposal['source_target']):
+        if proposal["client_id"] != client["client_id"] or not proposal_allows(client, proposal) or proposal.get('source_target') is not None and not allows(client, proposal['source_target']):
             raise AgentError("not_found", "提案不存在或不可访问", 404)
         if proposal['operation'] == 'delete' and not proposal.get('content_cleaned'):
             from .agent_delete_service import access_target
@@ -126,7 +127,7 @@ class ProposalStore:
         return proposal
 
     def public(self, proposal):
-        return {key: value for key, value in proposal.items() if key not in {"request_hash", "base_content", "delete_binding"}}
+        return {key: value for key, value in proposal.items() if key not in {"request_hash", "base_content", "delete_binding", "project_sort_details"}}
 
     def find_request(self, client, request):
         for path in self.proposals.glob("*.json"):
@@ -137,7 +138,7 @@ class ProposalStore:
                 return self.public(self.owned(client, old["proposal_id"]))
         return None
 
-    def create(self, client, request, content, base_content, confirmation_mode="agent_attested", *, dependencies=None, graph_warnings=None, delete_binding=None):
+    def create(self, client, request, content, base_content, confirmation_mode="agent_attested", *, dependencies=None, graph_warnings=None, delete_binding=None, project_sort_details=None):
         self.preflight()
         request_hash = digest(request)
         active = 0
@@ -160,6 +161,18 @@ class ProposalStore:
                     "created_at": stamp(), "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
                     "previewed_version": None, "preview_digest": None,
                     "access_target": {"type": request["kind"], "project_id": content.get("project_id"), "category": content.get("category")}}
+        if proposal['kind'] == 'project':
+            if project_sort_details is None:
+                raise ValueError('缺少完整项目排序计划')
+            if proposal['target_id'] not in (None, content['project_id']):
+                raise ValueError('项目修订不得更换已预览身份')
+            proposal.update(target_id=content['project_id'], access_target={'type':'project', 'id':content['project_id']},
+                            project_sort_details=project_sort_details)
+            bind_context(proposal, client, dependencies)
+            validate_context(proposal)
+            self.preview_result(proposal)
+            self._save(proposal)
+            return self.public(proposal)
         if proposal['operation'] == 'delete':
             from .agent_delete_service import access_target
             proposal.update(delete_binding=delete_binding, access_target=access_target(proposal['kind'], content['target']['item']))
@@ -191,13 +204,25 @@ class ProposalStore:
         self._save(proposal)
         return self.public(proposal)
 
-    def revise(self, proposal, expected_version, content, base_revision, base_content, *, client=None, dependencies=None, graph_warnings=None, delete_binding=None):
+    def revise(self, proposal, expected_version, content, base_revision, base_content, *, client=None, dependencies=None, graph_warnings=None, delete_binding=None, project_sort_details=None):
         self.preflight()
         self.editable(proposal, expected_version)
         proposal.update(approval=None, version=proposal["version"] + 1, state="draft", normalized_content=content,
                         base_revision=base_revision, base_content=base_content, previewed_version=None, preview_digest=None,
                         expires_at=(datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
                         access_target={"type": proposal["kind"], "project_id": content.get("project_id"), "category": content.get("category")})
+        if proposal['kind'] == 'project':
+            if project_sort_details is None:
+                raise ValueError('缺少完整项目排序计划')
+            if proposal['target_id'] not in (None, content['project_id']):
+                raise ValueError('项目修订不得更换已预览身份')
+            proposal.update(target_id=content['project_id'], access_target={'type':'project', 'id':content['project_id']},
+                            project_sort_details=project_sort_details)
+            bind_context(proposal, client, dependencies)
+            validate_context(proposal)
+            self.preview_result(proposal)
+            self._save(proposal)
+            return self.public(proposal)
         if proposal['operation'] == 'delete':
             from .agent_delete_service import access_target
             proposal.update(delete_binding=delete_binding, access_target=access_target(proposal['kind'], content['target']['item']))
@@ -234,6 +259,8 @@ class ProposalStore:
             preview.update(confirmation_mode=proposal["confirmation_mode"], digest_algorithm=proposal["digest_algorithm"])
         if proposal.get("schema_version") == 3:
             preview.update(**{key: proposal[key] for key in ("authorization_revision", "dependencies", "execution_plan", "plan_digest")})
+        if proposal['kind'] == 'project':
+            return {**preview, 'content':proposal['normalized_content'], 'warnings':proposal['normalized_content']['warnings']}
         if proposal['operation'] == 'delete':
             from .agent_delete_execution import token
             return {**preview, 'content':proposal['normalized_content'], 'trash_token':token(proposal), 'warnings':proposal['normalized_content']['warnings']}
@@ -248,6 +275,10 @@ class ProposalStore:
         content = proposal["normalized_content"]
         preview = self.preview_payload(proposal)
         preview_digest = digest(preview)
+        if proposal['kind'] == 'project':
+            from .agent_project_service import checked_preview
+            return checked_preview({**preview, 'preview_digest':preview_digest, 'expires_at':proposal['expires_at'],
+                                    'changes':{'operation':{'before':None, 'after':'创建新项目'}}, 'body_diff':''})
         if proposal['operation'] == 'delete':
             from .agent_delete_service import checked_preview
             return checked_preview({**preview, 'preview_digest':preview_digest, 'expires_at':proposal['expires_at'], 'changes':{'operation':{'before':'正式条目', 'after':'回收站'}}, 'body_diff':''})
@@ -312,7 +343,7 @@ class ProposalStore:
         self.checkpoint("proposal")
         manifest["state"] = "committed"
         if manifest["schema_version"] == 3:
-            manifest["step_states"] = ['completed'] * 4 if proposal['operation'] == 'delete' else dict.fromkeys(manifest["step_states"], "completed") if proposal["kind"] == "attachment" else ["completed", "completed"]
+            manifest["step_states"] = ['completed'] * 4 if proposal['operation'] == 'delete' or proposal['kind'] == 'project' else dict.fromkeys(manifest["step_states"], "completed") if proposal["kind"] == "attachment" else ["completed", "completed"]
         atomic_write_json(self.operations / manifest["operation_id"] / "manifest.json", manifest)
 
     def check_commit(self, proposal, version, preview_digest, confirmation, *, local_approval=None):
@@ -341,6 +372,8 @@ class ProposalStore:
         previous = self.check_commit(proposal, version, preview_digest, confirmation, local_approval=local_approval)
         if previous is not None:
             return previous
+        if proposal['kind'] == 'project':
+            return self._commit_project(proposal, prepared, local_approval)
         if proposal['operation'] == 'delete':
             return self._commit_delete(proposal, version, preview_digest, prepared, local_approval)
         operation_id = f"{proposal['proposal_id']}-{version}"
@@ -409,6 +442,57 @@ class ProposalStore:
         except Exception:
             self.blocked = (directory / "manifest.json").exists()
             raise AgentError("commit_interrupted", "提交未能确认完成，请查询提案状态，勿重新创建", 503, True)
+        finally:
+            self.executing = False
+
+    def _commit_project(self, proposal, prepared, approval):
+        from .agent_project_execution import PHASES, apply_steps, concrete_plan as project_plan, web_path
+        from .project_directory import probe_publication
+        from .project_identity import controlled
+        operation = f"{proposal['proposal_id']}-{proposal['version']}"
+        directory = controlled(self.repository.root, self.operations / operation)
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / 'manifest.json'
+        if path.exists():
+            raise AgentError('recovery_required', '原项目操作已受理，必须查询原结果', 503)
+        accepted = approval['approved_at']
+        _, raw = prepared.readme(accepted)
+        readme = raw.encode('utf-8')
+        manifest = {'schema_version':3, 'execution_schema_version':5, 'workspace_id':self.workspace_id,
+                    'operation_id':operation, 'proposal_id':proposal['proposal_id'], 'version':proposal['version'],
+                    'client_id':proposal['client_id'], 'kind':'project', 'operation':'create',
+                    'item_id':prepared.project_id, 'relative_path':prepared.relative_path,
+                    'accepted_at':accepted, 'readme_digest':byte_digest(readme),
+                    'state':'prepared', 'step_states':PHASES[0].copy(), 'confirmation':{'mode':'local_web'},
+                    **{key:proposal[key] for key in ('approval','authorization_revision','dependencies','preview_digest','confirmation_mode','digest_algorithm','access_target')}}
+        manifest['execution_plan'] = project_plan(manifest, proposal)
+        manifest['execution_plan_digest'] = fingerprint(manifest['execution_plan'])
+        receipt = {'proposal_id':proposal['proposal_id'], 'version':proposal['version'], 'kind':'project',
+                   'item_id':prepared.project_id, 'project_id':prepared.project_id, 'title':prepared.fields['name'],
+                   'web_path':web_path(prepared.project_id), 'revision':manifest['readme_digest'], 'committed_at':accepted,
+                   'plan_digest':proposal['plan_digest'], 'execution_plan_digest':manifest['execution_plan_digest'], 'approval':approval}
+        manifest['receipt'] = receipt
+        self._validate_execution(manifest, proposal)
+        probe_publication(self.repository.root, directory / 'project-stage', self.repository.root / prepared.relative_path)
+        try:
+            for name, value in (('after.md', readme), ('sort-before.json', prepared.sort_before), ('sort-after.json', prepared.sort_after)):
+                atomic_write_bytes(controlled(self.repository.root, directory / name), value)
+            self.checkpoint('snapshots')
+            self._validate_execution(manifest, proposal, snapshots=True)
+            atomic_write_json(path, manifest)
+            self.blocked = True
+            self.checkpoint('manifest')
+            proposal['state'] = 'committing'
+            self._save(proposal)
+            self.checkpoint('committing')
+            self.executing = True
+            apply_steps(self, manifest, proposal)
+            self._finish(manifest, proposal)
+            self.blocked = False
+            return receipt
+        except Exception:
+            self.blocked = path.exists()
+            raise AgentError('commit_interrupted', '项目创建结果未确认，请查询原提案；勿重新创建', 503, True) from None
         finally:
             self.executing = False
 
@@ -486,6 +570,9 @@ class ProposalStore:
         return path
 
     def _validate_execution(self, manifest, proposal, *, snapshots=False):
+        if proposal['kind'] == 'project':
+            from .agent_project_execution import validate_execution
+            return validate_execution(self, manifest, proposal, snapshots)
         if proposal['operation'] == 'delete':
             from .agent_delete_execution import validate_execution
             return validate_execution(self, manifest, proposal, snapshots)
@@ -573,13 +660,13 @@ class ProposalStore:
         if not security:
             raise AgentError("authorization_unavailable", "需要匹配私人授权核查未应用事务", 503)
         client = security.clients().get(proposal["client_id"])
-        if not client or not client.get("enabled") or not {"read", "propose", "commit"} <= set(client.get("scopes", [])) or not allows(client, proposal["access_target"]) or client["client_id"] in security.manager().blocked_clients():
+        if not client or not client.get("enabled") or not {"read", "propose", "commit"} <= set(client.get("scopes", [])) or not proposal_allows(client, proposal) or client["client_id"] in security.manager().blocked_clients():
             raise AgentError("authorization_revoked", "原客户端权限已失效，停止发布正文", 409)
         if authorization_revision(client) != proposal["authorization_revision"]:
             raise AgentError("authorization_changed", "原客户端授权版本已变化", 409)
         from .agent_service import AgentService
         service = AgentService(self.repository, security)
-        if proposal['operation'] == 'delete' or proposal['kind'] == 'concept_map':
+        if proposal['operation'] == 'delete' or proposal['kind'] in {'concept_map','project'}:
             service.prepare_submission(client, proposal, held_source=held_source)
             return client
         if service.execution_dependencies(client, proposal["kind"], proposal["normalized_content"]) != proposal["dependencies"]:
@@ -607,7 +694,7 @@ class ProposalStore:
             if not security:
                 raise AgentError("authorization_unavailable", "需要匹配私人授权后核查未应用的网页批准事务", 503)
             client = security.clients().get(proposal["client_id"])
-            if not client or not client.get("enabled") or not {"read", "propose", "commit"} <= set(client.get("scopes", [])) or not allows(client, proposal["access_target"]) or client["client_id"] in security.manager().blocked_clients():
+            if not client or not client.get("enabled") or not {"read", "propose", "commit"} <= set(client.get("scopes", [])) or not proposal_allows(client, proposal) or client["client_id"] in security.manager().blocked_clients():
                 raise AgentError("authorization_revoked", "未应用事务的原客户端授权已失效，停止写入", 409)
 
     def recover(self):
@@ -659,6 +746,12 @@ class ProposalStore:
                     # Later ordinary edits/deletion never replay an already completed operation.
                     if not (self.receipts / f"{proposal['proposal_id']}.json").exists() or proposal["state"] != "committed":
                         self._finish(manifest, proposal)
+                    continue
+                if proposal['kind'] == 'project':
+                    from .agent_project_execution import apply_steps
+                    self.executing = True
+                    apply_steps(self, manifest, proposal)
+                    self._finish(manifest, proposal)
                     continue
                 if proposal['operation'] == 'delete':
                     from .agent_delete_execution import prepared_from_manifest, apply_steps
@@ -740,6 +833,10 @@ class ProposalStore:
             path = self.operations / operation_id / "manifest.json"
             try:
                 manifest = read_json(path)
+                if manifest.get('kind') == 'project':
+                    from .agent_project_execution import recovery_evidence
+                    details.append(recovery_evidence(self, manifest, self._load(manifest['proposal_id'], expire=False)))
+                    continue
                 target = self._target(manifest)
                 current = target.read_bytes() if target.exists() else None
                 details.append({"operation_id": operation_id, "kind": manifest.get("kind"),
@@ -765,13 +862,13 @@ class ProposalStore:
             raise AgentError("invalid_manifest", "事务身份不一致，拒绝修改", 503)
         if manifest["schema_version"] == 3:
             try:
-                if proposal['operation'] == 'delete':
+                if (proposal['operation'] == 'delete' or proposal['kind'] == 'project'):
                     self.preflight()
-                self._validate_execution(manifest, proposal, snapshots=proposal['operation'] == 'delete')
+                self._validate_execution(manifest, proposal, snapshots=(proposal['operation'] == 'delete' or proposal['kind'] == 'project'))
             except (ValueError, KeyError, TypeError):
                 raise AgentError("invalid_manifest", "不能放弃不受支持或身份不一致的执行计划", 503) from None
         manifest.update(state="abandoned", abandoned_at=stamp())
-        if proposal['operation'] == 'delete':
+        if (proposal['operation'] == 'delete' or proposal['kind'] == 'project'):
             manifest['manual_review_required'] = True
         atomic_write_json(path, manifest)
         proposal.update(state="cancelled", finished_at=manifest["abandoned_at"], outcome="accepted_disk")
@@ -793,6 +890,7 @@ class ProposalStore:
                 continue
             proposal.pop("normalized_content", None)
             proposal.pop("base_content", None)
+            proposal.pop("project_sort_details", None)
             proposal["source_note"] = ""
             proposal["content_cleaned"] = True
             self._save(proposal)
@@ -807,5 +905,8 @@ class ProposalStore:
                 if not manifest_path.exists() or manifest.get("state") in {"committed", "abandoned"}:
                     if proposal['operation'] == 'delete':
                         (directory / 'index-before.json').unlink(missing_ok=True)
+                    if proposal['kind'] == 'project':
+                        for name in ('sort-before.json', 'sort-after.json'):
+                            (directory / name).unlink(missing_ok=True)
                     for filename in (("before.json", "after.json") if proposal['kind'] == 'concept_map' else ("before.md", "after.md")):
                         (directory / filename).unlink(missing_ok=True)

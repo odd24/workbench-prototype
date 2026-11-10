@@ -4,9 +4,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .markdown_io import dump_markdown, now_iso, slugify
+from .markdown_io import dump_markdown, now_iso
 from .persistence import atomic_write_text
+from .project_identity import disk_occupied, next_project_id
 from .records import TYPE_DIRS
+
+
+PROJECT_DIRECTORIES = (*TYPE_DIRS.values(), 'assets/images', 'assets/files')
+
+
+def project_readme(project_id, payload, stamp):
+    meta = {"id": project_id, "type": "project", "name": str(payload["name"]).strip(),
+            "status": payload.get("status", "active"), "color": payload.get("color", "#4d78e8"),
+            "workflow_template": payload.get("workflow_template", "standard"), "created": stamp, "updated": stamp}
+    body = f"# {meta['name']}\n\n{payload.get('description', '').strip()}"
+    return meta, dump_markdown(meta, body)
 
 
 class ProjectRepository:
@@ -27,6 +39,10 @@ class ProjectRepository:
         self.save_project_sort = save_project_sort
         self.list_records = list_records
         self._move_to_trash = move_to_trash
+        self.reserved_ids = lambda: set()
+
+    def allocate_project_id(self, name, extra_occupied=()):
+        return next_project_id(name, disk_occupied(self.projects_dir.parent) | self.reserved_ids() | set(extra_occupied))
 
     def _unsorted_projects(self) -> list[dict]:
         projects = []
@@ -62,21 +78,18 @@ class ProjectRepository:
     def project(self, project_id: str) -> dict | None:
         return next((item for item in self.list_projects() if item.get("id") == project_id), None)
 
-    def create_project(self, payload: dict) -> dict:
+    def create_project(self, payload: dict, *, extra_occupied=()) -> dict:
         name = str(payload.get("name", "")).strip()
         if not name:
             raise ValueError("项目名称不能为空")
-        base = slugify(name)
-        project_id, index = base, 2
-        while self.project(project_id):
-            project_id, index = f"{base}-{index}", index + 1
+        project_id = self.allocate_project_id(name, extra_occupied)
         folder = self.projects_dir / project_id
-        for child in (*TYPE_DIRS.values(), "assets/images", "assets/files"):
+        folder.mkdir(exist_ok=False)
+        for child in PROJECT_DIRECTORIES:
             (folder / child).mkdir(parents=True, exist_ok=True)
         stamp = now_iso()
-        meta = {"id": project_id, "type": "project", "name": name, "status": payload.get("status", "active"), "color": payload.get("color", "#4d78e8"), "workflow_template": payload.get("workflow_template", "standard"), "created": stamp, "updated": stamp}
-        body = f"# {name}\n\n{payload.get('description', '').strip()}"
-        atomic_write_text(folder / "README.md", dump_markdown(meta, body))
+        meta, readme = project_readme(project_id, payload, stamp)
+        atomic_write_text(folder / "README.md", readme)
         sorting = self.project_sort()
         if sorting["mode"] == "custom":
             sorting["order"] = [project["id"] for project in self.list_projects()]

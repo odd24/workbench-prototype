@@ -267,3 +267,13 @@ proposal3/sha256-json-v3新增静态trash_delete@1，manifest3/execution_schema4
 执行步骤固定trash_move/trash_index/preserve_sort_and_cache/receipt。先persist move applying，使用同一Windows固定NTFS READ+DELETE句柄核身份/原字节，保持源句柄及祖先保护，基于内部仅句柄生存期有效的HeldDeleteSource核当前授权/全集/索引，再不覆盖rename；无copy fallback。该内部能力不能由HTTP/MCP提供。trash物理身份和原字节均匹配后仅添加本token索引成员，保留无关成员；缓存失效后落原回执。新索引成员delete_schema_version1、original_relative_path和agent_operation_id扩展原7字段；未知格式拒绝，不静默去字段。
 
 prepared且未进入移动时可按当前权限/依赖继续；applying但trash缺失无法区分未移动与已恢复，阻断而不重删source。原trash证据成立，即使源重建或权限撤销，也只补原索引/缓存/回执。异物/不完整证据先全预检拒写。committed重放永远只回原回执，后来恢复/修改/purge不重演。abandon接受当前盘态而非回滚，残留仍受保护。原历史/附件/图游标保留；30天私人内容清理可去before/index快照，但身份/manifest/receipt墓碑保留。默认trash30天，本机可提前purge；Agent无restore/purge/清空入口。
+
+## AG-137 项目创建与独立项目范围（已完成）
+
+新鲜 project_create_grant schema1 为固定 capability=projects.create、operations=[create]、minimum_confirmation_mode=local_web 和 enabled；registry6/auth7/管理日志7，transport2 保持，旧图/删除/文件/暂存/附件字段保留。日志独立 project_create 和 project_access 家族，兼容旧家族；先私人快照、意图和格式围栏，未知旧入口零恢复写拒绝。首次私人快照后旧普通业务仍可能在格式围栏前合法写，项目依赖必须复查。撤销、轮换、收窄、终结和放弃不降版，不因删除证据降级。
+
+项目复用 projects/<id>/README.md 的 Markdown 及既有 issues/todos/ideas/infos、assets/images/files 空目录。候选只接受五字段。固定 slug 在私人提案原子保留，重试/修订/取消/到期/清理不复用已展示 ID；普通和 Agent 共同查物理残留、现存/回收身份与提案/回执。匹配私人授权可用时查显式项目范围和项目暂存策略；原通配语义不变。非自定义排序保持原字节；custom 按有效旧显示顺序补齐项目，清理重复/失效项，新项目置末。完整原排序/前后计划仅留私人 project_sort_details 和本机管理响应；Agent 只见模式、位置、规则和摘要。模板原字节、相关 README 版本集合和排序原字节绑定；完整预览 2MiB，说明 64KiB。
+
+proposal3/manifest3 新增 project_create@1/execution5，依次 project_stage/project_publish/project_sort/receipt。批准受理时固定实际时间和 README 字节；持久批准、after.md、sort-before.json/sort-after.json 与 manifest 后才建立私人同卷暂存。记录目录物理身份（volume/index/created）及完整树；同 NTFS 目录句柄核验后无覆盖 rename，无复制替代。发布前重查授权、占用、模板、集合及原排序；进入发布中后仅可信正式目标可补固定排序和原回执。排序只接受批准的原前后字节；异物不覆盖，已发布项目不重建。回执证明完成后重放不依赖后续项目或排序。终结内容按既有清理，原身份/摘要/回执保留。
+
+独立范围授权绑定原项目创建回执、固定客户端、目录物理身份、当前 README 摘要和完整客户端 CAS。已发布 registry 只补原管理回执；待发布重查真实目录/README 持有句柄，第三方同 ID 同字节目录不视为原项目。批准后只追加一个精确 project_ids，既有授权类型、scope 和通配语义不变。独立授权不是项目写入事务，不会重跑项目。

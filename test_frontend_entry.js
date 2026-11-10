@@ -44,7 +44,9 @@ for (const search of ['?item=concept_map&itemId=DOC-1', '?item=concept_map&itemI
 }
 location.search = '?item=project&itemId=%E9%A1%B9%E7%9B%AE&assetId=ASSET-123456781234123412341234567890ab';
 assert.deepEqual(navigation.readItemLink(), {kind:'project', itemId:'项目', assetId:'ASSET-123456781234123412341234567890ab'});
-for (const search of ['?item=project&itemId=..&assetId=ASSET-123456781234123412341234567890ab', '?item=project&itemId=P&assetId=other', '?item=project&itemId=P', '?item=info&itemId=TODO-1', '?item=todo&itemId=ISSUE-1', '?item=todo&itemId=DOC-1', '?item=document', '?item=unknown&itemId=DOC-1', '?item=document&itemId=ISSUE-1', '?item=issue&item=issue&itemId=ISSUE-1', '?item=document&itemId=..%2F..%2Fsecret']) {
+location.search = '?item=project&itemId=%E9%A1%B9%E7%9B%AE';
+assert.deepEqual(navigation.readItemLink(), {kind:'project', itemId:'项目'});
+for (const search of ['?item=project&itemId=..&assetId=ASSET-123456781234123412341234567890ab', '?item=project&itemId=P&assetId=other', '?item=project&itemId=P&other=1', '?item=project&itemId=..', '?item=info&itemId=TODO-1', '?item=todo&itemId=ISSUE-1', '?item=todo&itemId=DOC-1', '?item=document', '?item=unknown&itemId=DOC-1', '?item=document&itemId=ISSUE-1', '?item=issue&item=issue&itemId=ISSUE-1', '?item=document&itemId=..%2F..%2Fsecret']) {
   location.search = search;
   assert.deepEqual(navigation.readItemLink(), {invalid:true});
 }

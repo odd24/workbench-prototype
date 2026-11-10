@@ -284,7 +284,12 @@ class AgentAPITests(unittest.TestCase):
         self.assertEqual(self.request('/api/agent/v1/files/00000000-0000-0000-0000-000000000000')[0], 404 if SUPPORTED else 503)
         for route in ('attachments', 'uploads'):
             self.assertEqual(self.request('/api/agent/v1/' + route)[0], 404)
-        self.assertEqual(self.request('/api/agent/v1/proposals', 'POST', {'request_id':'no-project', 'kind':'project', 'operation':'create', 'content':{'title':'禁止'}})[0], 400)
+        self.assertEqual(result['project_creation']['effective'], False)
+        self.assertNotIn('project', result['kind_operations'])
+        denied, error = self.request('/api/agent/v1/proposals', 'POST',
+                                     {'request_id':'no-project', 'kind':'project', 'operation':'create', 'content':{'name':'禁止'}})
+        self.assertEqual((denied, error['code']), (403, 'forbidden'))
+        self.assertFalse((self.repo.projects_dir / '禁止').exists())
         self.assertEqual(self.request('/api/agent/v1/proposals', 'POST', {'request_id':'no-issue', 'kind':'issue', 'operation':'create', 'content':{'title':'禁止', 'project_id':self.project['id']}})[0], 403)
 
 

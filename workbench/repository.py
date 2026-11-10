@@ -115,6 +115,8 @@ class Repository:
         self._document_repository.reserved_ids = self.reserved_resource_ids
         from .concept_map_ids import occupied_ids
         self._concept_map_repository.reserved_ids = lambda: occupied_ids(self)
+        from .project_identity import reserved_projects
+        self._project_repository.reserved_ids = lambda: reserved_projects(self)
         if (self.root / ".agent" / "workspace.json").exists():
             from .agent_proposals import ProposalStore
             self.agent_proposals = ProposalStore(self)
@@ -287,6 +289,16 @@ class Repository:
 
     @coordinated
     def create_project(self, payload: dict) -> dict:
+        store = getattr(self, 'agent_proposals', None)
+        security = getattr(store, 'security', None)
+        runtime = getattr(self, 'agent_runtime', None)
+        if security is None and runtime and runtime.status()['workspace_id']:
+            security = runtime.security()
+        if security is not None:
+            from .agent_management import credential_lock
+            from .project_identity import scoped_project_ids
+            with credential_lock(security.config_dir):
+                return self._project_repository.create_project(payload, extra_occupied=scoped_project_ids(security))
         return self._project_repository.create_project(payload)
 
     @coordinated

@@ -253,6 +253,8 @@ Codex 使用另一份夹具。用户手工报告「没发现 workbench_ag142」�
 
 监督写入本次 STOP 并实测端口已关闭。夹具退出码为 1，清理 `desktop-project` 时遇到 Windows 文件占用或访问错误 `WinError 32/5`。复核时 STOP 和临时项目目录仍在。待用户关闭本次临时项目后复核清理，保留本次协议证据。此次未改用户级 MCP 配置。
 
+用户随后确认已关闭本次 Codex 临时聊天和项目。只读复核显示系统临时目录中的 `workbench-ag142-pilot-codex-y2bf7efe` 仍存在，Codex、Python 和 Node 的进程命令行匹配数为 0。针对这一确切目录的 PowerShell `Remove-Item` 清理请求包含目录、父路径及子项的重解析点检查。自动审批以 `blocked by policy` 拒绝该请求，清理命令未执行。该目录列为独立待办，待用户手工删除后只读复核。
+
 ### 连接器发现与启动时机对照
 
 | 表面 | 已复验结果 | 边界 |

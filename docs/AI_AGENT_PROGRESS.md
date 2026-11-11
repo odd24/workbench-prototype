@@ -1329,3 +1329,4 @@ AG-140 实际修改文件（52）：`AGENTS.md`、`app.js`、`codex_agent_accept
 
 - 用户截图中的 `/mcp` 列表显示现有 `workbench`，未显示临时 `workbench_ag142`。本次临时中继恰有 5 条记录。`codex-mcp-client 0.167.0-alpha.3.2` 提出 `2025-06-18`，服务返回 `2025-11-25`，随后完成 `notifications/initialized` 和 `tools/list`，收到 22 项工具。桌面协议发现已有证据，界面未列出临时项的原因待查。0 次 `tools/call`，0 个模型回合。
 - STOP 已写入，监督实测端口关闭。夹具退出 1，临时项目清理遇到 `WinError 32/5`。只读复核确认 STOP 和临时项目仍存在。待用户关闭本次临时项目后复核清理，AG-142 保持进行中。此次未改用户级配置。详见[兼容矩阵](AGENT_CLIENT_COMPATIBILITY.md)。
+- 独立清理待办。用户已关闭临时聊天和项目。只读复核显示临时目录 `workbench-ag142-pilot-codex-y2bf7efe` 仍存在，关联 Codex、Python 和 Node 命令行匹配数为 0。仅针对该目录的 PowerShell `Remove-Item` 请求被自动审批以 `blocked by policy` 拒绝，命令未执行。待用户手工删除后只读确认目录是否消失。

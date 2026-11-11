@@ -329,7 +329,9 @@ WORKBENCH_PROBE_CONFIG = "<本次临时私人客户端 JSON 路径>"
 python workbuddy_agent_acceptance.py --readonly-pilot codex --codex-project-guard
 ```
 
-首轮限制版桌面复验中，`/mcp` 截图显示既有 `workbench` 已禁用，临时 `workbench_ag142` 未列出。随后用户的「插件 → MCP」截图显示 `workbench_ag142` 已开启，既有 `workbench` 已关闭。当前夹具在线，中继恰有 5 条记录，完成一次 `2025-06-18` → `2025-11-25` 握手及一次 `tools/list`，原始应答含 22 项工具。工具调用和模型回合均为 0。用户可只读查看目标项的工具详情。只有详情能确认当前会话实际启用四个预期工具时，才发送已授权的一次只读提示。若详情无法核实，等待使用下述四项中继过滤的复验。
+首轮限制版桌面复验中，`/mcp` 截图显示既有 `workbench` 已禁用，临时 `workbench_ag142` 未列出。随后用户的「插件 → MCP」截图显示 `workbench_ag142` 已开启，既有 `workbench` 已关闭。中继恰有 5 条记录，完成一次 `2025-06-18` → `2025-11-25` 握手及一次 `tools/list`，原始应答含 22 项工具。工具调用和模型回合均为 0。
+
+用户关闭旧临时聊天和项目后，监督写入 STOP 并实测端口已关闭。夹具进程退出码为 1，清理 `desktop-project` 遇到 `WinError 32/5`。只读复核确认旧临时目录 `workbench-ag142-pilot-codex-db19kz_k` 仍在，列为独立清理待办。新的四项过滤夹具已启动，等待用户在该夹具的确切项目内核对插件页和中继目录。通过核对后才发送已授权的一次只读提示。
 
 当前 `--codex-project-guard` 还会给临时中继启用独立四项过滤。中继向客户端返回 `expected_tools` 对应的四项。目录缺项或重复时返回错误，额外 `tools/call` 在转发前拒绝，轨迹记录拒绝结果。`--pilot-check` 实测返回四项，拒绝项目列表和提案创建，六段读回与合成文本的 SHA-256 一致。停止后旧令牌返回 401，端口关闭，临时目录移除。
 

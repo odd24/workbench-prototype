@@ -33,6 +33,8 @@ from workbench.agent_tools import TOOLS
 ROOT = Path(__file__).resolve().parent
 READONLY_PILOT_TOOLS = ('workbench_capabilities', 'workbench_list_file_grants',
                         'workbench_get_file_info', 'workbench_read_file')
+PILOT_READ_SECONDS = 1200
+WORKBUDDY_DISCOVERY_SECONDS = 1200
 
 
 class ProtocolFaultProbe:
@@ -398,6 +400,49 @@ def run_session(install, protocol_faults=False):
                 workbench.close()
 
 
+def pilot_discovered(trace):
+    """Require an ordered handshake and full catalog from this fixture's relay."""
+    expected = sorted(tool['name'] for tool in TOOLS)
+    stage = 0
+    try:
+        with trace.open(encoding='utf-8') as stream:
+            for line in stream:
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                direction, method = event.get('direction'), event.get('method')
+                if direction == 'client_to_server' and method == 'initialize' and event.get('protocolVersion'):
+                    stage = 1
+                elif stage == 1 and direction == 'server_to_client' and event.get('protocolVersion'):
+                    stage = 2
+                elif stage == 2 and direction == 'client_to_server' and method == 'notifications/initialized':
+                    stage = 3
+                elif stage == 3 and direction == 'client_to_server' and method == 'tools/list':
+                    stage = 4
+                elif stage == 4 and direction == 'server_to_client':
+                    tools = event.get('tools')
+                    if isinstance(tools, list) and all(isinstance(name, str) for name in tools) and sorted(tools) == expected:
+                        return True
+    except FileNotFoundError:
+        pass
+    return False
+
+
+def wait_for_pilot_activation(signal, stop, trace, deadline):
+    while time.monotonic() < deadline and not stop.exists():
+        if signal.exists():
+            signal.unlink()
+            discovered = pilot_discovered(trace)
+            if stop.exists() or time.monotonic() >= deadline:
+                break
+            return 'activated' if discovered else 'activation_without_discovery'
+        time.sleep(0.25)
+    return 'stopped_before_activation' if stop.exists() else 'discovery_timeout'
+
+
 def run_readonly_pilot(client, check_only=False, codex_project_guard=False):
     """Create one single-client AG-142 fixture without opening a desktop."""
     from urllib.error import HTTPError
@@ -433,14 +478,19 @@ def run_readonly_pilot(client, check_only=False, codex_project_guard=False):
                 with urlopen(request, timeout=10) as response:
                     return json.load(response)
 
-            headers['X-Workbench-Management-Token'] = local('status')['management_token']
             files_route = f'clients/{client_id}/files'
-            preview = local(files_route + '/preview', {'workspace_id':workspace,
-                            'expected_version':client_version(workbench.security.clients()[client_id]),
-                            'path':str(source), 'purposes':['text_read'], 'encoding':'utf-8', 'max_bytes':4096, 'duration_seconds':1200})
-            ticket = {key:preview[key] for key in ('workspace_id','expected_version','preview_id','preview_digest')}
-            granted = local(files_route + '/confirm', {**ticket, 'request_id':'ag142-pilot-file', 'approved':True})
-            file_id = granted['file_id']
+
+            def grant_file():
+                headers['X-Workbench-Management-Token'] = local('status')['management_token']
+                preview = local(files_route + '/preview', {'workspace_id':workspace,
+                                'expected_version':client_version(workbench.security.clients()[client_id]),
+                                'path':str(source), 'purposes':['text_read'], 'encoding':'utf-8', 'max_bytes':4096,
+                                'duration_seconds':PILOT_READ_SECONDS})
+                ticket = {key:preview[key] for key in ('workspace_id','expected_version','preview_id','preview_digest')}
+                granted = local(files_route + '/confirm', {**ticket, 'request_id':'ag142-pilot-file', 'approved':True})
+                [item] = local(files_route)['items']
+                assert item['file_id'] == granted['file_id'] and item['status'] == 'active'
+                return item
 
             name = 'workbench_ag142'
             trace = base / 'protocol.jsonl'
@@ -470,23 +520,44 @@ def run_readonly_pilot(client, check_only=False, codex_project_guard=False):
             config.write_text(content, encoding='utf-8')
 
             project_query = '' if codex_project_guard else f'再查项目 {project["id"]}。'
-            prompt = (f'只使用 {name} 对应的 MCP 工具。先查询 capabilities，核对空间 {workspace}。{project_query}'
-                      f'列出本次可见的工具名和协议证据。查找已批准的 AG142-fixture.txt（file_id {file_id}），用 get_file_info 的 '
-                      'source_revision 和每段 next_offset，按每段 12 原始字节读到结束。把合成文本原样放入代码块，另列各段字节区间和服务返回的 SHA-256。'
-                      '仅做上述读取。工具缺失、空间不符或任一分段失败时报告原错误并停止。不要使用终端、读取路径、改配置或提交。')
             prompt_path = project_dir / 'PROMPT.txt'
-            prompt_path.write_text(prompt + '\n', encoding='utf-8')
             stop = base / 'STOP'
-            review = {'mode':'check' if check_only else 'ready', 'client':client, 'workbench_url':workbench.base_url,
-                      'workspace_id':workspace, 'project_id':project['id'], 'scopes':['read'], 'file_purposes':['text_read'],
+            signal = base / 'ACTIVATE'
+            deferred = client == 'workbuddy'
+            review = {'client':client, 'workbench_url':workbench.base_url,
+                      'workspace_id':workspace, 'project_id':project['id'], 'scopes':['read'],
                       'source_sha256':hashlib.sha256(text.encode()).hexdigest(),
                       'desktop_project':str(project_dir), 'config_path':str(config), 'config_text':content,
-                      'prompt_path':str(prompt_path), 'prompt':prompt, 'trace_path':str(trace), 'stop_file':str(stop),
-                      'timeout_seconds':1200, 'desktop_launched':False, 'model_turns_started':0}
+                      'trace_path':str(trace), 'stop_file':str(stop),
+                      'desktop_launched':False, 'model_turns_started':0}
             if codex_project_guard:
                 review.update(expected_callable_server=name, expected_tools=guarded_tools,
                               project_disabled_servers=['workbench'])
-            print(json.dumps(review, ensure_ascii=False, indent=2), flush=True)
+            def activate():
+                item = grant_file()
+                key = item['file_id']
+                expires = item['expires_at']
+                remaining = max(0, min(PILOT_READ_SECONDS, expires - time.time())) if deferred else PILOT_READ_SECONDS
+                deadline = time.monotonic() + remaining
+                prompt = (f'只使用 {name} 对应的 MCP 工具。先查询 capabilities，核对空间 {workspace}。{project_query}'
+                          f'列出本次可见的工具名和协议证据。查找已批准的 AG142-fixture.txt（file_id {key}），用 get_file_info 的 '
+                          'source_revision 和每段 next_offset，按每段 12 原始字节读到结束。把合成文本原样放入代码块，另列各段字节区间和服务返回的 SHA-256。'
+                          '仅做上述读取。工具缺失、空间不符或任一分段失败时报告原错误并停止。不要使用终端、读取路径、改配置或提交。')
+                prompt_path.write_text(prompt + '\n', encoding='utf-8')
+                print(json.dumps({**review, 'mode':'check' if check_only else 'ready', 'file_id':key,
+                                  'file_purposes':['text_read'], 'file_expires_at':expires,
+                                  'timeout_seconds':PILOT_READ_SECONDS, 'prompt_path':str(prompt_path),
+                                  'prompt':prompt}, ensure_ascii=False, indent=2), flush=True)
+                return key, deadline
+
+            if deferred:
+                discovery_deadline = time.monotonic() + WORKBUDDY_DISCOVERY_SECONDS
+                print(json.dumps({**review, 'mode':'pending_activation', 'activation_file':str(signal),
+                                  'discovery_timeout_seconds':WORKBUDDY_DISCOVERY_SECONDS,
+                                  'discovery_expires_at':int(time.time() + WORKBUDDY_DISCOVERY_SECONDS),
+                                  'file_purposes':[]}, ensure_ascii=False, indent=2), flush=True)
+            else:
+                file_id, read_deadline = activate()
 
             if check_only:
                 env = {**isolated_environment(base), **entry['env']}
@@ -507,8 +578,19 @@ def run_readonly_pilot(client, check_only=False, codex_project_guard=False):
                     assert call('capabilities')['workspace_id'] == workspace
                     if not codex_project_guard:
                         assert [item['id'] for item in call('list_projects')['items']] == [project['id']]
+                    if deferred:
+                        assert not prompt_path.exists() and call('list_file_grants')['items'] == []
+                        missing = call('read_file', {'file_id':str(uuid.uuid4()), 'source_revision':'0' * 64,
+                                       'offset':0, 'length':12}, error=True)
+                        assert missing['code'] == 'not_found'
+                        signal.touch(exist_ok=False)
+                        assert wait_for_pilot_activation(signal, stop, trace, discovery_deadline) == 'activated'
+                        assert not signal.exists()
+                        file_id, read_deadline = activate()
+                        audit.update(activation='activated', preactivation_read_denied=True)
                     assert [item['file_id'] for item in call('list_file_grants')['items']] == [file_id]
                     metadata = call('get_file_info', {'file_id':file_id})
+                    assert 0 < metadata['expires_at'] - time.time() <= PILOT_READ_SECONDS
                     offset, parts = 0, []
                     while offset is not None:
                         data = call('read_file', {'file_id':file_id, 'source_revision':metadata['source_revision'], 'offset':offset, 'length':12})
@@ -534,8 +616,13 @@ def run_readonly_pilot(client, check_only=False, codex_project_guard=False):
                 finally:
                     rpc.close()
             else:
-                deadline = time.monotonic() + review['timeout_seconds']
-                while not stop.exists() and time.monotonic() < deadline:
+                if deferred:
+                    audit['activation'] = wait_for_pilot_activation(signal, stop, trace, discovery_deadline)
+                    if audit['activation'] == 'activated':
+                        file_id, read_deadline = activate()
+                    else:
+                        read_deadline = time.monotonic()
+                while not stop.exists() and time.monotonic() < read_deadline:
                     time.sleep(0.25)
             if trace.exists():
                 expected = sorted(guarded_tools if codex_project_guard else [tool['name'] for tool in TOOLS])

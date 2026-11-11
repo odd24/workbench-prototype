@@ -239,7 +239,7 @@ HTTP夹具已从真实服务取得200只读结果，再延迟响应12秒；桥�
 | WorkBuddy 安装包 | 5.9.3，ProductVersion 5.9.3.0 | 磁盘安装元数据。桌面任务启动前需由用户核对运行版本 |
 | WorkBuddy 原装 CLI | 2.165.0，`lite-wb` | 两次新进程实际 initialize、initialized 和 tools/list，MCP 2025-11-25、完整 22 项工具名称。显式探针的 ping 和未知方法应答均通过。原装 `mcp --help` 只有登记、移除、列表与详情，公开直接业务调用入口未验证 |
 | WorkBuddy 桌面 | 运行中显示 V5.9.3，模型选择器显示 Hy4 | 已打开隔离项目。项目级发现未证实，按约定在发送前停止，夹具已清理 |
-| Codex 桌面 | Windows 安装包版本见上。运行版本未由用户确认 | 用户手工试点报告未发现连接器，无中继握手。试点夹具已清理 |
+| Codex 桌面 | 中继记录 `codex-mcp-client 0.167.0-alpha.3.2` | 长路径复验完成握手并发现 22 项工具。桌面 `/mcp` 列表未显示临时项，模型调用待验收 |
 
 ### 已观察的桌面试点
 
@@ -248,6 +248,10 @@ HTTP夹具已从真实服务取得200只读结果，再延迟响应12秒；桥�
 监督通过本次夹具的 STOP 路径收尾。进程退出码为 0，输出记录 `stopped=true`、`port_closed=true`、`temporary_directory_removed=true`、`revoked_credential_denied=true`。随后只读核验临时项目不存在。
 
 Codex 使用另一份夹具。用户手工报告「没发现 workbench_ag142」。监督只读核对临时目录存在，`protocol.jsonl` 不存在，无中继握手或工具目录证据。通过该夹具唯一 STOP 路径退出 0，输出记录服务和端口关闭、撤销后旧凭据被拒、临时目录移除，随后只读核验根目录不存在。该次试点没有启动模型或改用户级配置。实际 App Server 业务直调的通过证据仍单列。
+
+2026-11-11，用户用长路径复验。截图中的 `/mcp` 列表显示现有的 `workbench`，未显示本次 `workbench_ag142`。本次临时中继恰有 5 条记录，按顺序为 `initialize`（`codex-mcp-client 0.167.0-alpha.3.2` 提出 `2025-06-18`）、服务端返回 `2025-11-25`、`notifications/initialized`、`tools/list`、22 项工具应答。该轨迹证实桌面已通过本次中继发现工具。界面未列出临时项的原因待查。实际 `tools/call` 为 0，模型回合为 0。
+
+监督写入本次 STOP 并实测端口已关闭。夹具退出码为 1，清理 `desktop-project` 时遇到 Windows 文件占用或访问错误 `WinError 32/5`。复核时 STOP 和临时项目目录仍在。待用户关闭本次临时项目后复核清理，保留本次协议证据。此次未改用户级 MCP 配置。
 
 ### 连接器发现与启动时机对照
 

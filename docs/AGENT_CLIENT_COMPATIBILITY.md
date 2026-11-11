@@ -504,7 +504,8 @@ WORKBENCH_PROBE_CONFIG = "<本次夹具私人客户端配置路径>"
 - 分阶段夹具先在可信临时项目发现。用户确认插件页临时项开启、旧 `workbench` 禁用，随后报告 `/mcp` 菜单未列临时项。监督核对实际路径及信任映射。五条中继记录确认 `2025-06-18` 至 `2025-11-25` 协商及恰六项工具，随后才审查和批准本次项目的图读取与仅 `create`，启动独立 1200 秒窗口。
 - 用户发送一次，聊天 `01a1cbbd-ebbe-7bf0-928b-c696c8f40687` 的工作目录匹配临时项目，回合用时 191.735 秒。聊天和中继均记录 `workbench_ag142_graph` 的 capabilities、list_concept_maps、prepare_proposal、preview_proposal 各一次成功，无 commit。最终消息约 5278 字符，包含完整候选、原图、差异、警告、版本摘要和执行依据。
 - 用户批准前，提案 `a5985a37-1e69-49ed-b29e-89c05bfdbe85` 为 `previewed`，版本 `1`，摘要 `48021c74c829f88d4aae83af5a74ad5e877d14d472d4d6a638606c892bdb2b9c`，候选与固定合成图匹配，正式图和回执均为零。用户在隔离网页独立批准后，提案为 `committed`，一张 `CMAP-0001` 和一份回执，完整字段一致。图文件原始字节 SHA-256 `aab1996f38c0a3599f47935c8313e16b08e41d9e8422e8969605e34f14ce0f5c` 与回执吻合，提案内原回执等于独立回执文件。没有追加桌面查询或真实桌面重放。
-- 两端真实桌面同类 `concept_map/create` 与 `local_web` 单案均通过。Codex 本轮待用户移除临时项目后停服，最终清理待核对。其余写入与确认矩阵仍待验。
+- 两端真实桌面同类 `concept_map/create` 与 `local_web` 单案均通过。其余写入与确认矩阵仍待验。
+- 用户退出并移除临时项目，监督独立复核项目列表已无该目录。STOP 先输出 `service_stopped`，其中 `discovery=verified`、`graph_granted=true`、`graph_count=1`、`receipt_count=1`、`revoked_credential_denied=true`、`port_closed=true`。之后输出 `cleanup_failed`，`errno=13`、`winerror=32`，进程退出 1。自动审批以 `blocked by policy` 拒绝工具重试删除剩余夹具目录，已请用户手工删除，目录清理待核实。
 
 ### 下一单案：更新同一张隔离概念图（2026-11-12）
 

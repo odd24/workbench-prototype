@@ -1423,3 +1423,8 @@ AG-142 的独立检查已验证 App Server 只配置 `workbench_ag142` 时可以
 - `python concept_map_pilot.py --client codex --check` 在真实 App Server `0.167.0-alpha.3.2` 零模型通过：临时可信与不可信目录使用相同项目 TOML，可信旧项拒调、临时六项，不可信仍只见模拟旧 22 项。直接 stdio 验证额外 commit 被中继拦截，领域拒绝 update 及 issue/create。固定图完整预览、零写入到唯一图和原回执、同审批重放及字节 revision 核对通过。
 - 收尾改为先输出 `service_stopped` 的 401 和端口证据，再输出目录结果。临时项目正常 STOP 退出 0。隔离测试持有实际 Windows 文件锁，确认仍先输出停服审计，随后 `cleanup_failed`、`WinError 32`、退出 1，测试释放锁后由外层临时目录收尾。WorkBuddy 图预演、Codex 文件四工具预演、`test_workbuddy_acceptance` 与 `test_mcp_stdio` 共 18 项、Python/JS 语法和文档差异检查通过。
 - 变更仅验收脚本、专项及文档。真实桌面仍待用户审查单项目授权、项目级配置与信任、模型回合和独立网页批准。AG-142 进行中，AG-143 待开始。
+
+### AG-142 Codex 桌面概念图首轮发现通过（2026-11-12）
+
+- 用户同意精确图授权和项目级候选，建立临时本地项目并确认看到临时 MCP。中继为 `codex-mcp-client 0.167.0-alpha.3.2`，从 `2025-06-18` 协商为 `2025-11-25`，完成 initialized 和 tools/list，目录恰六项。20 分钟窗口收尾前仅五条协议记录，0 工具调用、0 图、0 回执。没有模型回合证据，无法判定是否曾发送提示，写入未验收。
+- 用户移除临时项目，独立复核 Codex 列表与夹具根目录均已清理。夹具退出 0，`service_stopped` 和 `stopped` 审计证实旧凭据被拒、端口关闭和目录移除。没有用户级 MCP 登记。AG-142 进行中，AG-143 待开始。本次仅记录证据。

@@ -488,3 +488,7 @@ WORKBENCH_PROBE_CONFIG = "<本次夹具私人客户端配置路径>"
 真实桌面发送前确认实际工作目录、项目受信任、旧项禁用、临时项目目录与轨迹六项工具，以及合成空间匹配。用户核对并同意精确图授权、项目级候选与信任、所选模型的一次预览回合。模型按固定提示完整展示并停止，监督核对零正式图和回执后，用户在隔离网页独立批准当前版本。随后核对原回执及正式图原始字节。结果查询回合按用户同意执行。真实用户级 Codex 配置无需登记新项。
 
 收尾先关闭桌面任务与临时项目，等待本次中继退出，再写 STOP。夹具撤销凭据、实测旧凭据 401、关闭服务并核对端口，随即输出 `mode=service_stopped`。目录移除后输出 `mode=stopped`。若根目录仍被占用，保留前一阶段审计，输出 `mode=cleanup_failed`、错误码和目录未移除状态，退出 1。用一次性目录的 Windows 文件锁实测 `WinError 32`，确认服务审计先出现，端口独立检查已关闭。释放锁后由测试外层临时目录收尾。正常 STOP 验证退出 0 和目录移除。真实 Codex 桌面模型与用户批准仍待验收。
+
+2026-11-12 真实 Codex 桌面首轮证实项目级发现。用户同意精确授权和项目级候选，临时本地项目已建立，用户确认看到了临时 MCP。中继 `codex-mcp-client 0.167.0-alpha.3.2` 提出 `2025-06-18` 并协商 `2025-11-25`，完成 initialized 和 tools/list。目录恰为 capabilities、list_concept_maps、get_concept_map、prepare_proposal、preview_proposal、get_proposal。20 分钟窗口结束前只有上述五条协议记录，零工具调用、零正式图、零回执。没有模型回合证据，无法区分提示未发送和客户端未调用，概念图新建仍待验。
+
+用户移除临时项目。夹具退出 0，`service_stopped` 和 `stopped` 证实 `revoked_credential_denied=true`、`port_closed=true`、`temporary_directory_removed=true`。独立复核临时项目已从 Codex 项目列表消失，夹具根目录不存在。此次没有用户级 MCP 登记。

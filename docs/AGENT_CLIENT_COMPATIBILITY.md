@@ -329,7 +329,11 @@ WORKBENCH_PROBE_CONFIG = "<本次临时私人客户端 JSON 路径>"
 python workbuddy_agent_acceptance.py --readonly-pilot codex --codex-project-guard
 ```
 
-准备就绪后才启动夹具。实际桌面新建本地任务并选择输出的 `desktop_project` 长路径，核对精确目录与信任。发送一次只读提示前，须在当前桌面任务中核实 `workbench` 已禁用或不可调用，且唯一可调用的工作台连接器是 `workbench_ag142`，可用工具与 `expected_tools` 一致。若有其他可访问工作台数据的连接器、无法核实当前任务的工具范围，或只看到中继握手，停止并关闭夹具。中继返回的是服务原始 22 项，四项限制由 Codex 应用。`--pilot-check` 直连中继校验合成文件和收尾，不能证明桌面应用了限制。通过门槛后使用该次 `PROMPT.txt`，读回需匹配 `workspace_id`、六段合成文本和 `source_sha256`。
+首轮限制版桌面复验中，截图显示既有 `workbench` 已禁用，临时 `workbench_ag142` 仍未列出。中继恰有 5 条记录，完成 `2025-06-18` → `2025-11-25` 握手和原始 22 项工具应答。工具调用和模型回合均为 0。该次夹具等待用户关闭项目后收尾。
+
+当前 `--codex-project-guard` 还会给临时中继启用独立四项过滤。中继向客户端返回 `expected_tools` 对应的四项。目录缺项或重复时返回错误，额外 `tools/call` 在转发前拒绝，轨迹记录拒绝结果。`--pilot-check` 实测返回四项，拒绝项目列表和提案创建，六段读回与合成文本的 SHA-256 一致。停止后旧令牌返回 401，端口关闭，临时目录移除。
+
+准备就绪后才启动新夹具。实际桌面新建本地任务并选择输出的 `desktop_project` 长路径，核对精确目录与信任。发送一次只读提示前，核实当前任务的既有 `workbench` 已禁用，且没有其他可访问真实工作台数据的连接器。核对本次独立只读凭据及中继真实握手后转发的 `tools`，须与四项 `expected_tools` 完全一致。即使桌面列表仍不显示临时项，也要满足这些可核验条件。仅有握手或无法确认禁用状态时停止。通过后使用该次 `PROMPT.txt`，核对 `workspace_id`、六段合成文本和 `source_sha256`。
 
 ### WorkBuddy 5.9.3 / Hy4 单项审查步骤
 

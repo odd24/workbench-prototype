@@ -1360,3 +1360,10 @@ AG-142 的独立检查已验证 App Server 只配置 `workbench_ag142` 时可以
 - 安装版 App Server 对照通过。可信目录中模拟用户级 `workbench` 有 0 项工具，显式调用返回 `-32603`，`workbench_ag142` 只允许四项并命中独立合成空间。不可信目录仍使用模拟 `workbench`，临时项不可调用。交错核查旧目录和可信目录，各自生效。实际生成的 `--codex-project-guard` 项目也通过 App Server 复验，模拟旧项及额外工具拒绝、六段合成读回的 SHA-256 一致，两个夹具均收尾。桌面仍须在本任务中核实同等作用域，才可发送一次只读提示。
 - WorkBuddy 5.9.3 / Hy4 已整理实际目标确认、完整候选、非目标基线、仅新增和仅移除、20 分钟 TTL 与 STOP 验收步骤。项目级预激活仅在实际列表已有该行时可尝试。用户级写入仍待另行审查，真实桌面缺口待验。
 - 本次 `test_workbuddy_acceptance` 和 `test_mcp_stdio` 共 17 项通过。两客户端 `--pilot-check`、Python 和 JavaScript 语法、文档检查及 `git diff --check` 通过。变更限验收脚本与两份记录。
+
+### AG-142 可信项目桌面复验与中继工具限制（2026-11-11）
+
+- 当前桌面 `/mcp` 截图显示既有 `workbench` 已禁用，仍未显示 `workbench_ag142`。临时中继有 5 条记录，依次为 `initialize` 提出 `2025-06-18`、服务返回 `2025-11-25`、`notifications/initialized`、`tools/list` 和 22 项原始工具响应。工具调用和模型回合均为 0。夹具收尾由监督在用户关闭项目后执行，结果待核对。
+- 本阶段在验收中继增加独立四项工具限制，预演工具目录、允许读回、额外工具拒绝和夹具清理。生产 MCP、数据与 API 兼容不涉及本次变更。
+- `--readonly-pilot codex --codex-project-guard --pilot-check` 通过。转发目录恰四项，两次额外工具调用被中继拒绝，六段合成文件及 SHA-256 核对通过，撤销后旧凭据返回 401，端口关闭和目录清理通过。WorkBuddy 普通只读预演仍发现 22 项。真实桌面下一次发送前须同时确认当前任务旧项禁用、无其他真实工作台连接器、本次独立只读身份及中继转发四项工具的证据。
+- `test_workbuddy_acceptance` 和 `test_mcp_stdio` 共 18 项通过，覆盖目录过滤及缺项和重复拒绝。Python/JavaScript 语法、文档检查及 `git diff --check` 通过。本阶段仅改验收脚本、专项和两份记录。

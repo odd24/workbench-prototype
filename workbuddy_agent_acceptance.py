@@ -31,6 +31,8 @@ from workbench.agent_tools import TOOLS
 
 
 ROOT = Path(__file__).resolve().parent
+READONLY_PILOT_TOOLS = ('workbench_capabilities', 'workbench_list_file_grants',
+                        'workbench_get_file_info', 'workbench_read_file')
 
 
 class ProtocolFaultProbe:
@@ -135,7 +137,21 @@ def disposable_directory(prefix="workbench-workbuddy-probe-"):
                 time.sleep(0.5)
 
 
-def relay(protocol_faults=False):
+def restrict_pilot_catalog(message):
+    result = message.get('result')
+    if not isinstance(result, dict) or 'tools' not in result:
+        return None
+    tools = result['tools']
+    allowed = []
+    if isinstance(tools, list):
+        allowed = [tool for tool in tools if isinstance(tool, dict) and tool.get('name') in READONLY_PILOT_TOOLS]
+    if sorted(tool['name'] for tool in allowed) != sorted(READONLY_PILOT_TOOLS):
+        return {'jsonrpc':'2.0', 'id':message.get('id'),
+                'error':{'code':-32603, 'message':'Pilot tool catalog is incomplete or ambiguous'}}
+    return {'jsonrpc':'2.0', 'id':message.get('id'), 'result':{'tools':allowed}}
+
+
+def relay(protocol_faults=False, restrict_tools=False):
     trace = Path(os.environ["WORKBENCH_PROBE_TRACE"])
     process = subprocess.Popen(
         [sys.executable, str(ROOT / "agent_bridge.py"), "--config", os.environ["WORKBENCH_PROBE_CONFIG"]],
@@ -151,6 +167,8 @@ def relay(protocol_faults=False):
             for line in source:
                 consumed = None
                 injections = []
+                blocked = False
+                rejection = None
                 with lock, trace.open("a", encoding="utf-8") as stream:
                     event = {"direction": direction}
                     try:
@@ -159,12 +177,33 @@ def relay(protocol_faults=False):
                             consumed = fault_probe.consume(message)
                             if message.get("method") == "notifications/initialized":
                                 injections = fault_probe.requests()
-                        event.update(consumed if consumed is not None else protocol_metadata(message, pending))
+                            if restrict_tools and message.get('method') == 'tools/call':
+                                params = message.get('params')
+                                blocked = not isinstance(params, dict) or params.get('name') not in READONLY_PILOT_TOOLS
+                                if blocked and type(message.get('id')) in {int, str}:
+                                    rejection = {'jsonrpc':'2.0', 'id':message['id'], 'error':{
+                                        'code':-32602, 'message':'Tool is outside the read-only pilot allowlist'}}
+                        elif restrict_tools:
+                            restricted = restrict_pilot_catalog(message)
+                            if restricted is not None:
+                                message = restricted
+                                line = (json.dumps(message, ensure_ascii=False) + '\n').encode('utf-8')
+                        if blocked:
+                            event.update(method='tools/call', pilot_rejected=True, error_code=-32602)
+                        else:
+                            event.update(consumed if consumed is not None else protocol_metadata(message, pending))
                     except (ValueError, TypeError, AttributeError, KeyError):
-                        # Metadata parsing must not filter malformed wire input
-                        # or change the real server's response to that input.
+                        # The default relay preserves malformed wire input.
                         event = {"direction": direction, "unparsed": True}
                     stream.write(json.dumps(event, ensure_ascii=False) + "\n")
+                if restrict_tools and event.get('unparsed'):
+                    continue
+                if blocked:
+                    if rejection:
+                        with output_lock:
+                            sys.stdout.buffer.write((json.dumps(rejection) + '\n').encode('utf-8'))
+                            sys.stdout.buffer.flush()
+                    continue
                 if consumed is not None:
                     # These replies belong to the explicit synthetic server
                     # requests, not to the real workbench server.
@@ -407,8 +446,9 @@ def run_readonly_pilot(client, check_only=False, codex_project_guard=False):
             trace = base / 'protocol.jsonl'
             entry = {'command':sys.executable, 'args':[str(Path(__file__).resolve()), '--relay'],
                      'env':{'WORKBENCH_PROBE_TRACE':str(trace), 'WORKBENCH_PROBE_CONFIG':info['config_file']}}
-            guarded_tools = ['workbench_capabilities', 'workbench_list_file_grants',
-                             'workbench_get_file_info', 'workbench_read_file']
+            guarded_tools = list(READONLY_PILOT_TOOLS)
+            if codex_project_guard:
+                entry['args'].append('--relay-readonly-pilot')
             if client == 'codex':
                 config = project_dir / '.codex' / 'config.toml'
                 encoded = json.dumps
@@ -456,7 +496,8 @@ def run_readonly_pilot(client, check_only=False, codex_project_guard=False):
                                     'clientInfo':{'name':'ag142-pilot-fixture-check', 'version':'1'}})
                     assert init['protocolVersion'] == '2025-11-25'
                     rpc.notify('notifications/initialized')
-                    assert sorted(tool['name'] for tool in rpc.call('tools/list')['tools']) == sorted(tool['name'] for tool in TOOLS)
+                    expected = guarded_tools if codex_project_guard else [tool['name'] for tool in TOOLS]
+                    assert sorted(tool['name'] for tool in rpc.call('tools/list')['tools']) == sorted(expected)
 
                     def call(tool, arguments=None, error=False):
                         result = rpc.call('tools/call', {'name':'workbench_' + tool, 'arguments':arguments or {}})
@@ -464,7 +505,8 @@ def run_readonly_pilot(client, check_only=False, codex_project_guard=False):
                         return result['structuredContent']
 
                     assert call('capabilities')['workspace_id'] == workspace
-                    assert [item['id'] for item in call('list_projects')['items']] == [project['id']]
+                    if not codex_project_guard:
+                        assert [item['id'] for item in call('list_projects')['items']] == [project['id']]
                     assert [item['file_id'] for item in call('list_file_grants')['items']] == [file_id]
                     metadata = call('get_file_info', {'file_id':file_id})
                     offset, parts = 0, []
@@ -475,9 +517,18 @@ def run_readonly_pilot(client, check_only=False, codex_project_guard=False):
                         offset = data['next_offset']
                         assert offset is None or offset == data['end_offset']
                     assert ''.join(parts) == text and metadata['sha256'] == review['source_sha256']
-                    denied = call('prepare_proposal', {'kind':'issue', 'operation':'create', 'request_id':'ag142-denied',
-                                  'content':{'title':'不得创建', 'project_id':project['id'], 'body':'只读拒绝测试'}}, error=True)
-                    assert denied['code'] == 'forbidden'
+                    if codex_project_guard:
+                        for excluded in ('list_projects', 'prepare_proposal'):
+                            try:
+                                call(excluded)
+                            except RuntimeError as error:
+                                assert 'Tool is outside the read-only pilot allowlist' in str(error)
+                            else:
+                                raise AssertionError('Pilot relay accepted a tool outside its allowlist')
+                    else:
+                        denied = call('prepare_proposal', {'kind':'issue', 'operation':'create', 'request_id':'ag142-denied',
+                                      'content':{'title':'不得创建', 'project_id':project['id'], 'body':'只读拒绝测试'}}, error=True)
+                        assert denied['code'] == 'forbidden'
                     assert not list(workbench.repository.agent_proposals.proposals.glob('*.json'))
                     audit.update(file_read_segments=len(parts), write_denied=True)
                 finally:
@@ -487,7 +538,7 @@ def run_readonly_pilot(client, check_only=False, codex_project_guard=False):
                 while not stop.exists() and time.monotonic() < deadline:
                     time.sleep(0.25)
             if trace.exists():
-                expected = sorted(tool['name'] for tool in TOOLS)
+                expected = sorted(guarded_tools if codex_project_guard else [tool['name'] for tool in TOOLS])
                 with trace.open(encoding='utf-8') as stream:
                     for line in stream:
                         try:
@@ -504,6 +555,8 @@ def run_readonly_pilot(client, check_only=False, codex_project_guard=False):
                             audit['initialized'] = True
                         if 'tools' in event and sorted(event['tools']) == expected:
                             audit['tool_count'] = len(expected)
+                        if event.get('pilot_rejected') is True:
+                            audit['pilot_rejections'] = audit.get('pilot_rejections', 0) + 1
                         if event.get('tool_is_error') is False and event.get('tool') in expected:
                             successes = audit.setdefault('successful_tools', {})
                             tool = event['tool']
@@ -534,6 +587,7 @@ if __name__ == "__main__":
     parser.add_argument("--install-dir", type=Path,
         default=Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "WorkBuddy")
     parser.add_argument("--relay", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument('--relay-readonly-pilot', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument("--protocol-faults", action="store_true", help="Explicitly inject fixed server ping/unknown requests; no model or business writes")
     parser.add_argument("--desktop-session", action="store_true", help="Prepare temporary project files only; never launch or modify the real desktop profile")
     parser.add_argument('--readonly-pilot', choices=('codex','workbuddy'), help='Prepare a disposable AG-142 read-only project; never launch the desktop')
@@ -544,8 +598,10 @@ if __name__ == "__main__":
         parser.error('Select one read-only pilot mode independently of the legacy probe')
     if args.codex_project_guard and args.readonly_pilot != 'codex':
         parser.error('--codex-project-guard requires --readonly-pilot codex')
+    if args.relay_readonly_pilot and (not args.relay or args.protocol_faults):
+        parser.error('--relay-readonly-pilot requires --relay without protocol fault injection')
     if args.relay:
-        relay(args.protocol_faults)
+        relay(args.protocol_faults, args.relay_readonly_pilot)
     elif args.readonly_pilot:
         run_readonly_pilot(args.readonly_pilot, args.pilot_check, args.codex_project_guard)
     elif args.desktop_session:

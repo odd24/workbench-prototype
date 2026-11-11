@@ -251,6 +251,8 @@ Codex 使用另一份夹具。用户手工报告「没发现 workbench_ag142」�
 
 2026-11-11，用户用长路径复验。截图中的 `/mcp` 列表显示现有的 `workbench`，未显示本次 `workbench_ag142`。本次临时中继恰有 5 条记录，按顺序为 `initialize`（`codex-mcp-client 0.167.0-alpha.3.2` 提出 `2025-06-18`）、服务端返回 `2025-11-25`、`notifications/initialized`、`tools/list`、22 项工具应答。该轨迹证实桌面已通过本次中继发现工具。界面未列出临时项的原因待查。实际 `tools/call` 为 0，模型回合为 0。
 
+另用全新隔离 `CODEX_HOME` 验证了按名称调用。临时可信项目的 App Server 目录只有 `workbench_ag142`。显式指定 `server=workbench_ag142` 调用一次 `workbench_capabilities`，返回空间 ID 与本次夹具匹配，中继也只记录该次工具调用。夹具通过 STOP 撤销旧凭据并清理。实际桌面截图里只有既有 `workbench`，本次没有可核实的桌面调用入口能在发消息前把工具限定到 `workbench_ag142`。继续桌面验收需要先验证该项在真实任务里可独立选中并限定调用。
+
 监督写入本次 STOP 并实测端口已关闭。夹具退出码为 1，清理 `desktop-project` 时遇到 Windows 文件占用或访问错误 `WinError 32/5`。复核时 STOP 和临时项目目录仍在。待用户关闭本次临时项目后复核清理，保留本次协议证据。此次未改用户级 MCP 配置。
 
 用户随后确认已关闭本次 Codex 临时聊天和项目。当时只读复核显示系统临时目录中的 `workbench-ag142-pilot-codex-y2bf7efe` 仍存在，Codex、Python 和 Node 的进程命令行匹配数为 0。针对这一确切目录的 PowerShell `Remove-Item` 清理请求包含目录、父路径及子项的重解析点检查。自动审批以 `blocked by policy` 拒绝该请求，清理命令未执行。用户随后手工删除目录，按原路径只读执行 `Test-Path` 返回 `False`，独立清理待办关闭。

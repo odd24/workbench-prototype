@@ -1,4 +1,4 @@
-"""Disposable AG-142 desktop concept-map create pilot. Never launches a model."""
+"""Disposable AG-142 desktop concept-map pilot. Never launches a model."""
 
 import argparse
 import json
@@ -155,7 +155,7 @@ def check_connection(base, project_dir, entry, codex):
             yield invoke
 
 
-def check_create(base, project_dir, entry, workbench, workspace, spec, local, codex):
+def check_graph(base, project_dir, entry, workbench, workspace, spec, local, codex):
     with check_connection(base, project_dir, entry, codex) as invoke:
 
         def call(name, arguments=None, error=None):
@@ -166,21 +166,38 @@ def check_create(base, project_dir, entry, workbench, workspace, spec, local, co
                 assert value['code'] == error, value
             return value
 
+        updating = spec['operation'] == 'update'
+        target_id = spec.get('target_id')
+        graph = spec['content']['graph']
         caps = call('capabilities')
-        assert caps['workspace_id'] == workspace and caps['kind_operations'] == {'concept_map':['create']}
+        assert caps['workspace_id'] == workspace and caps['kind_operations'] == {'concept_map':[spec['operation']]}
         assert caps['capability_authorization']['effective'] == ['concept_maps.read', 'concept_maps.write']
         call('prepare_proposal', {'request_id':'ag142-graph-pilot-deny-issue', 'kind':'issue', 'operation':'create',
              'content':{'title':'不得创建', 'body':'隔离拒绝对照', 'project_id':spec['content']['graph']['project_id']}},
              error='forbidden')
-        assert not call('list_concept_maps')['items']
+        assert [item['id'] for item in call('list_concept_maps')['items']] == ([target_id] if updating else [])
+        graph_dir = base / 'data' / 'concept-maps'
+        if updating:
+            current = call('get_concept_map', {'map_id':target_id})
+            before = (graph_dir / f'{target_id}.json').read_bytes()
+            assert current['revision'] == spec['base_revision'] == content_revision(before)
+            assert {**current['editable_graph'], 'title':graph['title']} == graph
+        else:
+            before = None
         proposal = call('prepare_proposal', spec)
         key = {'proposal_id':proposal['proposal_id']}
         preview = call('preview_proposal', key)
-        graph = spec['content']['graph']
         assert preview['content']['graph'] == graph
-        path = base / 'data' / 'concept-maps' / (proposal['target_id'] + '.json')
+        assert not updating or proposal['target_id'] == target_id
+        path = graph_dir / (proposal['target_id'] + '.json')
+        history_dir = workbench.repository.history_dir / path.stem
         store = workbench.repository.agent_service.store
-        assert not path.exists() and not list(store.receipts.glob('*.json'))
+
+        def assert_unpublished():
+            assert (path.read_bytes() if path.exists() else None) == before
+            assert not list(history_dir.glob('*.json')) and not list(store.receipts.glob('*.json'))
+
+        assert_unpublished()
         version = {name:preview[name] for name in ('version', 'preview_digest')}
         if not codex:
             call('commit_proposal', {**key, **version, 'confirmation':{'mode':'agent_attested', 'user_confirmed':True}},
@@ -190,7 +207,10 @@ def check_create(base, project_dir, entry, workbench, workspace, spec, local, co
         assert local_review['preview']['preview_digest'] == version['preview_digest']
         assert local_review['preview']['prepared_graph'] == preview['prepared_graph']
         assert all(name in local_review['preview'] for name in ('graph_diff', 'base_graph', 'warnings', 'execution_plan'))
-        assert not path.exists() and not list(store.receipts.glob('*.json'))
+        if updating:
+            assert local_review['preview']['base_graph'] == json.loads(before)
+            assert local_review['preview']['base_revision'] == spec['base_revision']
+        assert_unpublished()
         approval = {**version, 'workspace_id':workspace, 'preview_ticket':local_review['preview_ticket'],
                     'request_id':'ag142-graph-pilot-approve'}
         result = local(route + '/approve', approval)
@@ -203,14 +223,23 @@ def check_create(base, project_dir, entry, workbench, workspace, spec, local, co
         assert all(receipt[name] == value for name, value in result['receipt'].items())
         read = call('get_concept_map', {'map_id':path.stem})
         assert read['revision'] == receipt['revision'] == content_revision(raw) and read['editable_graph'] == graph
-        call('prepare_proposal', {'request_id':'ag142-graph-pilot-deny-update', 'kind':'concept_map', 'operation':'update',
-             'target_id':path.stem, 'base_revision':read['revision'], 'content':{'graph':graph}}, error='not_found')
+        if updating:
+            [history] = history_dir.glob('*.json')
+            assert history.read_bytes() == before and raw != before
+            call('prepare_proposal', {**spec, 'request_id':'ag142-graph-pilot-deny-stale'}, error='revision_conflict')
+            call('prepare_proposal', {'request_id':'ag142-graph-pilot-deny-create', 'kind':'concept_map', 'operation':'create',
+                 'content':{'graph':graph}}, error='not_found')
+            assert len(list(store.proposals.glob('*.json'))) == 1 and path.read_bytes() == raw
+        else:
+            call('prepare_proposal', {'request_id':'ag142-graph-pilot-deny-update', 'kind':'concept_map', 'operation':'update',
+                 'target_id':path.stem, 'base_revision':read['revision'], 'content':{'graph':graph}}, error='not_found')
         return {'catalog':len(GRAPH_PILOT_TOOLS if codex else TOOLS), 'graph_count':1, 'receipt_count':1,
                 'proposal_id':key['proposal_id'], 'item_id':path.stem,
                 'version':version['version'], 'preview_digest':version['preview_digest'], 'revision':read['revision'],
-                'preapproval_no_graph_or_receipt':True,
+                **({'preapproval_original_bytes_unchanged':True, 'raw_history_matches':True, 'stale_revision_denied':True,
+                    'create_denied':True} if updating else {'preapproval_no_graph_or_receipt':True, 'update_denied':True}),
                 **({'app_server_project_guard':True, 'relay_commit_denied':True} if codex else {'self_attestation_denied':True}),
-                'full_management_preview':True, 'same_approval_replayed':True, 'update_denied':True,
+                'full_management_preview':True, 'same_approval_replayed':True,
                 'unrelated_kind_denied':True}
 
 
@@ -229,7 +258,7 @@ def pilot_directory():
         raise
 
 
-def run(check_only, codex=False):
+def run(check_only, codex=False, operation='create'):
     audit = {}
     with pilot_directory() as base:
         project_dir = base / 'desktop-project'
@@ -240,12 +269,23 @@ def run(check_only, codex=False):
             repo = workbench.repository
             project = repo.create_project({'name':'AG142 图隔离项目'})
             repo.ensure_concept_map_category('未分类')
+            graph = ConceptMapRepository.normalize({'title':'AG142 关系图', 'project_id':project['id'],
+                'focus_question':'甲与乙有什么联系？',
+                'nodes':[{'id':'a', 'text':'甲', 'x':100, 'y':120}, {'id':'b', 'text':'乙', 'x':420, 'y':220}],
+                'edges':[{'id':'edge', 'from':'a', 'to':'b', 'label':'联系'}]})
             resource = {'type':'project', 'id':project['id']}
+            target = {}
+            if operation == 'update':
+                original = repo.create_concept_map(graph)
+                resource = {'type':'concept_map', 'id':original['id']}
+                target = {'target_id':original['id'], 'base_revision':original['revision']}
+                graph = {**graph, 'title':'AG142 关系图更新'}
             read_grant = {'capability':'concept_maps.read', 'operations':['read'], 'resources':[resource],
                           'minimum_confirmation_mode':'agent_attested'}
             # Independent client bootstrap requires a dormant entry. Only the
             # separately approved graph grant below activates graph access.
-            info = workbench.security.add_client('AG142 图新建单案', ['read', 'propose', 'commit'], [], [],
+            info = workbench.security.add_client('AG142 图更新单案' if target else 'AG142 图新建单案',
+                                                 ['read', 'propose', 'commit'], [], [],
                                                  workbench.base_url, kinds=[], minimum_confirmation_mode='local_web',
                                                  capability_grants={'schema_version':1, 'grants':[read_grant]})
             workspace, client_id = info['workspace_id'], info['client_id']
@@ -262,11 +302,12 @@ def run(check_only, codex=False):
             route = f'clients/{client_id}/concept-maps'
             grants = {'schema_version':1, 'grants':[
                 read_grant,
-                {'capability':'concept_maps.write', 'operations':['create'], 'resources':[resource], 'minimum_confirmation_mode':'local_web'}]}
+                {'capability':'concept_maps.write', 'operations':[operation], 'resources':[resource], 'minimum_confirmation_mode':'local_web'}]}
             discovered, approve, stop = base / 'DISCOVERED', base / 'APPROVE_GRANT', base / 'STOP'
             trace = base / 'protocol.jsonl'
             entry, config, catalog = project_connector(project_dir, trace, info['config_file'], codex)
             connection = {'workbench_url':workbench.base_url, 'workspace_id':workspace,
+                          'operation':operation, **target,
                           'desktop_project':str(project_dir), **config, 'expected_catalog':catalog,
                           'trace_path':str(trace), 'stop_file':str(stop)}
             may_review = True
@@ -299,17 +340,18 @@ def run(check_only, codex=False):
                 ticket = {key:grant[key] for key in ('workspace_id', 'expected_version', 'preview_id', 'preview_digest')}
                 local(route + '/confirm', {**ticket, 'approved':True, 'request_id':'ag142-graph-pilot-grant'})
                 audit['graph_granted'] = True
-                graph = ConceptMapRepository.normalize({'title':'AG142 关系图', 'project_id':project['id'],
-                    'focus_question':'甲与乙有什么联系？',
-                    'nodes':[{'id':'a', 'text':'甲', 'x':100, 'y':120}, {'id':'b', 'text':'乙', 'x':420, 'y':220}],
-                    'edges':[{'id':'edge', 'from':'a', 'to':'b', 'label':'联系'}]})
-                spec = {'request_id':'ag142-graph-pilot-create', 'kind':'concept_map', 'operation':'create',
-                        'confirmation_mode':'local_web', 'content':{'graph':graph}}
+                spec = {'request_id':f'ag142-graph-pilot-{operation}', 'kind':'concept_map', 'operation':operation,
+                        **target, 'confirmation_mode':'local_web', 'content':{'graph':graph}}
                 if check_only:
-                    audit.update(check_create(base, project_dir, entry, workbench, workspace, spec, local, codex))
+                    audit.update(check_graph(base, project_dir, entry, workbench, workspace, spec, local, codex))
                 else:
-                    prompt = (f'只用 {SERVER}。用 capabilities 核对空间 {workspace}，查该项目是否已有图。'
-                              '为空时仅准备下列完整提案，调用 preview_proposal 展示完整图、原图、全部字段、差异、警告、版本、摘要和执行依据，然后停止。'
+                    discovery = '查该项目是否已有图。为空时继续。'
+                    if target:
+                        discovery = (f'列出已授权图，再用 get_concept_map 完整读取 {target["target_id"]}，'
+                                     '核对当前 revision 与下列 base_revision 相同。只把标题改为候选标题，'
+                                     '其余 editable_graph 字段与固定候选一致时继续。任何差异均停止。')
+                    prompt = (f'只用 {SERVER}。用 capabilities 核对空间 {workspace}。{discovery}'
+                              '仅准备下列完整提案，调用 preview_proposal 展示完整图、原图、全部字段、差异、警告、版本、摘要和执行依据，然后停止。'
                               '等待用户在隔离工作台网页独立批准。禁止自行提交、访问其他连接器、读取文件或执行命令。\n'
                               + json.dumps(spec, ensure_ascii=False, indent=2))
                     emit({'mode':'ready', **connection, 'graph_granted':True,
@@ -347,6 +389,7 @@ def run(check_only, codex=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--client', choices=('workbuddy', 'codex'), default='workbuddy')
+    parser.add_argument('--operation', choices=('create', 'update'), default='create')
     parser.add_argument('--check', action='store_true', help='Run the isolated synthetic approval and replay, then exit')
     args = parser.parse_args()
-    run(args.check, args.client == 'codex')
+    run(args.check, args.client == 'codex', args.operation)

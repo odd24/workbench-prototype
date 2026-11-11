@@ -505,3 +505,18 @@ WORKBENCH_PROBE_CONFIG = "<本次夹具私人客户端配置路径>"
 - 用户发送一次，聊天 `01a1cbbd-ebbe-7bf0-928b-c696c8f40687` 的工作目录匹配临时项目，回合用时 191.735 秒。聊天和中继均记录 `workbench_ag142_graph` 的 capabilities、list_concept_maps、prepare_proposal、preview_proposal 各一次成功，无 commit。最终消息约 5278 字符，包含完整候选、原图、差异、警告、版本摘要和执行依据。
 - 用户批准前，提案 `a5985a37-1e69-49ed-b29e-89c05bfdbe85` 为 `previewed`，版本 `1`，摘要 `48021c74c829f88d4aae83af5a74ad5e877d14d472d4d6a638606c892bdb2b9c`，候选与固定合成图匹配，正式图和回执均为零。用户在隔离网页独立批准后，提案为 `committed`，一张 `CMAP-0001` 和一份回执，完整字段一致。图文件原始字节 SHA-256 `aab1996f38c0a3599f47935c8313e16b08e41d9e8422e8969605e34f14ce0f5c` 与回执吻合，提案内原回执等于独立回执文件。没有追加桌面查询或真实桌面重放。
 - 两端真实桌面同类 `concept_map/create` 与 `local_web` 单案均通过。Codex 本轮待用户移除临时项目后停服，最终清理待核对。其余写入与确认矩阵仍待验。
+
+### 下一单案：更新同一张隔离概念图（2026-11-12）
+
+更新试点使用新的临时空间，由夹具通过领域仓储预置同一份合成 v2 图。它仅将标题从 `AG142 关系图` 改为 `AG142 关系图更新`。图 ID、项目、分类、焦点、主题、视口、节点与关系的全部字段保持原值。授权为指定一个图 ID 的 `read` 和仅 `update`，要求 `local_web`，没有创建图的授权，也不使用上一轮的图或凭据。
+
+```powershell
+python concept_map_pilot.py --client codex --operation update --check
+python concept_map_pilot.py --client workbuddy --operation update --check
+```
+
+两条均为隔离预演。Codex 使用实际 App Server 和六项限制，WorkBuddy 使用隔离 stdio 和 22 项通用目录。预演覆盖完整图读取与原始 revision、预览与批准前的原文件字节保持、一次原回执和唯一历史、历史字节与原图完全一致、正式图 ID 与非标题字段不变、同批准请求幂等重放、旧 revision 返回 `revision_conflict` 以及创建拒绝。两个临时服务均核对撤销、端口关闭和目录清理。
+
+真实桌面安排确定后，先选一个客户端，去掉对应命令的 `--check`。Codex 沿用 `pending_discovery`、`grant_review` 和 `ready`，WorkBuddy 沿用单项用户级登记、信任和握手核对。用户分别确认当次固定图的授权和连接器配置、信任、模型及预览回合。`ready` 输出目标 ID、原始 revision 和完整固定提示。模型先调用 capabilities、list_concept_maps、get_concept_map，核对同一空间、唯一目标、原 revision 和完整原图，随后 prepare、preview 并展示完整候选、原图、全部差异和执行依据，等待本机批准。若原 revision 或任何非标题字段不同，停止并核查。
+
+独立批准前监督核对仍只有一张原图，SHA-256 等于 `base_revision`，尚无更新历史或回执。用户在隔离网页核对同一提案的当前版本、摘要、完整画布与明细、标题差异、警告和保存依据，亲自批准。随后核对原 ID 文件的当前哈希和唯一回执、历史原始字节和 `base_revision`、全部非标题字段。真实桌面额外查询回合和负向操作另行安排。关闭本次项目和连接后写 STOP，并按之前的步骤核对撤销、端口、目录及配置恢复。

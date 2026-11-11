@@ -1439,3 +1439,9 @@ AG-142 的独立检查已验证 App Server 只配置 `workbench_ag142` 时可以
 
 - 临时可信项目发现恰六项，插件页临时项开启且旧 `workbench` 禁用，`/mcp` 菜单未列临时项。实际路径、信任和中继发现核对后，用户批准项目图读与仅 `create`，开始独立 1200 秒窗口。用户发送一次，真实聊天 `01a1cbbd-ebbe-7bf0-928b-c696c8f40687` 与中继相符，4 次临时图工具成功，无 commit，完整预览已展示。
 - 固定候选版本 1 批准前为 `previewed`、0 图 0 回执。用户在隔离网页独立批准后 `committed`，`CMAP-0001` 和回执各一，完整字段与原始字节 SHA-256 匹配，提案内与独立回执一致。完整标识及摘要见兼容验收记录。无追加查询或真实桌面重放。两端新建 `local_web` 单案通过，Codex 本轮待移除临时项目和停服清理。AG-142 进行中，AG-143 待开始。
+
+### AG-142 同图更新单案隔离预演（2026-11-12）
+
+- 复用 `concept_map_pilot.py --operation update`，独立临时空间内预置固定合成图，授权精确到一个图 ID 的读取及仅 `update`，强制 `local_web`。固定候选只改标题，发送前核对实时原始 revision 与完整 `editable_graph`。原创建路径仍可用，Codex 分阶段和六项限制仍有效。
+- Codex 实际 App Server 与 WorkBuddy stdio 的 `--operation update --check` 均通过。批准前原字节保持，零回执和更新历史。批准后原 ID 保留，一份原回执、一份逐字节匹配的旧图历史，其余字段一致。重放不改正式图和回执，旧 revision 返回 `revision_conflict`，创建及其他类型写入拒绝。两端撤销 401、端口关闭和目录清理通过；Codex 旧 create 预演回归通过。
+- Codex 隔离启动对照验证单 ID 授权、带原 revision 的完整提示和无提案 STOP 收尾。真实桌面仍待安排，本次只修改验收夹具与证据。实际范围、用户确认点及落盘核对见兼容记录。AG-142 进行中，AG-143 待开始。

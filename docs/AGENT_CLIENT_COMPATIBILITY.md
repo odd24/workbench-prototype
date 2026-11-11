@@ -466,7 +466,11 @@ python concept_map_pilot.py --client codex --check
 python concept_map_pilot.py --client codex
 ```
 
-`mode=grant_review` 输出完整精确授权，最多等待 540 秒。用户核对后才创建 `approval_file`，然后从 `mode=ready` 取得 `desktop_project`、`config_path`、`config_text`、`expected_catalog` 和固定 `prompt`，候选有效运行窗口为 1200 秒。脚本只在该临时项目生成 `.codex/config.toml`。六项中继过滤与项目 `enabled_tools` 使用同一名单，后两项供已同意的结果查询回合。模型选择和预览回合由用户确认。
+脚本只在临时项目生成 `.codex/config.toml`。六项中继过滤与项目 `enabled_tools` 使用同一名单，后两项供已同意的结果查询回合。正式试点把发现和执行分开，完整授权审查在两者之间：
+
+1. `mode=pending_discovery` 给出 `desktop_project`、`config_path`、`config_text`、`trace_path`、`expected_catalog` 和 `discovery_file`，最多等待 1200 秒。此时身份仅有休眠配置，尚无生效图授权，也未输出模型提示。用户先核对当次候选，打开精确临时项目并确认信任。监督核对继承的 `workbench` 已禁用、无可调用的真实工作台连接器，并从中继确认该次 initialize、服务协议响应、initialized、tools/list 及恰六项目录，再执行 `New-Item -Path '<本次 discovery_file>' -ItemType File`。提前信号缺少握手证据时退出，撤销身份并清理。
+2. `mode=grant_review` 只在发现核对后输出当次完整图授权，最多等待 540 秒。用户检查空间、身份、单空项目、图读取、仅 `create` 和 `local_web`，明确同意后创建当次 `approval_file`。这个信号只授予上述图能力。它不批准任何提案。任一等待阶段到期或收到 STOP 都走撤销及清理。
+3. `mode=ready` 确认图授权已生效，输出固定 `prompt` 和 Unix 秒 `execution_expires_at`，此时才开始 1200 秒的预览与批准窗口。用户确认所选模型和这次预览回合后使用当次提示。随后由用户在隔离网页独立批准当前完整提案版本。执行窗口是夹具的运行期限，到期时关闭服务并撤销临时客户端。
 
 ```toml
 [mcp_servers.workbench]
@@ -492,3 +496,5 @@ WORKBENCH_PROBE_CONFIG = "<本次夹具私人客户端配置路径>"
 2026-11-12 真实 Codex 桌面首轮证实项目级发现。用户同意精确授权和项目级候选，临时本地项目已建立，用户确认看到了临时 MCP。中继 `codex-mcp-client 0.167.0-alpha.3.2` 提出 `2025-06-18` 并协商 `2025-11-25`，完成 initialized 和 tools/list。目录恰为 capabilities、list_concept_maps、get_concept_map、prepare_proposal、preview_proposal、get_proposal。20 分钟窗口结束前只有上述五条协议记录，零工具调用、零正式图、零回执。没有模型回合证据，无法区分提示未发送和客户端未调用，概念图新建仍待验。
 
 用户移除临时项目。夹具退出 0，`service_stopped` 和 `stopped` 证实 `revoked_credential_denied=true`、`port_closed=true`、`temporary_directory_removed=true`。独立复核临时项目已从 Codex 项目列表消失，夹具根目录不存在。此次没有用户级 MCP 登记。
+
+分阶段复验在零模型 App Server 中实测：同一临时连接器在发现及授权审查时均没有生效图权限，完整固定图 prepare 在授予前由领域授权拒绝。缩时对照让发现等待超过执行窗口长度，批准后仍获得独立的新执行窗口。隔离另测无发现超时、缺少握手的提前发现信号和预放的授权信号，均未授予权限，随后撤销并清理。两端 `--check` 的完整预演仍通过。此次分阶段核查使用缩短窗口，未等待真实 20 分钟，也未启动桌面模型。

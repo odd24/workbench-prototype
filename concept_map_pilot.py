@@ -22,6 +22,7 @@ from workbuddy_agent_acceptance import GRAPH_PILOT_TOOLS, disposable_directory, 
 
 
 WINDOW_SECONDS = 1200
+DISCOVERY_SECONDS = 1200
 GRANT_REVIEW_SECONDS = 540
 SERVER = 'workbench_ag142_graph'
 
@@ -30,12 +31,12 @@ def emit(value):
     print(json.dumps(value, ensure_ascii=False, indent=2), flush=True)
 
 
-def wait_for_signal(signal, stop):
-    deadline = time.monotonic() + GRANT_REVIEW_SECONDS
+def wait_for_signal(signal, stop, seconds):
+    deadline = time.monotonic() + seconds
     while time.monotonic() < deadline and not stop.exists():
         if signal.exists():
             signal.unlink()
-            return True
+            return not stop.exists() and time.monotonic() < deadline
         time.sleep(0.25)
     return False
 
@@ -48,6 +49,22 @@ def server_toml(name, entry):
     lines.append(f'[mcp_servers.{name}.env]')
     lines.extend(f'{key} = {quote(value)}' for key, value in entry['env'].items())
     return '\n'.join(lines) + '\n'
+
+
+def project_connector(project_dir, trace, client_config, codex):
+    entry = {'command':sys.executable, 'args':[str(Path(__file__).with_name('workbuddy_agent_acceptance.py')), '--relay'],
+             'env':{'WORKBENCH_PROBE_TRACE':str(trace), 'WORKBENCH_PROBE_CONFIG':client_config}}
+    if not codex:
+        return entry, {'config':{'mcpServers':{SERVER:entry}}}, [tool['name'] for tool in TOOLS]
+    entry['args'].append('--relay-graph-pilot')
+    config = project_dir / '.codex' / 'config.toml'
+    config.parent.mkdir()
+    text = '[mcp_servers.workbench]\nenabled = false\n\n' + server_toml(SERVER, entry)
+    assert tomllib.loads(text)['mcp_servers'] == {
+        'workbench':{'enabled':False}, SERVER:{**entry, 'enabled_tools':list(GRAPH_PILOT_TOOLS)}}
+    config.write_text(text, encoding='utf-8')
+    return entry, {'config_path':str(config), 'config_text':text,
+                   'project_disabled_servers':['workbench']}, list(GRAPH_PILOT_TOOLS)
 
 
 @contextmanager
@@ -246,37 +263,48 @@ def run(check_only, codex=False):
             grants = {'schema_version':1, 'grants':[
                 read_grant,
                 {'capability':'concept_maps.write', 'operations':['create'], 'resources':[resource], 'minimum_confirmation_mode':'local_web'}]}
-            grant = local(route + '/preview', {'workspace_id':workspace, 'grants':grants,
-                          'expected_version':client_version(workbench.security.clients()[client_id])})
-            approve, stop = base / 'APPROVE_GRANT', base / 'STOP'
-            if not check_only:
-                emit({'mode':'grant_review', 'workbench_url':workbench.base_url, 'grant_preview':grant,
-                      'approval_file':str(approve), 'stop_file':str(stop), 'wait_seconds':GRANT_REVIEW_SECONDS})
-            if check_only or wait_for_signal(approve, stop):
+            discovered, approve, stop = base / 'DISCOVERED', base / 'APPROVE_GRANT', base / 'STOP'
+            trace = base / 'protocol.jsonl'
+            entry, config, catalog = project_connector(project_dir, trace, info['config_file'], codex)
+            connection = {'workbench_url':workbench.base_url, 'workspace_id':workspace,
+                          'desktop_project':str(project_dir), **config, 'expected_catalog':catalog,
+                          'trace_path':str(trace), 'stop_file':str(stop)}
+            may_review = True
+            if codex and not check_only:
+                emit({'mode':'pending_discovery', **connection, 'discovery_file':str(discovered),
+                      'wait_seconds':DISCOVERY_SECONDS, 'graph_granted':False})
+                signaled = wait_for_signal(discovered, stop, DISCOVERY_SECONDS)
+                may_review = signaled and pilot_discovered(trace, catalog) and not stop.exists()
+                if may_review:
+                    audit['discovery'] = 'verified'
+                elif stop.exists():
+                    audit['discovery'] = 'stopped'
+                else:
+                    audit['discovery'] = 'missing_handshake' if signaled else 'timeout'
+
+            approved = False
+            if may_review:
+                grant = local(route + '/preview', {'workspace_id':workspace, 'grants':grants,
+                              'expected_version':client_version(workbench.security.clients()[client_id])})
+                if check_only:
+                    approved = True
+                elif approve.exists():
+                    audit['grant_review'] = 'early_approval_signal'
+                else:
+                    emit({'mode':'grant_review', 'workbench_url':workbench.base_url, 'grant_preview':grant,
+                          'approval_file':str(approve), 'stop_file':str(stop), 'wait_seconds':GRANT_REVIEW_SECONDS})
+                    approved = wait_for_signal(approve, stop, GRANT_REVIEW_SECONDS)
+            audit['graph_granted'] = False
+            if approved:
                 ticket = {key:grant[key] for key in ('workspace_id', 'expected_version', 'preview_id', 'preview_digest')}
                 local(route + '/confirm', {**ticket, 'approved':True, 'request_id':'ag142-graph-pilot-grant'})
+                audit['graph_granted'] = True
                 graph = ConceptMapRepository.normalize({'title':'AG142 关系图', 'project_id':project['id'],
                     'focus_question':'甲与乙有什么联系？',
                     'nodes':[{'id':'a', 'text':'甲', 'x':100, 'y':120}, {'id':'b', 'text':'乙', 'x':420, 'y':220}],
                     'edges':[{'id':'edge', 'from':'a', 'to':'b', 'label':'联系'}]})
                 spec = {'request_id':'ag142-graph-pilot-create', 'kind':'concept_map', 'operation':'create',
                         'confirmation_mode':'local_web', 'content':{'graph':graph}}
-                trace = base / 'protocol.jsonl'
-                entry = {'command':sys.executable, 'args':[str(Path(__file__).with_name('workbuddy_agent_acceptance.py')), '--relay'],
-                         'env':{'WORKBENCH_PROBE_TRACE':str(trace), 'WORKBENCH_PROBE_CONFIG':info['config_file']}}
-                config = {'config':{'mcpServers':{SERVER:entry}}}
-                catalog = [tool['name'] for tool in TOOLS]
-                if codex:
-                    entry['args'].append('--relay-graph-pilot')
-                    project_config = project_dir / '.codex' / 'config.toml'
-                    project_config.parent.mkdir()
-                    config_text = '[mcp_servers.workbench]\nenabled = false\n\n' + server_toml(SERVER, entry)
-                    assert tomllib.loads(config_text)['mcp_servers'] == {
-                        'workbench':{'enabled':False}, SERVER:{**entry, 'enabled_tools':list(GRAPH_PILOT_TOOLS)}}
-                    project_config.write_text(config_text, encoding='utf-8')
-                    config = {'config_path':str(project_config), 'config_text':config_text,
-                              'project_disabled_servers':['workbench']}
-                    catalog = list(GRAPH_PILOT_TOOLS)
                 if check_only:
                     audit.update(check_create(base, project_dir, entry, workbench, workspace, spec, local, codex))
                 else:
@@ -284,15 +312,15 @@ def run(check_only, codex=False):
                               '为空时仅准备下列完整提案，调用 preview_proposal 展示完整图、原图、全部字段、差异、警告、版本、摘要和执行依据，然后停止。'
                               '等待用户在隔离工作台网页独立批准。禁止自行提交、访问其他连接器、读取文件或执行命令。\n'
                               + json.dumps(spec, ensure_ascii=False, indent=2))
-                    emit({'mode':'ready', 'workbench_url':workbench.base_url, 'workspace_id':workspace,
-                          'desktop_project':str(project_dir), **config, 'expected_catalog':catalog,
-                          'trace_path':str(trace), 'stop_file':str(stop), 'wait_seconds':WINDOW_SECONDS, 'prompt':prompt})
+                    emit({'mode':'ready', **connection, 'graph_granted':True,
+                          'wait_seconds':WINDOW_SECONDS, 'execution_expires_at':int(time.time() + WINDOW_SECONDS),
+                          'prompt':prompt})
                     deadline = time.monotonic() + WINDOW_SECONDS
                     while not stop.exists() and time.monotonic() < deadline:
                         time.sleep(0.25)
-                    store = repo.agent_service.store
-                    audit.update(graph_count=len(list((repo.root / 'concept-maps').glob('CMAP-*.json'))),
-                                 receipt_count=len(list(store.receipts.glob('*.json'))))
+            store = repo.agent_service.store
+            audit.update(graph_count=len(list((repo.root / 'concept-maps').glob('CMAP-*.json'))),
+                         receipt_count=len(list(store.receipts.glob('*.json'))))
         finally:
             port = workbench.server.server_address[1]
             try:

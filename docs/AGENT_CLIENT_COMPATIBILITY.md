@@ -454,7 +454,7 @@ python concept_map_pilot.py
 
 - 用户同意 WorkBuddy V5.9.3 / Hy4 限定单案，亲自信任 `workbench_ag142_graph`，随后在隔离网页亲自批准当前版本 1。桌面协商 MCP `2025-11-25` 并发现 22 项。真实模型端在 `notifications/initialized` 前发 `tools/list`，收到 `-32002`，随后自动按顺序完成。中继记录成功 `capabilities` 一次、`list_concept_maps` 两次、`prepare_proposal` 一次、`preview_proposal` 一次，未见 `commit_proposal`。模型报告工具框架曾把参数当字符串并沿用原 `request_id` 重试。中继证实一次成功的真实 prepare，该报告不足以定位字符串问题的来源。
 - 桌面完整展示候选、原图、差异、警告和执行依据。批准前服务端提案 `fca2a40d-5070-4359-beb8-cf64d25a28fe` 为 `previewed`，版本 `1`，摘要 `9ff74896e827a69c6ce95a05978580a4d799d99a9bd6e029f6c3217986e73188`，预留 `CMAP-0001`。固定候选匹配，正式图和回执均为零。用户批准后为 `committed`，正式图和回执各一份。磁盘完整候选字段相等，原始文件 SHA-256 `0cb010f52cc069fce4f7c4041b148b4b470f6287eaf528b8be811dcec93d4991` 与原回执吻合，提案内回执与独立回执一致。真实桌面没有追加模型查询回合，重放证据仍来自隔离预演。
-- STOP 先撤销临时凭据并校验旧凭据 401，再关闭服务。脚本在临时目录清理遇 `WinError 32/5` 后退出 1，最终 audit JSON 未输出，监督实测端口已关闭。用户配置恢复原始字节，刷新后桌面缓存仅保留原 `miora`。锁释放后空 `desktop-project` 已移除。根目录余项删除被自动审批以 `blocked by policy` 拒绝，监督已请用户手工清理，结果待核实。
+- STOP 先撤销临时凭据并校验旧凭据 401，再关闭服务。脚本在临时目录清理遇 `WinError 32/5` 后退出 1，最终 audit JSON 未输出，监督实测端口已关闭。用户配置恢复原始字节，刷新后桌面缓存仅保留原 `miora`。锁释放后空 `desktop-project` 已移除。根目录余项的工具删除被自动审批以 `blocked by policy` 拒绝，用户随后手工删除，监督独立运行 `Test-Path` 得到 `False`，残留清理闭合。
 
 ### 待审查的 Codex 可信项目同类单案
 

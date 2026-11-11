@@ -2,9 +2,12 @@
 
 import argparse
 import json
+import shutil
 import socket
 import sys
 import time
+import tomllib
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -15,7 +18,7 @@ from workbench.agent_security import read_json
 from workbench.agent_tools import TOOLS
 from workbench.concept_maps import ConceptMapRepository
 from workbench.write_coordinator import content_revision
-from workbuddy_agent_acceptance import disposable_directory, isolated_environment, pilot_discovered
+from workbuddy_agent_acceptance import GRAPH_PILOT_TOOLS, disposable_directory, isolated_environment, pilot_discovered
 
 
 WINDOW_SECONDS = 1200
@@ -37,18 +40,109 @@ def wait_for_signal(signal, stop):
     return False
 
 
-def check_create(base, project_dir, entry, workbench, workspace, spec, local):
+def server_toml(name, entry):
+    quote = json.dumps
+    lines = [f'[mcp_servers.{name}]', f'command = {quote(entry["command"])}', f'args = {quote(entry["args"])}']
+    if name == SERVER:
+        lines.append(f'enabled_tools = {quote(GRAPH_PILOT_TOOLS)}')
+    lines.append(f'[mcp_servers.{name}.env]')
+    lines.extend(f'{key} = {quote(value)}' for key, value in entry['env'].items())
+    return '\n'.join(lines) + '\n'
+
+
+@contextmanager
+def check_app_server(base, project_dir, entry):
+    executable = shutil.which('codex')
+    if not executable:
+        raise RuntimeError('Codex CLI is required for the isolated App Server check')
+    home = base / 'codex-home'
+    home.mkdir()
+    untrusted = base / 'untrusted-project'
+    untrusted.mkdir()
+    shutil.copytree(project_dir / '.codex', untrusted / '.codex')
+    control = {**entry, 'args':entry['args'][:-1], 'env':{
+        **entry['env'], 'WORKBENCH_PROBE_TRACE':str(base / 'control-protocol.jsonl')}}
+    config = '\n'.join([
+        'model = "workbench-test-model"', 'model_provider = "workbench_test"',
+        '[model_providers.workbench_test]', 'name = "Local protocol acceptance (no inference)"',
+        'base_url = "http://127.0.0.1:1/v1"', 'wire_api = "responses"', 'requires_openai_auth = false',
+        '[analytics]', 'enabled = false', '[features]', 'plugins = false', 'apps = false', 'remote_plugin = false',
+        f'[projects.{json.dumps(str(project_dir))}]', 'trust_level = "trusted"',
+        f'[projects.{json.dumps(str(untrusted))}]', 'trust_level = "untrusted"', server_toml('workbench', control)])
+    (home / 'config.toml').write_text(config, encoding='utf-8')
+    rpc = RpcProcess([executable, 'app-server', '--stdio'], project_dir,
+                     {**isolated_environment(base), 'CODEX_HOME':str(home)}, terminate_tree=True)
+    try:
+        rpc.call('initialize', {'clientInfo':{'name':'workbench_graph_pilot', 'version':'1'},
+                                'capabilities':{'experimentalApi':True}})
+        rpc.notify('initialized')
+
+        def inventory(cwd):
+            thread = rpc.call('thread/start', {'cwd':str(cwd), 'ephemeral':True, 'approvalPolicy':'never', 'sandbox':'read-only'})
+            key = thread['thread']['id']
+            status = rpc.call('mcpServerStatus/list', {'threadId':key, 'detail':'toolsAndAuthOnly'})
+            return key, {item['name']:set(item['tools']) for item in status['data']}
+
+        _, outside = inventory(untrusted)
+        assert outside.get('workbench') == {tool['name'] for tool in TOOLS} and SERVER not in outside, outside
+        thread_id, inside = inventory(project_dir)
+        assert inside.get('workbench', set()) == set() and inside.get(SERVER) == set(GRAPH_PILOT_TOOLS), inside
+        assert pilot_discovered(Path(entry['env']['WORKBENCH_PROBE_TRACE']), GRAPH_PILOT_TOOLS)
+
+        def invoke(tool, arguments, server=SERVER):
+            return rpc.call('mcpServer/tool/call', {'threadId':thread_id, 'server':server, 'tool':tool,
+                                                   'arguments':arguments})
+
+        try:
+            invoke('workbench_capabilities', {}, server='workbench')
+        except RuntimeError as error:
+            assert '-32603' in str(error), error
+        else:
+            raise AssertionError('Trusted project could call the inherited workbench server')
+        yield invoke
+    finally:
+        rpc.close()
+
+
+@contextmanager
+def check_connection(base, project_dir, entry, codex):
+    trace = Path(entry['env']['WORKBENCH_PROBE_TRACE'])
+    expected = GRAPH_PILOT_TOOLS if codex else [tool['name'] for tool in TOOLS]
     rpc = RpcProcess([entry['command'], *entry['args']], project_dir,
                      {**isolated_environment(base), **entry['env']}, terminate_tree=True)
     try:
         assert rpc.call('initialize', {'protocolVersion':'2025-11-25', 'capabilities':{},
                         'clientInfo':{'name':'ag142-graph-fixture-check', 'version':'1'}})['protocolVersion'] == '2025-11-25'
         rpc.notify('notifications/initialized')
-        assert {item['name'] for item in rpc.call('tools/list')['tools']} == {item['name'] for item in TOOLS}
-        assert pilot_discovered(Path(entry['env']['WORKBENCH_PROBE_TRACE']))
+        assert {item['name'] for item in rpc.call('tools/list')['tools']} == set(expected)
+        assert pilot_discovered(trace, expected)
+
+        def invoke(tool, arguments):
+            return rpc.call('tools/call', {'name':tool, 'arguments':arguments})
+
+        if codex:
+            try:
+                invoke('workbench_commit_proposal', {})
+            except RuntimeError as error:
+                assert 'Tool is outside the graph pilot allowlist' in str(error), error
+            else:
+                raise AssertionError('Graph relay accepted an excluded tool')
+        else:
+            yield invoke
+    finally:
+        rpc.close()
+    if codex:
+        # Give the App Server a fresh trace so the direct probe cannot satisfy its handshake check.
+        trace.unlink()
+        with check_app_server(base, project_dir, entry) as invoke:
+            yield invoke
+
+
+def check_create(base, project_dir, entry, workbench, workspace, spec, local, codex):
+    with check_connection(base, project_dir, entry, codex) as invoke:
 
         def call(name, arguments=None, error=None):
-            result = rpc.call('tools/call', {'name':'workbench_' + name, 'arguments':arguments or {}})
+            result = invoke('workbench_' + name, arguments or {})
             assert result['isError'] is bool(error), result
             value = result['structuredContent']
             if error:
@@ -58,6 +152,9 @@ def check_create(base, project_dir, entry, workbench, workspace, spec, local):
         caps = call('capabilities')
         assert caps['workspace_id'] == workspace and caps['kind_operations'] == {'concept_map':['create']}
         assert caps['capability_authorization']['effective'] == ['concept_maps.read', 'concept_maps.write']
+        call('prepare_proposal', {'request_id':'ag142-graph-pilot-deny-issue', 'kind':'issue', 'operation':'create',
+             'content':{'title':'不得创建', 'body':'隔离拒绝对照', 'project_id':spec['content']['graph']['project_id']}},
+             error='forbidden')
         assert not call('list_concept_maps')['items']
         proposal = call('prepare_proposal', spec)
         key = {'proposal_id':proposal['proposal_id']}
@@ -68,8 +165,9 @@ def check_create(base, project_dir, entry, workbench, workspace, spec, local):
         store = workbench.repository.agent_service.store
         assert not path.exists() and not list(store.receipts.glob('*.json'))
         version = {name:preview[name] for name in ('version', 'preview_digest')}
-        call('commit_proposal', {**key, **version, 'confirmation':{'mode':'agent_attested', 'user_confirmed':True}},
-             error='confirmation_required')
+        if not codex:
+            call('commit_proposal', {**key, **version, 'confirmation':{'mode':'agent_attested', 'user_confirmed':True}},
+                 error='confirmation_required')
         route = 'proposals/' + key['proposal_id']
         local_review = local(route + '/preview')
         assert local_review['preview']['preview_digest'] == version['preview_digest']
@@ -90,18 +188,33 @@ def check_create(base, project_dir, entry, workbench, workspace, spec, local):
         assert read['revision'] == receipt['revision'] == content_revision(raw) and read['editable_graph'] == graph
         call('prepare_proposal', {'request_id':'ag142-graph-pilot-deny-update', 'kind':'concept_map', 'operation':'update',
              'target_id':path.stem, 'base_revision':read['revision'], 'content':{'graph':graph}}, error='not_found')
-        return {'catalog':len(TOOLS), 'graph_count':1, 'receipt_count':1, 'proposal_id':key['proposal_id'], 'item_id':path.stem,
+        return {'catalog':len(GRAPH_PILOT_TOOLS if codex else TOOLS), 'graph_count':1, 'receipt_count':1,
+                'proposal_id':key['proposal_id'], 'item_id':path.stem,
                 'version':version['version'], 'preview_digest':version['preview_digest'], 'revision':read['revision'],
-                'preapproval_no_graph_or_receipt':True, 'self_attestation_denied':True,
-                'full_management_preview':True, 'same_approval_replayed':True, 'update_denied':True}
-    finally:
-        rpc.close()
+                'preapproval_no_graph_or_receipt':True,
+                **({'app_server_project_guard':True, 'relay_commit_denied':True} if codex else {'self_attestation_denied':True}),
+                'full_management_preview':True, 'same_approval_replayed':True, 'update_denied':True,
+                'unrelated_kind_denied':True}
 
 
-def run(check_only):
+@contextmanager
+def pilot_directory():
+    stopped = False
+    try:
+        with disposable_directory('workbench-ag142-graph-') as directory:
+            yield Path(directory).resolve()
+            stopped = True
+    except OSError as error:
+        if stopped:
+            emit({'mode':'cleanup_failed', 'temporary_directory_removed':False,
+                  'errno':error.errno, 'winerror':getattr(error, 'winerror', None)})
+            raise SystemExit(1) from None
+        raise
+
+
+def run(check_only, codex=False):
     audit = {}
-    with disposable_directory('workbench-ag142-graph-') as directory:
-        base = Path(directory).resolve()
+    with pilot_directory() as base:
         project_dir = base / 'desktop-project'
         project_dir.mkdir()
         workbench = LocalWorkbench(base / 'data', base / 'private')
@@ -151,16 +264,28 @@ def run(check_only):
                 trace = base / 'protocol.jsonl'
                 entry = {'command':sys.executable, 'args':[str(Path(__file__).with_name('workbuddy_agent_acceptance.py')), '--relay'],
                          'env':{'WORKBENCH_PROBE_TRACE':str(trace), 'WORKBENCH_PROBE_CONFIG':info['config_file']}}
+                config = {'config':{'mcpServers':{SERVER:entry}}}
+                catalog = [tool['name'] for tool in TOOLS]
+                if codex:
+                    entry['args'].append('--relay-graph-pilot')
+                    project_config = project_dir / '.codex' / 'config.toml'
+                    project_config.parent.mkdir()
+                    config_text = '[mcp_servers.workbench]\nenabled = false\n\n' + server_toml(SERVER, entry)
+                    assert tomllib.loads(config_text)['mcp_servers'] == {
+                        'workbench':{'enabled':False}, SERVER:{**entry, 'enabled_tools':list(GRAPH_PILOT_TOOLS)}}
+                    project_config.write_text(config_text, encoding='utf-8')
+                    config = {'config_path':str(project_config), 'config_text':config_text,
+                              'project_disabled_servers':['workbench']}
+                    catalog = list(GRAPH_PILOT_TOOLS)
                 if check_only:
-                    audit.update(check_create(base, project_dir, entry, workbench, workspace, spec, local))
+                    audit.update(check_create(base, project_dir, entry, workbench, workspace, spec, local, codex))
                 else:
                     prompt = (f'只用 {SERVER}。用 capabilities 核对空间 {workspace}，查该项目是否已有图。'
                               '为空时仅准备下列完整提案，调用 preview_proposal 展示完整图、原图、全部字段、差异、警告、版本、摘要和执行依据，然后停止。'
                               '等待用户在隔离工作台网页独立批准。禁止自行提交、访问其他连接器、读取文件或执行命令。\n'
                               + json.dumps(spec, ensure_ascii=False, indent=2))
                     emit({'mode':'ready', 'workbench_url':workbench.base_url, 'workspace_id':workspace,
-                          'desktop_project':str(project_dir), 'config':{'mcpServers':{SERVER:entry}},
-                          'expected_catalog':[tool['name'] for tool in TOOLS],
+                          'desktop_project':str(project_dir), **config, 'expected_catalog':catalog,
                           'trace_path':str(trace), 'stop_file':str(stop), 'wait_seconds':WINDOW_SECONDS, 'prompt':prompt})
                     deadline = time.monotonic() + WINDOW_SECONDS
                     while not stop.exists() and time.monotonic() < deadline:
@@ -185,12 +310,15 @@ def run(check_only):
                     audit['revoked_credential_denied'] = True
             finally:
                 workbench.close()
-    with socket.socket() as sock:
-        audit['port_closed'] = sock.connect_ex(('127.0.0.1', port)) != 0
+            with socket.socket() as sock:
+                audit['port_closed'] = sock.connect_ex(('127.0.0.1', port)) != 0
+            emit({'mode':'service_stopped', **audit})
     emit({'mode':'stopped', 'temporary_directory_removed':not base.exists(), **audit})
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--client', choices=('workbuddy', 'codex'), default='workbuddy')
     parser.add_argument('--check', action='store_true', help='Run the isolated synthetic approval and replay, then exit')
-    run(parser.parse_args().check)
+    args = parser.parse_args()
+    run(args.check, args.client == 'codex')

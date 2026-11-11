@@ -456,9 +456,17 @@ python concept_map_pilot.py
 - 桌面完整展示候选、原图、差异、警告和执行依据。批准前服务端提案 `fca2a40d-5070-4359-beb8-cf64d25a28fe` 为 `previewed`，版本 `1`，摘要 `9ff74896e827a69c6ce95a05978580a4d799d99a9bd6e029f6c3217986e73188`，预留 `CMAP-0001`。固定候选匹配，正式图和回执均为零。用户批准后为 `committed`，正式图和回执各一份。磁盘完整候选字段相等，原始文件 SHA-256 `0cb010f52cc069fce4f7c4041b148b4b470f6287eaf528b8be811dcec93d4991` 与原回执吻合，提案内回执与独立回执一致。真实桌面没有追加模型查询回合，重放证据仍来自隔离预演。
 - STOP 先撤销临时凭据并校验旧凭据 401，再关闭服务。脚本在临时目录清理遇 `WinError 32/5` 后退出 1，最终 audit JSON 未输出，监督实测端口已关闭。用户配置恢复原始字节，刷新后桌面缓存仅保留原 `miora`。锁释放后空 `desktop-project` 已移除。根目录余项的工具删除被自动审批以 `blocked by policy` 拒绝，用户随后手工删除，监督独立运行 `Test-Path` 得到 `False`，残留清理闭合。
 
-### 待审查的 Codex 可信项目同类单案
+### Codex 可信项目同类单案（隔离预演通过）
 
-复用 `concept_map_pilot.py` 的固定 v2 输入、单空项目读与仅 `create` 授权和 `local_web` 确认。现有脚本输出 WorkBuddy JSON。Codex 候选需转换为临时项目 `.codex/config.toml`，模型选择和一次预览回合由用户确认。项目级 TOML 候选如下，动态程序和环境值取本次夹具。待实现的图试点中继过滤与项目 `enabled_tools` 使用同一名单，后两项仅供已同意的结果查询回合。当前四项文件中继过滤不支持图试点。
+复用 `concept_map_pilot.py` 的固定 v2 输入、单空项目读与仅 `create` 授权和 `local_web` 确认。Codex 启动命令如下。使用 `--check` 在一次性 `CODEX_HOME` 和临时项目预演，省略 `--check` 才等待用户确认后生成当次真实桌面候选。
+
+```powershell
+$env:PYTHONIOENCODING = 'utf-8'
+python concept_map_pilot.py --client codex --check
+python concept_map_pilot.py --client codex
+```
+
+`mode=grant_review` 输出完整精确授权，最多等待 540 秒。用户核对后才创建 `approval_file`，然后从 `mode=ready` 取得 `desktop_project`、`config_path`、`config_text`、`expected_catalog` 和固定 `prompt`，候选有效运行窗口为 1200 秒。脚本只在该临时项目生成 `.codex/config.toml`。六项中继过滤与项目 `enabled_tools` 使用同一名单，后两项供已同意的结果查询回合。模型选择和预览回合由用户确认。
 
 ```toml
 [mcp_servers.workbench]
@@ -467,7 +475,7 @@ enabled = false
 [mcp_servers.workbench_ag142_graph]
 enabled = true
 command = "<本次夹具的 Python 路径>"
-args = ["<本次夹具的中继程序路径>", "--relay", "<待实现的图工具过滤选项>"]
+args = ["<本次夹具的中继程序路径>", "--relay", "--relay-graph-pilot"]
 enabled_tools = ["workbench_capabilities", "workbench_list_concept_maps", "workbench_prepare_proposal", "workbench_preview_proposal", "workbench_get_proposal", "workbench_get_concept_map"]
 
 [mcp_servers.workbench_ag142_graph.env]
@@ -475,6 +483,8 @@ WORKBENCH_PROBE_TRACE = "<本次夹具轨迹路径>"
 WORKBENCH_PROBE_CONFIG = "<本次夹具私人客户端配置路径>"
 ```
 
-先在隔离 Codex App Server 零模型预演验证可信目录、旧连接器禁用、新项恰六个工具，并验证 commit、update、其他业务操作的拒绝路径。`commit_proposal` 应由中继拒绝，更新和其他业务操作应由领域授权拒绝。桌面发送前需重新确认实际工作目录、信任、旧项禁用、临时项工具目录和空间匹配。用户核对并同意精确图授权、项目级候选与信任、所选模型的一次预览回合。模型按固定提示完整展示并停止，监督核对零正式图和回执后，用户在隔离网页独立批准当前版本。随后核对原回执及正式图原始字节；结果查询回合另按用户同意执行。真实用户级 Codex 配置无需登记新项。
+已在 Codex App Server `0.167.0-alpha.3.2` 的临时环境中做零模型对照。相同项目 TOML 放入不可信目录时，模拟继承的 `workbench` 仍有 22 项，新项不可见；可信目录内旧项无法调用，临时项恰六项，轨迹完成 initialize、initialized 和目录应答。直接探测确认中继转发前拒绝 `commit_proposal`，App Server 业务调用确认图更新及 issue 新建被服务拒绝。可信项目的同一固定新建完成预览、零正式图和回执、本机程序化批准、唯一图和回执、原审批重放及字节 revision 核对。
 
-先修正验收夹具的收尾证据。建议在撤销凭据并实测 401、关闭服务并独立核对端口之后立即输出阶段审计，随后才清理根目录并输出清理结果。若目录因锁无法删除，保留具体错误和残留状态，验收进程应能反映清理失败，同时保住前一阶段的成功证据。操作顺序先关闭桌面任务和临时项目、等待该次中继退出，再写 STOP。隔离预演分别验证正常清理和受控占用失败，确认失败路径仍输出 401 和端口证据。待实现并通过预演后再发真实回合。
+真实桌面发送前确认实际工作目录、项目受信任、旧项禁用、临时项目目录与轨迹六项工具，以及合成空间匹配。用户核对并同意精确图授权、项目级候选与信任、所选模型的一次预览回合。模型按固定提示完整展示并停止，监督核对零正式图和回执后，用户在隔离网页独立批准当前版本。随后核对原回执及正式图原始字节。结果查询回合按用户同意执行。真实用户级 Codex 配置无需登记新项。
+
+收尾先关闭桌面任务与临时项目，等待本次中继退出，再写 STOP。夹具撤销凭据、实测旧凭据 401、关闭服务并核对端口，随即输出 `mode=service_stopped`。目录移除后输出 `mode=stopped`。若根目录仍被占用，保留前一阶段审计，输出 `mode=cleanup_failed`、错误码和目录未移除状态，退出 1。用一次性目录的 Windows 文件锁实测 `WinError 32`，确认服务审计先出现，端口独立检查已关闭。释放锁后由测试外层临时目录收尾。正常 STOP 验证退出 0 和目录移除。真实 Codex 桌面模型与用户批准仍待验收。

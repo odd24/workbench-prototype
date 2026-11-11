@@ -33,6 +33,8 @@ from workbench.agent_tools import TOOLS
 ROOT = Path(__file__).resolve().parent
 READONLY_PILOT_TOOLS = ('workbench_capabilities', 'workbench_list_file_grants',
                         'workbench_get_file_info', 'workbench_read_file')
+GRAPH_PILOT_TOOLS = ('workbench_capabilities', 'workbench_list_concept_maps', 'workbench_prepare_proposal',
+                     'workbench_preview_proposal', 'workbench_get_proposal', 'workbench_get_concept_map')
 PILOT_READ_SECONDS = 1200
 WORKBUDDY_DISCOVERY_SECONDS = 1200
 
@@ -139,21 +141,21 @@ def disposable_directory(prefix="workbench-workbuddy-probe-"):
                 time.sleep(0.5)
 
 
-def restrict_pilot_catalog(message):
+def restrict_pilot_catalog(message, tools_allowed=READONLY_PILOT_TOOLS):
     result = message.get('result')
     if not isinstance(result, dict) or 'tools' not in result:
         return None
     tools = result['tools']
     allowed = []
     if isinstance(tools, list):
-        allowed = [tool for tool in tools if isinstance(tool, dict) and tool.get('name') in READONLY_PILOT_TOOLS]
-    if sorted(tool['name'] for tool in allowed) != sorted(READONLY_PILOT_TOOLS):
+        allowed = [tool for tool in tools if isinstance(tool, dict) and tool.get('name') in tools_allowed]
+    if sorted(tool['name'] for tool in allowed) != sorted(tools_allowed):
         return {'jsonrpc':'2.0', 'id':message.get('id'),
                 'error':{'code':-32603, 'message':'Pilot tool catalog is incomplete or ambiguous'}}
     return {'jsonrpc':'2.0', 'id':message.get('id'), 'result':{'tools':allowed}}
 
 
-def relay(protocol_faults=False, restrict_tools=False):
+def relay(protocol_faults=False, tools_allowed=()):
     trace = Path(os.environ["WORKBENCH_PROBE_TRACE"])
     process = subprocess.Popen(
         [sys.executable, str(ROOT / "agent_bridge.py"), "--config", os.environ["WORKBENCH_PROBE_CONFIG"]],
@@ -179,14 +181,15 @@ def relay(protocol_faults=False, restrict_tools=False):
                             consumed = fault_probe.consume(message)
                             if message.get("method") == "notifications/initialized":
                                 injections = fault_probe.requests()
-                            if restrict_tools and message.get('method') == 'tools/call':
+                            if tools_allowed and message.get('method') == 'tools/call':
                                 params = message.get('params')
-                                blocked = not isinstance(params, dict) or params.get('name') not in READONLY_PILOT_TOOLS
+                                blocked = not isinstance(params, dict) or params.get('name') not in tools_allowed
                                 if blocked and type(message.get('id')) in {int, str}:
                                     rejection = {'jsonrpc':'2.0', 'id':message['id'], 'error':{
-                                        'code':-32602, 'message':'Tool is outside the read-only pilot allowlist'}}
-                        elif restrict_tools:
-                            restricted = restrict_pilot_catalog(message)
+                                        'code':-32602, 'message':('Tool is outside the read-only pilot allowlist'
+                                            if tools_allowed == READONLY_PILOT_TOOLS else 'Tool is outside the graph pilot allowlist')}}
+                        elif tools_allowed:
+                            restricted = restrict_pilot_catalog(message, tools_allowed)
                             if restricted is not None:
                                 message = restricted
                                 line = (json.dumps(message, ensure_ascii=False) + '\n').encode('utf-8')
@@ -198,7 +201,7 @@ def relay(protocol_faults=False, restrict_tools=False):
                         # The default relay preserves malformed wire input.
                         event = {"direction": direction, "unparsed": True}
                     stream.write(json.dumps(event, ensure_ascii=False) + "\n")
-                if restrict_tools and event.get('unparsed'):
+                if tools_allowed and event.get('unparsed'):
                     continue
                 if blocked:
                     if rejection:
@@ -400,9 +403,9 @@ def run_session(install, protocol_faults=False):
                 workbench.close()
 
 
-def pilot_discovered(trace):
+def pilot_discovered(trace, tools_expected=None):
     """Require an ordered handshake and full catalog from this fixture's relay."""
-    expected = sorted(tool['name'] for tool in TOOLS)
+    expected = sorted(tools_expected if tools_expected is not None else (tool['name'] for tool in TOOLS))
     stage = 0
     try:
         with trace.open(encoding='utf-8') as stream:
@@ -674,7 +677,9 @@ if __name__ == "__main__":
     parser.add_argument("--install-dir", type=Path,
         default=Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "WorkBuddy")
     parser.add_argument("--relay", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument('--relay-readonly-pilot', action='store_true', help=argparse.SUPPRESS)
+    relay_modes = parser.add_mutually_exclusive_group()
+    relay_modes.add_argument('--relay-readonly-pilot', action='store_true', help=argparse.SUPPRESS)
+    relay_modes.add_argument('--relay-graph-pilot', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument("--protocol-faults", action="store_true", help="Explicitly inject fixed server ping/unknown requests; no model or business writes")
     parser.add_argument("--desktop-session", action="store_true", help="Prepare temporary project files only; never launch or modify the real desktop profile")
     parser.add_argument('--readonly-pilot', choices=('codex','workbuddy'), help='Prepare a disposable AG-142 read-only project; never launch the desktop')
@@ -685,10 +690,11 @@ if __name__ == "__main__":
         parser.error('Select one read-only pilot mode independently of the legacy probe')
     if args.codex_project_guard and args.readonly_pilot != 'codex':
         parser.error('--codex-project-guard requires --readonly-pilot codex')
-    if args.relay_readonly_pilot and (not args.relay or args.protocol_faults):
-        parser.error('--relay-readonly-pilot requires --relay without protocol fault injection')
+    tools_allowed = READONLY_PILOT_TOOLS if args.relay_readonly_pilot else GRAPH_PILOT_TOOLS if args.relay_graph_pilot else ()
+    if tools_allowed and (not args.relay or args.protocol_faults):
+        parser.error('Pilot tool filtering requires --relay without protocol fault injection')
     if args.relay:
-        relay(args.protocol_faults, args.relay_readonly_pilot)
+        relay(args.protocol_faults, tools_allowed)
     elif args.readonly_pilot:
         run_readonly_pilot(args.readonly_pilot, args.pilot_check, args.codex_project_guard)
     elif args.desktop_session:

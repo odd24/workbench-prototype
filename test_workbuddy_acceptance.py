@@ -6,25 +6,26 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from workbuddy_agent_acceptance import (READONLY_PILOT_TOOLS, ProtocolFaultProbe, installed_cli_bundle,
+from workbuddy_agent_acceptance import (GRAPH_PILOT_TOOLS, READONLY_PILOT_TOOLS, ProtocolFaultProbe, installed_cli_bundle,
                                        protocol_metadata, restrict_pilot_catalog)
 
 
 class WorkBuddyMetadataTests(unittest.TestCase):
     def test_pilot_catalog_filters_tools_and_rejects_missing_or_duplicate_entries(self):
-        allowed = [{'name':name, 'inputSchema':{'type':'object'}} for name in READONLY_PILOT_TOOLS]
-        reply = {'jsonrpc':'2.0', 'id':17,
-                 'result':{'tools':allowed + [{'name':'workbench_prepare_proposal'}], 'nextCursor':'unexpected'}}
-        original = copy.deepcopy(reply)
-        self.assertEqual(restrict_pilot_catalog(reply), {'jsonrpc':'2.0', 'id':17, 'result':{'tools':allowed}})
-        self.assertEqual(reply, original)
-        for tools in (allowed[:-1], allowed + [allowed[0]], None):
-            with self.subTest(tools=tools):
-                reply['result']['tools'] = tools
-                result = restrict_pilot_catalog(reply)
-                self.assertEqual(result['id'], 17)
-                self.assertEqual(result['error']['code'], -32603)
-                self.assertNotIn('result', result)
+        for profile in (READONLY_PILOT_TOOLS, GRAPH_PILOT_TOOLS):
+            with self.subTest(profile=profile):
+                allowed = [{'name':name, 'inputSchema':{'type':'object'}} for name in profile]
+                reply = {'jsonrpc':'2.0', 'id':17,
+                         'result':{'tools':allowed + [{'name':'workbench_commit_proposal'}], 'nextCursor':'unexpected'}}
+                original = copy.deepcopy(reply)
+                self.assertEqual(restrict_pilot_catalog(reply, profile), {'jsonrpc':'2.0', 'id':17, 'result':{'tools':allowed}})
+                self.assertEqual(reply, original)
+                for tools in (allowed[:-1], allowed + [allowed[0]], None):
+                    reply['result']['tools'] = tools
+                    result = restrict_pilot_catalog(reply, profile)
+                    self.assertEqual(result['id'], 17)
+                    self.assertEqual(result['error']['code'], -32603)
+                    self.assertNotIn('result', result)
 
     def test_original_launcher_selection_preserves_full_and_supports_lite_only(self):
         with tempfile.TemporaryDirectory() as directory:

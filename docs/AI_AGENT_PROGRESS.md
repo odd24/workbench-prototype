@@ -1409,3 +1409,10 @@ AG-142 的独立检查已验证 App Server 只配置 `workbench_ag142` 时可以
 - 新增 `concept_map_pilot.py`，复用临时工作台、stdio 中继、管理预览和现有图及提案实现。首案使用 WorkBuddy Hy4 和 `local_web`。单空项目、固定 v2 两节点一条关系，图权限只含读取和 `create`。现有网页图授权表单将 create 与 update 合并，因此本案从管理 API 输出完整授权预览，等用户确认对应一次性信号后才登记权限。脚本不提交真实客户端配置或桌面回合，实际入库由用户在隔离网页独立批准。
 - `python concept_map_pilot.py --check` 通过。22 项目录，业务操作仅 `concept_map/create`。批准前无正式图和回执，自报确认拒绝，本机完整预览与 Agent 摘要及拟保存图一致。程序化批准产生一张图、一份回执；同请求重放保持原回执和原字节，重读 revision 和候选一致，更新拒绝，撤销后 HTTP 401，端口及目录收尾通过。正式启动路径分别验证授权前 STOP 与授权后无提案 STOP，撤销和清理通过。
 - `python -m unittest -q test_agent_concept_maps` 41 项通过，`node test_agent_concept_map_workflows.js` 通过，覆盖完整画布和明细、差异、加载失败禁批、网页批准和重开。Python/JavaScript 语法、文档格式及 `git diff --check` 通过。浏览器预演批准的是一次性合成图，实际用户批准与真实模型回合未执行。可执行交接及逐项用户确认见兼容验收文档，AG-142 进行中，AG-143 待开始。
+
+### AG-142 WorkBuddy 真实桌面概念图新建通过（2026-11-12）
+
+- 用户同意 WorkBuddy V5.9.3 / Hy4 单案，亲自信任临时 `workbench_ag142_graph`，并在隔离网页批准完整预览版本 1。MCP `2025-11-25`，22 项工具。实际模型端先遇初始化顺序错误 `-32002`，后自动完成；中继成功 5 次，capabilities 1、list_concept_maps 2、prepare 1、preview 1，未见 commit。模型报告参数字符串和同请求 ID 重试，中继只证实一次真实 prepare 成功。
+- 提案 `fca2a40d-5070-4359-beb8-cf64d25a28fe` 的完整预览展示后，服务端状态为 `previewed`，固定候选一致，0 图 0 回执。网页批准后 `committed`，`CMAP-0001` 和回执各一，候选字段与图文件相等，文件 SHA-256 与原回执一致，提案内回执和独立回执相等。版本、摘要及磁盘哈希见兼容验收记录。无追加模型回合，重放仍以隔离预演为证。
+- STOP 完成撤销及旧凭据 401 校验，端口实测关闭。清理目录遇 `WinError 32/5`，进程退出 1，无最终 audit JSON。用户配置原字节恢复，桌面缓存刷新仅原 `miora`。释放锁后空项目目录已移除；根目录余项删除遭自动审批 `blocked by policy`，用户手工处理结果待核实。
+- 真实桌面新增通过范围仅 WorkBuddy 概念图新建 `local_web`。Codex 同类单案的可信项目六工具候选、用户确认点和先输出停服审计再清目录的建议已单列，尚待实现和隔离预演。AG-142 进行中，AG-143 待开始。本次只更新验收文档及台账。

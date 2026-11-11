@@ -319,6 +319,24 @@ WORKBENCH_PROBE_CONFIG = "<本次临时私人客户端 JSON 路径>"
 
 已证实的零模型隔离路径是 Codex App Server 的可信项目和 WorkBuddy 原装 CLI 的显式项目条目详情。没有证据表明能够给现有 WorkBuddy 或 Codex 桌面账号启动一份独立认证会话，同时保证完全隔离用户级配置和任务历史。上述两条隔离路径可保留为协议证据，实际桌面任务继续按可核对的用户许可处理。
 
+### Codex 可信项目内限制连接器
+
+在已安装的 App Server `0.167.0-alpha.3.2` 和临时 `CODEX_HOME` 中，用两个不同的合成空间测试。用户级 `workbench` 指向对照空间。可信项目配置设置 `[mcp_servers.workbench] enabled = false`，并用 `enabled_tools` 将 `workbench_ag142` 限定为 `workbench_capabilities`、`workbench_list_file_grants`、`workbench_get_file_info` 和 `workbench_read_file`。可信项目的目录仍列出 `workbench` 名称，工具数为 0，调用该服务返回 `-32603`。临时服务恰有四项，空间 ID 匹配，额外的 `list_projects` 和 `prepare_proposal` 被 App Server 拒绝。相同项目配置在不可信目录无效，对照 `workbench` 仍有 22 项，临时服务不可调用。交错重查无项目配置的旧目录和可信目录，各自配置保持生效。[OpenAI Docs MCP 设置](https://learn.chatgpt.com/docs/extend/mcp?surface=app) [OpenAI Docs 配置层](https://learn.chatgpt.com/docs/config-file/config-basic)
+
+生成一份新的临时项目及完整 `config_text`：
+
+```powershell
+python workbuddy_agent_acceptance.py --readonly-pilot codex --codex-project-guard
+```
+
+准备就绪后才启动夹具。实际桌面新建本地任务并选择输出的 `desktop_project` 长路径，核对精确目录与信任。发送一次只读提示前，须在当前桌面任务中核实 `workbench` 已禁用或不可调用，且唯一可调用的工作台连接器是 `workbench_ag142`，可用工具与 `expected_tools` 一致。若有其他可访问工作台数据的连接器、无法核实当前任务的工具范围，或只看到中继握手，停止并关闭夹具。中继返回的是服务原始 22 项，四项限制由 Codex 应用。`--pilot-check` 直连中继校验合成文件和收尾，不能证明桌面应用了限制。通过门槛后使用该次 `PROMPT.txt`，读回需匹配 `workspace_id`、六段合成文本和 `source_sha256`。
+
+### WorkBuddy 5.9.3 / Hy4 单项审查步骤
+
+先从当前 WorkBuddy 的连接器管理打开配置入口，只读确认客户端指向的文件路径及当前范围。默认候选为 `~/.workbuddy/mcp.json`。若界面无法证实它是当前实际生效的用户级目标，则停在审查。若项目级列表已经有本次临时项，先只展开该行工具详情，核对中继握手，不改全局安全设置。项目级行缺失时，按前面的单条用户级方案另行审查。
+
+用户级候选在准备执行时用 `python workbuddy_agent_acceptance.py --readonly-pilot workbuddy` 生成，查看 `config_text` 中唯一的 `mcpServers.workbench_ag142` 和两个临时环境路径。添加前，以实际目标文件解析结果为基线，核对精确或归一化同名冲突，并仅在本机保留非目标字段。添加后再次解析，核对目标项与审查值及非目标结构。使用同一夹具根下无项目配置的新目录，在发送前核实本次目标项完成握手并指向合成空间。如还有可调用的真实工作台连接器，停在发送前。用户审批范围内最多一次 Hy4 只读回合，额度未知。结束时关闭临时任务和连接、创建 STOP、核实旧凭据返回 401、端口关闭和目录移除。随后只移除与候选匹配的条目，重读实际文件并核对整个解析结构等于基线。20 分钟 TTL 由夹具及文件授权执行，用户级项仍需单独移除。
+
 ### 新能力的零模型证据
 
 | 能力 | Codex 实际 App Server | 原始 stdio、HTTP 和持久化回归 |

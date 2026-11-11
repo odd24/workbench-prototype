@@ -359,7 +359,7 @@ def run_session(install, protocol_faults=False):
                 workbench.close()
 
 
-def run_readonly_pilot(client, check_only=False):
+def run_readonly_pilot(client, check_only=False, codex_project_guard=False):
     """Create one single-client AG-142 fixture without opening a desktop."""
     from urllib.error import HTTPError
     from urllib.request import Request, urlopen
@@ -407,20 +407,30 @@ def run_readonly_pilot(client, check_only=False):
             trace = base / 'protocol.jsonl'
             entry = {'command':sys.executable, 'args':[str(Path(__file__).resolve()), '--relay'],
                      'env':{'WORKBENCH_PROBE_TRACE':str(trace), 'WORKBENCH_PROBE_CONFIG':info['config_file']}}
+            guarded_tools = ['workbench_capabilities', 'workbench_list_file_grants',
+                             'workbench_get_file_info', 'workbench_read_file']
             if client == 'codex':
                 config = project_dir / '.codex' / 'config.toml'
                 encoded = json.dumps
-                content = (f'[mcp_servers.{name}]\ncommand = {encoded(entry["command"])}\n'
-                           f'args = {encoded(entry["args"])}\n[mcp_servers.{name}.env]\n' +
-                           '\n'.join(f'{key} = {encoded(value)}' for key, value in entry['env'].items()) + '\n')
-                assert tomllib.loads(content)['mcp_servers'][name] == entry
+                lines = [f'[mcp_servers.{name}]', f'command = {encoded(entry["command"])}',
+                         f'args = {encoded(entry["args"])}']
+                expected = {name:entry}
+                if codex_project_guard:
+                    lines[:0] = ['[mcp_servers.workbench]', 'enabled = false', '']
+                    lines.extend(['enabled = true', f'enabled_tools = {encoded(guarded_tools)}'])
+                    expected = {'workbench':{'enabled':False},
+                                name:{**entry, 'enabled':True, 'enabled_tools':guarded_tools}}
+                lines.extend([f'[mcp_servers.{name}.env]', *(f'{key} = {encoded(value)}' for key, value in entry['env'].items())])
+                content = '\n'.join(lines) + '\n'
+                assert tomllib.loads(content)['mcp_servers'] == expected
             else:
                 config = project_dir / '.workbuddy' / 'mcp.json'
                 content = json.dumps({'mcpServers':{name:entry}}, ensure_ascii=False, indent=2) + '\n'
             config.parent.mkdir()
             config.write_text(content, encoding='utf-8')
 
-            prompt = (f'只使用 {name} 对应的 MCP 工具。先查询 capabilities，核对空间 {workspace}，再查项目 {project["id"]}。'
+            project_query = '' if codex_project_guard else f'再查项目 {project["id"]}。'
+            prompt = (f'只使用 {name} 对应的 MCP 工具。先查询 capabilities，核对空间 {workspace}。{project_query}'
                       f'列出本次可见的工具名和协议证据。查找已批准的 AG142-fixture.txt（file_id {file_id}），用 get_file_info 的 '
                       'source_revision 和每段 next_offset，按每段 12 原始字节读到结束。把合成文本原样放入代码块，另列各段字节区间和服务返回的 SHA-256。'
                       '仅做上述读取。工具缺失、空间不符或任一分段失败时报告原错误并停止。不要使用终端、读取路径、改配置或提交。')
@@ -433,6 +443,9 @@ def run_readonly_pilot(client, check_only=False):
                       'desktop_project':str(project_dir), 'config_path':str(config), 'config_text':content,
                       'prompt_path':str(prompt_path), 'prompt':prompt, 'trace_path':str(trace), 'stop_file':str(stop),
                       'timeout_seconds':1200, 'desktop_launched':False, 'model_turns_started':0}
+            if codex_project_guard:
+                review.update(expected_callable_server=name, expected_tools=guarded_tools,
+                              project_disabled_servers=['workbench'])
             print(json.dumps(review, ensure_ascii=False, indent=2), flush=True)
 
             if check_only:
@@ -525,13 +538,16 @@ if __name__ == "__main__":
     parser.add_argument("--desktop-session", action="store_true", help="Prepare temporary project files only; never launch or modify the real desktop profile")
     parser.add_argument('--readonly-pilot', choices=('codex','workbuddy'), help='Prepare a disposable AG-142 read-only project; never launch the desktop')
     parser.add_argument('--pilot-check', action='store_true', help='Verify and immediately close the read-only pilot without a desktop')
+    parser.add_argument('--codex-project-guard', action='store_true', help='Disable inherited workbench and allow four tools in the temporary Codex project')
     args = parser.parse_args()
     if (args.pilot_check and not args.readonly_pilot) or (args.readonly_pilot and (args.relay or args.desktop_session or args.protocol_faults)):
         parser.error('Select one read-only pilot mode independently of the legacy probe')
+    if args.codex_project_guard and args.readonly_pilot != 'codex':
+        parser.error('--codex-project-guard requires --readonly-pilot codex')
     if args.relay:
         relay(args.protocol_faults)
     elif args.readonly_pilot:
-        run_readonly_pilot(args.readonly_pilot, args.pilot_check)
+        run_readonly_pilot(args.readonly_pilot, args.pilot_check, args.codex_project_guard)
     elif args.desktop_session:
         run_session(args.install_dir, args.protocol_faults)
     else:

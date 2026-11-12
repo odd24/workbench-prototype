@@ -522,6 +522,12 @@ python concept_map_pilot.py --client workbuddy --operation update --check
 
 独立批准前监督核对仍只有一张原图，SHA-256 等于 `base_revision`，尚无更新历史或回执。用户在隔离网页核对同一提案的当前版本、摘要、完整画布与明细、标题差异、警告和保存依据，亲自批准。随后核对原 ID 文件的当前哈希和唯一回执、历史原始字节和 `base_revision`、全部非标题字段。真实桌面额外查询回合和负向操作另行安排。关闭本次项目和连接后写 STOP，并按之前的步骤核对撤销、端口、目录及配置恢复。
 
+WorkBuddy V5.9.3 / Hy4 真实更新单案通过。用户同意单案，沿用已信任的 `workbench_ag142_graph`。实际协商 `2025-11-25`、目录 22 项，初始化前一次 tools/list 返回 `-32002` 后自动恢复。capabilities、list_concept_maps、get_concept_map、prepare_proposal、preview_proposal 各成功一次，无 commit。界面核对了完整原图、候选、差异、警告、执行依据及提案标识，模型停止等待。
+
+提案 `98f06e0f-25f3-4b61-bfa4-e9ca1d6efc1a` 版本 `1`，摘要 `55007f61df7a2eff32ced2f07040d6cf4f357dc3cfdde91a84c884c98ee8f6f6`。批准前仅 `CMAP-0001`，原 SHA-256 `f06c9530ddbf7189c4433c38e40fc658265ad212f4f460d1f81b101da098f563`，零历史、零回执。用户在隔离网页亲自批准后，同一图只有 `title` 和 `updated` 改变，完整候选匹配，历史逐字节等于原图且与 `base_revision` 匹配。当前 SHA-256 `619c59e9ad6aaf72b7419e79d398eb4268ab6442c30f5c6a83399e15cc83737f` 与原回执相同，提案内与独立回执一致。无追加桌面回合，负向和重放证据来自隔离预演。
+
+退出任务后恢复用户配置并刷新桌面缓存，仅原 `miora` 保留。STOP 退出 0，旧凭据被拒、端口关闭、临时目录移除并独立复核。Codex 同类真实更新待验，之前 Codex 新建目录残留仍单列。
+
 ### 正式附件两来源隔离预演与桌面交接（2026-11-12）
 
 原 Codex App Server 矩阵已证明两种来源可完成正式附件。原预演使用一个同时允许两种来源的策略，两条路径都走 `agent_attested`。当前 `python codex_agent_acceptance.py` 在同一隔离矩阵依次使用两个互斥策略，每次建立新的暂存会话。固定数据为 62 字节合成 UTF-8 文本，SHA-256 `023887f7b2aff5b9ec2c79756c98f36676d8817c2b743f5a35cf3eddf9c04d70`。两条均使用空分类、`insert_link=false` 和同一个隔离项目的独立附件位置。

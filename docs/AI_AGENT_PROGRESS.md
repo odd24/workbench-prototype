@@ -1452,3 +1452,9 @@ AG-142 的独立检查已验证 App Server 只配置 `workbench_ag142` 时可以
 - 核对原 App Server 矩阵，两种来源曾共用混合策略并同走 `agent_attested`。复用现有夹具分别运行精确 `file_id`/`agent_attested` 和独立原始流/`local_web`。单个合成源为 62 字节。文件只授 `attachment_source`，正文拒读；文件策略关闭流，流策略不绑定文件。两条预览前均已暂存就绪，无正式附件和回执。
 - `python codex_agent_acceptance.py` 在实际 Codex App Server 0.167.0-alpha.3.2 零模型通过。file 路径未确认时 `-32602` 且无正式写入，程序化确认后重放返回原回执；stream 自报提交拒绝，独立本机票据程序化批准后查回原回执。每条各新增一份附件和回执，暂存为 `consumed`，重开仓储的磁盘字节与下载均匹配。其他矩阵及凭据撤销回归通过。
 - `python -m unittest -q test_agent_attachments test_agent_uploads` 发现 51 项，50 项通过、1 项跳过。`node test_agent_attachment_workflows.js`、Python/JS 语法和差异检查通过。下一真实桌面优先单个 file 来源，完整展示后由用户在新消息明确确认实际提案版本和摘要。交接见兼容记录。未启动真实桌面回合或修改真实配置。AG-142 进行中，AG-143 待开始。此前 Codex 新建夹具残留继续单列待手工清理。
+
+### AG-142 WorkBuddy 真实桌面概念图更新通过（2026-11-12）
+
+- 用户同意 WorkBuddy V5.9.3 / Hy4 单案，沿用已信任临时项。MCP `2025-11-25`，22 项目录，初始化顺序 `-32002` 后自动恢复。5 次目标工具成功、无 commit，UI 完整预览核对通过。
+- 用户亲自在隔离网页批准提案 `98f06e0f-25f3-4b61-bfa4-e9ca1d6efc1a` 版本 1。批准前 1 图、0 历史、0 回执；批准后保留 `CMAP-0001`，仅 title、updated 变化，唯一历史原字节匹配 `base_revision`，唯一回执与当前图 SHA-256 及提案内回执一致。完整摘要见兼容验收记录。负向和重放仅为隔离证据。
+- 退出任务、恢复用户配置并刷新缓存后 STOP 退出 0。旧凭据拒绝、端口关闭和临时目录移除通过独立复核。Codex 真实更新待验，旧 Codex 新建目录仍待用户手工清理。AG-142 进行中，AG-143 待开始。

@@ -644,7 +644,7 @@ WorkBuddy V5.9.3 首次真实 file 候选已作为用户级单项登记。MCP �
 {"schema_version":1,"grants":[{"capability":"items.delete","operations":["delete"],"resources":[{"type":"item","kind":"issue","id":"<本次目标 ID>"}],"minimum_confirmation_mode":"local_web"}]}
 ```
 
-候选桌面工具为 capabilities、get_item、prepare_proposal、preview_proposal、get_proposal。复用受管 Codex 空项目、发现信号及原 STOP 审计。待新增的验收中继应仅转发固定目标的 `issue/delete` prepare 和同案预览、查询，拒绝其他业务写入，目录不含 commit、恢复、purge 或清空。当前共享中继尚未实现这份单案名单。既有隔离 App Server 的 22 项目录没有恢复或 purge，完整目录中的 Agent 自报提交也在本机批准前被服务拒绝。此处仅交接范围，暂未改共享中继或启动桌面试点。
+单案桌面工具为 capabilities、get_item、prepare_proposal、preview_proposal、get_proposal。复用受管 Codex 空项目、发现信号及原 STOP 审计。夹具中继只允许固定目标的 get_item 和完整固定的 `issue/delete` prepare，引用原文仍由完整预览返回。目录不含 commit、恢复、purge 或清空。既有隔离 App Server 的 22 项目录也没有恢复或 purge，完整目录中的 Agent 自报提交在本机批准前被服务拒绝。
 
 1. 用户分别同意当次隔离项目、连接器与精确删除授权，确认所选模型的一次预览回合。发送前核对实际隔离空间、当次工具目录和旧连接器禁用。模型先读取唯一目标的当前 `revision`，仅准备下列信封并调用完整预览。
 
@@ -657,3 +657,19 @@ WorkBuddy V5.9.3 首次真实 file 候选已作为用户级单项登记。MCP �
 4. 若版本、源身份、授权、活动引用集合、排序或回收索引变化，停止并重新核查当前完整预览。隐藏命中来源、未知文件、超预算或加载失败时停止，不删减影响列表或扩大授权。批准响应不明先查询原提案及原回执，不重建，不再次删除。成功或中止后撤销身份并核对 401、端口关闭和每轮目录移除。若使用受管项目，另核对空闲状态。
 
 已复跑实际 Codex App Server 零模型矩阵、删除领域与 HTTP 15 项、删除浏览器专项。App Server 原矩阵覆盖项目级删除授权下的合成 issue。浏览器实测完整 info/附件/活动来源和图预览、取消、独立批准、响应丢失后查询原结果及本机恢复，未使用同一固定 issue。另用临时工作台和真实 stdio 对上述精确 issue 单案做定向核对：无独立授权及试删引用 issue 均返回 `not_found`，完整目标/引用原文与附件保留状态匹配，自报批准前 `confirmation_required` 且零正式变更；本机管理 API 程序化批准只移动原目标并产生唯一回执，原审批重放一致、引用及附件不变，旧凭据拒绝、端口及目录清理通过。尚无真实桌面删除证据。
+
+#### 可执行 Codex 单条删除夹具
+
+```powershell
+$env:PYTHONIOENCODING = 'utf-8'
+python issue_delete_pilot.py --check
+python issue_delete_pilot.py --anchor $anchor
+```
+
+`--check` 使用安装版 App Server 和程序化管理批准，验证实际可信项目五项工具、旧项禁用、固定目标和请求约束，以及完整原文、引用和附件保留。省略 `--check` 才生成真实桌面候选。可选 `--anchor` 只接受已初始化的受管验收目录。独立数据根内仅有合成记录和凭据，启动不改用户级配置。
+
+`pending_discovery` 首先给出临时项目、候选 TOML、固定目标 ID 和发现信号。用户同意当次目录和配置后新开聊天，监督核对旧项禁用及本次五项握手，再创建 `discovery_file`。夹具随后输出 `review_delete`，完整展示独立删除授权，最多等待 540 秒。用户同意精确目标后，才创建该次 `approval_file`，此信号仅开启该项权限。
+
+`ready_preview` 开始 1200 秒窗口。用户另行同意模型并发送固定提示。确认模型已完成完整展示后，核对 `await_web_approval` 的当前提案版本和摘要、原文件 SHA-256、零回收对象和零回执。用户只在隔离网页亲自批准。夹具随后核对正式原路径消失、回收对象原字节一致、原索引与唯一回执一致、引用及附件和项目排序文件不变，才输出 `committed`。按原 STOP 步骤收尾并核对旧凭据 401、端口关闭、数据根移除及锚点空闲。
+
+独立工作树实际 App Server 的 `--check` 与带锚点普通启动的零模型程序驱动均已通过。提前发发现信号但缺完整握手时退出且无删除。普通启动对照经过完整授权预览、固定提示、批准前原件、程序化本机批准、回执和清理。真实用户网页批准与桌面模型仍待安排。

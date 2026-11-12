@@ -96,6 +96,8 @@ WorkBuddy桌面5.9.3(d4692421)已在临时库实测四类型新建/追加/更新
 
 AG-142 隔离验收可用 `python codex_pilot_anchor.py --init <新绝对目录>` 初始化专用空项目。图和附件试点的 `--anchor` 选项可复用该目录，各轮数据及凭据仍独立。仅用于合成验收，步骤与真实桌面限制见[客户端兼容验收](docs/AGENT_CLIENT_COMPATIBILITY.md)。
 
+单条 issue 删除的零模型验收使用 `python issue_delete_pilot.py --check`，在新临时空间验证独立本机批准、原字节回收、回执和收尾。
+
 当前本机扩展已交付：AG-116～121、AG-126已完成；AG-122～125按用户用途取消，远程未实现。最终235项Python、19项Node、全文件语法、真实客户端及备份恢复验收通过，临时接入已清理。详见[扩展验收与本地提交](docs/AI_AGENT_EXTENSION_ACCEPTANCE.md)。
 
 AG-128已支持后续能力的休眠授权管理和能力协商；休眠配置尚不可使用，未来启用必须重新授权。实际测试和兼容边界见[本机能力验收](docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md)。

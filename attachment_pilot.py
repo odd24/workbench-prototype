@@ -33,7 +33,7 @@ FILENAME = 'AG142-attachment.txt'
 SHA256 = hashlib.sha256(SOURCE).hexdigest()
 
 
-def review_grant(local, route, payload, workspace, stop, check, label):
+def review_grant(local, route, payload, workspace, stop, check, label, *, request_prefix='ag142-attachment'):
     preview = local(route + '/preview', payload)
     signal = stop.with_name('APPROVE_' + label)
     if not check:
@@ -44,7 +44,7 @@ def review_grant(local, route, payload, workspace, stop, check, label):
         if not wait_for_signal(signal, stop, GRANT_REVIEW_SECONDS):
             return None
     ticket = {key:preview[key] for key in ('workspace_id', 'expected_version', 'preview_id', 'preview_digest')}
-    return local(route + '/confirm', {**ticket, 'approved':True, 'request_id':'ag142-attachment-' + label.lower()})
+    return local(route + '/confirm', {**ticket, 'approved':True, 'request_id':request_prefix + '-' + label.lower()})
 
 
 def proposal_binding(repo, project_id, client_id, upload_args):

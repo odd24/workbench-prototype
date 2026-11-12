@@ -802,7 +802,7 @@ python workflow_pilot.py --anchor $anchor
 | 单条、项目级联删除 | 待验 | 待验 | 固定 issue、含实际子记录/独立附件/关联图的级联夹具、浏览器及领域证据齐备，待两端真实预览、本机批准和原回执查询 |
 | 项目创建及独立访问 | 待验 | 待验 | 两端零模型预演及浏览器专项已验证创建、独立访问批准、失败及原回执查询。WorkBuddy 普通启动已有自操作交接 |
 | 知识库、概念图、项目独立附件分类 | 三域待验 | 三域待验 | 两端三域改名零模型预演、原矩阵空分类创建及浏览器/领域证据齐备。WorkBuddy 有各域普通启动交接 |
-| 工作流 | 待验 | 待验 | 原矩阵空模板创建，另有使用中状态显式映射夹具及浏览器/领域证据 |
+| 工作流 | 待验 | 待验 | 原矩阵空模板创建，两端已有使用中状态显式映射零模型预演及浏览器/领域证据。WorkBuddy 普通启动有自操作交接 |
 | 确认和故障对照 | 已观察完整展示、新消息确认、本机批准和撤销 | 已观察完整展示、新消息确认、本机批准和撤销 | `local_web` 自报拒绝、幂等、取消、旧版、越权、错空间、429、响应丢失查询、重启和轮换沿用既有隔离证据。两端桌面按已拟对照补取消、旧版、丢响应查询与原 ID 重放等交互，错空间和 429 仍由隔离协议助手注入 |
 
 真实验证应复用已有合成夹具和隔离结果，各轮另行批准模型和连接器范围。WorkBuddy 项目级发现仍未证实，已验证入口为用户级临时单项。此前监督端的 Codex 图更新及附件试点残留继续单列待清理。本轮 WorkBuddy 清理已闭合。AG-142 进行中，AG-143 待开始。
@@ -957,6 +957,42 @@ python category_pilot.py --client workbuddy --domain project-attachment
 
 两端三域 `--check` 和 WorkBuddy 三域普通启动程序驱动均通过。跨域及未授权删除请求被拒，独立批准后唯一原回执可查询和重放，另两域及附件字节核对通过。真实 WorkBuddy 登记、模型预览和用户网页批准待验。
 
-#### 其余普通启动夹具的 WorkBuddy 复用缺口
+### WorkBuddy 工作流状态迁移用户自操作交接
 
-工作流仍沿用 Codex 入口及四项工具。WorkBuddy 接入须保留模板和状态映射，验证旧版及缺映射拒绝、完整本机计划和唯一回执，并补齐普通启动和用户操作停点。
+从包含本夹具的工作树运行。第一条用安装版 WorkBuddy CLI 在一次性配置中验证四项发现，再用原始 stdio 和程序化本机批准预演。第二条只启动隔离服务并生成唯一临时连接器候选。
+
+```powershell
+$env:PYTHONIOENCODING = 'utf-8'
+python workflow_pilot.py --client workbuddy --check
+python workflow_pilot.py --client workbuddy
+```
+
+临时项 `workbench_ag142_workflow` 只有 capabilities、prepare_proposal、preview_proposal、get_proposal。仅授予 `ag142-workflow` 模板的 todo 状态删除许可，内容读取范围限该合成项目的 todo。中继固定当轮唯一请求，将在用的 `doing`（进行中）映射到同类型终态 `done`（已完成）。标准模板及其同名状态作为对照。
+
+发送时原样复制当轮输出的 `ready_preview.prompt`，它已填入当轮 workspace，要求展示完整模板、受影响项目和待办的改前改后内容、排序冲突、映射、终态、警告、执行依据、提案 ID、版本和摘要。附带的固定请求如下。
+
+```json
+{
+  "request_id": "ag142-exact-workflow-status",
+  "kind": "workflow",
+  "operation": "delete_status",
+  "confirmation_mode": "local_web",
+  "content": {
+    "template_id": "ag142-workflow",
+    "record_type": "todo",
+    "status_id": "doing",
+    "target_status_id": "done"
+  },
+  "source_note": "仅本轮合成工作流验收"
+}
+```
+
+| 停点 | 用户本人操作 | 监督核对 |
+| --- | --- | --- |
+| `pending_discovery` | 在 WorkBuddy「专家·技能·连接器 → 连接器 → 自定义连接器 → MCP 服务管理」登记当轮 `config` 中唯一临时项。打开 `desktop_project`，选择 Hy4，首次信任由本人处理，停在发消息前。 | 核对当轮连接器、握手和四项工具后写 `discovery_file`。同名冲突、信任未完成或目录不符时停止。 |
+| `review_workflow_status` | 核对完整许可，只同意 `ag142-workflow` 的 todo 状态删除及本机确认方式。 | 确认用户同意后写当次 `approval_file`。该信号只启用能力。 |
+| `ready_preview` | 原样发送当轮固定提示。核对项目和待办改前改后、`doing → done`、目标列排序及完成标记，展示后停止。 | 等 `await_web_approval`，确认当轮 ID、版本、摘要、映射齐全，且模板、项目、记录、历史均与起点匹配，正式回执为零。 |
+| `await_web_approval` | 打开当轮 `workbench_url` 的「提案管理」，核对本机完整模板目录、全局状态、项目和待办原内容及排序冲突，确认没有授权变更。当前提案版本和摘要一致时，亲自点击「批准工作流变更」并确认。缺映射、预览不全或版本变化时停止。 | 等 `committed`，重开仓储核对终态、目标列排序、原 README 与待办历史、标准模板对照和唯一原回执。响应不明先用「查询提案操作结果」及原提案查询。 |
+| `committed` 或中止 | 成功后如需复核，只在本轮查询原提案。退出本轮任务，只移除当轮临时项并刷新列表。 | 核对配置基线，写当次 `stop_file`，检查 401、端口关闭和临时根移除。 |
+
+两端 `--check` 和 WorkBuddy 普通启动隔离驱动均通过。隔离检查拒绝越权模板和记录类型、缺映射、旧版批准及 Agent 自报提交，并核对独立批准后的终态、原字节历史、对照与唯一回执。真实 WorkBuddy 登记、模型预览和用户网页批准待验。

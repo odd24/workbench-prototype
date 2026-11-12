@@ -1,4 +1,4 @@
-"""Disposable Codex pilot for one in-use workflow status migration."""
+"""Disposable Codex and WorkBuddy pilot for one in-use workflow status migration."""
 
 import json
 import time
@@ -30,9 +30,11 @@ def seed_template(repo):
 
 
 class WorkflowCase(ProposalCase):
+    supports_workbuddy = True
     server = 'workbench_ag142_workflow'
     tools = CONFIGURATION_PILOT_TOOLS
     relay_flag = '--relay-workflow-pilot'
+    relay_denial = 'outside the workflow pilot scope'
     directory_prefix = 'workbench-ag142-workflow-'
     request_prefix = 'ag142-workflow'
     client_name = 'AG142 工作流状态迁移'
@@ -130,14 +132,14 @@ class WorkflowCase(ProposalCase):
         )
         for command in wrong_scope:
             request = {**self.request, 'content':command}
-            rejected('prepare_proposal', request, 'outside the workflow pilot scope')
+            rejected('prepare_proposal', request, self.relay_denial)
             try:
                 self.service.prepare_proposal(client, request)
             except AgentError as error:
                 assert error.code == 'workflow_unavailable' and error.status == 404 and not error.details, error
             else:
                 raise AssertionError('Service disclosed or accepted an unauthorized workflow')
-        rejected('prepare_proposal', {**self.request, 'content':self.unmapped_command()}, 'outside the workflow pilot scope')
+        rejected('prepare_proposal', {**self.request, 'content':self.unmapped_command()}, self.relay_denial)
         self.check_original()
         return {'other_template_and_record_type_denied':True}
 
@@ -182,8 +184,9 @@ class WorkflowCase(ProposalCase):
         self.check_original()
         return {'missing_mapping_denied':True, 'older_preview_denied':True}
 
-    def check(self, invoke, client_id, workspace, local):
-        return check_local_approval(invoke, self, client_id, workspace, local, check_rejections=self.check_rejections)
+    def check(self, invoke, client_id, workspace, local, *, workbuddy=False):
+        return check_local_approval(invoke, self, client_id, workspace, local, workbuddy=workbuddy,
+                                    check_rejections=self.check_rejections)
 
     def after_approval(self, binding):
         key = binding['proposal_id']
@@ -210,8 +213,9 @@ class WorkflowCase(ProposalCase):
         deadline = time.monotonic() + WINDOW_SECONDS
         expires_at = int(time.time() + WINDOW_SECONDS)
         prompt = (f'只用 {self.server}。capabilities 核对空间 {workspace}。用以下固定请求调用 prepare_proposal '
-                  '和 preview_proposal，完整展示模板和受影响项目、待办、排序和冲突、明确状态映射、终态和执行依据。'
-                  '请用户在隔离工作台核对完整本机原始内容、版本和摘要，再独立批准。展示后停止。\n'
+                  '和 preview_proposal，完整展示模板、受影响项目和待办的改前改后内容、排序冲突、状态映射、'
+                  '终态、警告和执行依据。展示提案 ID、版本和摘要后停止。'
+                  '请用户在隔离工作台核对完整本机原始内容，再独立批准。\n'
                   + json.dumps(self.request, ensure_ascii=False, indent=2))
         emit({'mode':'ready_preview', 'prompt':prompt, 'execution_expires_at':expires_at})
         binding = await_value(lambda: self.before_approval(client_id), stop, deadline)

@@ -102,7 +102,7 @@ AG-142 隔离验收可用 `python codex_pilot_anchor.py --init <新绝对目录>
 
 分类改名使用 `python category_pilot.py --domain <document|concept-map|project-attachment> --check`，WorkBuddy 加 `--client workbuddy`。每轮验证所选域和另外两个域的磁盘结果。WorkBuddy 普通启动和各域停点见[兼容验收](docs/AGENT_CLIENT_COMPATIBILITY.md#workbuddy-三域分类改名用户自操作交接)。
 
-使用中工作流状态的显式迁移使用 `python workflow_pilot.py --check`，验证映射、项目排序、原历史和回执。
+使用中工作流状态的显式迁移使用 `python workflow_pilot.py --check` 或 `python workflow_pilot.py --client workbuddy --check`，验证映射、项目排序、原历史和回执。WorkBuddy 普通启动、固定提示和批准停点见[兼容验收](docs/AGENT_CLIENT_COMPATIBILITY.md#workbuddy-工作流状态迁移用户自操作交接)。
 
 图更新丢响应和重启重放使用 `python recovery_pilot.py --check` 做零模型对照。真实桌面普通启动与逐阶段停点见[操作者交接](docs/AGENT_CLIENT_COMPATIBILITY.md#普通启动和操作者交接)。
 

@@ -505,7 +505,7 @@ WORKBENCH_PROBE_CONFIG = "<本次夹具私人客户端配置路径>"
 - 用户发送一次，聊天 `01a1cbbd-ebbe-7bf0-928b-c696c8f40687` 的工作目录匹配临时项目，回合用时 191.735 秒。聊天和中继均记录 `workbench_ag142_graph` 的 capabilities、list_concept_maps、prepare_proposal、preview_proposal 各一次成功，无 commit。最终消息约 5278 字符，包含完整候选、原图、差异、警告、版本摘要和执行依据。
 - 用户批准前，提案 `a5985a37-1e69-49ed-b29e-89c05bfdbe85` 为 `previewed`，版本 `1`，摘要 `48021c74c829f88d4aae83af5a74ad5e877d14d472d4d6a638606c892bdb2b9c`，候选与固定合成图匹配，正式图和回执均为零。用户在隔离网页独立批准后，提案为 `committed`，一张 `CMAP-0001` 和一份回执，完整字段一致。图文件原始字节 SHA-256 `aab1996f38c0a3599f47935c8313e16b08e41d9e8422e8969605e34f14ce0f5c` 与回执吻合，提案内原回执等于独立回执文件。没有追加桌面查询或真实桌面重放。
 - 两端真实桌面同类 `concept_map/create` 与 `local_web` 单案均通过。其余写入与确认矩阵仍待验。
-- 用户退出并移除临时项目，监督独立复核项目列表已无该目录。STOP 先输出 `service_stopped`，其中 `discovery=verified`、`graph_granted=true`、`graph_count=1`、`receipt_count=1`、`revoked_credential_denied=true`、`port_closed=true`。之后输出 `cleanup_failed`，`errno=13`、`winerror=32`，进程退出 1。自动审批以 `blocked by policy` 拒绝工具重试删除剩余夹具目录，已请用户手工删除，目录清理待核实。
+- 用户退出并移除临时项目，监督独立复核项目列表已无该目录。STOP 先输出 `service_stopped`，其中 `discovery=verified`、`graph_granted=true`、`graph_count=1`、`receipt_count=1`、`revoked_credential_denied=true`、`port_closed=true`。之后输出 `cleanup_failed`，`errno=13`、`winerror=32`，进程退出 1。自动审批以 `blocked by policy` 拒绝工具重试删除剩余夹具目录。后续独立 `Test-Path` 确认为 `False`，目录清理闭合，移除方式未确认。
 
 ### 下一单案：更新同一张隔离概念图（2026-11-12）
 
@@ -526,7 +526,13 @@ WorkBuddy V5.9.3 / Hy4 真实更新单案通过。用户同意单案，沿用已
 
 提案 `98f06e0f-25f3-4b61-bfa4-e9ca1d6efc1a` 版本 `1`，摘要 `55007f61df7a2eff32ced2f07040d6cf4f357dc3cfdde91a84c884c98ee8f6f6`。批准前仅 `CMAP-0001`，原 SHA-256 `f06c9530ddbf7189c4433c38e40fc658265ad212f4f460d1f81b101da098f563`，零历史、零回执。用户在隔离网页亲自批准后，同一图只有 `title` 和 `updated` 改变，完整候选匹配，历史逐字节等于原图且与 `base_revision` 匹配。当前 SHA-256 `619c59e9ad6aaf72b7419e79d398eb4268ab6442c30f5c6a83399e15cc83737f` 与原回执相同，提案内与独立回执一致。无追加桌面回合，负向和重放证据来自隔离预演。
 
-退出任务后恢复用户配置并刷新桌面缓存，仅原 `miora` 保留。STOP 退出 0，旧凭据被拒、端口关闭、临时目录移除并独立复核。Codex 同类真实更新待验，之前 Codex 新建目录残留仍单列。
+退出任务后恢复用户配置并刷新桌面缓存，仅原 `miora` 保留。STOP 退出 0，旧凭据被拒、端口关闭、临时目录移除并独立复核。
+
+Codex 真实更新同样通过。用户同意并确认可信临时项目及临时 MCP 启用、旧 `workbench` 禁用。打开 `/mcp` 后中继记录五条握手，协商 `2025-06-18` 至 `2025-11-25` 并返回恰六项，之后才批准 `CMAP-0001` 的读取和仅更新，采用 `local_web`。真实聊天 `01a1cdbd-4836-7e23-bca9-e21dc04fb36c` 工作目录匹配，回合用时 221.904 秒，聊天与中继的 capabilities、list_concept_maps、get_concept_map、prepare_proposal、preview_proposal 五次均成功，无 commit。完整答复 5518 字符，包含图、原图、差异、警告、版本摘要和执行依据。
+
+提案 `c48e2768-64bf-4b56-9efa-362ef99b862c` 版本 `1`，摘要 `a50977f7bd23ca4acf4456de5a0eb5d9c44eaf0a30e584d62fb94ba7b73a3401`。批准前一张图，原 SHA-256 `7be365a298b116000df55eb8d33cb30a1261ebb0745ea64b378bb523760364dd`，零历史零回执，固定候选相等。用户在隔离网页亲自批准后同一图 ID，只有 `title`、`updated` 变化，一张图、一份历史、一份回执。历史原字节一致，新 SHA-256 `1841dd7571fc86fbf6e6fea7692aabc96b5c34ef209c81ba732704108e3f0bac` 与回执匹配，提案内回执与独立回执一致。
+
+用户退出并移除项目，监督核对列表已无该项目。`service_stopped` 证实 401、端口关闭及一图一回执，随后 `cleanup_failed` 报 `errno=13`、`winerror=32`，退出 1。自动审批以 `blocked by policy` 拒绝工具重试删除该次新残留，待用户手工处理。该残留与已经核实不存在的 Codex 新建目录独立。两端真实概念图新建、更新均通过，其余矩阵待验。
 
 ### 正式附件两来源隔离预演与桌面交接（2026-11-12）
 

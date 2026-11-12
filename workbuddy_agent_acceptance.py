@@ -46,6 +46,9 @@ PROJECT_PILOT_TOOLS = ('workbench_capabilities', 'workbench_list_projects', 'wor
                               'workbench_preview_proposal', 'workbench_get_proposal')
 DELETE_PILOT_CASE = 'delete-pilot-case.json'
 PROJECT_CREATE_PILOT_CASE = 'project-create-pilot-case.json'
+CATEGORY_PILOT_TOOLS = ('workbench_capabilities', 'workbench_prepare_proposal', 'workbench_preview_proposal',
+                        'workbench_get_proposal')
+CATEGORY_PILOT_CASE = 'category-pilot-case.json'
 ATTACHMENT_COMMIT_GATE = 'attachment-commit.json'
 PILOT_READ_SECONDS = 1200
 WORKBUDDY_DISCOVERY_SECONDS = 1200
@@ -210,8 +213,15 @@ def relay(protocol_faults=False, tools_allowed=(), *, project_create=False):
                          ATTACHMENT_PILOT_TOOLS:'Call is outside the attachment pilot scope',
                          STREAM_PILOT_TOOLS:'Call is outside the attachment pilot scope',
                          DELETE_PILOT_TOOLS:'Call is outside the issue deletion pilot scope',
+                         CATEGORY_PILOT_TOOLS:'Call is outside the category pilot scope',
                          PROJECT_PILOT_TOOLS:('Call is outside the project creation pilot scope' if project_create
                                                      else 'Call is outside the project deletion pilot scope')}.get(tools_allowed)
+    fixed_case = {
+        DELETE_PILOT_TOOLS:('issue', 'delete', DELETE_PILOT_CASE),
+        PROJECT_PILOT_TOOLS:('project', 'create', PROJECT_CREATE_PILOT_CASE) if project_create else
+                            ('project', 'delete', DELETE_PILOT_CASE),
+        CATEGORY_PILOT_TOOLS:('category', 'rename', CATEGORY_PILOT_CASE),
+    }.get(tools_allowed)
     process = subprocess.Popen(
         [sys.executable, str(ROOT / "agent_bridge.py"), "--config", os.environ["WORKBENCH_PROBE_CONFIG"]],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -241,10 +251,8 @@ def relay(protocol_faults=False, tools_allowed=(), *, project_create=False):
                                 blocked = not isinstance(params, dict) or params.get('name') not in tools_allowed
                                 if not blocked and tools_allowed in (ATTACHMENT_PILOT_TOOLS, STREAM_PILOT_TOOLS):
                                     blocked = not attachment_tool_allowed(params, trace.with_name(ATTACHMENT_COMMIT_GATE))
-                                if not blocked and tools_allowed in (DELETE_PILOT_TOOLS, PROJECT_PILOT_TOOLS):
-                                    kind = 'issue' if tools_allowed == DELETE_PILOT_TOOLS else 'project'
-                                    case_file = PROJECT_CREATE_PILOT_CASE if project_create else DELETE_PILOT_CASE
-                                    operation = 'create' if project_create else 'delete'
+                                if not blocked and fixed_case:
+                                    kind, operation, case_file = fixed_case
                                     blocked = not fixed_proposal_tool_allowed(params, trace.with_name(case_file), kind, operation)
                                 if blocked and type(message.get('id')) in {int, str}:
                                     rejection = {'jsonrpc':'2.0', 'id':message['id'], 'error':{
@@ -746,6 +754,7 @@ if __name__ == "__main__":
     relay_modes.add_argument('--relay-delete-pilot', action='store_true', help=argparse.SUPPRESS)
     relay_modes.add_argument('--relay-project-delete-pilot', action='store_true', help=argparse.SUPPRESS)
     relay_modes.add_argument('--relay-project-create-pilot', action='store_true', help=argparse.SUPPRESS)
+    relay_modes.add_argument('--relay-category-pilot', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument("--protocol-faults", action="store_true", help="Explicitly inject fixed server ping/unknown requests; no model or business writes")
     parser.add_argument("--desktop-session", action="store_true", help="Prepare temporary project files only; never launch or modify the real desktop profile")
     parser.add_argument('--readonly-pilot', choices=('codex','workbuddy'), help='Prepare a disposable AG-142 read-only project; never launch the desktop')
@@ -762,6 +771,7 @@ if __name__ == "__main__":
                              (args.relay_attachment_pilot, ATTACHMENT_PILOT_TOOLS),
                              (args.relay_stream_pilot, STREAM_PILOT_TOOLS),
                              (args.relay_delete_pilot, DELETE_PILOT_TOOLS),
+                             (args.relay_category_pilot, CATEGORY_PILOT_TOOLS),
                              ((args.relay_project_delete_pilot or args.relay_project_create_pilot), PROJECT_PILOT_TOOLS)):
         if enabled:
             tools_allowed = profile

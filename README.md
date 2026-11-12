@@ -100,6 +100,8 @@ AG-142 隔离验收可用 `python codex_pilot_anchor.py --init <新绝对目录>
 
 项目创建使用 `python project_create_pilot.py --check`，在新临时空间验证完整排序预览、创建回执和独立的项目访问批准。
 
+分类改名使用 `python category_pilot.py --domain <document|concept-map|project-attachment> --check`。每轮验证所选域和另外两个域的磁盘结果。
+
 当前本机扩展已交付：AG-116～121、AG-126已完成；AG-122～125按用户用途取消，远程未实现。最终235项Python、19项Node、全文件语法、真实客户端及备份恢复验收通过，临时接入已清理。详见[扩展验收与本地提交](docs/AI_AGENT_EXTENSION_ACCEPTANCE.md)。
 
 AG-128已支持后续能力的休眠授权管理和能力协商；休眠配置尚不可使用，未来启用必须重新授权。实际测试和兼容边界见[本机能力验收](docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md)。

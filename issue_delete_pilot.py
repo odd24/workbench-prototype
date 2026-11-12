@@ -27,6 +27,15 @@ ASSET = b'AG142 RETAINED ASSET\n'
 
 
 class ProposalCase:
+    client_categories = ()
+
+    def binding_revision(self):
+        return self.request.get('base_revision')
+
+    def check_local_preview(self, review, binding):
+        if review['preview_digest'] != binding['preview_digest'] or review['version'] != binding['version']:
+            raise ValueError('Local approval preview does not match the fixed proposal')
+
     def before_approval(self, client_id):
         proposals = list(self.store.proposals.glob('*.json'))
         if not proposals:
@@ -37,7 +46,7 @@ class ProposalCase:
         if proposal['state'] != 'previewed':
             return None
         expected = {key:self.request[key] for key in ('kind', 'operation', 'request_id', 'confirmation_mode')}
-        expected.update(target_id=self.target, base_revision=self.request.get('base_revision'),
+        expected.update(target_id=self.target, base_revision=self.binding_revision(),
                         client_id=client_id, previewed_version=proposal['version'])
         if not proposal['preview_digest'] or any(proposal.get(key) != value for key, value in expected.items()):
             raise ValueError('Proposal does not match the fixed case')
@@ -54,7 +63,7 @@ class DeletionCase(ProposalCase):
         return [self.project]
 
     def check(self, invoke, client_id, workspace, local):
-        return check_case(invoke, self, client_id, workspace, local)
+        return check_local_approval(invoke, self, client_id, workspace, local)
 
     def run_window(self, client_id, workspace, stop, audit, local):
         run_window(self, client_id, workspace, stop, audit)
@@ -155,7 +164,7 @@ class DeleteCase(DeletionCase):
         return {'receipt':receipt, 'trash_sha256':self.revision, 'retained_bytes_match':True}
 
 
-def check_case(invoke, case, client_id, workspace, local):
+def check_local_approval(invoke, case, client_id, workspace, local):
     def call(name, args=None):
         result = invoke('workbench_' + name, args or {})
         assert not result['isError'], result
@@ -167,7 +176,7 @@ def check_case(invoke, case, client_id, workspace, local):
         except RuntimeError as error:
             assert reason in str(error), error
         else:
-            raise AssertionError('Deletion pilot forwarded an excluded call')
+            raise AssertionError('Pilot forwarded an excluded call')
 
     assert call('capabilities')['workspace_id'] == workspace
     access_evidence = case.check_tool_access(call, rejected, invoke)
@@ -180,7 +189,7 @@ def check_case(invoke, case, client_id, workspace, local):
     route = 'proposals/' + binding['proposal_id']
     review = local(route + '/preview')
     assert review['preview']['content'] == preview['content']
-    assert review['preview_digest'] == binding['preview_digest']
+    case.check_local_preview(review, binding)
     approval = {'workspace_id':workspace, 'version':binding['version'], 'preview_digest':binding['preview_digest'],
                 'preview_ticket':review['preview_ticket'], 'request_id':case.request['request_id'] + '-approve'}
     result = local(route + '/approve', approval)
@@ -192,7 +201,7 @@ def check_case(invoke, case, client_id, workspace, local):
             'preapproval_original_unchanged':True, 'other_target_denied':True, 'agent_commit_disabled':True, **access_evidence, **evidence}
 
 
-def run(check, anchor=None, case_type=DeleteCase):
+def run(check, anchor=None, case_type=DeleteCase, **case_options):
     audit = {}
     with pilot_directory(case_type.directory_prefix) as base, anchor_slot(anchor) as slot:
         cwd = slot.root if slot else base / 'desktop-project'
@@ -201,8 +210,8 @@ def run(check, anchor=None, case_type=DeleteCase):
         workbench = LocalWorkbench(base / 'data', base / 'private')
         info = token = case = None
         try:
-            case = case_type(workbench.repository)
-            info = workbench.security.add_client(case.client_name, ['read', 'propose', 'commit'], case.project_ids, [],
+            case = case_type(workbench.repository, **case_options)
+            info = workbench.security.add_client(case.client_name, ['read', 'propose', 'commit'], case.project_ids, list(case.client_categories),
                                                  workbench.base_url, kinds=case.kinds, minimum_confirmation_mode='local_web')
             workspace, client_id = info['workspace_id'], info['client_id']
             token = read_json(Path(info['config_file']))['token']

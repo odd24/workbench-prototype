@@ -455,10 +455,6 @@ def run(check, client, anchor=None):
             entry, config, catalog = project_connector(cwd, case.trace, str(case.config), codex, server=SERVER,
                 catalog=RECOVERY_PILOT_TOOLS, relay_flag='--relay-recovery-pilot', slot=slot,
                 port=case.workbench.server.server_address[1])
-            if not codex:
-                entry['args'].append('--relay-recovery-pilot')
-                config = {'config':{'mcpServers':{SERVER:entry}}}
-                catalog = list(RECOVERY_PILOT_TOOLS)
             if check:
                 if not case.authorize(True):
                     raise ValueError('Recovery check authorization failed')

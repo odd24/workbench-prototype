@@ -65,14 +65,17 @@ def server_toml(name, entry, catalog=()):
 
 
 def project_connector(project_dir, trace, client_config, codex, *, server=SERVER,
-                      catalog=GRAPH_PILOT_TOOLS, relay_flag='--relay-graph-pilot', slot=None, port=None):
+                      catalog=GRAPH_PILOT_TOOLS, relay_flag=None, slot=None, port=None):
     if slot and (not codex or project_dir != slot.root):
         raise ValueError('Managed anchor does not match the Codex project')
     entry = {'command':sys.executable, 'args':[str(Path(__file__).with_name('workbuddy_agent_acceptance.py')), '--relay'],
              'env':{'WORKBENCH_PROBE_TRACE':str(trace), 'WORKBENCH_PROBE_CONFIG':client_config}}
     if not codex:
-        return entry, {'config':{'mcpServers':{SERVER:entry}}}, [tool['name'] for tool in TOOLS]
-    entry['args'].append(relay_flag)
+        if relay_flag:
+            entry['args'].append(relay_flag)
+        tools = list(catalog) if relay_flag else [tool['name'] for tool in TOOLS]
+        return entry, {'config':{'mcpServers':{server:entry}}}, tools
+    entry['args'].append(relay_flag or '--relay-graph-pilot')
     config = project_dir / '.codex' / 'config.toml'
     text = '[mcp_servers.workbench]\nenabled = false\n\n' + server_toml(server, entry, catalog)
     assert tomllib.loads(text)['mcp_servers'] == {

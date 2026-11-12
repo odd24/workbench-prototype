@@ -10,14 +10,14 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from attachment_pilot import await_value, review_grant
+from attachment_pilot import await_value, check_workbuddy, review_grant
 from codex_agent_acceptance import LocalWorkbench
 from codex_pilot_anchor import anchor_slot
 from concept_map_pilot import (DISCOVERY_SECONDS, WINDOW_SECONDS, check_app_server, emit, emit_stopped,
                                pilot_directory, project_connector, wait_for_signal)
 from server import Repository
 from workbench.agent_management import client_version
-from workbench.agent_security import read_json
+from workbench.agent_security import AgentError, read_json
 from workbench.persistence import atomic_write_json
 from workbuddy_agent_acceptance import DELETE_PILOT_CASE, DELETE_PILOT_TOOLS, pilot_discovered
 
@@ -164,7 +164,7 @@ class DeleteCase(DeletionCase):
         return {'receipt':receipt, 'trash_sha256':self.revision, 'retained_bytes_match':True}
 
 
-def check_local_approval(invoke, case, client_id, workspace, local, *, check_rejections=None):
+def check_local_approval(invoke, case, client_id, workspace, local, *, check_rejections=None, workbuddy=False):
     def call(name, args=None):
         result = invoke('workbench_' + name, args or {})
         assert not result['isError'], result
@@ -187,7 +187,20 @@ def check_local_approval(invoke, case, client_id, workspace, local, *, check_rej
     preview = call('preview_proposal', query)
     binding = case.before_approval(client_id)
     assert binding and preview['preview_digest'] == binding['preview_digest']
-    rejected('commit_proposal', {**binding, 'confirmation':{'mode':'agent_attested', 'user_confirmed':True}})
+    attested = {**binding, 'confirmation':{'mode':'agent_attested', 'user_confirmed':True}}
+    denial = 'outside the issue deletion pilot scope' if workbuddy else 'is disabled for MCP server'
+    rejected('commit_proposal', attested, denial)
+    if workbuddy:
+        service = case.repo.agent_service
+        client = service.security.clients()[client_id]
+        proposal_id = attested.pop('proposal_id')
+        try:
+            service.commit_proposal(client, proposal_id, attested)
+        except AgentError as error:
+            assert error.code == 'confirmation_required', error
+        else:
+            raise AssertionError('The service accepted Agent confirmation for deletion')
+        access_evidence['service_requires_local_web'] = True
     assert case.before_approval(client_id) == binding
     route = 'proposals/' + binding['proposal_id']
     review = local(route + '/preview')
@@ -204,8 +217,11 @@ def check_local_approval(invoke, case, client_id, workspace, local, *, check_rej
             'preapproval_original_unchanged':True, 'other_target_denied':True, 'agent_commit_disabled':True, **access_evidence, **evidence}
 
 
-def run(check, anchor=None, case_type=DeleteCase, *, seed=None, **case_options):
-    audit = {}
+def run(check, anchor=None, case_type=DeleteCase, *, seed=None, client='codex', **case_options):
+    codex = client == 'codex'
+    if not codex and (client != 'workbuddy' or case_type is not DeleteCase or anchor is not None):
+        raise ValueError('WorkBuddy is available for the single issue pilot without --anchor')
+    audit = {'client':client}
     with pilot_directory(case_type.directory_prefix) as base, anchor_slot(anchor) as slot:
         cwd = slot.root if slot else base / 'desktop-project'
         if not slot:
@@ -231,11 +247,11 @@ def run(check, anchor=None, case_type=DeleteCase, *, seed=None, **case_options):
             headers['X-Workbench-Management-Token'] = local('status')['management_token']
             trace, stop, discovered = base / 'protocol.jsonl', base / 'STOP', base / 'DISCOVERED'
             atomic_write_json(base / case.case_file, case.request)
-            entry, config, catalog = project_connector(cwd, trace, info['config_file'], True, server=case.server,
+            entry, config, catalog = project_connector(cwd, trace, info['config_file'], codex, server=case.server,
                 catalog=case.tools, relay_flag=case.relay_flag, slot=slot,
                 port=workbench.server.server_address[1])
             if not check:
-                emit({'mode':'pending_discovery', 'workspace_id':workspace, 'workbench_url':workbench.base_url,
+                emit({'mode':'pending_discovery', 'client':client, 'workspace_id':workspace, 'workbench_url':workbench.base_url,
                       'desktop_project':str(cwd), **config, 'expected_catalog':catalog, 'trace_path':str(trace),
                       'stop_file':str(stop), 'discovery_file':str(discovered), 'wait_seconds':DISCOVERY_SECONDS,
                       'managed_anchor':slot is not None, 'target_id':case.target})
@@ -247,9 +263,12 @@ def run(check, anchor=None, case_type=DeleteCase, *, seed=None, **case_options):
                         workspace, stop, check, label, request_prefix=case.request_prefix)
 
                 if case.authorize(grant):
-                    if check:
+                    if check and codex:
                         with check_app_server(base, cwd, entry, server=case.server, catalog=catalog) as invoke:
                             audit.update(case.check(invoke, client_id, workspace, local))
+                    elif check:
+                        with check_workbuddy(base, cwd, entry, config['config'], catalog, token, audit, server=case.server) as invoke:
+                            audit.update(check_local_approval(invoke, case, client_id, workspace, local, workbuddy=True))
                     else:
                         case.run_window(client_id, workspace, stop, audit, local)
         finally:
@@ -296,10 +315,15 @@ def run_window(case, client_id, workspace, stop, audit):
 
 def main(case_type=DeleteCase, description=__doc__, *, seed=None):
     parser = argparse.ArgumentParser(description=description)
-    parser.add_argument('--check', action='store_true', help='Run the isolated App Server preflight without a model')
+    parser.add_argument('--check', action='store_true', help='Run the isolated preflight without a model')
     parser.add_argument('--anchor', type=Path, help='Use an explicitly initialized Codex pilot directory')
+    if case_type is DeleteCase:
+        parser.add_argument('--client', choices=('codex','workbuddy'), default='codex')
     args = parser.parse_args()
-    run(args.check, args.anchor, case_type, seed=seed)
+    client = getattr(args, 'client', 'codex')
+    if client == 'workbuddy' and args.anchor is not None:
+        parser.error('--anchor is only available for Codex')
+    run(args.check, args.anchor, case_type, seed=seed, client=client)
 
 
 if __name__ == '__main__':

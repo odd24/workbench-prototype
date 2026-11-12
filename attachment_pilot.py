@@ -301,10 +301,6 @@ def run(check, source_mode='file', anchor=None, client='codex'):
             flag = '--relay-stream-pilot' if stream else '--relay-attachment-pilot'
             entry, config, catalog = project_connector(cwd, trace, info['config_file'], codex, server=SERVER,
                 catalog=tools, relay_flag=flag, slot=slot, port=workbench.server.server_address[1])
-            if not codex:
-                entry['args'].append(flag)
-                config = {'config':{'mcpServers':{SERVER:entry}}}
-                catalog = list(tools)
             context = {'workbench_url':workbench.base_url, 'workspace_id':workspace, 'desktop_project':str(cwd),
                        **config, 'client':client, 'source_mode':source_mode, 'expected_catalog':catalog,
                        'trace_path':str(trace), 'stop_file':str(stop), 'managed_anchor':slot is not None}

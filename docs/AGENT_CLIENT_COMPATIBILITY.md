@@ -844,3 +844,38 @@ $binding | ConvertTo-Json -Compress | python -c "import json, sys; from pathlib 
 ```
 
 提前的确认、重启或重放信号及不匹配的绑定会中止当轮，超时会关闭服务并撤销身份。夹具只根据实际工具响应和同一回执的磁盘证据推进。未知结果留在当前停点，禁止替换提案或重发。监督负责夹具、信号、核验和归档，WorkBuddy 界面由用户本人操作。真实桌面模型及用户操作仍待验证。
+
+### WorkBuddy 单条删除用户自操作交接
+
+从包含本夹具的工作树运行。第一条在一次性配置下验证安装版 WorkBuddy CLI 的五项发现，再用原始 stdio 验证业务和程序化本机批准。第二条只启动隔离服务和生成唯一临时候选，由用户决定何时在桌面使用。
+
+```powershell
+$env:PYTHONIOENCODING = 'utf-8'
+python issue_delete_pilot.py --client workbuddy --check
+python issue_delete_pilot.py --client workbuddy
+```
+
+固定单个合成 issue、一个同项目引用来源和一份保留附件。基础读取限合成项目及 issue，独立删除授权限目标 ID 的 `items.delete/delete/local_web`。临时 `workbench_ag142_delete` 仅提供 capabilities、get_item、prepare_proposal、preview_proposal、get_proposal。中继只允许读取固定目标和准备固定请求。引用来源原文由完整提案预览展示。
+
+| 停点 | 用户本人操作 | 监督核对 |
+| --- | --- | --- |
+| `pending_discovery` | 打开「专家·技能·连接器 → 连接器 → 自定义连接器 → MCP 服务管理」。登记输出 `config` 里的唯一临时项，打开 `desktop_project`，选择 Hy4，遇到首次信任由本人处理。停在发消息前。 | 确认实际连接器、空间和五项工具，收到完整握手再创建本轮 `discovery_file`。同名冲突、目录不符或信任未完成时停止。 |
+| `review_delete` | 核对完整授权，仅同意精确目标 issue 的删除许可。 | 确认用户同意后写 `approval_file`。此次信号只授予权限。 |
+| `ready_preview` | 原样发送本轮固定提示，查看完整目标和引用原文、附件保留、警告、回收期限、版本与摘要。预览后停止。 | 看到 `await_web_approval` 后核对原件及保留来源，零回收对象、零回执。 |
+| `await_web_approval` | 打开本轮 `workbench_url` 的「提案管理」。核对当前 ID、版本、摘要和完整影响，再亲自批准移入回收站。 | 监督查 `committed`，核对原目标移动、字节及索引匹配、唯一原回执、引用和附件保留。若响应不明，查询原提案后停止。 |
+| `committed` 或中止 | 退出当次任务，只移除本轮临时项并刷新列表。 | 核对原配置基线后写 `stop_file`，检查 401、端口关闭和临时根移除。 |
+
+隔离验证通过后，桌面仍需用户本人完成登记、预览与网页批准。监督只负责夹具、信号、核对及归档。
+
+#### 其余普通启动夹具的 WorkBuddy 复用缺口
+
+连接器生成现可复用指定的受限目录和原装 WorkBuddy CLI 预演入口。以下真实业务仍需各自 WorkBuddy 零模型驱动与用户自操作交接。
+
+| 夹具 | 已有 Codex 证据 | WorkBuddy 接入须核对 |
+| --- | --- | --- |
+| 项目级联删除 | 五项工具及整树预演，独立网页批准 | 三步授权的顺序和失败关闭，含关联图读取、每个实际子记录的删除许可、精确项目及独立附件。按 WorkBuddy 中继错误核对未开放工具，复核整树、外部引用拒绝和保留图。 |
+| 项目创建 | 五项工具、零项目回执及独立追加访问 | 自有预演目前使用 Codex 禁用工具的错误表现。复用五项中继后核对完整排序、创建后不可见、第二次本机批准及独立原回执查询。 |
+| 三域分类 | 各域的四项工具、独立授权、改名与另两域保留 | `--domain` 入口单列。按域核对精确授权、概念图单图读权、独立附件共同策略、同名跨域拒绝及无授权操作。 |
+| 工作流 | 四项工具、完整映射、旧版及缺映射拒绝 | 保留初始化模板及状态映射，复核 WorkBuddy 下旧版、无映射、完整本机计划和唯一回执。 |
+
+本次只开放 WorkBuddy 单条 issue 入口。其他四个普通启动夹具保留现有 Codex 入口。

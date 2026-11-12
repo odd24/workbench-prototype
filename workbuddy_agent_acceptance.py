@@ -42,6 +42,8 @@ STREAM_PILOT_TOOLS = tuple(tool for tool in ATTACHMENT_PILOT_TOOLS
                            if tool not in {'workbench_get_file_info', 'workbench_commit_proposal'})
 DELETE_PILOT_TOOLS = ('workbench_capabilities', 'workbench_get_item', 'workbench_prepare_proposal',
                       'workbench_preview_proposal', 'workbench_get_proposal')
+PROJECT_DELETE_PILOT_TOOLS = ('workbench_capabilities', 'workbench_list_projects', 'workbench_prepare_proposal',
+                              'workbench_preview_proposal', 'workbench_get_proposal')
 DELETE_PILOT_CASE = 'delete-pilot-case.json'
 ATTACHMENT_COMMIT_GATE = 'attachment-commit.json'
 PILOT_READ_SECONDS = 1200
@@ -183,15 +185,17 @@ def attachment_tool_allowed(params, gate):
             all(arguments.get(key) == approved[key] for key in keys))
 
 
-def delete_tool_allowed(params, case_path):
+def delete_tool_allowed(params, case_path, kind='issue'):
     name = params.get('name')
+    if name == 'workbench_list_projects':
+        return params.get('arguments') == {}
     if name not in {'workbench_get_item', 'workbench_prepare_proposal'}:
         return True
     try:
         case = read_json(case_path)
     except (OSError, ValueError):
         return False
-    if not isinstance(case, dict) or case.get('kind') != 'issue' or case.get('operation') != 'delete':
+    if not isinstance(case, dict) or case.get('kind') != kind or case.get('operation') != 'delete':
         return False
     if name == 'workbench_get_item':
         return params.get('arguments') == {'kind':'issue', 'item_id':case.get('target_id')}
@@ -204,7 +208,8 @@ def relay(protocol_faults=False, tools_allowed=()):
                          GRAPH_PILOT_TOOLS:'Tool is outside the graph pilot allowlist',
                          ATTACHMENT_PILOT_TOOLS:'Call is outside the attachment pilot scope',
                          STREAM_PILOT_TOOLS:'Call is outside the attachment pilot scope',
-                         DELETE_PILOT_TOOLS:'Call is outside the issue deletion pilot scope'}.get(tools_allowed)
+                         DELETE_PILOT_TOOLS:'Call is outside the issue deletion pilot scope',
+                         PROJECT_DELETE_PILOT_TOOLS:'Call is outside the project deletion pilot scope'}.get(tools_allowed)
     process = subprocess.Popen(
         [sys.executable, str(ROOT / "agent_bridge.py"), "--config", os.environ["WORKBENCH_PROBE_CONFIG"]],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -234,8 +239,9 @@ def relay(protocol_faults=False, tools_allowed=()):
                                 blocked = not isinstance(params, dict) or params.get('name') not in tools_allowed
                                 if not blocked and tools_allowed in (ATTACHMENT_PILOT_TOOLS, STREAM_PILOT_TOOLS):
                                     blocked = not attachment_tool_allowed(params, trace.with_name(ATTACHMENT_COMMIT_GATE))
-                                if not blocked and tools_allowed == DELETE_PILOT_TOOLS:
-                                    blocked = not delete_tool_allowed(params, trace.with_name(DELETE_PILOT_CASE))
+                                if not blocked and tools_allowed in (DELETE_PILOT_TOOLS, PROJECT_DELETE_PILOT_TOOLS):
+                                    kind = 'issue' if tools_allowed == DELETE_PILOT_TOOLS else 'project'
+                                    blocked = not delete_tool_allowed(params, trace.with_name(DELETE_PILOT_CASE), kind)
                                 if blocked and type(message.get('id')) in {int, str}:
                                     rejection = {'jsonrpc':'2.0', 'id':message['id'], 'error':{
                                         'code':-32602, 'message':rejection_message}}
@@ -734,6 +740,7 @@ if __name__ == "__main__":
     relay_modes.add_argument('--relay-attachment-pilot', action='store_true', help=argparse.SUPPRESS)
     relay_modes.add_argument('--relay-stream-pilot', action='store_true', help=argparse.SUPPRESS)
     relay_modes.add_argument('--relay-delete-pilot', action='store_true', help=argparse.SUPPRESS)
+    relay_modes.add_argument('--relay-project-delete-pilot', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument("--protocol-faults", action="store_true", help="Explicitly inject fixed server ping/unknown requests; no model or business writes")
     parser.add_argument("--desktop-session", action="store_true", help="Prepare temporary project files only; never launch or modify the real desktop profile")
     parser.add_argument('--readonly-pilot', choices=('codex','workbuddy'), help='Prepare a disposable AG-142 read-only project; never launch the desktop')
@@ -749,7 +756,8 @@ if __name__ == "__main__":
                              (args.relay_graph_pilot, GRAPH_PILOT_TOOLS),
                              (args.relay_attachment_pilot, ATTACHMENT_PILOT_TOOLS),
                              (args.relay_stream_pilot, STREAM_PILOT_TOOLS),
-                             (args.relay_delete_pilot, DELETE_PILOT_TOOLS)):
+                             (args.relay_delete_pilot, DELETE_PILOT_TOOLS),
+                             (args.relay_project_delete_pilot, PROJECT_DELETE_PILOT_TOOLS)):
         if enabled:
             tools_allowed = profile
     if tools_allowed and (not args.relay or args.protocol_faults):

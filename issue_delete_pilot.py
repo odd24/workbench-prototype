@@ -26,7 +26,51 @@ SERVER = 'workbench_ag142_delete'
 ASSET = b'AG142 RETAINED ASSET\n'
 
 
-class DeleteCase:
+class DeletionCase:
+    def before_approval(self, client_id):
+        proposals = list(self.store.proposals.glob('*.json'))
+        if not proposals:
+            return None
+        if len(proposals) != 1:
+            raise ValueError('Expected exactly one deletion proposal')
+        proposal = read_json(proposals[0])
+        if proposal['state'] != 'previewed':
+            return None
+        expected = {key:self.request[key] for key in ('kind', 'operation', 'request_id', 'target_id',
+                                                       'base_revision', 'confirmation_mode')}
+        expected.update(client_id=client_id, previewed_version=proposal['version'])
+        if not proposal['preview_digest'] or any(proposal.get(key) != value for key, value in expected.items()):
+            raise ValueError('Deletion proposal does not match the fixed case')
+        self.check_preview(proposal)
+        self.check_original()
+        return {key:proposal[key] for key in ('proposal_id', 'version', 'preview_digest')}
+
+
+class DeleteCase(DeletionCase):
+    server = SERVER
+    tools = DELETE_PILOT_TOOLS
+    relay_flag = '--relay-delete-pilot'
+    directory_prefix = 'workbench-ag142-issue-delete-'
+    request_prefix = 'ag142-issue'
+    client_name = 'AG142 单条删除'
+    kinds = ['issue']
+
+    def authorize(self, grant):
+        return grant('deletions', 'DELETE', grants=self.grants)
+
+    def check_tool_access(self, call, rejected, invoke):
+        assert call('get_item', {'kind':'issue', 'item_id':self.target})['revision'] == self.revision
+        rejected('get_item', {'kind':'issue', 'item_id':self.source}, 'outside the issue deletion pilot scope')
+        rejected('prepare_proposal', {**self.request, 'target_id':self.source}, 'outside the issue deletion pilot scope')
+        return {}
+
+    def prompt(self, workspace):
+        return (f'只用 {self.server}。capabilities 核对空间 {workspace}。get_item 使用 kind=issue、'
+                f'item_id={self.target}，核对 revision 与以下固定请求一致后才调用 prepare_proposal。'
+                '调用 preview_proposal，完整展示目标与引用原文、元数据、附件保留、命中引用、排序与历史保留、'
+                '回收期限、警告、提案 ID、版本、摘要和执行依据。随后停止，等待用户在隔离网页独立批准。'
+                '不得自行提交、恢复、清空或永久删除。版本或授权异常先报告并停止。')
+
     def __init__(self, repo):
         self.repo = repo
         self.project = repo.create_project({'name':'AG142 删除隔离项目'})['id']
@@ -58,20 +102,7 @@ class DeleteCase:
                 or self.readme.read_bytes() != self.sorting_raw):
             raise ValueError('Retained source, attachment or project sorting changed')
 
-    def before_approval(self, client_id):
-        proposals = list(self.store.proposals.glob('*.json'))
-        if not proposals:
-            return None
-        if len(proposals) != 1:
-            raise ValueError('Expected exactly one issue deletion proposal')
-        proposal = read_json(proposals[0])
-        if proposal['state'] != 'previewed':
-            return None
-        expected = {key:self.request[key] for key in ('kind', 'operation', 'request_id', 'target_id',
-                                                       'base_revision', 'confirmation_mode')}
-        expected.update(client_id=client_id, previewed_version=proposal['version'])
-        if not proposal['preview_digest'] or any(proposal.get(key) != value for key, value in expected.items()):
-            raise ValueError('Issue deletion proposal does not match the fixed case')
+    def check_preview(self, proposal):
         content = proposal['normalized_content']
         target = content['target']
         [impact] = content['impacts']
@@ -80,10 +111,11 @@ class DeleteCase:
                 impact['source']['item']['id'] != self.source or not impact['references'] or
                 not any(item['exists'] and item['retained'] for item in target['attachments'])):
             raise ValueError('Deletion preview did not preserve the complete fixed impact evidence')
+
+    def check_original(self):
         if self.path.read_bytes() != self.raw or self.repo.list_trash() or list(self.store.receipts.glob('*.json')):
             raise ValueError('Original, trash or receipt state changed before approval')
         self.check_retained()
-        return {key:proposal[key] for key in ('proposal_id', 'version', 'preview_digest')}
 
     def after_approval(self, binding):
         key = binding['proposal_id']
@@ -117,12 +149,10 @@ def check_case(invoke, case, client_id, workspace, local):
         except RuntimeError as error:
             assert reason in str(error), error
         else:
-            raise AssertionError('Issue deletion pilot forwarded an excluded call')
+            raise AssertionError('Deletion pilot forwarded an excluded call')
 
     assert call('capabilities')['workspace_id'] == workspace
-    assert call('get_item', {'kind':'issue', 'item_id':case.target})['revision'] == case.revision
-    rejected('get_item', {'kind':'issue', 'item_id':case.source}, 'outside the issue deletion pilot scope')
-    rejected('prepare_proposal', {**case.request, 'target_id':case.source}, 'outside the issue deletion pilot scope')
+    access_evidence = case.check_tool_access(call, rejected, invoke)
     proposal = call('prepare_proposal', case.request)
     preview = call('preview_proposal', {'proposal_id':proposal['proposal_id']})
     binding = case.before_approval(client_id)
@@ -134,28 +164,28 @@ def check_case(invoke, case, client_id, workspace, local):
     assert review['preview']['content'] == preview['content']
     assert review['preview_digest'] == binding['preview_digest']
     approval = {'workspace_id':workspace, 'version':binding['version'], 'preview_digest':binding['preview_digest'],
-                'preview_ticket':review['preview_ticket'], 'request_id':'ag142-exact-delete-approve'}
+                'preview_ticket':review['preview_ticket'], 'request_id':case.request['request_id'] + '-approve'}
     result = local(route + '/approve', approval)
     assert result['state'] == 'completed' and local(route + '/approve', approval) == result
     evidence = case.after_approval(binding)
     observed = call('get_proposal', {'proposal_id':binding['proposal_id']})['receipt']
     assert all(observed[key] == value for key, value in evidence['receipt'].items())
-    return {'tool_count':len(DELETE_PILOT_TOOLS), 'approval_replay_matches':True,
-            'preapproval_original_unchanged':True, 'other_target_denied':True, 'agent_commit_disabled':True, **evidence}
+    return {'tool_count':len(case.tools), 'approval_replay_matches':True,
+            'preapproval_original_unchanged':True, 'other_target_denied':True, 'agent_commit_disabled':True, **access_evidence, **evidence}
 
 
-def run(check, anchor=None):
+def run(check, anchor=None, case_type=DeleteCase):
     audit = {}
-    with pilot_directory('workbench-ag142-issue-delete-') as base, anchor_slot(anchor) as slot:
+    with pilot_directory(case_type.directory_prefix) as base, anchor_slot(anchor) as slot:
         cwd = slot.root if slot else base / 'desktop-project'
         if not slot:
             cwd.mkdir()
         workbench = LocalWorkbench(base / 'data', base / 'private')
         info = token = case = None
         try:
-            case = DeleteCase(workbench.repository)
-            info = workbench.security.add_client('AG142 单条删除', ['read', 'propose', 'commit'], [case.project], [],
-                                                 workbench.base_url, kinds=['issue'], minimum_confirmation_mode='local_web')
+            case = case_type(workbench.repository)
+            info = workbench.security.add_client(case.client_name, ['read', 'propose', 'commit'], [case.project], [],
+                                                 workbench.base_url, kinds=case.kinds, minimum_confirmation_mode='local_web')
             workspace, client_id = info['workspace_id'], info['client_id']
             token = read_json(Path(info['config_file']))['token']
             headers = {'Origin':workbench.base_url, 'X-Workbench-Management':'1', 'Content-Type':'application/json'}
@@ -169,8 +199,8 @@ def run(check, anchor=None):
             headers['X-Workbench-Management-Token'] = local('status')['management_token']
             trace, stop, discovered = base / 'protocol.jsonl', base / 'STOP', base / 'DISCOVERED'
             atomic_write_json(base / DELETE_PILOT_CASE, case.request)
-            entry, config, catalog = project_connector(cwd, trace, info['config_file'], True, server=SERVER,
-                catalog=DELETE_PILOT_TOOLS, relay_flag='--relay-delete-pilot', slot=slot,
+            entry, config, catalog = project_connector(cwd, trace, info['config_file'], True, server=case.server,
+                catalog=case.tools, relay_flag=case.relay_flag, slot=slot,
                 port=workbench.server.server_address[1])
             if not check:
                 emit({'mode':'pending_discovery', 'workspace_id':workspace, 'workbench_url':workbench.base_url,
@@ -178,12 +208,15 @@ def run(check, anchor=None):
                       'stop_file':str(stop), 'discovery_file':str(discovered), 'wait_seconds':DISCOVERY_SECONDS,
                       'managed_anchor':slot is not None, 'target_id':case.target})
             if check or (wait_for_signal(discovered, stop, DISCOVERY_SECONDS) and pilot_discovered(trace, catalog)):
-                grant = review_grant(local, f'clients/{client_id}/deletions', {
-                    'workspace_id':workspace, 'expected_version':client_version(workbench.security.clients()[client_id]),
-                    'grants':case.grants}, workspace, stop, check, 'DELETE', request_prefix='ag142-issue')
-                if grant:
+                def grant(route, label, **payload):
+                    current = workbench.security.clients()[client_id]
+                    return review_grant(local, f'clients/{client_id}/{route}', {
+                        'workspace_id':workspace, 'expected_version':client_version(current), **payload},
+                        workspace, stop, check, label, request_prefix=case.request_prefix)
+
+                if case.authorize(grant):
                     if check:
-                        with check_app_server(base, cwd, entry, server=SERVER, catalog=catalog) as invoke:
+                        with check_app_server(base, cwd, entry, server=case.server, catalog=catalog) as invoke:
                             audit.update(check_case(invoke, case, client_id, workspace, local))
                     else:
                         run_window(case, client_id, workspace, stop, audit)
@@ -216,12 +249,7 @@ def run(check, anchor=None):
 def run_window(case, client_id, workspace, stop, audit):
     deadline = time.monotonic() + WINDOW_SECONDS
     expires_at = int(time.time() + WINDOW_SECONDS)
-    prompt = (f'只用 {SERVER}。capabilities 核对空间 {workspace}。get_item 使用 kind=issue、'
-              f'item_id={case.target}，核对 revision 与以下固定请求一致后才调用 prepare_proposal。'
-              '调用 preview_proposal，完整展示目标与引用原文、元数据、附件保留、命中引用、排序与历史保留、'
-              '回收期限、警告、提案 ID、版本、摘要和执行依据。随后停止，等待用户在隔离网页独立批准。'
-              '不得自行提交、恢复、清空或永久删除。版本或授权异常先报告并停止。\n'
-              + json.dumps(case.request, ensure_ascii=False, indent=2))
+    prompt = case.prompt(workspace) + '\n' + json.dumps(case.request, ensure_ascii=False, indent=2)
     emit({'mode':'ready_preview', 'execution_expires_at':expires_at, 'prompt':prompt})
     binding = await_value(lambda: case.before_approval(client_id), stop, deadline)
     if not binding:
@@ -235,9 +263,13 @@ def run_window(case, client_id, workspace, stop, audit):
         await_value(lambda: None, stop, deadline)
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description=__doc__)
+def main(case_type=DeleteCase, description=__doc__):
+    parser = argparse.ArgumentParser(description=description)
     parser.add_argument('--check', action='store_true', help='Run the isolated App Server preflight without a model')
     parser.add_argument('--anchor', type=Path, help='Use an explicitly initialized Codex pilot directory')
     args = parser.parse_args()
-    run(args.check, args.anchor)
+    run(args.check, args.anchor, case_type)
+
+
+if __name__ == '__main__':
+    main()

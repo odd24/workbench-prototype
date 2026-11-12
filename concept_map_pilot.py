@@ -41,34 +41,35 @@ def wait_for_signal(signal, stop, seconds):
     return False
 
 
-def server_toml(name, entry):
+def server_toml(name, entry, catalog=()):
     quote = json.dumps
     lines = [f'[mcp_servers.{name}]', f'command = {quote(entry["command"])}', f'args = {quote(entry["args"])}']
-    if name == SERVER:
-        lines.append(f'enabled_tools = {quote(GRAPH_PILOT_TOOLS)}')
+    if catalog:
+        lines.append(f'enabled_tools = {quote(catalog)}')
     lines.append(f'[mcp_servers.{name}.env]')
     lines.extend(f'{key} = {quote(value)}' for key, value in entry['env'].items())
     return '\n'.join(lines) + '\n'
 
 
-def project_connector(project_dir, trace, client_config, codex):
+def project_connector(project_dir, trace, client_config, codex, *, server=SERVER,
+                      catalog=GRAPH_PILOT_TOOLS, relay_flag='--relay-graph-pilot'):
     entry = {'command':sys.executable, 'args':[str(Path(__file__).with_name('workbuddy_agent_acceptance.py')), '--relay'],
              'env':{'WORKBENCH_PROBE_TRACE':str(trace), 'WORKBENCH_PROBE_CONFIG':client_config}}
     if not codex:
         return entry, {'config':{'mcpServers':{SERVER:entry}}}, [tool['name'] for tool in TOOLS]
-    entry['args'].append('--relay-graph-pilot')
+    entry['args'].append(relay_flag)
     config = project_dir / '.codex' / 'config.toml'
     config.parent.mkdir()
-    text = '[mcp_servers.workbench]\nenabled = false\n\n' + server_toml(SERVER, entry)
+    text = '[mcp_servers.workbench]\nenabled = false\n\n' + server_toml(server, entry, catalog)
     assert tomllib.loads(text)['mcp_servers'] == {
-        'workbench':{'enabled':False}, SERVER:{**entry, 'enabled_tools':list(GRAPH_PILOT_TOOLS)}}
+        'workbench':{'enabled':False}, server:{**entry, 'enabled_tools':list(catalog)}}
     config.write_text(text, encoding='utf-8')
     return entry, {'config_path':str(config), 'config_text':text,
-                   'project_disabled_servers':['workbench']}, list(GRAPH_PILOT_TOOLS)
+                   'project_disabled_servers':['workbench']}, list(catalog)
 
 
 @contextmanager
-def check_app_server(base, project_dir, entry):
+def check_app_server(base, project_dir, entry, *, server=SERVER, catalog=GRAPH_PILOT_TOOLS):
     executable = shutil.which('codex')
     if not executable:
         raise RuntimeError('Codex CLI is required for the isolated App Server check')
@@ -101,17 +102,17 @@ def check_app_server(base, project_dir, entry):
             return key, {item['name']:set(item['tools']) for item in status['data']}
 
         _, outside = inventory(untrusted)
-        assert outside.get('workbench') == {tool['name'] for tool in TOOLS} and SERVER not in outside, outside
+        assert outside.get('workbench') == {tool['name'] for tool in TOOLS} and server not in outside, outside
         thread_id, inside = inventory(project_dir)
-        assert inside.get('workbench', set()) == set() and inside.get(SERVER) == set(GRAPH_PILOT_TOOLS), inside
-        assert pilot_discovered(Path(entry['env']['WORKBENCH_PROBE_TRACE']), GRAPH_PILOT_TOOLS)
+        assert inside.get('workbench', set()) == set() and inside.get(server) == set(catalog), inside
+        assert pilot_discovered(Path(entry['env']['WORKBENCH_PROBE_TRACE']), catalog)
 
-        def invoke(tool, arguments, server=SERVER):
-            return rpc.call('mcpServer/tool/call', {'threadId':thread_id, 'server':server, 'tool':tool,
+        def invoke(tool, arguments, server_name=server):
+            return rpc.call('mcpServer/tool/call', {'threadId':thread_id, 'server':server_name, 'tool':tool,
                                                    'arguments':arguments})
 
         try:
-            invoke('workbench_capabilities', {}, server='workbench')
+            invoke('workbench_capabilities', {}, server_name='workbench')
         except RuntimeError as error:
             assert '-32603' in str(error), error
         else:
@@ -244,10 +245,10 @@ def check_graph(base, project_dir, entry, workbench, workspace, spec, local, cod
 
 
 @contextmanager
-def pilot_directory():
+def pilot_directory(prefix='workbench-ag142-graph-'):
     stopped = False
     try:
-        with disposable_directory('workbench-ag142-graph-') as directory:
+        with disposable_directory(prefix) as directory:
             yield Path(directory).resolve()
             stopped = True
     except OSError as error:

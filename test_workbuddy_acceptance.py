@@ -6,17 +6,18 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from workbuddy_agent_acceptance import (GRAPH_PILOT_TOOLS, READONLY_PILOT_TOOLS, ProtocolFaultProbe, installed_cli_bundle,
+from workbuddy_agent_acceptance import (ATTACHMENT_PILOT_TOOLS, GRAPH_PILOT_TOOLS, READONLY_PILOT_TOOLS,
+                                       ProtocolFaultProbe, attachment_tool_allowed, installed_cli_bundle,
                                        protocol_metadata, restrict_pilot_catalog)
 
 
 class WorkBuddyMetadataTests(unittest.TestCase):
     def test_pilot_catalog_filters_tools_and_rejects_missing_or_duplicate_entries(self):
-        for profile in (READONLY_PILOT_TOOLS, GRAPH_PILOT_TOOLS):
+        for profile in (READONLY_PILOT_TOOLS, GRAPH_PILOT_TOOLS, ATTACHMENT_PILOT_TOOLS):
             with self.subTest(profile=profile):
                 allowed = [{'name':name, 'inputSchema':{'type':'object'}} for name in profile]
                 reply = {'jsonrpc':'2.0', 'id':17,
-                         'result':{'tools':allowed + [{'name':'workbench_commit_proposal'}], 'nextCursor':'unexpected'}}
+                         'result':{'tools':allowed + [{'name':'workbench_read_file_unexpected'}], 'nextCursor':'unexpected'}}
                 original = copy.deepcopy(reply)
                 self.assertEqual(restrict_pilot_catalog(reply, profile), {'jsonrpc':'2.0', 'id':17, 'result':{'tools':allowed}})
                 self.assertEqual(reply, original)
@@ -26,6 +27,19 @@ class WorkBuddyMetadataTests(unittest.TestCase):
                     self.assertEqual(result['id'], 17)
                     self.assertEqual(result['error']['code'], -32603)
                     self.assertNotIn('result', result)
+
+    def test_attachment_pilot_requires_current_commit_binding(self):
+        with tempfile.TemporaryDirectory() as directory:
+            gate = Path(directory) / 'commit.json'
+            binding = {'proposal_id':'fixed', 'version':1, 'preview_digest':'a' * 64}
+            call = {'name':'workbench_commit_proposal', 'arguments':binding}
+            self.assertFalse(attachment_tool_allowed(call, gate))
+            gate.write_text(json.dumps(binding), encoding='utf-8')
+            self.assertTrue(attachment_tool_allowed(call, gate))
+            for change in ({'proposal_id':'other'}, {'version':True}, {'version':2}, {'preview_digest':'b' * 64}):
+                self.assertFalse(attachment_tool_allowed({**call, 'arguments':{**binding, **change}}, gate))
+            prepare = {'name':'workbench_prepare_proposal', 'arguments':{'kind':'issue', 'operation':'create'}}
+            self.assertFalse(attachment_tool_allowed(prepare, gate))
 
     def test_original_launcher_selection_preserves_full_and_supports_lite_only(self):
         with tempfile.TemporaryDirectory() as directory:

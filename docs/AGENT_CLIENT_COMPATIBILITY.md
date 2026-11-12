@@ -542,3 +542,21 @@ WorkBuddy V5.9.3 / Hy4 真实更新单案通过。用户同意单案，沿用已
 Codex App Server `0.167.0-alpha.3.2` 零模型预演通过。file 来源只授 `attachment_source`，读取正文被拒；`user_confirmed=false` 返回 `-32602`，没有正式写入，程序化对话声明提交后，同一请求返回原回执。stream 只接收独立助手发送的原始字节，自报提交返回 `confirmation_required`，随后以本机管理票据程序化批准，客户端查询原回执。两条分别仅增加一份附件和回执，暂存均为 `consumed`，重开仓储读回及 HTTP 下载均与固定合成源一致。附件浏览器专项通过，覆盖共同授权、完整预览、网页批准、项目结果和下载。上述是协议及隔离证据，真实桌面的完整展示和后续用户消息仍待验证。
 
 下一次桌面先安排单个 file 来源。为该次临时工作台固定项目、合成源、临时客户端及策略窗口。用户先审查并批准文件用途和该项目的共同暂存及正式附件策略，再确认临时连接器与首个预览回合。预览回合只暂存并展示完整提案，停止等待。用户核对该次实际提案 ID、版本和摘要后，在新的消息明确写「我确认此提案 `<ID>` 的版本 `<版本>`、摘要 `<摘要>`。只提交这个版本一次，查询原回执。」原始试点请求、界面文字或程序化预演均不作为桌面确认。提交结果不明确时先 `get_proposal` 查询原提案。独立原始流留在后续单案，实际桌面运行仍需安排本机助手和独立网页批准。
+
+#### Codex 可信项目的 file 来源单案
+
+```powershell
+$env:PYTHONIOENCODING = 'utf-8'
+python attachment_pilot.py --check
+python attachment_pilot.py
+```
+
+`--check` 使用安装版 App Server、临时可信与不可信目录及程序化声明，零模型复核完整链路。省略该选项启动待用户操作的隔离服务。固定项目 `AG142 附件隔离项目`、文件 `AG142-attachment.txt`、62 字节、仅 `attachment_source`、精确文件 ID 和 revision。基础权限仅一个隔离项目、既有项目访问所需的 `issue` 类型及 `read/propose/commit`。验收中继对 `prepare_proposal` 另行限定为 `attachment/create`，其余类型和操作在转发前拒绝。项目 TOML 禁用旧 `workbench`，仅启用 `workbench_ag142_attachment` 的九项工具：capabilities、get_file_info、create_upload、complete_upload、get_attachment_target、prepare_proposal、preview_proposal、commit_proposal、get_proposal。正文读取工具未开放，提交仅接受本次已解锁的提案 ID、版本与摘要。
+
+1. `pending_discovery` 提供当次 TOML、临时项目、目录及信号路径，等待 1200 秒。用户核对配置并信任临时项目。监督核对旧项禁用、实际临时工作目录和中继完整九项目录后，以 `New-Item -Path '<本次 discovery_file>' -ItemType File` 继续。此阶段无文件授权或暂存策略。
+2. `review_file` 和 `review_policy` 依次输出完整本机预览，每项等待 540 秒。用户分别同意文件用途及共同暂存和正式附件策略后，才各自创建当次 `approval_file`。策略绑定单项目和该文件，关闭原始流，最低确认方式为 `agent_attested`。批准这两项仅开启能力。
+3. `ready_preview` 开始 1200 秒执行窗口并输出首条固定提示。用户同意所选模型后发送一次。模型只准备并完整展示。夹具观察到精确候选处于 `previewed`、暂存为 `ready`、零附件零回执，才输出 `await_user_confirmation` 的提案标识及信号。等待真实回合结束，人工核对完整预览和同一标识。
+4. 用户在监督对话明确同意实际提案 ID、版本和摘要后，监督才创建 `ENABLE_COMMIT` 对应的 `approval_file`。夹具重核当前版本并输出 `ready_commit`。用户把这条固定确认作为之后的新消息发送到原桌面聊天。信号只让中继转发匹配的提交，正式确认由用户的新消息表达，服务仍按原 `agent_attested` 契约处理。两条提示共享 `execution_expires_at`，解锁不续期。结果不明先查询原提案。
+5. `committed` 记录原回执、磁盘摘要及消费状态。监督核对一份独立附件和回执。关闭临时聊天及项目、等待中继退出，再创建 STOP。保留先输出的 `service_stopped`，另核对目录清理。使用项目级配置，不登记用户级 Codex MCP。
+
+安装版 App Server 的 `--check` 和真实启动参数下的隔离程序驱动均通过。可信目录九项与继承项禁用、不可信目录的对照、确认前提交拒绝和零附件零回执、错误摘要拒绝、精确提交和原回执重放、暂存消费、重开磁盘字节、旧凭据 401 及端口和目录收尾均已核对。隔离程序驱动实际经过两个授权提示与两个模型提示的输出，未发送桌面消息。

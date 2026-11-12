@@ -35,6 +35,10 @@ READONLY_PILOT_TOOLS = ('workbench_capabilities', 'workbench_list_file_grants',
                         'workbench_get_file_info', 'workbench_read_file')
 GRAPH_PILOT_TOOLS = ('workbench_capabilities', 'workbench_list_concept_maps', 'workbench_prepare_proposal',
                      'workbench_preview_proposal', 'workbench_get_proposal', 'workbench_get_concept_map')
+ATTACHMENT_PILOT_TOOLS = ('workbench_capabilities', 'workbench_get_file_info', 'workbench_create_upload',
+                          'workbench_complete_upload', 'workbench_get_attachment_target', 'workbench_prepare_proposal',
+                          'workbench_preview_proposal', 'workbench_commit_proposal', 'workbench_get_proposal')
+ATTACHMENT_COMMIT_GATE = 'attachment-commit.json'
 PILOT_READ_SECONDS = 1200
 WORKBUDDY_DISCOVERY_SECONDS = 1200
 
@@ -155,8 +159,30 @@ def restrict_pilot_catalog(message, tools_allowed=READONLY_PILOT_TOOLS):
     return {'jsonrpc':'2.0', 'id':message.get('id'), 'result':{'tools':allowed}}
 
 
+def attachment_tool_allowed(params, gate):
+    name = params.get('name')
+    if name not in {'workbench_prepare_proposal', 'workbench_commit_proposal'}:
+        return True
+    arguments = params.get('arguments')
+    if not isinstance(arguments, dict):
+        return False
+    if name == 'workbench_prepare_proposal':
+        return arguments.get('kind') == 'attachment' and arguments.get('operation') == 'create'
+    try:
+        approved = read_json(gate)
+    except (OSError, ValueError):
+        return False
+    keys = {'proposal_id', 'version', 'preview_digest'}
+    return (isinstance(approved, dict) and approved.keys() == keys and
+            type(arguments.get('version')) is int and
+            all(arguments.get(key) == approved[key] for key in keys))
+
+
 def relay(protocol_faults=False, tools_allowed=()):
     trace = Path(os.environ["WORKBENCH_PROBE_TRACE"])
+    rejection_message = {READONLY_PILOT_TOOLS:'Tool is outside the read-only pilot allowlist',
+                         GRAPH_PILOT_TOOLS:'Tool is outside the graph pilot allowlist',
+                         ATTACHMENT_PILOT_TOOLS:'Call is outside the attachment pilot scope'}.get(tools_allowed)
     process = subprocess.Popen(
         [sys.executable, str(ROOT / "agent_bridge.py"), "--config", os.environ["WORKBENCH_PROBE_CONFIG"]],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -184,10 +210,11 @@ def relay(protocol_faults=False, tools_allowed=()):
                             if tools_allowed and message.get('method') == 'tools/call':
                                 params = message.get('params')
                                 blocked = not isinstance(params, dict) or params.get('name') not in tools_allowed
+                                if not blocked and tools_allowed == ATTACHMENT_PILOT_TOOLS:
+                                    blocked = not attachment_tool_allowed(params, trace.with_name(ATTACHMENT_COMMIT_GATE))
                                 if blocked and type(message.get('id')) in {int, str}:
                                     rejection = {'jsonrpc':'2.0', 'id':message['id'], 'error':{
-                                        'code':-32602, 'message':('Tool is outside the read-only pilot allowlist'
-                                            if tools_allowed == READONLY_PILOT_TOOLS else 'Tool is outside the graph pilot allowlist')}}
+                                        'code':-32602, 'message':rejection_message}}
                         elif tools_allowed:
                             restricted = restrict_pilot_catalog(message, tools_allowed)
                             if restricted is not None:
@@ -680,6 +707,7 @@ if __name__ == "__main__":
     relay_modes = parser.add_mutually_exclusive_group()
     relay_modes.add_argument('--relay-readonly-pilot', action='store_true', help=argparse.SUPPRESS)
     relay_modes.add_argument('--relay-graph-pilot', action='store_true', help=argparse.SUPPRESS)
+    relay_modes.add_argument('--relay-attachment-pilot', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument("--protocol-faults", action="store_true", help="Explicitly inject fixed server ping/unknown requests; no model or business writes")
     parser.add_argument("--desktop-session", action="store_true", help="Prepare temporary project files only; never launch or modify the real desktop profile")
     parser.add_argument('--readonly-pilot', choices=('codex','workbuddy'), help='Prepare a disposable AG-142 read-only project; never launch the desktop')
@@ -690,7 +718,12 @@ if __name__ == "__main__":
         parser.error('Select one read-only pilot mode independently of the legacy probe')
     if args.codex_project_guard and args.readonly_pilot != 'codex':
         parser.error('--codex-project-guard requires --readonly-pilot codex')
-    tools_allowed = READONLY_PILOT_TOOLS if args.relay_readonly_pilot else GRAPH_PILOT_TOOLS if args.relay_graph_pilot else ()
+    tools_allowed = ()
+    for enabled, profile in ((args.relay_readonly_pilot, READONLY_PILOT_TOOLS),
+                             (args.relay_graph_pilot, GRAPH_PILOT_TOOLS),
+                             (args.relay_attachment_pilot, ATTACHMENT_PILOT_TOOLS)):
+        if enabled:
+            tools_allowed = profile
     if tools_allowed and (not args.relay or args.protocol_faults):
         parser.error('Pilot tool filtering requires --relay without protocol fault injection')
     if args.relay:

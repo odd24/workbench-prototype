@@ -238,7 +238,7 @@ HTTP夹具已从真实服务取得200只读结果，再延迟响应12秒；桥�
 | Codex CLI 与 App Server | 0.167.0-alpha.3.2 | 临时 `CODEX_HOME` 下实际直连 MCP 2025-11-25、完整 22 项 Schema、重载配置和新会话重新发现。未启动模型 |
 | WorkBuddy 安装包 | 5.9.3，ProductVersion 5.9.3.0 | 磁盘安装元数据。桌面任务启动前需由用户核对运行版本 |
 | WorkBuddy 原装 CLI | 2.165.0，`lite-wb` | 两次新进程实际 initialize、initialized 和 tools/list，MCP 2025-11-25、完整 22 项工具名称。显式探针的 ping 和未知方法应答均通过。原装 `mcp --help` 只有登记、移除、列表与详情，公开直接业务调用入口未验证 |
-| WorkBuddy 桌面 | V5.9.3 / Hy4 | 用户级临时单项发现通用目录 22 项和 file 附件目录 9 项，真实只读、图新建及更新 `local_web`、单文件附件 `agent_attested` 通过。项目级发现、其余写入与确认矩阵待验 |
+| WorkBuddy 桌面 | V5.9.3 / Hy4 | 用户级临时单项发现通用目录 22 项、file 九项及 stream 七项，真实只读、图新建及更新 `local_web`、file `agent_attested` 和 stream `local_web` 附件通过。项目级发现、其余写入与确认矩阵待验 |
 | Codex 桌面 | 中继记录 `codex-mcp-client 0.167.0-alpha.3.2` | 文件读取、概念图新建和更新 `local_web`、单文件附件 `agent_attested` 均通过。其余写入和确认待验 |
 
 ### 已观察的桌面试点
@@ -642,6 +642,14 @@ WorkBuddy V5.9.3 首次真实 file 候选已作为用户级单项登记。MCP �
 - 重开仓储确认只有一份正式附件 `ASSET-cfc6ace5f3ff531d97ac8ad747b71971` 和一份原回执。磁盘文件与 62 字节合成源逐字节一致，SHA-256 为 `023887f7b2aff5b9ec2c79756c98f36676d8817c2b743f5a35cf3eddf9c04d70`，暂存为 `consumed`。本轮桌面没有重放提交。
 - 用户配置恢复原始字节，桌面刷新后仅见原 `miora`。STOP 后夹具退出 0，旧凭据返回 401，端口关闭，独立数据根已移除并经监督复核。两客户端真实 `file_id` 附件的 `agent_attested` 单案均通过。
 
+#### WorkBuddy 真实桌面原始流附件通过（2026-11-12）
+
+- WorkBuddy V5.9.3 / Hy4 复用同名 `workbench_ag142_attachment`，中继参数从 file 切换到 stream。桌面再次提示首次信任，用户亲自点击。MCP 协商 `2025-11-25`，界面显示 7/7。模型启动时一次提前的 `tools/list` 返回 `-32002`，随后自动完成初始化和目录发现。
+- 本机策略只覆盖一个隔离项目、stream-only、`files=[]`、62 字节与附件 `create/local_web`。首回合 capabilities 和 create_upload 各成功一次，UI 中的会话 `badf5da8-6d85-5f95-ae31-74423fb7dd1f` 与夹具一致，状态为 `created`。固定本机助手对同会话独立执行 loopback PUT，核对 62 字节及 SHA-256 后封存。模型未上传字节。
+- 第二回合仅使用临时连接器，complete_upload、get_attachment_target、prepare_proposal、preview_proposal 各成功一次，未调用 commit。界面展示全部附件字段、差异、警告和执行依据。表格中的提案为 `e399943b-ea07-4453-a635-ad0383795c1c` v1，摘要 `785efc6a88dcd60d270603490a15cc09d98aaab190f15d61294cdbeccbbd1ad9`。模型文字缩写了部分辅助依赖标识，用户以隔离网页的完整预览为批准依据。批准前夹具核对暂存 `ready`、正式附件和回执均为零。
+- 用户亲自在隔离网页批准，原回执的确认方式为 `local_web`。重开仓储仅有一份正式附件 `ASSET-badf5da86d855f95ae3174423fb7dd1f` 和一份原回执，原会话为 `consumed`。磁盘 62 字节与合成源逐字节一致，SHA-256 为 `023887f7b2aff5b9ec2c79756c98f36676d8817c2b743f5a35cf3eddf9c04d70`。本轮未追加桌面模型查询或实桌面重放。
+- 退出当次任务，恢复配置原始字节并刷新，列表仅见原 `miora`。随后 STOP 退出 0，旧凭据返回 401，端口关闭，临时根移除并经独立复核。WorkBuddy 原始流正式附件真实通过，Codex 该业务单案仍待验。
+
 ### 待审查的单条 issue 删除单案（2026-11-12）
 
 仅用固定 NTFS 上的新临时空间。通过现有领域仓储预置项目 `AG142 删除隔离项目`、目标 issue `AG142 单条删除`、同项目只读来源 issue `AG142 活动引用`。目标为三行合成正文，包含引号和首尾空格，并挂一份 `ag142-retained.txt`，固定字节为 `AG142 RETAINED ASSET\n`。来源正文含一处 `[[<目标 ID>]]`。记录本次目标和来源 ID、完整原始 Markdown 摘要及附件字节摘要。来源不是删除目标，预览后应原样保留。
@@ -779,7 +787,7 @@ python workflow_pilot.py --anchor $anchor
 | --- | --- | --- | --- |
 | 工具发现、版本、全文读取 | MCP `2025-11-25`，四项只读目录，六段及原文逐字节匹配 | MCP `2025-11-25`，通用 22 项、file 附件九项，六段、EOF、摘要及 UI 原文；UI 空白未独立逐字节核对 | App Server 配置刷新及新会话、WorkBuddy 原装 CLI 发现各自已核对；按后续试点记录其实际目录与刷新 |
 | `file_id` 项目附件 | `agent_attested` 两回合通过 | `agent_attested` 两回合通过 | file-only、预览、原回执、落盘、消费和撤权均有证据；提交重放已有隔离结果 |
-| 原始流项目附件 | 七项发现并收尾，业务待验 | 真实桌面业务待验 | 两端已有七项隔离夹具、独立固定 PUT、完整预览和程序化本机批准，待真实执行 `local_web` 和查询原回执 |
+| 原始流项目附件 | 七项发现并收尾，业务待验 | `local_web` 通过，用户网页批准，磁盘与原回执已复核 | 两端已有七项隔离夹具和固定 PUT。Codex 待真实本机批准；两端的流附件桌面回执查询按后续对照安排 |
 | 概念图新建、更新 | 两项 `local_web` 通过 | 两项 `local_web` 通过 | 新建、更新的 `agent_attested` 后续新消息两端仍待验。保留既有隔离 App Server、stdio、画布及历史证据 |
 | 单条、项目级联删除 | 待验 | 待验 | 固定 issue、含实际子记录/独立附件/关联图的级联夹具、浏览器及领域证据齐备，待两端真实预览、本机批准和原回执查询 |
 | 项目创建及独立访问 | 待验 | 待验 | 隔离 App Server 和浏览器已证明创建与后续访问批准、失败及查询分别处理 |

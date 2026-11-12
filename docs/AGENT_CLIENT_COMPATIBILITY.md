@@ -572,7 +572,8 @@ python attachment_pilot.py
 - 用户确认可信项目和旧连接器禁用。中继两次完成从 `2025-06-18` 至 `2025-11-25` 的握手，目录均恰九项。授权仅覆盖同一空隔离项目的单文件 `attachment_source` 和 file-only 正式附件新建策略，固定合成源 62 字节。
 - 真实聊天 `01a1cdde-2b26-7540-9173-49da7d6e5716` 第一回合用时 216.475 秒。capabilities、get_file_info、create_upload、complete_upload、get_attachment_target、prepare_proposal、preview_proposal 各成功一次。未调用 commit 或读取文件正文。完整预览核对版本和摘要，暂存 `ready`，正式附件与回执均为零。
 - 用户在监督聊天明确批准提案 `452ef21b-445d-4d2b-9179-a8e4a64ab0ec` 版本 `1`、摘要 `02cb485e48d7340137b252f90d3bdd800e85b840430920ac1b88666eadcc6e3c`。监督解锁后，用户亲自在原桌面聊天发送绑定同版本和摘要的新消息。第二回合用时 26.983 秒，`commit_proposal`（`agent_attested`、`user_confirmed=true`）和 `get_proposal` 各成功一次。两轮共九次成功调用，均使用临时连接器。
-- 重开仓储核对唯一附件 `ASSET-412cf7bab20756538a519e81f46c5b3e` 和唯一原回执。磁盘 62 字节与合成源逐字节相同，SHA-256 `023887f7b2aff5b9ec2c79756c98f36676d8817c2b743f5a35cf3eddf9c04d70`。暂存为 `consumed`，原提案与回执一致。真实桌面未重放。本轮用户关闭项目、停服和目录清理证据待核。
+- 重开仓储核对唯一附件 `ASSET-412cf7bab20756538a519e81f46c5b3e` 和唯一原回执。磁盘 62 字节与合成源逐字节相同，SHA-256 `023887f7b2aff5b9ec2c79756c98f36676d8817c2b743f5a35cf3eddf9c04d70`。暂存为 `consumed`，原提案与回执一致。真实桌面未重放。
+- 夹具自然到期，`service_stopped` 保留一份附件、一份回执、相同 SHA-256 与 `consumed`，并确认 `revoked_credential_denied=true`、`port_closed=true`。随后 `cleanup_failed` 报 `errno=13`、`winerror=32`，进程退出 1。项目仍在 Codex 列表，临时根仍在，等待用户退出并移除。该次残留未尝试自动删除，与较早的图更新残留分开跟踪。
 
 #### Codex 可信项目的独立原始流单案
 

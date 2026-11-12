@@ -1506,3 +1506,7 @@ AG-142 的独立检查已验证 App Server 只配置 `workbench_ag142` 时可以
 
 - 选定一个合成目标 issue、一份保留附件及一个同项目活动引用 issue。基础范围仅项目与 issue，另行精确 `items.delete/delete/local_web` 到目标 ID。待审桌面限制为五项工具，不开放提交、恢复或永久删除。完整原文、引用和附件影响、人工批准点及停服条件见兼容记录。未改验收中继或运行中的 WorkBuddy 附件连接器。
 - 新鲜临时库与实际 stdio 定向核对精确授权、缺授权与试删引用条目拒绝、原文及影响、批准前零移动零回执、程序化本机批准后原字节进入 `.trash` 和唯一原回执、重放、来源和附件保留、撤销、端口与目录。实际 Codex App Server 零模型矩阵、`test_agent_deletions` 和 `test_agent_delete_http` 共 15 项、`node test_agent_delete_workflows.js` 均通过。真实桌面删除仍待安排，AG-142 进行中，AG-143 待开始。
+
+### AG-142 WorkBuddy file 首轮发现等待与收尾（2026-11-12）
+
+- V5.9.3 登记唯一临时候选，管理界面显示首次信任，等待期间未见握手。监督主动 STOP。无文件或策略授权、工具调用、模型回合、正式附件和回执。退出 0，旧凭据拒绝、端口关闭、目录移除并独立复核。配置恢复原字节，刷新仅原 `miora`。WorkBuddy file 仍待真实业务验收，AG-143 待开始。

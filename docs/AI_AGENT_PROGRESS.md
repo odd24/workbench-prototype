@@ -1627,3 +1627,5 @@ AG-142 的独立检查已验证 App Server 只配置 `workbench_ag142` 时可以
 - 一次性可信项目实际 MCP `2025-06-18` 至 `2025-11-25`，恰七项，用户确认旧项禁用。用户原聊天发送首条，capabilities、create_upload 成功，UI 与夹具同会话 `eea2a4d0-5af9-5686-8cb5-3f861a5502b6`。固定本机助手对原会话写入 62 字节并核对 SHA-256，模型未上传字节。
 - 应用跨聊天转发后，原聊天要求用户在原聊天直接授权，该回合零工具。用户亲自在原聊天发第二条，complete_upload、get_attachment_target 成功。prepare 首次缺 `target_id`，补同项目 ID 并复用原 `request_id` 后成功，完整预览通过。两个有效回合六成功一业务错误，无 commit 或重复会话、提案。提案 `e4b67f90-1bb6-4709-a7a7-3242ace9da8a` v1，摘要和实际聊天标识见兼容记录。
 - 网页独立批准前零附件零回执，批准后唯一正式附件 `ASSET-eea2a4d05af956868cb53f861a5502b6`、唯一原回执、原会话 `consumed`，重开仓储后 62 字节逐字节相同。未追加模型查询或实际重放。到期退出 1，`service_stopped` 核对旧凭据拒绝、端口关闭，随后 `cleanup_failed` 为 `WinError 32`。监督独立复核根仍在，本轮未尝试自动删除。目录清理单列，AG-142 进行中，AG-143 待开始。
+
+- 独立修正原始流第二条提示，明确使用同一个项目的 `target_id` 和 `content.owner_id`，并绑定刚读到的 revision 与原 `upload_id`。普通启动提示检查、Codex 和 WorkBuddy 两条原始流 `--check`、Python/JS 语法和差异检查通过。短隔离根全量 539 项，538 项通过、1 项跳过。生产 API 与既有授权契约沿用。未重跑真实模型或操作遗留目录。

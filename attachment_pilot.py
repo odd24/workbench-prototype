@@ -409,8 +409,10 @@ def run_stream_window(repo, project_id, client_id, upload_args, workspace, put, 
     put(upload)
     prompt = (f'只用 {SERVER}。本机助手已向原会话 {upload} 写入并核对 {len(SOURCE)} 字节与摘要 {SHA256}。'
               f'对这一个会话调用 complete_upload 得到 ready，再用 get_attachment_target 读取项目 {project_id} 的 revision。'
-              f'只准备该项目的 attachment/create，request_id=ag142-stream-prepare，使用原 upload_id、display_name={FILENAME}、'
-              '空分类、insert_link=false、confirmation_mode=local_web。调用 preview_proposal 完整展示目标、来源与附件字段、'
+              f'只准备一个 attachment/create 提案，request_id=ag142-stream-prepare，target_id={project_id}，'
+              'base_revision 使用刚读到的 revision，confirmation_mode=local_web。'
+              f'content 中使用 owner_kind=project、owner_id={project_id}、原 upload_id={upload}、display_name={FILENAME}、'
+              '空分类和 insert_link=false。调用 preview_proposal 完整展示目标、来源与附件字段、'
               '差异、警告、版本、摘要和执行依据，随后停止，等待用户在隔离网页独立批准。不要重传、换会话或自行提交。')
     emit({'mode':'ready_stream_preview', 'execution_expires_at':expires_at, 'prompt':prompt})
     binding = await_value(lambda: proposal_binding(repo, project_id, client_id, upload_args), stop, deadline)

@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 
 from workbuddy_agent_acceptance import (ATTACHMENT_PILOT_TOOLS, DELETE_PILOT_TOOLS, GRAPH_PILOT_TOOLS,
-                                       PROJECT_DELETE_PILOT_TOOLS, READONLY_PILOT_TOOLS,
-                                       STREAM_PILOT_TOOLS, ProtocolFaultProbe, attachment_tool_allowed, delete_tool_allowed,
+                                       PROJECT_PILOT_TOOLS, READONLY_PILOT_TOOLS,
+                                       STREAM_PILOT_TOOLS, ProtocolFaultProbe, attachment_tool_allowed, fixed_proposal_tool_allowed,
                                        installed_cli_bundle,
                                        protocol_metadata, restrict_pilot_catalog)
 
@@ -16,7 +16,7 @@ from workbuddy_agent_acceptance import (ATTACHMENT_PILOT_TOOLS, DELETE_PILOT_TOO
 class WorkBuddyMetadataTests(unittest.TestCase):
     def test_pilot_catalog_filters_tools_and_rejects_missing_or_duplicate_entries(self):
         for profile in (READONLY_PILOT_TOOLS, GRAPH_PILOT_TOOLS, ATTACHMENT_PILOT_TOOLS, STREAM_PILOT_TOOLS,
-                        DELETE_PILOT_TOOLS, PROJECT_DELETE_PILOT_TOOLS):
+                        DELETE_PILOT_TOOLS, PROJECT_PILOT_TOOLS):
             with self.subTest(profile=profile):
                 allowed = [{'name':name, 'inputSchema':{'type':'object'}} for name in profile]
                 reply = {'jsonrpc':'2.0', 'id':17,
@@ -50,14 +50,14 @@ class WorkBuddyMetadataTests(unittest.TestCase):
             spec = {'kind':'issue', 'operation':'delete', 'target_id':'ISSUE-0001',
                     'request_id':'fixed', 'base_revision':'a' * 64, 'confirmation_mode':'local_web'}
             call = {'name':'workbench_prepare_proposal', 'arguments':spec}
-            self.assertFalse(delete_tool_allowed(call, case_path))
+            self.assertFalse(fixed_proposal_tool_allowed(call, case_path))
             case_path.write_text(json.dumps(spec), encoding='utf-8')
-            self.assertTrue(delete_tool_allowed(call, case_path))
+            self.assertTrue(fixed_proposal_tool_allowed(call, case_path))
             for change in ({'target_id':'ISSUE-0002'}, {'operation':'update'}, {'base_revision':'b' * 64}):
-                self.assertFalse(delete_tool_allowed({**call, 'arguments':{**spec, **change}}, case_path))
+                self.assertFalse(fixed_proposal_tool_allowed({**call, 'arguments':{**spec, **change}}, case_path))
             read = {'name':'workbench_get_item', 'arguments':{'kind':'issue', 'item_id':'ISSUE-0001'}}
-            self.assertTrue(delete_tool_allowed(read, case_path))
-            self.assertFalse(delete_tool_allowed({**read, 'arguments':{'kind':'issue', 'item_id':'ISSUE-0002'}}, case_path))
+            self.assertTrue(fixed_proposal_tool_allowed(read, case_path))
+            self.assertFalse(fixed_proposal_tool_allowed({**read, 'arguments':{'kind':'issue', 'item_id':'ISSUE-0002'}}, case_path))
 
     def test_project_delete_pilot_requires_fixed_request_and_unfiltered_project_list(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -66,13 +66,26 @@ class WorkBuddyMetadataTests(unittest.TestCase):
                     'request_id':'fixed', 'base_revision':'a' * 64, 'confirmation_mode':'local_web'}
             case_path.write_text(json.dumps(spec), encoding='utf-8')
             call = {'name':'workbench_prepare_proposal', 'arguments':spec}
-            self.assertFalse(delete_tool_allowed(call, case_path))
-            self.assertTrue(delete_tool_allowed(call, case_path, 'project'))
-            self.assertFalse(delete_tool_allowed({**call, 'arguments':{**spec, 'base_revision':'b' * 64}},
+            self.assertFalse(fixed_proposal_tool_allowed(call, case_path))
+            self.assertTrue(fixed_proposal_tool_allowed(call, case_path, 'project'))
+            self.assertFalse(fixed_proposal_tool_allowed({**call, 'arguments':{**spec, 'base_revision':'b' * 64}},
                                                  case_path, 'project'))
             listing = {'name':'workbench_list_projects', 'arguments':{}}
-            self.assertTrue(delete_tool_allowed(listing, case_path, 'project'))
-            self.assertFalse(delete_tool_allowed({**listing, 'arguments':{'limit':1}}, case_path, 'project'))
+            self.assertTrue(fixed_proposal_tool_allowed(listing, case_path, 'project'))
+            self.assertFalse(fixed_proposal_tool_allowed({**listing, 'arguments':{'limit':1}}, case_path, 'project'))
+
+    def test_project_create_pilot_rejects_replacement_content_and_access_in_create(self):
+        with tempfile.TemporaryDirectory() as directory:
+            case_path = Path(directory) / 'case.json'
+            spec = {'kind':'project', 'operation':'create', 'request_id':'fixed', 'confirmation_mode':'local_web',
+                    'content':{'name':'fixed-project', 'workflow_template':'standard'}}
+            case_path.write_text(json.dumps(spec), encoding='utf-8')
+            call = {'name':'workbench_prepare_proposal', 'arguments':spec}
+            self.assertFalse(fixed_proposal_tool_allowed(call, case_path, 'project'))
+            self.assertTrue(fixed_proposal_tool_allowed(call, case_path, 'project', 'create'))
+            for change in ({'name':'other'}, {'workflow_template':'other'}, {'grant_access':True}):
+                altered = {**call, 'arguments':{**spec, 'content':{**spec['content'], **change}}}
+                self.assertFalse(fixed_proposal_tool_allowed(altered, case_path, 'project', 'create'))
 
     def test_original_launcher_selection_preserves_full_and_supports_lite_only(self):
         with tempfile.TemporaryDirectory() as directory:

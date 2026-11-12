@@ -26,24 +26,42 @@ SERVER = 'workbench_ag142_delete'
 ASSET = b'AG142 RETAINED ASSET\n'
 
 
-class DeletionCase:
+class ProposalCase:
     def before_approval(self, client_id):
         proposals = list(self.store.proposals.glob('*.json'))
         if not proposals:
             return None
         if len(proposals) != 1:
-            raise ValueError('Expected exactly one deletion proposal')
+            raise ValueError('Expected exactly one proposal')
         proposal = read_json(proposals[0])
         if proposal['state'] != 'previewed':
             return None
-        expected = {key:self.request[key] for key in ('kind', 'operation', 'request_id', 'target_id',
-                                                       'base_revision', 'confirmation_mode')}
-        expected.update(client_id=client_id, previewed_version=proposal['version'])
+        expected = {key:self.request[key] for key in ('kind', 'operation', 'request_id', 'confirmation_mode')}
+        expected.update(target_id=self.target, base_revision=self.request.get('base_revision'),
+                        client_id=client_id, previewed_version=proposal['version'])
         if not proposal['preview_digest'] or any(proposal.get(key) != value for key, value in expected.items()):
-            raise ValueError('Deletion proposal does not match the fixed case')
+            raise ValueError('Proposal does not match the fixed case')
         self.check_preview(proposal)
         self.check_original()
         return {key:proposal[key] for key in ('proposal_id', 'version', 'preview_digest')}
+
+
+class DeletionCase(ProposalCase):
+    case_file = DELETE_PILOT_CASE
+
+    @property
+    def project_ids(self):
+        return [self.project]
+
+    def check(self, invoke, client_id, workspace, local):
+        return check_case(invoke, self, client_id, workspace, local)
+
+    def run_window(self, client_id, workspace, stop, audit, local):
+        run_window(self, client_id, workspace, stop, audit)
+
+    def final_state(self):
+        return {'original_present':self.path.exists(), 'trash_count':len(self.repo.list_trash()),
+                'receipt_count':len(list(self.store.receipts.glob('*.json')))}
 
 
 class DeleteCase(DeletionCase):
@@ -184,7 +202,7 @@ def run(check, anchor=None, case_type=DeleteCase):
         info = token = case = None
         try:
             case = case_type(workbench.repository)
-            info = workbench.security.add_client(case.client_name, ['read', 'propose', 'commit'], [case.project], [],
+            info = workbench.security.add_client(case.client_name, ['read', 'propose', 'commit'], case.project_ids, [],
                                                  workbench.base_url, kinds=case.kinds, minimum_confirmation_mode='local_web')
             workspace, client_id = info['workspace_id'], info['client_id']
             token = read_json(Path(info['config_file']))['token']
@@ -198,7 +216,7 @@ def run(check, anchor=None, case_type=DeleteCase):
 
             headers['X-Workbench-Management-Token'] = local('status')['management_token']
             trace, stop, discovered = base / 'protocol.jsonl', base / 'STOP', base / 'DISCOVERED'
-            atomic_write_json(base / DELETE_PILOT_CASE, case.request)
+            atomic_write_json(base / case.case_file, case.request)
             entry, config, catalog = project_connector(cwd, trace, info['config_file'], True, server=case.server,
                 catalog=case.tools, relay_flag=case.relay_flag, slot=slot,
                 port=workbench.server.server_address[1])
@@ -217,9 +235,9 @@ def run(check, anchor=None, case_type=DeleteCase):
                 if case.authorize(grant):
                     if check:
                         with check_app_server(base, cwd, entry, server=case.server, catalog=catalog) as invoke:
-                            audit.update(check_case(invoke, case, client_id, workspace, local))
+                            audit.update(case.check(invoke, client_id, workspace, local))
                     else:
-                        run_window(case, client_id, workspace, stop, audit)
+                        case.run_window(client_id, workspace, stop, audit, local)
         finally:
             port = workbench.server.server_address[1]
             try:
@@ -236,8 +254,7 @@ def run(check, anchor=None, case_type=DeleteCase):
                             assert error.code == 401
                     audit['revoked_credential_denied'] = True
                 if case:
-                    audit.update(original_present=case.path.exists(), trash_count=len(case.repo.list_trash()),
-                                 receipt_count=len(list(case.store.receipts.glob('*.json'))))
+                    audit.update(case.final_state())
             finally:
                 workbench.close()
             with socket.socket() as probe:

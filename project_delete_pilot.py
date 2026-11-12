@@ -9,7 +9,7 @@ from server import Repository
 from workbench.agent_project_delete_service import project_delete_configuration
 from workbench.agent_security import read_json
 from workbench.project_delete_tree import classify_tree, read_tree
-from workbuddy_agent_acceptance import PROJECT_DELETE_PILOT_TOOLS
+from workbuddy_agent_acceptance import PROJECT_PILOT_TOOLS
 
 
 ASSET = b'AG142 SYNTHETIC PROJECT ASSET\n'
@@ -17,7 +17,7 @@ ASSET = b'AG142 SYNTHETIC PROJECT ASSET\n'
 
 class ProjectDeleteCase(DeletionCase):
     server = 'workbench_ag142_project_delete'
-    tools = PROJECT_DELETE_PILOT_TOOLS
+    tools = PROJECT_PILOT_TOOLS
     relay_flag = '--relay-project-delete-pilot'
     directory_prefix = 'workbench-ag142-project-delete-'
     request_prefix = 'ag142-project-delete'

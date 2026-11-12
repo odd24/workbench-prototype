@@ -13,6 +13,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from codex_agent_acceptance import LocalWorkbench, RpcProcess
+from codex_pilot_anchor import anchor_slot
 from workbench.agent_management import client_version
 from workbench.agent_security import read_json
 from workbench.agent_tools import TOOLS
@@ -29,6 +30,18 @@ SERVER = 'workbench_ag142_graph'
 
 def emit(value):
     print(json.dumps(value, ensure_ascii=False, indent=2), flush=True)
+
+
+def emit_stopped(base, slot, audit):
+    status = {'temporary_directory_removed':not base.exists(), **audit}
+    if slot and slot.cleanup_error:
+        error = slot.cleanup_error
+        emit({'mode':'anchor_cleanup_failed', 'anchor_idle':False, **status, 'error_type':type(error).__name__,
+              'errno':getattr(error, 'errno', None), 'winerror':getattr(error, 'winerror', None)})
+        raise SystemExit(1)
+    if slot:
+        status['anchor_idle'] = True
+    emit({'mode':'stopped', **status})
 
 
 def wait_for_signal(signal, stop, seconds):
@@ -52,18 +65,23 @@ def server_toml(name, entry, catalog=()):
 
 
 def project_connector(project_dir, trace, client_config, codex, *, server=SERVER,
-                      catalog=GRAPH_PILOT_TOOLS, relay_flag='--relay-graph-pilot'):
+                      catalog=GRAPH_PILOT_TOOLS, relay_flag='--relay-graph-pilot', slot=None, port=None):
+    if slot and (not codex or project_dir != slot.root):
+        raise ValueError('Managed anchor does not match the Codex project')
     entry = {'command':sys.executable, 'args':[str(Path(__file__).with_name('workbuddy_agent_acceptance.py')), '--relay'],
              'env':{'WORKBENCH_PROBE_TRACE':str(trace), 'WORKBENCH_PROBE_CONFIG':client_config}}
     if not codex:
         return entry, {'config':{'mcpServers':{SERVER:entry}}}, [tool['name'] for tool in TOOLS]
     entry['args'].append(relay_flag)
     config = project_dir / '.codex' / 'config.toml'
-    config.parent.mkdir()
     text = '[mcp_servers.workbench]\nenabled = false\n\n' + server_toml(server, entry, catalog)
     assert tomllib.loads(text)['mcp_servers'] == {
         'workbench':{'enabled':False}, server:{**entry, 'enabled_tools':list(catalog)}}
-    config.write_text(text, encoding='utf-8')
+    if slot:
+        slot.publish(text, port)
+    else:
+        config.parent.mkdir()
+        config.write_text(text, encoding='utf-8')
     return entry, {'config_path':str(config), 'config_text':text,
                    'project_disabled_servers':['workbench']}, list(catalog)
 
@@ -259,11 +277,14 @@ def pilot_directory(prefix='workbench-ag142-graph-'):
         raise
 
 
-def run(check_only, codex=False, operation='create'):
+def run(check_only, codex=False, operation='create', anchor=None):
     audit = {}
-    with pilot_directory() as base:
-        project_dir = base / 'desktop-project'
-        project_dir.mkdir()
+    if anchor is not None and not codex:
+        raise ValueError('A managed anchor requires the Codex project connector')
+    with pilot_directory() as base, anchor_slot(anchor) as slot:
+        project_dir = slot.root if slot else base / 'desktop-project'
+        if not slot:
+            project_dir.mkdir()
         workbench = LocalWorkbench(base / 'data', base / 'private')
         info = token = None
         try:
@@ -306,11 +327,12 @@ def run(check_only, codex=False, operation='create'):
                 {'capability':'concept_maps.write', 'operations':[operation], 'resources':[resource], 'minimum_confirmation_mode':'local_web'}]}
             discovered, approve, stop = base / 'DISCOVERED', base / 'APPROVE_GRANT', base / 'STOP'
             trace = base / 'protocol.jsonl'
-            entry, config, catalog = project_connector(project_dir, trace, info['config_file'], codex)
+            entry, config, catalog = project_connector(project_dir, trace, info['config_file'], codex,
+                                                      slot=slot, port=workbench.server.server_address[1])
             connection = {'workbench_url':workbench.base_url, 'workspace_id':workspace,
                           'operation':operation, **target,
                           'desktop_project':str(project_dir), **config, 'expected_catalog':catalog,
-                          'trace_path':str(trace), 'stop_file':str(stop)}
+                          'trace_path':str(trace), 'stop_file':str(stop), 'managed_anchor':slot is not None}
             may_review = True
             if codex and not check_only:
                 emit({'mode':'pending_discovery', **connection, 'discovery_file':str(discovered),
@@ -384,13 +406,14 @@ def run(check_only, codex=False, operation='create'):
             with socket.socket() as sock:
                 audit['port_closed'] = sock.connect_ex(('127.0.0.1', port)) != 0
             emit({'mode':'service_stopped', **audit})
-    emit({'mode':'stopped', 'temporary_directory_removed':not base.exists(), **audit})
+    emit_stopped(base, slot, audit)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--client', choices=('workbuddy', 'codex'), default='workbuddy')
     parser.add_argument('--operation', choices=('create', 'update'), default='create')
+    parser.add_argument('--anchor', type=Path, help='Use an explicitly initialized Codex pilot directory')
     parser.add_argument('--check', action='store_true', help='Run the isolated synthetic approval and replay, then exit')
     args = parser.parse_args()
-    run(args.check, args.client == 'codex', args.operation)
+    run(args.check, args.client == 'codex', args.operation, args.anchor)

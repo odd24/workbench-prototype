@@ -11,8 +11,9 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from codex_agent_acceptance import LocalWorkbench
+from codex_pilot_anchor import anchor_slot
 from concept_map_pilot import (DISCOVERY_SECONDS, GRANT_REVIEW_SECONDS, WINDOW_SECONDS, check_app_server,
-                               emit, pilot_directory, project_connector, wait_for_signal)
+                               emit, emit_stopped, pilot_directory, project_connector, wait_for_signal)
 from server import Repository
 from workbench.agent_management import client_version
 from workbench.agent_security import read_json
@@ -211,12 +212,13 @@ def await_value(get, stop, deadline):
     return None
 
 
-def run(check, source_mode='file'):
+def run(check, source_mode='file', anchor=None):
     audit = {}
     stream = source_mode == 'stream'
-    with pilot_directory('workbench-ag142-attachment-') as base:
-        cwd = base / 'desktop-project'
-        cwd.mkdir()
+    with pilot_directory('workbench-ag142-attachment-') as base, anchor_slot(anchor) as slot:
+        cwd = slot.root if slot else base / 'desktop-project'
+        if not slot:
+            cwd.mkdir()
         workbench = LocalWorkbench(base / 'data', base / 'private')
         repo = workbench.repository
         info = token = project_id = None
@@ -239,10 +241,11 @@ def run(check, source_mode='file'):
             discovered, gate = base / 'DISCOVERED', base / ATTACHMENT_COMMIT_GATE
             entry, config, catalog = project_connector(cwd, trace, info['config_file'], True, server=SERVER,
                 catalog=STREAM_PILOT_TOOLS if stream else ATTACHMENT_PILOT_TOOLS,
-                relay_flag='--relay-stream-pilot' if stream else '--relay-attachment-pilot')
+                relay_flag='--relay-stream-pilot' if stream else '--relay-attachment-pilot',
+                slot=slot, port=workbench.server.server_address[1])
             context = {'workbench_url':workbench.base_url, 'workspace_id':workspace, 'desktop_project':str(cwd),
                        **config, 'source_mode':source_mode, 'expected_catalog':catalog,
-                       'trace_path':str(trace), 'stop_file':str(stop)}
+                       'trace_path':str(trace), 'stop_file':str(stop), 'managed_anchor':slot is not None}
             if not check:
                 emit({'mode':'pending_discovery', **context, 'discovery_file':str(discovered), 'wait_seconds':DISCOVERY_SECONDS})
             if check or (wait_for_signal(discovered, stop, DISCOVERY_SECONDS) and pilot_discovered(trace, catalog)):
@@ -304,7 +307,7 @@ def run(check, source_mode='file'):
             with socket.socket() as sock:
                 audit['port_closed'] = sock.connect_ex(('127.0.0.1', port)) != 0
             emit({'mode':'service_stopped', **audit})
-    emit({'mode':'stopped', 'temporary_directory_removed':not base.exists(), **audit})
+    emit_stopped(base, slot, audit)
 
 
 def run_desktop_window(repo, project_id, client_id, upload_args, workspace, gate, stop, audit):
@@ -368,6 +371,7 @@ def report_commit(repo, project_id, binding, stop, deadline, audit):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', choices=('file', 'stream'), default='file')
+    parser.add_argument('--anchor', type=Path, help='Use an explicitly initialized Codex pilot directory')
     parser.add_argument('--check', action='store_true', help='Run the isolated App Server preflight without a model')
     args = parser.parse_args()
-    run(args.check, args.source)
+    run(args.check, args.source, args.anchor)

@@ -801,7 +801,7 @@ python workflow_pilot.py --anchor $anchor
 | 概念图新建、更新 | 两项 `local_web` 通过 | 两项 `local_web` 通过 | 新建、更新的 `agent_attested` 后续新消息两端仍待验。保留既有隔离 App Server、stdio、画布及历史证据 |
 | 单条、项目级联删除 | 待验 | 待验 | 固定 issue、含实际子记录/独立附件/关联图的级联夹具、浏览器及领域证据齐备，待两端真实预览、本机批准和原回执查询 |
 | 项目创建及独立访问 | 待验 | 待验 | 两端零模型预演及浏览器专项已验证创建、独立访问批准、失败及原回执查询。WorkBuddy 普通启动已有自操作交接 |
-| 知识库、概念图、项目独立附件分类 | 三域待验 | 三域待验 | 原矩阵三域空分类创建、三域改名隔离夹具及浏览器/领域证据齐备 |
+| 知识库、概念图、项目独立附件分类 | 三域待验 | 三域待验 | 两端三域改名零模型预演、原矩阵空分类创建及浏览器/领域证据齐备。WorkBuddy 有各域普通启动交接 |
 | 工作流 | 待验 | 待验 | 原矩阵空模板创建，另有使用中状态显式映射夹具及浏览器/领域证据 |
 | 确认和故障对照 | 已观察完整展示、新消息确认、本机批准和撤销 | 已观察完整展示、新消息确认、本机批准和撤销 | `local_web` 自报拒绝、幂等、取消、旧版、越权、错空间、429、响应丢失查询、重启和轮换沿用既有隔离证据。两端桌面按已拟对照补取消、旧版、丢响应查询与原 ID 重放等交互，错空间和 429 仍由隔离协议助手注入 |
 
@@ -924,13 +924,39 @@ python project_create_pilot.py --client workbuddy
 
 两端 `--check` 和 WorkBuddy 普通启动的隔离程序驱动均通过。错误访问摘要返回 409，期间项目仍不可见，原创建回执可查。两次批准各自重放原回执，访问操作可以独立查询。真实 WorkBuddy 登记、模型预览及两次用户网页批准仍待验证。
 
+### WorkBuddy 三域分类改名用户自操作交接
+
+从包含本夹具的工作树运行。先选一个域做 `--check`，再单独启动该域的普通轮次。三个域各用独立空间和临时连接器。每轮收尾后再开下一轮。
+
+```powershell
+$env:PYTHONIOENCODING = 'utf-8'
+python category_pilot.py --client workbuddy --domain document --check
+python category_pilot.py --client workbuddy --domain concept-map --check
+python category_pilot.py --client workbuddy --domain project-attachment --check
+
+python category_pilot.py --client workbuddy --domain document
+python category_pilot.py --client workbuddy --domain concept-map
+python category_pilot.py --client workbuddy --domain project-attachment
+```
+
+唯一临时项 `workbench_ag142_category` 只有 capabilities、prepare_proposal、preview_proposal、get_proposal。每轮只允许把所选域的 `AG142 原分类` 改成 `AG142 新分类`，另两个域的同名分类和成员保持原样。将当轮 `ready_preview.prompt` 原样发送。它包含实际 workspace、下表对应的要求和完整固定请求，项目独立附件请求还带当轮项目 ID。
+
+| `--domain` | 独立授权停点顺序 | 固定提示中的该域要求与网页核对项 |
+| --- | --- | --- |
+| `document` | `review_category_rename`，只批准源知识库分类的 `rename`。 | 展示文档 ID、完整正文和元数据的改名前后内容。网页核对原文档 ID、空相邻分类、自定义分类顺序、分类内文件排序及精确读取授权迁移。 |
+| `concept-map` | `review_graph_read` 只读当轮单图 ID，再到 `review_category_rename` 批准源图分类的 `rename`。 | 展示概念图 ID、完整节点和关系、布局、视口及元数据的改名前后内容。网页核对分类顺序、图原 ID 及原布局。 |
+| `project-attachment` | `review_category_rename` 只批准该项目的源独立附件分类，再到 `review_attachment_visibility` 批准仅该项目的共同策略。 | 展示项目 ID 和独立附件的完整改名前后元数据。网页核对有序分类中的原标签、原附件 ID 和记录附件保留。共同策略限当轮项目、1 字节、1 小时、本机确认，工具目录只有上述四项。 |
+
+| 停点 | 用户本人操作 | 监督核对 |
+| --- | --- | --- |
+| `pending_discovery` | 在 WorkBuddy「专家·技能·连接器 → 连接器 → 自定义连接器 → MCP 服务管理」登记当轮 `config` 中唯一临时项。打开 `desktop_project`、选择 Hy4，首次信任由本人处理，停在发消息前。 | 核对当轮握手、连接器和四项工具后写 `discovery_file`。同名冲突、信任未完成或目录不符时停止。 |
+| 本域各 `review_*` | 逐项阅读完整授权预览，同意后再进入下一步。 | 每项经用户分别同意后写当次 `approval_file`，核对原名、域、适用的项目或图 ID 和操作。 |
+| `ready_preview` | 原样发送当轮固定提示。核对空间、域、源名与新名、完整成员前后、警告、提案 ID、版本、摘要和执行依据。展示后停止。 | 等待 `await_web_approval`。核对当前绑定、三域文件和排序及零正式回执。 |
+| `await_web_approval` | 打开当轮 `workbench_url` 的「提案管理」，阅读完整目录顺序、文件排序、授权迁移及该域核对项。确认当轮 ID、版本和摘要后，亲自点击「批准分类变更」并确认。 | 等 `committed` 后核对所选域落盘、唯一原回执、另两域及记录附件字节。响应不明时先用「查询提案操作结果」及原提案查询，再停止。 |
+| `committed` 或中止 | 成功后如需复核，在当轮任务只查询原提案。退出任务，只移除本轮临时项并刷新列表。 | 核对配置基线，写当轮 `stop_file`，检查 401、端口关闭和临时根移除。 |
+
+两端三域 `--check` 和 WorkBuddy 三域普通启动程序驱动均通过。跨域及未授权删除请求被拒，独立批准后唯一原回执可查询和重放，另两域及附件字节核对通过。真实 WorkBuddy 登记、模型预览和用户网页批准待验。
+
 #### 其余普通启动夹具的 WorkBuddy 复用缺口
 
-连接器生成现可复用指定的受限目录和原装 WorkBuddy CLI 预演入口。以下真实业务仍需各自 WorkBuddy 零模型驱动与用户自操作交接。
-
-| 夹具 | 已有 Codex 证据 | WorkBuddy 接入须核对 |
-| --- | --- | --- |
-| 三域分类 | 各域的四项工具、独立授权、改名与另两域保留 | `--domain` 入口单列。按域核对精确授权、概念图单图读权、独立附件共同策略、同名跨域拒绝及无授权操作。 |
-| 工作流 | 四项工具、完整映射、旧版及缺映射拒绝 | 保留初始化模板及状态映射，复核 WorkBuddy 下旧版、无映射、完整本机计划和唯一回执。 |
-
-WorkBuddy 已开放单条 issue 删除、项目级联删除和项目创建入口。表中的两个夹具保留现有 Codex 入口。
+工作流仍沿用 Codex 入口及四项工具。WorkBuddy 接入须保留模板和状态映射，验证旧版及缺映射拒绝、完整本机计划和唯一回执，并补齐普通启动和用户操作停点。

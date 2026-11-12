@@ -100,7 +100,7 @@ AG-142 隔离验收可用 `python codex_pilot_anchor.py --init <新绝对目录>
 
 项目创建使用 `python project_create_pilot.py --check` 或 `python project_create_pilot.py --client workbuddy --check`，在新临时空间验证完整排序预览、创建回执和独立的项目访问批准。WorkBuddy 普通启动和用户操作停点见[兼容验收](docs/AGENT_CLIENT_COMPATIBILITY.md#workbuddy-项目创建与独立访问用户自操作交接)。
 
-分类改名使用 `python category_pilot.py --domain <document|concept-map|project-attachment> --check`。每轮验证所选域和另外两个域的磁盘结果。
+分类改名使用 `python category_pilot.py --domain <document|concept-map|project-attachment> --check`，WorkBuddy 加 `--client workbuddy`。每轮验证所选域和另外两个域的磁盘结果。WorkBuddy 普通启动和各域停点见[兼容验收](docs/AGENT_CLIENT_COMPATIBILITY.md#workbuddy-三域分类改名用户自操作交接)。
 
 使用中工作流状态的显式迁移使用 `python workflow_pilot.py --check`，验证映射、项目排序、原历史和回执。
 

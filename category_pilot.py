@@ -1,4 +1,4 @@
-"""Disposable Codex pilot for one exact category rename in a selected domain."""
+"""Disposable Codex and WorkBuddy pilot for one exact category rename in a selected domain."""
 
 import argparse
 import io
@@ -20,6 +20,11 @@ from workbuddy_agent_acceptance import CATEGORY_PILOT_CASE, CONFIGURATION_PILOT_
 
 
 DOMAINS = {'document':DOCUMENT, 'concept-map':GRAPH, 'project-attachment':PROJECT_ASSETS}
+MEMBER_PREVIEW = {
+    DOCUMENT:'展示文档 ID、完整正文和元数据的改名前后内容。',
+    GRAPH:'展示概念图 ID、完整节点和关系、布局、视口及元数据的改名前后内容。',
+    PROJECT_ASSETS:'展示项目 ID 和独立附件的完整改名前后元数据，并提示核对本机分类顺序和原标签。',
+}
 SOURCE = 'AG142 原分类'
 DESTINATION = 'AG142 新分类'
 NEIGHBOR = 'AG142 空分类'
@@ -27,9 +32,11 @@ BINARY = b'AG142 SYNTHETIC ATTACHMENT\n'
 
 
 class CategoryCase(ProposalCase):
+    supports_workbuddy = True
     server = 'workbench_ag142_category'
     tools = CONFIGURATION_PILOT_TOOLS
     relay_flag = '--relay-category-pilot'
+    relay_denial = 'outside the category pilot scope'
     directory_prefix = 'workbench-ag142-category-'
     request_prefix = 'ag142-category'
     client_name = 'AG142 分类改名'
@@ -177,7 +184,7 @@ class CategoryCase(ProposalCase):
         alternatives.append({**self.request, 'operation':'delete', 'content':{
             key:value for key,value in self.selection.items() if key != 'new_name'}})
         for proposal in alternatives:
-            rejected('prepare_proposal', proposal, 'outside the category pilot scope')
+            rejected('prepare_proposal', proposal, self.relay_denial)
             try:
                 self.repo.agent_service.prepare_proposal(client, proposal)
             except AgentError as error:
@@ -188,8 +195,8 @@ class CategoryCase(ProposalCase):
         assert not list(self.store.proposals.glob('*.json'))
         return {'cross_domain_denied':True, 'other_operation_denied':True}
 
-    def check(self, invoke, client_id, workspace, local):
-        return check_local_approval(invoke, self, client_id, workspace, local)
+    def check(self, invoke, client_id, workspace, local, *, workbuddy=False):
+        return check_local_approval(invoke, self, client_id, workspace, local, workbuddy=workbuddy)
 
     def after_approval(self, binding):
         key = binding['proposal_id']
@@ -217,8 +224,9 @@ class CategoryCase(ProposalCase):
         deadline = time.monotonic() + WINDOW_SECONDS
         expires_at = int(time.time() + WINDOW_SECONDS)
         prompt = (f'只用 {self.server}。capabilities 核对空间 {workspace}。用以下固定请求调用 prepare_proposal '
-                  '与 preview_proposal。展示精确分类域与项目、全部影响成员改名前后原内容、警告、版本、摘要和执行依据。'
-                  '请用户在隔离工作台核对本机预览中的完整目录顺序、文件排序和授权迁移，再独立批准。展示后停止。\n'
+                  '与 preview_proposal。展示精确分类域、源名、新名、警告、提案 ID、版本、摘要和执行依据。'
+                  + MEMBER_PREVIEW[self.family]
+                  + '请用户在隔离工作台核对本机预览中的完整目录顺序、文件排序和授权迁移，再独立批准。展示后停止。\n'
                   + json.dumps(self.request, ensure_ascii=False, indent=2))
         emit({'mode':'ready_preview', 'prompt':prompt, 'family':self.family, 'execution_expires_at':expires_at})
         binding = await_value(lambda: self.before_approval(client_id), stop, deadline)
@@ -236,8 +244,10 @@ class CategoryCase(ProposalCase):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--domain', required=True, choices=DOMAINS)
-    parser.add_argument('--check', action='store_true', help='Run the isolated App Server preflight without a model')
+    parser.add_argument('--check', action='store_true', help='Run the isolated preflight without a model')
     parser.add_argument('--anchor', type=Path, help='Use an initialized Codex pilot directory')
+    parser.add_argument('--client', choices=('codex','workbuddy'), default='codex')
     args = parser.parse_args()
-    family = DOMAINS[args.domain]
-    run(args.check, args.anchor, CategoryCase, family=family)
+    if args.client == 'workbuddy' and args.anchor is not None:
+        parser.error('--anchor is only available for Codex')
+    run(args.check, args.anchor, CategoryCase, client=args.client, family=DOMAINS[args.domain])

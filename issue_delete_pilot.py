@@ -203,7 +203,7 @@ def check_local_approval(invoke, case, client_id, workspace, local, *, check_rej
         except AgentError as error:
             assert error.code == 'confirmation_required', error
         else:
-            raise AssertionError('The service accepted Agent confirmation for deletion')
+            raise AssertionError('The service accepted Agent confirmation for a local_web proposal')
         access_evidence['service_requires_local_web'] = True
     assert case.before_approval(client_id) == binding
     route = 'proposals/' + binding['proposal_id']

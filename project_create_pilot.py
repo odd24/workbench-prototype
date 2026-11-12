@@ -1,4 +1,4 @@
-"""Disposable Codex pilot for one project creation and separate access approval."""
+"""Disposable Codex and WorkBuddy pilot for one project creation and separate access approval."""
 
 import hashlib
 import json
@@ -10,12 +10,13 @@ from concept_map_pilot import WINDOW_SECONDS, emit
 from issue_delete_pilot import ProposalCase, main
 from server import Repository
 from workbench.agent_management import clean_client
-from workbench.agent_security import read_json
+from workbench.agent_security import AgentError, read_json
 from workbench.project_prepared import prepare_project
 from workbuddy_agent_acceptance import PROJECT_CREATE_PILOT_CASE, PROJECT_PILOT_TOOLS
 
 
 class ProjectCreateCase(ProposalCase):
+    supports_workbuddy = True
     server = 'workbench_ag142_project_create'
     tools = PROJECT_PILOT_TOOLS
     relay_flag = '--relay-project-create-pilot'
@@ -119,7 +120,7 @@ class ProjectCreateCase(ProposalCase):
             raise ValueError('Access approval changed more than the fixed project scope')
         return True
 
-    def check(self, invoke, client_id, workspace, local):
+    def check(self, invoke, client_id, workspace, local, *, workbuddy=False):
         def call(name, args=None):
             result = invoke('workbench_' + name, args or {})
             assert not result['isError'], result
@@ -135,6 +136,7 @@ class ProjectCreateCase(ProposalCase):
 
         assert call('capabilities')['workspace_id'] == workspace
         assert call('list_projects')['items'] == []
+        self.without_access(client_id)
         changed = {**self.request, 'content':{**self.request['content'], 'name':'另一个项目'}}
         rejected('prepare_proposal', changed, 'outside the project creation pilot scope')
         proposal = call('prepare_proposal', self.request)
@@ -142,8 +144,18 @@ class ProjectCreateCase(ProposalCase):
         preview = call('preview_proposal', query)
         binding = self.before_approval(client_id)
         assert binding and preview['preview_digest'] == binding['preview_digest'] and 'local_project_plan' not in preview
-        rejected('commit_proposal', {**binding, 'confirmation':{'mode':'agent_attested','user_confirmed':True}},
-                 'is disabled for MCP server')
+        attested = {**binding, 'confirmation':{'mode':'agent_attested', 'user_confirmed':True}}
+        denial = 'outside the project creation pilot scope' if workbuddy else 'is disabled for MCP server'
+        rejected('commit_proposal', attested, denial)
+        client = self.without_access(client_id)
+        proposal_id = attested.pop('proposal_id')
+        try:
+            self.repo.agent_service.commit_proposal(client, proposal_id, attested)
+        except AgentError as error:
+            assert error.code == 'confirmation_required', error
+        else:
+            raise AssertionError('The service accepted Agent confirmation for project creation')
+        assert self.before_approval(client_id) == binding
         route = 'proposals/' + binding['proposal_id']
         review = local(route + '/preview')
         self.check_local_preview(review, binding)
@@ -156,6 +168,8 @@ class ProjectCreateCase(ProposalCase):
         assert receipt == result['receipt']
         before = self.without_access(client_id)
         assert call('list_projects')['items'] == []
+        observed = call('get_proposal', query)['receipt']
+        assert all(observed[key] == value for key, value in receipt.items())
         access = route + '/project-access'
         review = local(access + '/preview')
         self.check_access_preview(review, before, binding)
@@ -169,8 +183,7 @@ class ProjectCreateCase(ProposalCase):
         else:
             raise AssertionError('Stale access confirmation was accepted')
         assert self.without_access(client_id) == before and call('list_projects')['items'] == []
-        observed = call('get_proposal', query)['receipt']
-        assert all(observed[key] == value for key, value in receipt.items())
+        assert call('get_proposal', query)['receipt'] == observed
         scope_receipt = local(access + '/confirm', approval)
         assert scope_receipt['project_id'] == self.target and scope_receipt['proposal_id'] == binding['proposal_id']
         assert scope_receipt['operation_id'] != receipt['approval']['operation_id']
@@ -181,7 +194,9 @@ class ProjectCreateCase(ProposalCase):
         assert [project['id'] for project in call('list_projects')['items']] == [self.target]
         assert self.created(binding) == receipt and call('get_proposal', query)['receipt'] == observed
         return {'receipt':receipt, 'access_receipt':scope_receipt, 'tool_count':len(self.tools),
-                'hidden_after_creation':True, 'access_failure_preserved_original_receipt':True,
+                'initially_hidden':True, 'hidden_after_creation':True,
+                'agent_commit_disabled':True, 'service_requires_local_web':True,
+                'access_failure_preserved_original_receipt':True,
                 'only_new_project_visible':True, 'approval_replay_matches':True}
 
     def run_window(self, client_id, workspace, stop, audit, local):

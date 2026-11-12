@@ -28,6 +28,7 @@ ASSET = b'AG142 RETAINED ASSET\n'
 
 class ProposalCase:
     client_categories = ()
+    supports_workbuddy = False
 
     def binding_revision(self, proposal):
         return self.request.get('base_revision')
@@ -56,6 +57,7 @@ class ProposalCase:
 
 
 class DeletionCase(ProposalCase):
+    supports_workbuddy = True
     case_file = DELETE_PILOT_CASE
 
     @property
@@ -221,8 +223,8 @@ def check_local_approval(invoke, case, client_id, workspace, local, *, check_rej
 
 def run(check, anchor=None, case_type=DeleteCase, *, seed=None, client='codex', **case_options):
     codex = client == 'codex'
-    if not codex and (client != 'workbuddy' or not issubclass(case_type, DeletionCase) or anchor is not None):
-        raise ValueError('WorkBuddy is available for deletion pilots without --anchor')
+    if not codex and (client != 'workbuddy' or not case_type.supports_workbuddy or anchor is not None):
+        raise ValueError('This pilot does not support the requested client or anchor')
     audit = {'client':client}
     with pilot_directory(case_type.directory_prefix) as base, anchor_slot(anchor) as slot:
         cwd = slot.root if slot else base / 'desktop-project'
@@ -319,7 +321,7 @@ def main(case_type=DeleteCase, description=__doc__, *, seed=None):
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument('--check', action='store_true', help='Run the isolated preflight without a model')
     parser.add_argument('--anchor', type=Path, help='Use an explicitly initialized Codex pilot directory')
-    if issubclass(case_type, DeletionCase):
+    if case_type.supports_workbuddy:
         parser.add_argument('--client', choices=('codex','workbuddy'), default='codex')
     args = parser.parse_args()
     client = getattr(args, 'client', 'codex')

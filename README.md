@@ -98,7 +98,7 @@ AG-142 隔离验收可用 `python codex_pilot_anchor.py --init <新绝对目录>
 
 单条 issue 和项目级联删除分别使用 `python issue_delete_pilot.py --check` 和 `python project_delete_pilot.py --check`。两者均在新临时空间以零模型验证独立本机批准、原字节回收、回执和收尾。 两者均可加 `--client workbuddy`，按[单条删除交接](docs/AGENT_CLIENT_COMPATIBILITY.md#workbuddy-单条删除用户自操作交接)或[项目级联删除交接](docs/AGENT_CLIENT_COMPATIBILITY.md#workbuddy-项目级联删除用户自操作交接)选择当轮入口。
 
-项目创建使用 `python project_create_pilot.py --check`，在新临时空间验证完整排序预览、创建回执和独立的项目访问批准。
+项目创建使用 `python project_create_pilot.py --check` 或 `python project_create_pilot.py --client workbuddy --check`，在新临时空间验证完整排序预览、创建回执和独立的项目访问批准。WorkBuddy 普通启动和用户操作停点见[兼容验收](docs/AGENT_CLIENT_COMPATIBILITY.md#workbuddy-项目创建与独立访问用户自操作交接)。
 
 分类改名使用 `python category_pilot.py --domain <document|concept-map|project-attachment> --check`。每轮验证所选域和另外两个域的磁盘结果。
 

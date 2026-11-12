@@ -618,6 +618,16 @@ python -m unittest -v test_codex_pilot_anchor
 
 窗口结束前监督发送 STOP，夹具退出 0，旧凭据 401、端口关闭、每轮数据根移除，`anchor_idle=true`。独立复核锚点仍登记，项目 TOML 仅保留空闲注释及空 `mcp_servers`，本轮数据根不存在。该轮证实真实桌面可以使用并保留受管项目，跨轮复用和 stream 业务仍待验。
 
+#### Codex 原始流锚点复用与一次性目录
+
+2026-11-12 在同一已登记锚点进行了两次真实桌面复用，均停在发现阶段。第一次等待发现超时。第二次重新打开已信任项目，现场读回项目 `.codex/config.toml`，确认临时项限定七项工具且继承的 `workbench` 禁用。用户在该项目的新聊天打开 `/mcp`，插件 MCP 列表明确没有当轮临时项，等待期间也没有当轮中继轨迹。两轮均未启用当轮 stream 策略、运行模型或执行 PUT，附件和回执均为零。两轮退出 0，旧凭据 401、端口关闭、数据根移除，`anchor_idle=true`。第二轮 STOP 后独立读回空闲 TOML。真实桌面热复用未通过，原因未证实。
+
+官方 OpenAI 文档将 `/mcp` 说明为查看当前会话可用工具。App Server 客户端可在发布新一轮配置后调用一次 `config/mcpServer/reload`，再用新线程的 `mcpServerStatus/list` 及实际中继握手核对七项工具，并用 `workbench_capabilities` 核对当轮空间。该 RPC 会为已加载线程排队刷新，验收只使用本轮新线程。未找到桌面界面触发该 RPC 的官方说明。[App Server](https://learn.chatgpt.com/docs/app-server) · [开发者命令](https://learn.chatgpt.com/docs/developer-commands)
+
+已用安装版 Codex CLI `0.167.0-alpha.3.2` 启动同一个隔离 App Server，在同一合成锚点连续发布两轮 stream 配置，分别使用只读客户端及不同空间。第二轮显式 reload 后，新线程与当轮中继均确认七项，`workbench_capabilities` 返回第二轮 workspace。两轮 401、端口关闭及锚点空闲均核对。空闲态再 reload 后新线程无临时项，最终独立根移除。零模型、零 PUT、零附件、零回执。
+
+不带 `--anchor` 的 `python attachment_pilot.py --client codex --source stream --check` 已在新一次性目录通过，隔离 App Server 验证可信项目七项、旧项禁用、固定会话 PUT、本机程序化批准、唯一附件及回执、原回执重放、401、端口和临时根清理。后续桌面验收可用普通命令 `python attachment_pilot.py --client codex --source stream` 创建新目录，由用户打开并信任。等当轮中继与工具名单同时成立后再授权，结束时先关闭当次聊天和临时项目，再 STOP 并核对清理。该一次性目录路径仍待真实桌面验证。
+
 #### WorkBuddy 桌面附件两来源候选
 
 ```powershell
@@ -787,7 +797,7 @@ python workflow_pilot.py --anchor $anchor
 | --- | --- | --- | --- |
 | 工具发现、版本、全文读取 | MCP `2025-11-25`，四项只读目录，六段及原文逐字节匹配 | MCP `2025-11-25`，通用 22 项、file 附件九项，六段、EOF、摘要及 UI 原文；UI 空白未独立逐字节核对 | App Server 配置刷新及新会话、WorkBuddy 原装 CLI 发现各自已核对；按后续试点记录其实际目录与刷新 |
 | `file_id` 项目附件 | `agent_attested` 两回合通过 | `agent_attested` 两回合通过 | file-only、预览、原回执、落盘、消费和撤权均有证据；提交重放已有隔离结果 |
-| 原始流项目附件 | 七项发现并收尾，业务待验 | `local_web` 通过，用户网页批准，磁盘与原回执已复核 | 两端已有七项隔离夹具和固定 PUT。Codex 待真实本机批准；两端的流附件桌面回执查询按后续对照安排 |
+| 原始流项目附件 | 首次锚点发现七项，两次桌面复用未发现，业务待验 | `local_web` 通过，用户网页批准，磁盘与原回执已复核 | Codex 显式 reload 与全新目录零模型通过。真实桌面可用全新目录续验；两端流附件桌面回执查询按后续对照安排 |
 | 概念图新建、更新 | 两项 `local_web` 通过 | 两项 `local_web` 通过 | 新建、更新的 `agent_attested` 后续新消息两端仍待验。保留既有隔离 App Server、stdio、画布及历史证据 |
 | 单条、项目级联删除 | 待验 | 待验 | 固定 issue、含实际子记录/独立附件/关联图的级联夹具、浏览器及领域证据齐备，待两端真实预览、本机批准和原回执查询 |
 | 项目创建及独立访问 | 待验 | 待验 | 隔离 App Server 和浏览器已证明创建与后续访问批准、失败及查询分别处理 |

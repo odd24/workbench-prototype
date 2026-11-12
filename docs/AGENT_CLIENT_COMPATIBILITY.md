@@ -798,7 +798,7 @@ python workflow_pilot.py --anchor $anchor
 | 工具发现、版本、全文读取 | MCP `2025-11-25`，四项只读目录，六段及原文逐字节匹配 | MCP `2025-11-25`，通用 22 项、file 附件九项，六段、EOF、摘要及 UI 原文；UI 空白未独立逐字节核对 | App Server 配置刷新及新会话、WorkBuddy 原装 CLI 发现各自已核对；按后续试点记录其实际目录与刷新 |
 | `file_id` 项目附件 | `agent_attested` 两回合通过 | `agent_attested` 两回合通过 | file-only、预览、原回执、落盘、消费和撤权均有证据；提交重放已有隔离结果 |
 | 原始流项目附件 | 首次锚点发现七项，两次桌面复用未发现，业务待验 | `local_web` 通过，用户网页批准，磁盘与原回执已复核 | Codex 显式 reload 与全新目录零模型通过，真实桌面新目录续验时查询原回执。WorkBuddy 已清理原轮，保留桌面回执工具查询未观察的事实 |
-| 概念图新建、更新 | 两项 `local_web` 通过 | 两项 `local_web` 通过 | 新建、更新的 `agent_attested` 后续新消息两端仍待验。保留既有隔离 App Server、stdio、画布及历史证据 |
+| 概念图新建、更新 | 两项 `local_web` 通过 | 两项 `local_web` 通过 | 两端已有正常 `agent_attested` 新建和更新的隔离夹具，待真实新消息、首次成功响应和原回执查询 |
 | 单条、项目级联删除 | 待验 | 待验 | 固定 issue、含实际子记录/独立附件/关联图的级联夹具、浏览器及领域证据齐备，待两端真实预览、本机批准和原回执查询 |
 | 项目创建及独立访问 | 待验 | 待验 | 两端零模型预演及浏览器专项已验证创建、独立访问批准、失败及原回执查询。WorkBuddy 普通启动已有自操作交接 |
 | 知识库、概念图、项目独立附件分类 | 三域待验 | 三域待验 | 两端三域改名零模型预演、原矩阵空分类创建及浏览器/领域证据齐备。WorkBuddy 有各域普通启动交接 |
@@ -813,8 +813,8 @@ python workflow_pilot.py --anchor $anchor
 
 | 客户端 | 连续执行顺序 | 每轮进入条件 |
 | --- | --- | --- |
-| Codex | ① 新一次性项目的原始流附件。② 下表七项业务，按行顺序。③ 图更新确认与故障对照。④ 图新建 `agent_attested` 待夹具就绪。 | 打开每轮 `desktop_project`，在该项目开启新聊天并核对信任。在 `/mcp` 核对该轮目录和继承 `workbench` 禁用，监督另核对当轮中继握手和空间。普通命令省略 `--anchor`。 |
-| WorkBuddy | ① 下表七项业务，按行顺序。② 图更新确认与故障对照。③ 图新建 `agent_attested` 待夹具就绪。 | 用户在「专家·技能·连接器 → 连接器 → 自定义连接器 → MCP 服务管理」登记当轮唯一用户级候选，打开当轮空任务目录并选择 Hy4。用户本人核对信任并处理客户端提示。候选名称、程序、参数或环境路径变化时重新核对信任、工具目录和当轮握手。此前同名项从 file 切换为 stream 参数后实际再次触发信任。 |
+| Codex | ① 新一次性项目的原始流附件。② 下表七项业务，按行顺序。③ 图新建、更新的正常 `agent_attested`。④ 图更新故障对照。 | 打开每轮 `desktop_project`，在该项目开启新聊天并核对信任。在 `/mcp` 核对该轮目录和继承 `workbench` 禁用，监督另核对当轮中继握手和空间。普通命令省略 `--anchor`。 |
+| WorkBuddy | ① 下表七项业务，按行顺序。② 图新建、更新的正常 `agent_attested`。③ 图更新故障对照。 | 用户在「专家·技能·连接器 → 连接器 → 自定义连接器 → MCP 服务管理」登记当轮唯一用户级候选，打开当轮空任务目录并选择 Hy4。用户本人核对信任并处理客户端提示。候选名称、程序、参数或环境路径变化时重新核对信任、工具目录和当轮握手。此前同名项从 file 切换为 stream 参数后实际再次触发信任。 |
 
 每轮只使用当轮输出的项目、空间、连接器、信号和提示。用户同意后，监督收到实际握手才写 `discovery_file`，各项授权分别核对完整预览后写对应 `approval_file`。用户亲自发送当轮提示、核对完整候选，并在当轮隔离网页批准当前版本。发现、空间或绑定不符时停止在当前阶段。成功或中止后先退出本轮聊天和临时项目，WorkBuddy 由用户移除精确匹配的临时项并刷新、核对配置基线。监督写 `stop_file` 并核对撤权后 401、实际进程退出、端口关闭与数据根移除。若报告 `cleanup_failed`，分别登记已完成的撤权和未完成的目录清理。记录实际桌面版本、模型、MCP 协议、目录、用户确认动作及原回执；未观察的项保留缺口。
 
@@ -847,7 +847,37 @@ python attachment_pilot.py --client codex --source stream
 
 这些桌面夹具的目录排除 `commit_proposal`。服务拒绝 `local_web` 自报确认、越权以及幂等的负向证据已有对应隔离检查；现场核对目录与独立网页批准，记录真实客户端回执查询。
 
-#### 两端共用的图更新确认与故障对照
+#### 两端共用的概念图后续新消息确认
+
+在仓库中按客户端逐条运行。每次只启动一个独立候选。追加 `--check` 可在不打开桌面的情况下预演当轮。
+
+```powershell
+python concept_map_pilot.py --client codex --operation create --confirmation-mode agent_attested
+python concept_map_pilot.py --client codex --operation update --confirmation-mode agent_attested
+python concept_map_pilot.py --client workbuddy --operation create --confirmation-mode agent_attested
+python concept_map_pilot.py --client workbuddy --operation update --confirmation-mode agent_attested
+```
+
+固定图为 v2「AG142 关系图」，节点甲、乙及一条「联系」关系。新建只授权该空项目内读图和 `create`。更新预置该图，仅授权读和更新这个原图 ID，核对原 revision 后只改标题为「AG142 关系图更新」。两轮各用新的空间、权限和提案绑定。临时项为 `workbench_ag142_graph_attested`，七项为 capabilities、list_concept_maps、get_concept_map、prepare_proposal、preview_proposal、commit_proposal、get_proposal。
+
+| 停点 | 用户本人操作 | 监督核对 |
+| --- | --- | --- |
+| `pending_discovery` | 按本客户端进入步骤打开当轮临时项目。WorkBuddy 亲自在连接器管理登记唯一候选，选择 Hy4，重新核对信任。此时停在发消息前。 | 核对实际握手、七项工具、空间和独立项目后写当轮 `discovery_file`。 |
+| `grant_review` | 阅读完整权限预览，核对新建的空项目或更新的单图 ID，以及 `agent_attested` 最低确认方式。 | 获单独同意后写当轮 `approval_file`。该信号只启用权限。 |
+| `ready_preview` | 原样发送当轮提示。完整查看候选、原图、节点、关系、布局、视口、差异、警告、提案 ID、版本、摘要和执行依据，预览后停止。 | 核对预览与固定候选及原字节，确认没有正式写入、新历史或回执。 |
+| `await_user_confirmation` | 在同一桌面聊天亲自发送当轮确认提示，明确确认实际 ID、版本和摘要。这条新消息只确认绑定，等待下一条提示。 | 核对真实新消息和当前完整预览，按下方命令原子写入该阶段 `binding`。错误、过期、旧绑定或预览变化时停止。 |
+| `ready_commit` | 原样发送当轮执行提示，按原绑定提交一次，看到首次成功后只查询同一提案并展示原回执。超时或失败先查原提案，再停止。 | 核对成功响应、随后原回执查询和持久回执一致。新建核对一图一回执且无更新历史，更新核对同图 ID、原字节历史各一。只有证据一致才出现 `committed`。 |
+| `committed` 或中止 | 按本客户端步骤退出聊天和临时项目，WorkBuddy 移除该项并刷新。 | 写 `stop_file`，核对 401、退出、端口及临时根。若出现 `first_response_or_query_unverified`，记录缺口，查询原结果。 |
+
+`$binding` 和 `$signalFile` 分别取 `await_user_confirmation` 当轮输出的对象和路径。
+
+```powershell
+$binding | ConvertTo-Json -Compress | python -c "import json, sys; from pathlib import Path; from workbench.persistence import atomic_write_json; atomic_write_json(Path(sys.argv[1]), json.load(sys.stdin))" $signalFile
+```
+
+两端四组新建/更新均有零模型 `--check` 与普通启动程序驱动证据。正常路径使用首次成功响应，恢复对照仍验证首响应被截断后的查询、重启及重放。真实用户新消息与桌面回执待验。
+
+#### 两端共用的图更新故障对照
 
 ```powershell
 python recovery_pilot.py --client codex
@@ -857,8 +887,6 @@ python recovery_pilot.py --client workbuddy
 Codex 一次性目录的普通启动和未发现时 STOP 已实测，TOML 六项及收尾通过。完整零模型故障序列沿用既有 App Server 和原始 stdio 证据。
 
 逐端运行，按下节的操作者信号执行。用户先发送 A、B 两份完整预览提示，再用之后的新消息明确确认 B 的当轮 ID、版本和摘要；监督看到真实确认后才解锁。用户按 `ready_commit` 提交一次，首响应被夹具截断时先查询同一个 B，待监督重启同库同身份后再查一次，收到 `ready_replay` 才按原绑定重放一次。用真实新消息、实际提交、唯一更新历史和原回执同时证明图更新 `agent_attested` 与恢复。收到 `committed` 后可在同一聊天只读查询已取消的 A。A 的修订、旧版 `version_conflict` 和取消后 `invalid_state` 由夹具直接调用服务核对；当前中继只接受 B 的精确提交绑定，桌面无法通过该夹具提交 A 来观察服务原错误。错空间、429 与轮换继续沿用隔离协议证据，现场仅做本轮撤权和清理。
-
-图新建 `agent_attested` 是两端独立缺口。可用 `python concept_map_pilot.py --help` 复核当前没有确认模式选项。该夹具把客户端最低策略、图写入授权和请求固定为 `local_web`，受限图目录无 `commit_proposal`。恢复夹具也仅接受固定图的 `update`，并强制截断首次成功响应。现有入口可以在 B 证明更新的新消息确认，无法做图新建的同类验证，也不提供普通更新的首次成功响应。图新建待提供固定候选、独立最小授权及精确 ID/版本/摘要提交门后，再分别由两端用户完成预览、后续新消息确认、一次提交和原回执查询。
 
 ### AG-142 图更新取消与恢复对照夹具（2026-11-12）
 

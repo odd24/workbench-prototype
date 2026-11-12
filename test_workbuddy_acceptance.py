@@ -9,6 +9,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from workbuddy_agent_acceptance import (ATTACHMENT_PILOT_TOOLS, CONFIGURATION_PILOT_TOOLS, DELETE_PILOT_TOOLS, GRAPH_PILOT_TOOLS,
+                                       GRAPH_ATTESTED_CASE, GRAPH_ATTESTED_GATE, GRAPH_ATTESTED_TOOLS,
+                                       PILOT_ATTESTED_CONFIRMATION, graph_attested_tool_allowed,
                                        PROJECT_PILOT_TOOLS, READONLY_PILOT_TOOLS, RECOVERY_PILOT_TOOLS,
                                        STREAM_PILOT_TOOLS, ProtocolFaultProbe, attachment_tool_allowed, fixed_proposal_tool_allowed,
                                        installed_cli_bundle,
@@ -17,7 +19,7 @@ from workbuddy_agent_acceptance import (ATTACHMENT_PILOT_TOOLS, CONFIGURATION_PI
 
 class WorkBuddyMetadataTests(unittest.TestCase):
     def test_pilot_catalog_filters_tools_and_rejects_missing_or_duplicate_entries(self):
-        for profile in (READONLY_PILOT_TOOLS, GRAPH_PILOT_TOOLS, ATTACHMENT_PILOT_TOOLS, STREAM_PILOT_TOOLS,
+        for profile in (READONLY_PILOT_TOOLS, GRAPH_PILOT_TOOLS, GRAPH_ATTESTED_TOOLS, ATTACHMENT_PILOT_TOOLS, STREAM_PILOT_TOOLS,
                         DELETE_PILOT_TOOLS, PROJECT_PILOT_TOOLS, CONFIGURATION_PILOT_TOOLS, RECOVERY_PILOT_TOOLS):
             with self.subTest(profile=profile):
                 allowed = [{'name':name, 'inputSchema':{'type':'object'}} for name in profile]
@@ -45,6 +47,40 @@ class WorkBuddyMetadataTests(unittest.TestCase):
                 self.assertFalse(attachment_tool_allowed({**call, 'arguments':{**binding, **change}}, gate))
             prepare = {'name':'workbench_prepare_proposal', 'arguments':{'kind':'issue', 'operation':'create'}}
             self.assertFalse(attachment_tool_allowed(prepare, gate))
+
+    def test_graph_attested_claim_requires_current_preview_and_is_exclusive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            case_path, gate = base / GRAPH_ATTESTED_CASE, base / GRAPH_ATTESTED_GATE
+            proposals = base / 'data' / '.agent' / 'proposals'
+            proposals.mkdir(parents=True)
+            key = '12345678-1234-1234-1234-123456789abc'
+            binding = {'proposal_id':key, 'version':2, 'preview_digest':'a' * 64}
+            spec = {'request_id':'graph', 'kind':'concept_map', 'operation':'create',
+                    'confirmation_mode':'agent_attested', 'content':{'graph':{'title':'fixed'}}}
+            scope = {'workspace_id':'space', 'client_id':'client'}
+            case = {**scope, 'request':spec, 'expires_at':int(time.time()) + 60}
+            proposal = {**scope, **binding, 'request_id':'graph', 'kind':'concept_map', 'operation':'create',
+                        'confirmation_mode':'agent_attested', 'normalized_content':spec['content'],
+                        'state':'previewed', 'previewed_version':2}
+            case_path.write_text(json.dumps(case), encoding='utf-8')
+            path = proposals / (key + '.json')
+            path.write_text(json.dumps(proposal), encoding='utf-8')
+            call = {'name':'workbench_commit_proposal', 'arguments':{**binding, 'confirmation':PILOT_ATTESTED_CONFIRMATION}}
+            self.assertFalse(graph_attested_tool_allowed(call, case_path))
+            gate.write_text(json.dumps(binding), encoding='utf-8')
+            for changed in ({'client_id':'another'}, {'version':3}, {'previewed_version':1}, {'state':'draft'}):
+                path.write_text(json.dumps({**proposal, **changed}), encoding='utf-8')
+                self.assertFalse(graph_attested_tool_allowed(call, case_path))
+            path.write_text(json.dumps(proposal), encoding='utf-8')
+            invalid = {**call, 'arguments':{**call['arguments'], 'confirmation':{'mode':'agent_attested','user_confirmed':1}}}
+            self.assertFalse(graph_attested_tool_allowed(invalid, case_path))
+            case_path.write_text(json.dumps({**case, 'expires_at':0}), encoding='utf-8')
+            self.assertFalse(graph_attested_tool_allowed(call, case_path))
+            case_path.write_text(json.dumps(case), encoding='utf-8')
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                results = list(executor.map(lambda _:graph_attested_tool_allowed(call, case_path), range(2)))
+            self.assertCountEqual(results, [True, False])
 
     def test_delete_pilot_only_prepares_fixed_issue_request(self):
         with tempfile.TemporaryDirectory() as directory:

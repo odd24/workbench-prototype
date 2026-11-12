@@ -35,6 +35,11 @@ READONLY_PILOT_TOOLS = ('workbench_capabilities', 'workbench_list_file_grants',
                         'workbench_get_file_info', 'workbench_read_file')
 GRAPH_PILOT_TOOLS = ('workbench_capabilities', 'workbench_list_concept_maps', 'workbench_prepare_proposal',
                      'workbench_preview_proposal', 'workbench_get_proposal', 'workbench_get_concept_map')
+GRAPH_ATTESTED_TOOLS = (*GRAPH_PILOT_TOOLS, 'workbench_commit_proposal')
+GRAPH_ATTESTED_CASE = 'graph-attested.json'
+GRAPH_ATTESTED_GATE = 'graph-commit.json'
+PILOT_BINDING_FIELDS = ('proposal_id', 'version', 'preview_digest')
+PILOT_ATTESTED_CONFIRMATION = {'mode':'agent_attested', 'user_confirmed':True}
 ATTACHMENT_PILOT_TOOLS = ('workbench_capabilities', 'workbench_get_file_info', 'workbench_create_upload',
                           'workbench_complete_upload', 'workbench_get_attachment_target', 'workbench_prepare_proposal',
                           'workbench_preview_proposal', 'workbench_commit_proposal', 'workbench_get_proposal')
@@ -194,7 +199,7 @@ def attachment_tool_allowed(params, gate):
         approved = read_json(gate)
     except (OSError, ValueError):
         return False
-    keys = {'proposal_id', 'version', 'preview_digest'}
+    keys = set(PILOT_BINDING_FIELDS)
     return (isinstance(approved, dict) and approved.keys() == keys and
             type(arguments.get('version')) is int and
             all(arguments.get(key) == approved[key] for key in keys))
@@ -217,7 +222,7 @@ def fixed_proposal_tool_allowed(params, case_path, kind='issue', operation='dele
     return params.get('arguments') == case
 
 
-def recovery_proposal_path(case_path, proposal_id, folder):
+def pilot_proposal_path(case_path, proposal_id, folder):
     if not isinstance(proposal_id, str) or not re.fullmatch(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}', proposal_id):
         raise ValueError('Invalid recovery proposal identifier')
     return case_path.parent / 'data' / '.agent' / folder / f'{proposal_id}.json'
@@ -228,11 +233,84 @@ def recovery_preview_allowed(case, case_path, proposal_id):
         return True
     if case['phase'] != 'preview' or case['proposal_ids']:
         return False
-    proposal = read_json(recovery_proposal_path(case_path, proposal_id, 'proposals'))
+    proposal = read_json(pilot_proposal_path(case_path, proposal_id, 'proposals'))
     return (proposal['client_id'] == case['client_id'] and proposal['workspace_id'] == case['workspace_id']
             and proposal['proposal_id'] == proposal_id and any(
                 all(proposal.get(key) == spec[key] for key in ('request_id','kind','operation','target_id','base_revision','confirmation_mode'))
                 and proposal['normalized_content'] == spec['content'] for spec in case['requests']))
+
+
+def claim_pilot_commit(claim, binding):
+    with claim.open('x', encoding='utf-8') as stream:
+        json.dump(binding, stream, ensure_ascii=False)
+        stream.flush()
+        os.fsync(stream.fileno())
+    return True
+
+
+def graph_attested_tool_allowed(params, case_path):
+    try:
+        case = read_json(case_path)
+        if time.time() >= case['expires_at']:
+            return False
+        name, args = params['name'], params.get('arguments')
+        spec = case['request']
+        gate_path = case_path.with_name(GRAPH_ATTESTED_GATE)
+        if name in {'workbench_capabilities', 'workbench_list_concept_maps'}:
+            return args == {}
+        if name == 'workbench_prepare_proposal':
+            return not gate_path.exists() and args == spec
+        if name == 'workbench_get_concept_map':
+            if spec.get('target_id') and args == {'map_id':spec['target_id']}:
+                return True
+            gate = read_json(gate_path)
+            receipt = read_json(pilot_proposal_path(case_path, gate['proposal_id'], 'receipts'))
+            return args == {'map_id':receipt['item_id']}
+        key = args['proposal_id']
+        proposal = read_json(pilot_proposal_path(case_path, key, 'proposals'))
+        if not graph_attested_proposal_matches(case, proposal, key):
+            return False
+        if name in {'workbench_preview_proposal', 'workbench_get_proposal'}:
+            return set(args) == {'proposal_id'}
+        gate = read_json(gate_path)
+        if (name != 'workbench_commit_proposal' or type(args['version']) is not int
+                or set(gate) != set(PILOT_BINDING_FIELDS)
+                or args != {**gate, 'confirmation':PILOT_ATTESTED_CONFIRMATION}
+                or args['confirmation']['user_confirmed'] is not True
+                or proposal['state'] != 'previewed' or proposal['previewed_version'] != proposal['version']
+                or any(proposal[field] != gate[field] for field in PILOT_BINDING_FIELDS)):
+            return False
+        return claim_pilot_commit(case_path.with_suffix('.claim'), args)
+    except (OSError, KeyError, TypeError, ValueError, AttributeError):
+        return False
+
+
+def graph_attested_proposal_matches(case, proposal, key):
+    spec = case['request']
+    fields = ('request_id','kind','operation','confirmation_mode','target_id','base_revision')
+    return (proposal['proposal_id'] == key and proposal['workspace_id'] == case['workspace_id']
+            and proposal['client_id'] == case['client_id'] and proposal['normalized_content'] == spec['content']
+            and all(proposal.get(field) == spec[field] for field in fields if field in spec))
+
+
+def graph_attested_wire_evidence(message, event, case_path):
+    tool = event.get('tool')
+    if event.get('tool_is_error') is not False or tool not in {'workbench_commit_proposal', 'workbench_get_proposal'}:
+        return {}
+    try:
+        gate = read_json(case_path.with_name(GRAPH_ATTESTED_GATE))
+        payload = message['result']['structuredContent']
+        commit = tool == 'workbench_commit_proposal'
+        if not commit and (payload['state'] != 'committed'
+                           or any(payload[field] != gate[field] for field in PILOT_BINDING_FIELDS)):
+            return {}
+        persisted = read_json(pilot_proposal_path(case_path, gate['proposal_id'], 'receipts'))
+        receipt = payload if commit else payload['receipt']
+        if all(receipt.get(field) == value for field, value in persisted.items()):
+            return {'graph_attested_evidence':'committed' if commit else 'queried'}
+    except (OSError, KeyError, TypeError, ValueError, AttributeError):
+        pass
+    return {}
 
 
 def recovery_tool_allowed(params, case_path):
@@ -265,11 +343,7 @@ def recovery_tool_allowed(params, case_path):
         claim = case_path.with_name(f'recovery-{phase}.claim')
         if phase == 'replay' and read_json(case_path.with_name('recovery-first.claim')) != binding:
             return False
-        with claim.open('x', encoding='utf-8') as stream:
-            json.dump(binding, stream, ensure_ascii=False)
-            stream.flush()
-            os.fsync(stream.fileno())
-        return True
+        return claim_pilot_commit(claim, binding)
     except (OSError, KeyError, TypeError, ValueError, AttributeError):
         return False
 
@@ -308,7 +382,7 @@ def recovery_wire_evidence(message, direction, case_path, pending):
         if event == 'first_lost':
             matched = result['isError'] is True and payload['code'] == 'service_unavailable'
         else:
-            persisted = read_json(recovery_proposal_path(case_path, binding['proposal_id'], 'receipts'))
+            persisted = read_json(pilot_proposal_path(case_path, binding['proposal_id'], 'receipts'))
             receipt = payload if event == 'replayed' else payload['receipt']
             matched = (result['isError'] is False and persisted['proposal_id'] == binding['proposal_id']
                        and persisted['version'] == binding['version']
@@ -330,6 +404,7 @@ def relay(protocol_faults=False, tools_allowed=(), *, proposal_pilot=None):
     else:
         rejection_message = {READONLY_PILOT_TOOLS:'Tool is outside the read-only pilot allowlist',
                              GRAPH_PILOT_TOOLS:'Tool is outside the graph pilot allowlist',
+                             GRAPH_ATTESTED_TOOLS:'Call is outside the graph confirmation pilot scope',
                              ATTACHMENT_PILOT_TOOLS:'Call is outside the attachment pilot scope',
                              STREAM_PILOT_TOOLS:'Call is outside the attachment pilot scope',
                              RECOVERY_PILOT_TOOLS:'Call is outside the recovery pilot scope'}.get(tools_allowed)
@@ -342,6 +417,7 @@ def relay(protocol_faults=False, tools_allowed=(), *, proposal_pilot=None):
     pending = {}
     fault_probe = ProtocolFaultProbe(protocol_faults)
     recovery_path = trace.with_name(RECOVERY_PILOT_CASE) if tools_allowed == RECOVERY_PILOT_TOOLS else None
+    graph_path = trace.with_name(GRAPH_ATTESTED_CASE) if tools_allowed == GRAPH_ATTESTED_TOOLS else None
     recovery_pending = {}
 
     def forward(source, target, direction):
@@ -366,6 +442,8 @@ def relay(protocol_faults=False, tools_allowed=(), *, proposal_pilot=None):
                                     blocked = not attachment_tool_allowed(params, trace.with_name(ATTACHMENT_COMMIT_GATE))
                                 if not blocked and recovery_path:
                                     blocked = not recovery_tool_allowed(params, recovery_path)
+                                if not blocked and graph_path:
+                                    blocked = not graph_attested_tool_allowed(params, graph_path)
                                 if not blocked and fixed_case:
                                     kind, operation, case_file = fixed_case
                                     blocked = not fixed_proposal_tool_allowed(params, trace.with_name(case_file), kind, operation)
@@ -383,6 +461,8 @@ def relay(protocol_faults=False, tools_allowed=(), *, proposal_pilot=None):
                             event.update(consumed if consumed is not None else protocol_metadata(message, pending))
                             if recovery_path:
                                 event.update(recovery_wire_evidence(message, direction, recovery_path, recovery_pending))
+                            if graph_path and direction == 'server_to_client':
+                                event.update(graph_attested_wire_evidence(message, event, graph_path))
                     except (ValueError, TypeError, AttributeError, KeyError):
                         # The default relay preserves malformed wire input.
                         event = {"direction": direction, "unparsed": True}
@@ -866,6 +946,7 @@ if __name__ == "__main__":
     relay_modes = parser.add_mutually_exclusive_group()
     relay_modes.add_argument('--relay-readonly-pilot', action='store_true', help=argparse.SUPPRESS)
     relay_modes.add_argument('--relay-graph-pilot', action='store_true', help=argparse.SUPPRESS)
+    relay_modes.add_argument('--relay-graph-attested-pilot', action='store_true', help=argparse.SUPPRESS)
     relay_modes.add_argument('--relay-attachment-pilot', action='store_true', help=argparse.SUPPRESS)
     relay_modes.add_argument('--relay-stream-pilot', action='store_true', help=argparse.SUPPRESS)
     relay_modes.add_argument('--relay-delete-pilot', action='store_true', help=argparse.SUPPRESS)
@@ -887,6 +968,7 @@ if __name__ == "__main__":
     tools_allowed = ()
     for enabled, profile in ((args.relay_readonly_pilot, READONLY_PILOT_TOOLS),
                              (args.relay_graph_pilot, GRAPH_PILOT_TOOLS),
+                             (args.relay_graph_attested_pilot, GRAPH_ATTESTED_TOOLS),
                              (args.relay_attachment_pilot, ATTACHMENT_PILOT_TOOLS),
                              (args.relay_stream_pilot, STREAM_PILOT_TOOLS),
                              (args.relay_recovery_pilot, RECOVERY_PILOT_TOOLS)):

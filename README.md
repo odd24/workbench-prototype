@@ -104,6 +104,8 @@ AG-142 隔离验收可用 `python codex_pilot_anchor.py --init <新绝对目录>
 
 使用中工作流状态的显式迁移使用 `python workflow_pilot.py --check` 或 `python workflow_pilot.py --client workbuddy --check`，验证映射、项目排序、原历史和回执。WorkBuddy 普通启动、固定提示和批准停点见[兼容验收](docs/AGENT_CLIENT_COMPATIBILITY.md#workbuddy-工作流状态迁移用户自操作交接)。
 
+概念图新建或更新的后续新消息确认使用 `python concept_map_pilot.py --client <codex|workbuddy> --operation <create|update> --confirmation-mode agent_attested --check`。真实桌面普通启动和精确绑定停点见[概念图确认交接](docs/AGENT_CLIENT_COMPATIBILITY.md#两端共用的概念图后续新消息确认)。
+
 图更新丢响应和重启重放使用 `python recovery_pilot.py --check` 做零模型对照。真实桌面普通启动与逐阶段停点见[操作者交接](docs/AGENT_CLIENT_COMPATIBILITY.md#普通启动和操作者交接)。
 
 当前本机扩展已交付：AG-116～121、AG-126已完成；AG-122～125按用户用途取消，远程未实现。最终235项Python、19项Node、全文件语法、真实客户端及备份恢复验收通过，临时接入已清理。详见[扩展验收与本地提交](docs/AI_AGENT_EXTENSION_ACCEPTANCE.md)。

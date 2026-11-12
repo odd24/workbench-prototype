@@ -62,8 +62,8 @@ class DeletionCase(ProposalCase):
     def project_ids(self):
         return [self.project]
 
-    def check(self, invoke, client_id, workspace, local):
-        return check_local_approval(invoke, self, client_id, workspace, local)
+    def check(self, invoke, client_id, workspace, local, *, workbuddy=False):
+        return check_local_approval(invoke, self, client_id, workspace, local, workbuddy=workbuddy)
 
     def run_window(self, client_id, workspace, stop, audit, local):
         run_window(self, client_id, workspace, stop, audit)
@@ -77,6 +77,7 @@ class DeleteCase(DeletionCase):
     server = SERVER
     tools = DELETE_PILOT_TOOLS
     relay_flag = '--relay-delete-pilot'
+    relay_denial = 'outside the issue deletion pilot scope'
     directory_prefix = 'workbench-ag142-issue-delete-'
     request_prefix = 'ag142-issue'
     client_name = 'AG142 单条删除'
@@ -170,7 +171,9 @@ def check_local_approval(invoke, case, client_id, workspace, local, *, check_rej
         assert not result['isError'], result
         return result['structuredContent']
 
-    def rejected(name, args=None, reason='is disabled for MCP server'):
+    default_denial = case.relay_denial if workbuddy else 'is disabled for MCP server'
+
+    def rejected(name, args=None, reason=default_denial):
         try:
             invoke('workbench_' + name, args or {})
         except RuntimeError as error:
@@ -188,8 +191,7 @@ def check_local_approval(invoke, case, client_id, workspace, local, *, check_rej
     binding = case.before_approval(client_id)
     assert binding and preview['preview_digest'] == binding['preview_digest']
     attested = {**binding, 'confirmation':{'mode':'agent_attested', 'user_confirmed':True}}
-    denial = 'outside the issue deletion pilot scope' if workbuddy else 'is disabled for MCP server'
-    rejected('commit_proposal', attested, denial)
+    rejected('commit_proposal', attested)
     if workbuddy:
         service = case.repo.agent_service
         client = service.security.clients()[client_id]
@@ -219,8 +221,8 @@ def check_local_approval(invoke, case, client_id, workspace, local, *, check_rej
 
 def run(check, anchor=None, case_type=DeleteCase, *, seed=None, client='codex', **case_options):
     codex = client == 'codex'
-    if not codex and (client != 'workbuddy' or case_type is not DeleteCase or anchor is not None):
-        raise ValueError('WorkBuddy is available for the single issue pilot without --anchor')
+    if not codex and (client != 'workbuddy' or not issubclass(case_type, DeletionCase) or anchor is not None):
+        raise ValueError('WorkBuddy is available for deletion pilots without --anchor')
     audit = {'client':client}
     with pilot_directory(case_type.directory_prefix) as base, anchor_slot(anchor) as slot:
         cwd = slot.root if slot else base / 'desktop-project'
@@ -268,7 +270,7 @@ def run(check, anchor=None, case_type=DeleteCase, *, seed=None, client='codex', 
                             audit.update(case.check(invoke, client_id, workspace, local))
                     elif check:
                         with check_workbuddy(base, cwd, entry, config['config'], catalog, token, audit, server=case.server) as invoke:
-                            audit.update(check_local_approval(invoke, case, client_id, workspace, local, workbuddy=True))
+                            audit.update(case.check(invoke, client_id, workspace, local, workbuddy=True))
                     else:
                         case.run_window(client_id, workspace, stop, audit, local)
         finally:
@@ -317,7 +319,7 @@ def main(case_type=DeleteCase, description=__doc__, *, seed=None):
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument('--check', action='store_true', help='Run the isolated preflight without a model')
     parser.add_argument('--anchor', type=Path, help='Use an explicitly initialized Codex pilot directory')
-    if case_type is DeleteCase:
+    if issubclass(case_type, DeletionCase):
         parser.add_argument('--client', choices=('codex','workbuddy'), default='codex')
     args = parser.parse_args()
     client = getattr(args, 'client', 'codex')

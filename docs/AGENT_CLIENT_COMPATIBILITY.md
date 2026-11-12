@@ -867,15 +867,38 @@ python issue_delete_pilot.py --client workbuddy
 
 隔离验证通过后，桌面仍需用户本人完成登记、预览与网页批准。监督只负责夹具、信号、核对及归档。
 
+### WorkBuddy 项目级联删除用户自操作交接
+
+从包含本夹具的工作树运行。第一条使用隔离配置下的安装版 WorkBuddy CLI 核对五项工具，再用原始 stdio 预演完整业务。第二条只生成一次性服务、空任务目录及唯一临时连接器，用户本人决定是否登记和操作。
+
+```powershell
+$env:PYTHONIOENCODING = 'utf-8'
+python project_delete_pilot.py --client workbuddy --check
+python project_delete_pilot.py --client workbuddy
+```
+
+同一合成项目有一条 todo、一份独立附件及一张存于目录外的保留关联图。临时连接器为 `workbench_ag142_project_delete`，只有 capabilities、list_projects、prepare_proposal、preview_proposal、get_proposal。list_projects 只接受空参数，prepare 只接受固定项目及原 revision 的完整请求。
+
+| 停点 | 用户本人操作 | 监督核对 |
+| --- | --- | --- |
+| `pending_discovery` | 在 WorkBuddy「专家·技能·连接器 → 连接器 → 自定义连接器 → MCP 服务管理」登记当轮唯一 `config` 项，打开 `desktop_project` 并选择 Hy4。首次信任由本人处理，停在发消息前。 | 确认实际握手、空间和五项工具后写本轮 `discovery_file`。同名冲突、工具目录不符或信任未完成时停止。 |
+| `review_graph_read` | 核对只读取保留关联图的精确 ID。 | 每个完整预览获单独同意后，才写该阶段 `approval_file`。 |
+| `review_child_delete` | 核对只删除实际子 todo 的精确 ID。 | 项目和 todo 类型的基础读取范围覆盖此实际子记录。精确删除许可单独批准。 |
+| `review_project_delete` | 核对精确项目，以及唯一独立附件的 ID、路径、大小和摘要。 | 只批准当次项目和所选独立附件，三个授权信号只开启能力。 |
+| `ready_preview` | 原样发送本轮提示，核对项目与子记录原文、全部目录、附件、活动影响、完整关联图与原归属、排序、版本和摘要。预览后停止。 | `await_web_approval` 时检查原树和关联图字节，回收对象及回执均为零。发现外部活动附件引用、版本变化或预览不全时停止。 |
+| `await_web_approval` | 打开本轮 `workbench_url` 的「提案管理」，核对当前完整预览后亲自批准移入回收站。 | 等待 `committed`，核对原树及索引、子 ID 占用、唯一原回执、保留图和排序。响应不明时查询原提案并停止。 |
+| `committed` 或中止 | 退出该次任务，只移除当轮临时项并刷新列表。 | 核对配置基线，再写当轮 `stop_file`，确认 401、端口关闭及临时根移除。 |
+
+真实 WorkBuddy 登记、模型预览及用户网页批准仍待验证。监督负责夹具、信号、核验及归档。
+
 #### 其余普通启动夹具的 WorkBuddy 复用缺口
 
 连接器生成现可复用指定的受限目录和原装 WorkBuddy CLI 预演入口。以下真实业务仍需各自 WorkBuddy 零模型驱动与用户自操作交接。
 
 | 夹具 | 已有 Codex 证据 | WorkBuddy 接入须核对 |
 | --- | --- | --- |
-| 项目级联删除 | 五项工具及整树预演，独立网页批准 | 三步授权的顺序和失败关闭，含关联图读取、每个实际子记录的删除许可、精确项目及独立附件。按 WorkBuddy 中继错误核对未开放工具，复核整树、外部引用拒绝和保留图。 |
 | 项目创建 | 五项工具、零项目回执及独立追加访问 | 自有预演目前使用 Codex 禁用工具的错误表现。复用五项中继后核对完整排序、创建后不可见、第二次本机批准及独立原回执查询。 |
 | 三域分类 | 各域的四项工具、独立授权、改名与另两域保留 | `--domain` 入口单列。按域核对精确授权、概念图单图读权、独立附件共同策略、同名跨域拒绝及无授权操作。 |
 | 工作流 | 四项工具、完整映射、旧版及缺映射拒绝 | 保留初始化模板及状态映射，复核 WorkBuddy 下旧版、无映射、完整本机计划和唯一回执。 |
 
-本次只开放 WorkBuddy 单条 issue 入口。其他四个普通启动夹具保留现有 Codex 入口。
+WorkBuddy 已开放单条 issue 及项目级联删除入口。表中的三个夹具保留现有 Codex 入口。

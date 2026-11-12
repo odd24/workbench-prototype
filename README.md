@@ -96,7 +96,7 @@ WorkBuddy桌面5.9.3(d4692421)已在临时库实测四类型新建/追加/更新
 
 AG-142 隔离验收可用 `python codex_pilot_anchor.py --init <新绝对目录>` 初始化专用空项目。图和附件试点的 `--anchor` 选项可复用该目录，各轮数据及凭据仍独立。仅用于合成验收，步骤与真实桌面限制见[客户端兼容验收](docs/AGENT_CLIENT_COMPATIBILITY.md)。
 
-单条 issue 和项目级联删除分别使用 `python issue_delete_pilot.py --check` 和 `python project_delete_pilot.py --check`。两者均在新临时空间以零模型验证独立本机批准、原字节回收、回执和收尾。 单条 issue 可加 `--client workbuddy`，真实桌面入口和停点见[WorkBuddy 单条删除交接](docs/AGENT_CLIENT_COMPATIBILITY.md#workbuddy-单条删除用户自操作交接)。
+单条 issue 和项目级联删除分别使用 `python issue_delete_pilot.py --check` 和 `python project_delete_pilot.py --check`。两者均在新临时空间以零模型验证独立本机批准、原字节回收、回执和收尾。 两者均可加 `--client workbuddy`，按[单条删除交接](docs/AGENT_CLIENT_COMPATIBILITY.md#workbuddy-单条删除用户自操作交接)或[项目级联删除交接](docs/AGENT_CLIENT_COMPATIBILITY.md#workbuddy-项目级联删除用户自操作交接)选择当轮入口。
 
 项目创建使用 `python project_create_pilot.py --check`，在新临时空间验证完整排序预览、创建回执和独立的项目访问批准。
 

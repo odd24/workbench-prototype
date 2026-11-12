@@ -1,4 +1,4 @@
-"""Disposable Codex pilot for one synthetic project cascade. No model is started."""
+"""Disposable desktop pilot for one synthetic project cascade. No model is started."""
 
 import hashlib
 import io
@@ -19,6 +19,7 @@ class ProjectDeleteCase(DeletionCase):
     server = 'workbench_ag142_project_delete'
     tools = PROJECT_PILOT_TOOLS
     relay_flag = '--relay-project-delete-pilot'
+    relay_denial = 'outside the project deletion pilot scope'
     directory_prefix = 'workbench-ag142-project-delete-'
     request_prefix = 'ag142-project-delete'
     client_name = 'AG142 项目级联删除'

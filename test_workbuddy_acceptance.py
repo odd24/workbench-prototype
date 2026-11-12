@@ -12,7 +12,7 @@ from workbuddy_agent_acceptance import (ATTACHMENT_PILOT_TOOLS, CONFIGURATION_PI
                                        PROJECT_PILOT_TOOLS, READONLY_PILOT_TOOLS, RECOVERY_PILOT_TOOLS,
                                        STREAM_PILOT_TOOLS, ProtocolFaultProbe, attachment_tool_allowed, fixed_proposal_tool_allowed,
                                        installed_cli_bundle,
-                                       protocol_metadata, recovery_tool_allowed, restrict_pilot_catalog)
+                                       protocol_metadata, recovery_tool_allowed, recovery_wire_evidence, restrict_pilot_catalog)
 
 
 class WorkBuddyMetadataTests(unittest.TestCase):
@@ -123,6 +123,29 @@ class WorkBuddyMetadataTests(unittest.TestCase):
             self.assertFalse(recovery_tool_allowed(call, path))
             path.write_text('{', encoding='utf-8')
             self.assertFalse(recovery_tool_allowed(call, path))
+
+    def test_recovery_trace_requires_matching_live_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'recovery.json'
+            key = '12345678-1234-1234-1234-123456789abc'
+            receipt_dir = path.parent / 'data' / '.agent' / 'receipts'
+            receipt_dir.mkdir(parents=True)
+            receipt = {'proposal_id':key,'version':1,'revision':'r'}
+            (receipt_dir / f'{key}.json').write_text(json.dumps(receipt), encoding='utf-8')
+            binding = {'proposal_id':key,'version':1,'preview_digest':'a' * 64}
+            path.write_text(json.dumps({'phase':'restart','commit':binding}), encoding='utf-8')
+            request = {'id':1,'method':'tools/call','params':{'name':'workbench_get_proposal','arguments':{'proposal_id':key}}}
+            pending = {}
+            payload = {**binding, 'state':'committed', 'receipt':receipt}
+            response = {'id':1, 'result':{'isError':False,'structuredContent':payload}}
+            self.assertEqual(recovery_wire_evidence(response, 'server_to_client', path, pending), {})
+            recovery_wire_evidence(request, 'client_to_server', path, pending)
+            self.assertEqual(recovery_wire_evidence(response, 'server_to_client', path, pending),
+                             {'recovery_evidence':'restart_queried'})
+            recovery_wire_evidence(request, 'client_to_server', path, pending)
+            payload['receipt'] = {**receipt, 'revision':'different'}
+            self.assertEqual(recovery_wire_evidence(response, 'server_to_client', path, pending),
+                             {'recovery_evidence':'unexpected_restart_queried'})
 
     def test_original_launcher_selection_preserves_full_and_supports_lite_only(self):
         with tempfile.TemporaryDirectory() as directory:

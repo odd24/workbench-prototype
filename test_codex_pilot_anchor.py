@@ -1,5 +1,6 @@
 """Ownership and failure recovery for the isolated Codex pilot directory."""
 
+import json
 import os
 import socket
 import tempfile
@@ -66,6 +67,22 @@ class AnchorTests(unittest.TestCase):
         self.assertTrue((self.root / JOURNAL).exists())
         with anchor_slot(self.root):
             self.assertFalse((self.root / JOURNAL).exists())
+
+    def test_restart_moves_only_the_owned_listener_port(self):
+        with anchor_slot(self.root) as slot:
+            slot.publish('# owned candidate\n', self.port)
+            with socket.socket() as endpoint:
+                endpoint.bind(('127.0.0.1', 0))
+                endpoint.listen()
+                new_port = endpoint.getsockname()[1]
+                with self.assertRaises(ValueError):
+                    slot.update_port(0, new_port)
+                slot.update_port(self.port, new_port)
+                self.assertEqual(json.loads(slot.journal.read_bytes())['port'], new_port)
+                self.assertEqual(self.config.read_bytes(), b'# owned candidate\n')
+                with self.assertRaisesRegex(ValueError, 'still open'):
+                    slot.clear()
+        self.assertEqual(self.config.read_bytes(), IDLE_CONFIG)
 
     @unittest.skipUnless(os.name == 'nt', 'Windows file lock behavior')
     def test_locked_config_does_not_prevent_independent_data_cleanup_and_can_recover(self):

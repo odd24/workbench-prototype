@@ -217,6 +217,24 @@ def fixed_proposal_tool_allowed(params, case_path, kind='issue', operation='dele
     return params.get('arguments') == case
 
 
+def recovery_proposal_path(case_path, proposal_id, folder):
+    if not isinstance(proposal_id, str) or not re.fullmatch(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}', proposal_id):
+        raise ValueError('Invalid recovery proposal identifier')
+    return case_path.parent / 'data' / '.agent' / folder / f'{proposal_id}.json'
+
+
+def recovery_preview_allowed(case, case_path, proposal_id):
+    if proposal_id in case['proposal_ids']:
+        return True
+    if case['phase'] != 'preview' or case['proposal_ids']:
+        return False
+    proposal = read_json(recovery_proposal_path(case_path, proposal_id, 'proposals'))
+    return (proposal['client_id'] == case['client_id'] and proposal['workspace_id'] == case['workspace_id']
+            and proposal['proposal_id'] == proposal_id and any(
+                all(proposal.get(key) == spec[key] for key in ('request_id','kind','operation','target_id','base_revision','confirmation_mode'))
+                and proposal['normalized_content'] == spec['content'] for spec in case['requests']))
+
+
 def recovery_tool_allowed(params, case_path):
     try:
         case = read_json(case_path)
@@ -233,7 +251,7 @@ def recovery_tool_allowed(params, case_path):
         if name == 'workbench_prepare_proposal':
             return phase == 'preview' and arguments in case['requests']
         if name in {'workbench_preview_proposal', 'workbench_get_proposal'}:
-            return set(arguments) == {'proposal_id'} and arguments['proposal_id'] in case['proposal_ids']
+            return set(arguments) == {'proposal_id'} and recovery_preview_allowed(case, case_path, arguments['proposal_id'])
         if name != 'workbench_commit_proposal' or phase not in {'first', 'replay'} or arguments != case['commit']:
             return False
         binding = case['commit']
@@ -256,6 +274,53 @@ def recovery_tool_allowed(params, case_path):
         return False
 
 
+def recovery_wire_evidence(message, direction, case_path, pending):
+    request_id = message.get('id')
+    if type(request_id) not in {int, str}:
+        return {}
+    if direction == 'client_to_server':
+        if message.get('method') != 'tools/call':
+            return {}
+        params = message['params']
+        try:
+            case = read_json(case_path)
+            phase, name = case['phase'], params['name']
+            binding = case.get('commit')
+            if (not binding or params['arguments'].get('proposal_id') != binding['proposal_id']
+                    or (phase, name) not in {('first','workbench_commit_proposal'), ('first','workbench_get_proposal'),
+                        ('restart','workbench_get_proposal'), ('replay','workbench_commit_proposal')}):
+                return {}
+            if len(pending) >= 256:
+                pending.pop(next(iter(pending)))
+            pending[request_id] = (phase, name, binding)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            pass
+        return {}
+    entry = pending.pop(request_id, None)
+    if entry is None:
+        return {}
+    phase, name, binding = entry
+    event = 'first_lost' if phase == 'first' and name == 'workbench_commit_proposal' else (
+        'replayed' if phase == 'replay' else f'{phase}_queried')
+    try:
+        result = message['result']
+        payload = result['structuredContent']
+        if event == 'first_lost':
+            matched = result['isError'] is True and payload['code'] == 'service_unavailable'
+        else:
+            persisted = read_json(recovery_proposal_path(case_path, binding['proposal_id'], 'receipts'))
+            receipt = payload if event == 'replayed' else payload['receipt']
+            matched = (result['isError'] is False and persisted['proposal_id'] == binding['proposal_id']
+                       and persisted['version'] == binding['version']
+                       and all(receipt.get(key) == value for key,value in persisted.items()))
+            if event != 'replayed':
+                matched = matched and payload['state'] == 'committed' and all(
+                    payload.get(key) == binding[key] for key in ('proposal_id','version','preview_digest'))
+        return {'recovery_evidence':event if matched else 'unexpected_' + event}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return {'recovery_evidence':'unexpected_' + event}
+
+
 def relay(protocol_faults=False, tools_allowed=(), *, proposal_pilot=None):
     trace = Path(os.environ["WORKBENCH_PROBE_TRACE"])
     fixed_case = ()
@@ -276,6 +341,8 @@ def relay(protocol_faults=False, tools_allowed=(), *, proposal_pilot=None):
     output_lock = threading.Lock()
     pending = {}
     fault_probe = ProtocolFaultProbe(protocol_faults)
+    recovery_path = trace.with_name(RECOVERY_PILOT_CASE) if tools_allowed == RECOVERY_PILOT_TOOLS else None
+    recovery_pending = {}
 
     def forward(source, target, direction):
         try:
@@ -297,8 +364,8 @@ def relay(protocol_faults=False, tools_allowed=(), *, proposal_pilot=None):
                                 blocked = not isinstance(params, dict) or params.get('name') not in tools_allowed
                                 if not blocked and tools_allowed in (ATTACHMENT_PILOT_TOOLS, STREAM_PILOT_TOOLS):
                                     blocked = not attachment_tool_allowed(params, trace.with_name(ATTACHMENT_COMMIT_GATE))
-                                if not blocked and tools_allowed == RECOVERY_PILOT_TOOLS:
-                                    blocked = not recovery_tool_allowed(params, trace.with_name(RECOVERY_PILOT_CASE))
+                                if not blocked and recovery_path:
+                                    blocked = not recovery_tool_allowed(params, recovery_path)
                                 if not blocked and fixed_case:
                                     kind, operation, case_file = fixed_case
                                     blocked = not fixed_proposal_tool_allowed(params, trace.with_name(case_file), kind, operation)
@@ -314,6 +381,8 @@ def relay(protocol_faults=False, tools_allowed=(), *, proposal_pilot=None):
                             event.update(method='tools/call', pilot_rejected=True, error_code=-32602)
                         else:
                             event.update(consumed if consumed is not None else protocol_metadata(message, pending))
+                            if recovery_path:
+                                event.update(recovery_wire_evidence(message, direction, recovery_path, recovery_pending))
                     except (ValueError, TypeError, AttributeError, KeyError):
                         # The default relay preserves malformed wire input.
                         event = {"direction": direction, "unparsed": True}

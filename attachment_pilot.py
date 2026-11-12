@@ -221,7 +221,7 @@ def await_value(get, stop, deadline):
 
 
 @contextmanager
-def check_workbuddy(base, cwd, entry, config, catalog, token, audit):
+def check_workbuddy(base, cwd, entry, config, catalog, token, audit, *, server=SERVER):
     install = Path(os.environ.get('LOCALAPPDATA', '')) / 'Programs' / 'WorkBuddy'
     cli = install / 'resources' / 'app.asar.unpacked' / 'cli' / 'bin' / 'codebuddy'
     node = shutil.which('node')
@@ -236,7 +236,7 @@ def check_workbuddy(base, cwd, entry, config, catalog, token, audit):
     trace = Path(entry['env']['WORKBENCH_PROBE_TRACE'])
     job = ClientJob()
     try:
-        process = subprocess.Popen([node, str(cli), 'mcp', 'get', SERVER], cwd=cwd, env=env,
+        process = subprocess.Popen([node, str(cli), 'mcp', 'get', server], cwd=cwd, env=env,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
         try:

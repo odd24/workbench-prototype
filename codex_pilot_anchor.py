@@ -96,6 +96,17 @@ class AnchorSlot:
             atomic_write_bytes(self.config, IDLE_CONFIG)
         self.journal.unlink()
 
+    def update_port(self, old_port, new_port):
+        _check_path(self.config, directory=False)
+        _check_path(self.journal, directory=False)
+        current = self.config.read_bytes()
+        expected = {'config_sha256':_digest(current), 'port':old_port}
+        if (current == IDLE_CONFIG or json.loads(self.journal.read_bytes()) != expected
+                or type(new_port) is not int or not 1 <= new_port <= 65535
+                or old_port != new_port and not _port_closed(old_port)):
+            raise ValueError('Cannot transfer the anchor to the restarted pilot')
+        atomic_write_json(self.journal, {**expected, 'port':new_port})
+
     def publish(self, text, port):
         _check_path(self.root, directory=True)
         _check_path(self.config.parent, directory=True)

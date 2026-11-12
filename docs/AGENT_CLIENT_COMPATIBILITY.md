@@ -804,27 +804,43 @@ python recovery_pilot.py --check --client codex
 python recovery_pilot.py --check --client stdio
 ```
 
-只提供零模型预演入口。两条分别使用安装版 Codex App Server 和原始 stdio，各有一次性项目、服务、配置、数据、身份、端口与中继轨迹。Codex 临时可信项目禁用继承的 workbench，使用独立 CODEX_HOME。stdio 使用隔离环境；该条不代表 WorkBuddy 桌面。两端都复用原 MCP bridge、领域和回执实现。
+以上两条零模型预演分别使用安装版 Codex App Server 和原始 stdio，各有一次性项目、服务、配置、数据、身份、端口与中继轨迹。Codex 临时可信项目禁用继承的 workbench，使用独立 CODEX_HOME。stdio 使用隔离环境；该条不代表 WorkBuddy 桌面。两端都复用原 MCP bridge、领域和回执实现。
 
 - 只有一个固定合成图，客户端获指定图的读取及更新授权。六项工具包括 capabilities、get_concept_map、prepare_proposal、preview_proposal、get_proposal、commit_proposal。准备阶段仅允许两份完整固定请求，查询限制为该图及实际返回的 A、B 提案 ID。A 由隔离助手修订、预览、测试旧版 `version_conflict` 并取消，取消后再测 `invalid_state`。客户端查询 A 已取消，原图字节、历史和正式回执保持起点。
-- B 只接受已复核的当前提案 ID、版本、摘要及完整提交参数。预演程序化声明确认，核对未解锁、过期、错误摘要、A 的提交及重复抢占均被拒。第一提交和重放阶段分别以本轮独立排他记录限制为一次，重放绑定还须与首次记录一致。真实使用前仍需接入用户随后新消息及监督确认的具体操作流程。
+- B 只接受已复核的当前提案 ID、版本、摘要及完整提交参数。预演程序化声明确认，核对未解锁、过期、错误摘要、A 的提交及重复抢占均被拒。第一提交和重放阶段分别以本轮独立排他记录限制为一次，重放绑定还须与首次记录一致。普通启动按下节区分用户新消息、监督信号和夹具操作。
 - 复用 `LocalWorkbench.drop_response_path`，仅截断 B 原提交的首次成功响应。客户端收到 `service_unavailable` 后先查询 B，核对 committed、唯一原回执、同一个正式图、唯一历史及原图字节。此时重试不能通过中继。
 - 真正关闭原服务、核对原端口，再在同一隔离库和凭据根启动新服务。只更新一次性 bridge 配置的 loopback 地址，保留原空间、身份与令牌。通过原连接先查询同一提案，确认图、历史与回执的持久证据一致，再开放一次原绑定重放。HTTP 派生的 `web_url` 跟随新端口，持久回执原字节保持。结束撤销并核对 401、端口关闭和独立数据根移除。
 
 错空间、429、轮换继续沿用既有隔离助手证据。本次在独立工作树运行，未修改正在使用的真实流夹具源文件和配置。真实桌面丢响应、重启查询、重放与后续用户消息仍待验。AG-142 进行中，AG-143 待开始。
 
-#### WorkBuddy 用户自操作交接
 
-当前交接停在零模型预演。上方两条 `--check` 可直接从仓库运行，成功输出应包含 `lost_commit_response_queried=true`、`restart_query_matches=true`、`exact_replay_matches=true` 和 `temporary_directory_removed=true`。这两个命令结束后会撤销并删除一次性配置。真实入口仍需接入确认、故障和重启阶段，当前没有可登记的桌面候选。
+#### 普通启动和操作者交接
 
-真实入口另行准备后，WorkBuddy 由用户本人操作。监督提供当轮夹具、核对中继和磁盘证据、记录结果。
+监督可直接从仓库运行以下命令。Codex 使用先前经 `codex_pilot_anchor.py --init` 建立的空受管项目。WorkBuddy 输出唯一临时用户级候选，由用户本人在界面登记、信任和移除。夹具启动时只准备数据、临时项目和监听器。
 
-| 步骤 | 用户在 WorkBuddy 的操作 | 停点与监督核对 |
+```powershell
+$env:PYTHONIOENCODING = 'utf-8'
+python recovery_pilot.py --client codex --anchor $anchor
+python recovery_pilot.py --client workbuddy
+```
+
+`python recovery_pilot.py --check --client workbuddy` 使用安装版 WorkBuddy CLI 发现同一六项候选，再用原始 stdio 运行程序驱动，配置全在一次性目录内。三条 `--check` 都不需要打开桌面。普通启动的整个执行阶段共用 `execution_expires_at`。
+
+| 阶段 | 用户操作 | 监督操作和夹具停点 |
 | --- | --- | --- |
-| 1. 发现 | 收到当轮临时目录、完整候选连接器与六项工具清单后，打开「专家·技能·连接器 → 连接器 → 自定义连接器 → MCP 服务管理」。登记当轮唯一候选，打开指定临时项目，选择 Hy4。出现首次信任时由本人确认。 | 停在发送消息前。监督核对当轮握手、MCP 版本、临时空间和六项工具。连接器缺失、信任未完成或目录不符时停下。 |
-| 2. 预览 | 收到监督给出的当轮固定提示后发送。核对 A、B 的完整预览及版本、摘要。 | 停在提交前。监督核对 A 的旧版拒绝、取消及零业务写入，并复核 B 的当前绑定。 |
-| 3. 确认与查询 | 确认 B 的完整预览后，按当轮提示在原聊天发送一条新的明确确认，包含实际提案 ID、版本和摘要。若提交响应丢失，按提示只查询 B 的原提案。 | 停在原回执查询后。监督核对截断仅一次、原提案已提交以及图、历史和回执各一。查不到原结果或绑定不符时停下。 |
-| 4. 重启与重放 | 等监督确认同库同身份重启后，按当轮提示先查询原提案。收到原绑定重放就绪提示后，才按提示重放一次。 | 核对重放返回同一回执，业务文件及历史无新增。查询未核实或重放尚未解锁时停下。 |
-| 5. 收尾 | 退出该任务，只移除当轮临时连接器并刷新列表。 | 监督核对配置基线、旧凭据 401、两个端口、独立根及归档。若其他配置已变化，保留当前状态供核查。 |
+| `pending_discovery` | WorkBuddy 在「专家·技能·连接器 → 连接器 → 自定义连接器 → MCP 服务管理」登记输出的唯一 `workbench_ag142_recovery`，打开当轮临时项目，选择 Hy4，由本人处理首次信任。Codex 打开当轮受管项目，核对继承项禁用。此时停在发消息前。 | 核对临时空间、握手和六项目录，确认界面只连接本轮目标后写 `discovery_file`。未发现、目录不符或信任未完成时停止。 |
+| `review_recovery_graph` | 查看单图、读取与仅更新授权后决定是否同意。 | 用户同意后写当轮 `approval_file`。夹具只开启这一项权限。 |
+| `ready_preview` | 原样发送当轮 `prompt`，查看 A、B 的完整预览后停止。 | 夹具核对两个固定候选和原图，处理 A 的旧版与取消对照，确认零正式写入。 |
+| `await_user_confirmation` | 核对 B 的实际 ID、版本、摘要。本人在原聊天发送输出的确认消息，等待该回合结束。该条消息只确认绑定，当前不调用工具。 | 见到真实新消息及其绑定后，把本阶段输出的 `binding` 原样原子写入 `signal_file`。在此之前提交锁定。夹具重新计算当前预览并核对原字节，然后才准备一次响应截断。 |
+| `ready_commit` | 发送执行提示。遇 `service_unavailable`，只查询同一原提案，展示原回执后停止。 | 夹具分别核对已截断的提交和随后实际客户端的原回执查询，要求图、原字节历史和回执各一。截断状态、结果或绑定不明时停止。 |
+| `await_restart`、`ready_restart_query` | 等待监督确认重启，再发送只查询原提案的提示，展示原回执后停止。 | 首次查询通过后，监督用本阶段 `signal_file` 触发同库同身份重启。夹具确认旧端口关闭，更新私人桥接地址和受管端口记录。重启后另行核对客户端查询和磁盘结果。 |
+| `await_replay`、`ready_replay` | 收到就绪提示后才按原绑定重放一次，展示返回的原回执并停止。 | 重启后查询通过才原子写入本阶段 `binding`。夹具重验磁盘证据，按第一次提交的排他记录只允许同绑定重放一次。 |
+| `committed` 或中止 | 退出当次任务。WorkBuddy 由用户移除当轮临时项并刷新，核对原项列表。Codex 关闭当轮聊天，保留受管项目登记。 | 写当轮 `stop_file`，核对 401、端口关闭、独立根移除及适用的锚点空闲。其他配置若已变化则保留并核查。若报告 `replay_unverified`，归档当轮结果和缺口。 |
 
-后续桌面证据须由用户的实际操作产生。此节的阶段和停点尚未在 WorkBuddy 真实桌面执行。
+空文件信号使用当前输出路径创建。两处绑定信号可以用以下命令，`$binding` 取当阶段输出的对象，`$signalFile` 取同一阶段的路径。
+
+```powershell
+$binding | ConvertTo-Json -Compress | python -c "import json, sys; from pathlib import Path; from workbench.persistence import atomic_write_json; atomic_write_json(Path(sys.argv[1]), json.load(sys.stdin))" $signalFile
+```
+
+提前的确认、重启或重放信号及不匹配的绑定会中止当轮，超时会关闭服务并撤销身份。夹具只根据实际工具响应和同一回执的磁盘证据推进。未知结果留在当前停点，禁止替换提案或重发。监督负责夹具、信号、核验和归档，WorkBuddy 界面由用户本人操作。真实桌面模型及用户操作仍待验证。

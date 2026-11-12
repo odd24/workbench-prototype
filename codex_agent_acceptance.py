@@ -272,18 +272,32 @@ def run_local_capabilities(call, local_request, workbench, project, info, sessio
         assert offset is None or offset == chunk['end_offset']
     assert len(parts) > 1 and ''.join(parts).encode() == original
     checksum = hashlib.sha256(original).hexdigest()
-    file_binding = {'file_id':file_id, 'source_revision':metadata['source_revision']}
-    def approve_attachment_policy(request_id):
-        return grant('upload-policy', request_id, owner_kind='project', owner_id=project_id,
-                     stream=True, files=[file_binding], max_bytes=10485760, duration_seconds=3600,
-                     attachment_write=True, minimum_confirmation_mode='agent_attested')
+    attachment_source = source.with_name('codex-attachment-source.txt')
+    attachment_source.write_bytes(original)
+    attachment_grant = grant('files', 'codex-attachment-source-grant', path=str(attachment_source),
+                             purposes=['attachment_source'], encoding='binary', max_bytes=len(original), duration_seconds=3600)
+    attachment_info = call('get_file_info', {'file_id':attachment_grant['file_id']})
+    assert attachment_info['purposes'] == ['attachment_source'] and 'path' not in attachment_info
+    assert attachment_info['sha256'] == checksum and attachment_info['size_bytes'] == len(original)
+    file_binding = {key:attachment_info[key] for key in ('file_id', 'source_revision')}
+    call('read_file', {**file_binding, 'offset':0, 'length':12}, error=True)
 
-    policy = approve_attachment_policy('codex-attachment-grant')
+    def approve_attachment_policy(request_id, mode):
+        return grant('upload-policy', request_id, owner_kind='project', owner_id=project_id,
+                     stream=mode == 'stream', files=[file_binding] if mode == 'file' else [],
+                     max_bytes=len(original), duration_seconds=3600, attachment_write=True,
+                     minimum_confirmation_mode='agent_attested' if mode == 'file' else 'local_web')
+
+    attachment_checks = {}
     for mode in ('file', 'stream'):
+        policy = approve_attachment_policy('codex-attachment-grant-' + mode, mode)
+        before_assets = workbench.repository.project_assets(project_id)
+        store = workbench.repository.agent_service.store
+        before_receipts = set(store.receipts.glob('*.json'))
         source_selection = {'mode':mode, **(file_binding if mode == 'file' else {})}
         upload = call('create_upload', {'request_id':'codex-upload-' + mode, 'policy_id':policy['policy_id'],
                       'owner_kind':'project', 'owner_id':project_id, 'source':source_selection,
-                      'filename':metadata['display_name'] if mode == 'file' else 'codex-stream.txt', 'bytes':len(original), 'sha256':checksum})
+                      'filename':attachment_info['display_name'] if mode == 'file' else 'codex-stream.txt', 'bytes':len(original), 'sha256':checksum})
         upload_id = upload['upload_id']
         if mode == 'stream':
             config = read_json(Path(info['config_file']))
@@ -298,13 +312,36 @@ def run_local_capabilities(call, local_request, workbench, project, info, sessio
                             content={'owner_kind':'project', 'owner_id':project_id, 'upload_id':upload_id,
                                      'display_name':'codex-' + mode + '.txt', 'category':'', 'insert_link':False})
         assert candidate['content']['attachment']['sha256'] == checksum
-        receipt = call('commit_proposal', commit_payload(candidate))
-        assert call('commit_proposal', commit_payload(candidate)) == receipt
+        assert workbench.repository.project_assets(project_id) == before_assets
+        assert set(store.receipts.glob('*.json')) == before_receipts
+        if mode == 'file':
+            arguments = commit_payload(candidate)
+            assert candidate['confirmation_mode'] == 'agent_attested'
+            try:
+                call('commit_proposal', {**arguments, 'confirmation':{**attested, 'user_confirmed':False}})
+            except RuntimeError as error:
+                assert '-32602' in str(error), error
+            else:
+                raise AssertionError('Commit with user_confirmed=false was accepted')
+            assert workbench.repository.project_assets(project_id) == before_assets
+            assert set(store.receipts.glob('*.json')) == before_receipts
+            receipt = call('commit_proposal', arguments)
+            assert call('commit_proposal', arguments) == receipt
+        else:
+            assert candidate['confirmation_mode'] == 'local_web'
+            receipt = web_approve(candidate, 'codex-stream-attachment-approve')
+        assert len(set(store.receipts.glob('*.json')) - before_receipts) == 1
+        assert len(workbench.repository.project_assets(project_id)) == len(before_assets) + 1
+        assert call('get_upload', {'upload_id':upload_id})['state'] == 'consumed'
+        reopened = Repository(workbench.repository.root)
+        assert reopened.project_asset_path(project_id, receipt['item_id']).read_bytes() == original
         url = workbench.base_url + f'/api/project-assets/{quote(project_id, safe="")}/{receipt["item_id"]}'
         with urlopen(url, timeout=10) as response:
             assert response.read() == original
+        attachment_checks[mode] = {'confirmation':candidate['confirmation_mode'], 'bytes':len(original),
+                                   'sha256':checksum, 'preapproval_no_attachment':True, 'disk_and_download_match':True}
     create_category('project_attachment_category', project_id,
-                    lambda:approve_attachment_policy('codex-attachment-visibility-refresh'))
+                    lambda:approve_attachment_policy('codex-attachment-visibility-refresh', 'stream'))
 
     item = workbench.repository.create_record({'type':'issue', 'project_id':project_id, 'title':'Codex 单条删除验收', 'body':'完整合成正文'})
     item = call('get_item', {'kind':'issue', 'item_id':item['id']})
@@ -323,6 +360,7 @@ def run_local_capabilities(call, local_request, workbench, project, info, sessio
     receipt = web_approve(candidate, 'codex-project-delete-approve')
     assert (workbench.repository.trash_dir / receipt['trash_token']).is_dir()
     return {**result, 'file_read_segments':len(parts), 'file_attachment':True, 'mixed_http_stream_attachment':True,
+            'attachment_checks':attachment_checks,
             'project_attachment_category':True, 'item_delete':True, 'project_delete':True}
 
 

@@ -1446,3 +1446,9 @@ AG-142 的独立检查已验证 App Server 只配置 `workbench_ag142` 时可以
 - 复用 `concept_map_pilot.py --operation update`，独立临时空间内预置固定合成图，授权精确到一个图 ID 的读取及仅 `update`，强制 `local_web`。固定候选只改标题，发送前核对实时原始 revision 与完整 `editable_graph`。原创建路径仍可用，Codex 分阶段和六项限制仍有效。
 - Codex 实际 App Server 与 WorkBuddy stdio 的 `--operation update --check` 均通过。批准前原字节保持，零回执和更新历史。批准后原 ID 保留，一份原回执、一份逐字节匹配的旧图历史，其余字段一致。重放不改正式图和回执，旧 revision 返回 `revision_conflict`，创建及其他类型写入拒绝。两端撤销 401、端口关闭和目录清理通过；Codex 旧 create 预演回归通过。
 - Codex 隔离启动对照验证单 ID 授权、带原 revision 的完整提示和无提案 STOP 收尾。真实桌面仍待安排，本次只修改验收夹具与证据。实际范围、用户确认点及落盘核对见兼容记录。AG-142 进行中，AG-143 待开始。
+
+### AG-142 正式附件两种来源与确认路径隔离预演（2026-11-12）
+
+- 核对原 App Server 矩阵，两种来源曾共用混合策略并同走 `agent_attested`。复用现有夹具分别运行精确 `file_id`/`agent_attested` 和独立原始流/`local_web`。单个合成源为 62 字节。文件只授 `attachment_source`，正文拒读；文件策略关闭流，流策略不绑定文件。两条预览前均已暂存就绪，无正式附件和回执。
+- `python codex_agent_acceptance.py` 在实际 Codex App Server 0.167.0-alpha.3.2 零模型通过。file 路径未确认时 `-32602` 且无正式写入，程序化确认后重放返回原回执；stream 自报提交拒绝，独立本机票据程序化批准后查回原回执。每条各新增一份附件和回执，暂存为 `consumed`，重开仓储的磁盘字节与下载均匹配。其他矩阵及凭据撤销回归通过。
+- `python -m unittest -q test_agent_attachments test_agent_uploads` 发现 51 项，50 项通过、1 项跳过。`node test_agent_attachment_workflows.js`、Python/JS 语法和差异检查通过。下一真实桌面优先单个 file 来源，完整展示后由用户在新消息明确确认实际提案版本和摘要。交接见兼容记录。未启动真实桌面回合或修改真实配置。AG-142 进行中，AG-143 待开始。此前 Codex 新建夹具残留继续单列待手工清理。

@@ -521,3 +521,18 @@ python concept_map_pilot.py --client workbuddy --operation update --check
 真实桌面安排确定后，先选一个客户端，去掉对应命令的 `--check`。Codex 沿用 `pending_discovery`、`grant_review` 和 `ready`，WorkBuddy 沿用单项用户级登记、信任和握手核对。用户分别确认当次固定图的授权和连接器配置、信任、模型及预览回合。`ready` 输出目标 ID、原始 revision 和完整固定提示。模型先调用 capabilities、list_concept_maps、get_concept_map，核对同一空间、唯一目标、原 revision 和完整原图，随后 prepare、preview 并展示完整候选、原图、全部差异和执行依据，等待本机批准。若原 revision 或任何非标题字段不同，停止并核查。
 
 独立批准前监督核对仍只有一张原图，SHA-256 等于 `base_revision`，尚无更新历史或回执。用户在隔离网页核对同一提案的当前版本、摘要、完整画布与明细、标题差异、警告和保存依据，亲自批准。随后核对原 ID 文件的当前哈希和唯一回执、历史原始字节和 `base_revision`、全部非标题字段。真实桌面额外查询回合和负向操作另行安排。关闭本次项目和连接后写 STOP，并按之前的步骤核对撤销、端口、目录及配置恢复。
+
+### 正式附件两来源隔离预演与桌面交接（2026-11-12）
+
+原 Codex App Server 矩阵已证明两种来源可完成正式附件。原预演使用一个同时允许两种来源的策略，两条路径都走 `agent_attested`。当前 `python codex_agent_acceptance.py` 在同一隔离矩阵依次使用两个互斥策略，每次建立新的暂存会话。固定数据为 62 字节合成 UTF-8 文本，SHA-256 `023887f7b2aff5b9ec2c79756c98f36676d8817c2b743f5a35cf3eddf9c04d70`。两条均使用空分类、`insert_link=false` 和同一个隔离项目的独立附件位置。
+
+| 来源 | 本机前置授权与传输 | 正式提案确认 |
+| --- | --- | --- |
+| 指定 `file_id` | 先单独批准一个合成文件的 `attachment_source`。策略只接受当前 `file_id` 与 `source_revision`，原始流关闭，批准暂存和正式附件。Agent 从授权元信息读取摘要，用固定文件来源创建暂存，不读取路径或正文 | `agent_attested`。先完整展示候选，等用户之后的新消息明确确认当前提案版本和摘要，再提交一次 |
+| 独立原始流 | 独立策略仅允许 stream，文件列表为空。Agent 建会话，本机独立认证助手只向该会话固定 loopback `PUT` 端点发送声明的 `application/octet-stream` 字节。Agent 核对暂存结果并完成 | `local_web`。Agent 展示完整当前预览，用户在隔离网页独立批准；自报提交应被拒绝 |
+
+两条都先让 `complete_upload` 得到 `ready`，再由 `get_attachment_target` 取当前目标 revision。`prepare_proposal` 绑定 `attachment/create`、目标 ID、目标 revision 和本次 `upload_id`；`preview_proposal` 展示完整目标、来源元数据、文件名、字节数、摘要、附件元数据差异、版本、警告与保存依据。`ready` 和预览阶段均应没有新增正式附件或回执。确认后对照原回执、暂存 `consumed`、重开仓储的正式文件和下载字节。
+
+Codex App Server `0.167.0-alpha.3.2` 零模型预演通过。file 来源只授 `attachment_source`，读取正文被拒；`user_confirmed=false` 返回 `-32602`，没有正式写入，程序化对话声明提交后，同一请求返回原回执。stream 只接收独立助手发送的原始字节，自报提交返回 `confirmation_required`，随后以本机管理票据程序化批准，客户端查询原回执。两条分别仅增加一份附件和回执，暂存均为 `consumed`，重开仓储读回及 HTTP 下载均与固定合成源一致。附件浏览器专项通过，覆盖共同授权、完整预览、网页批准、项目结果和下载。上述是协议及隔离证据，真实桌面的完整展示和后续用户消息仍待验证。
+
+下一次桌面先安排单个 file 来源。为该次临时工作台固定项目、合成源、临时客户端及策略窗口。用户先审查并批准文件用途和该项目的共同暂存及正式附件策略，再确认临时连接器与首个预览回合。预览回合只暂存并展示完整提案，停止等待。用户核对该次实际提案 ID、版本和摘要后，在新的消息明确写「我确认此提案 `<ID>` 的版本 `<版本>`、摘要 `<摘要>`。只提交这个版本一次，查询原回执。」原始试点请求、界面文字或程序化预演均不作为桌面确认。提交结果不明确时先 `get_proposal` 查询原提案。独立原始流留在后续单案，实际桌面运行仍需安排本机助手和独立网页批准。

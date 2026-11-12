@@ -239,7 +239,7 @@ HTTP夹具已从真实服务取得200只读结果，再延迟响应12秒；桥�
 | WorkBuddy 安装包 | 5.9.3，ProductVersion 5.9.3.0 | 磁盘安装元数据。桌面任务启动前需由用户核对运行版本 |
 | WorkBuddy 原装 CLI | 2.165.0，`lite-wb` | 两次新进程实际 initialize、initialized 和 tools/list，MCP 2025-11-25、完整 22 项工具名称。显式探针的 ping 和未知方法应答均通过。原装 `mcp --help` 只有登记、移除、列表与详情，公开直接业务调用入口未验证 |
 | WorkBuddy 桌面 | V5.9.3 / Hy4 | 用户级临时单项发现通用目录 22 项、file 九项及 stream 七项，真实只读、图新建及更新 `local_web`、file `agent_attested` 和 stream `local_web` 附件通过。项目级发现、其余写入与确认矩阵待验 |
-| Codex 桌面 | 中继记录 `codex-mcp-client 0.167.0-alpha.3.2` | 文件读取、概念图新建和更新 `local_web`、单文件附件 `agent_attested` 均通过。其余写入和确认待验 |
+| Codex 桌面 | 中继记录 `codex-mcp-client 0.167.0-alpha.3.2` | 文件读取、概念图新建和更新 `local_web`、单文件附件 `agent_attested` 及一次性项目原始流附件 `local_web` 已通过。原始流桌面轮次的临时目录仍待清理 |
 
 ### 已观察的桌面试点
 
@@ -626,7 +626,14 @@ python -m unittest -v test_codex_pilot_anchor
 
 已用安装版 Codex CLI `0.167.0-alpha.3.2` 启动同一个隔离 App Server，在同一合成锚点连续发布两轮 stream 配置，分别使用只读客户端及不同空间。第二轮显式 reload 后，新线程与当轮中继均确认七项，`workbench_capabilities` 返回第二轮 workspace。两轮 401、端口关闭及锚点空闲均核对。空闲态再 reload 后新线程无临时项，最终独立根移除。零模型、零 PUT、零附件、零回执。
 
-不带 `--anchor` 的 `python attachment_pilot.py --client codex --source stream --check` 已在新一次性目录通过，隔离 App Server 验证可信项目七项、旧项禁用、固定会话 PUT、本机程序化批准、唯一附件及回执、原回执重放、401、端口和临时根清理。后续桌面验收可用普通命令 `python attachment_pilot.py --client codex --source stream` 创建新目录，由用户打开并信任。等当轮中继与工具名单同时成立后再授权，结束时先关闭当次聊天和临时项目，再 STOP 并核对清理。该一次性目录路径仍待真实桌面验证。
+不带 `--anchor` 的 `python attachment_pilot.py --client codex --source stream --check` 已在新一次性目录通过，隔离 App Server 验证可信项目七项、旧项禁用、固定会话 PUT、本机程序化批准、唯一附件及回执、原回执重放、401、端口和临时根清理。普通命令 `python attachment_pilot.py --client codex --source stream` 创建新目录，由用户打开并信任。等当轮中继与工具名单同时成立后再授权，结束时先关闭当次聊天和临时项目，再 STOP 并核对清理。
+
+#### Codex 真实桌面原始流附件通过（2026-11-12）
+
+- 用户在全新一次性项目确认信任及继承的旧项禁用。中继实际发现七项，MCP 从 `2025-06-18` 协商至 `2025-11-25`。用户在原聊天 `01a1cf48-ba6c-7550-9c9b-c4a78a42ecc1` 直接发送首条提示，capabilities、create_upload 各成功一次。桌面和夹具的 `upload_id` 均为 `eea2a4d0-5af9-5686-8cb5-3f861a5502b6`。
+- 固定本机助手仅对原会话执行 loopback PUT，写入 62 字节，SHA-256 为 `023887f7b2aff5b9ec2c79756c98f36676d8817c2b743f5a35cf3eddf9c04d70`。监督经应用跨聊天转发第二阶段提示时，原聊天要求用户在原聊天直接授权，该回合零工具调用。随后用户在原聊天亲自发送提示，complete_upload、get_attachment_target 成功。第一次 prepare_proposal 缺 `target_id`，补同一个项目 ID 后以同一 `request_id` 准备成功，preview_proposal 成功。两个有效回合共六次成功、一次业务错误，未调用 commit，未重复建立会话或提案。
+- 桌面完整预览展示提案 `e4b67f90-1bb6-4709-a7a7-3242ace9da8a` 版本 1、摘要 `e63422a6389bfcd9e762463656fdc2f70d4765c5bd826911439c190cbc84928d`、差异、警告和执行依据。批准前零正式附件、零回执。用户在隔离网页独立批准，唯一正式附件 `ASSET-eea2a4d05af956868cb53f861a5502b6` 和唯一原回执匹配，原暂存会话为 `consumed`。重开仓储核对正式文件与合成源的 62 字节逐字节一致。未追加模型回执查询或实际重放。
+- 窗口到期后，`service_stopped` 审计确认旧凭据拒绝、监听端口关闭，随后 `cleanup_failed` 报 `WinError 32`，夹具退出 1。监督独立核实临时根仍在，本轮未尝试自动删除。业务验收通过，目录清理独立待办。此前两次受管锚点复用未发现的结论保留。
 
 #### WorkBuddy 桌面附件两来源候选
 
@@ -658,7 +665,7 @@ WorkBuddy V5.9.3 首次真实 file 候选已作为用户级单项登记。MCP �
 - 本机策略只覆盖一个隔离项目、stream-only、`files=[]`、62 字节与附件 `create/local_web`。首回合 capabilities 和 create_upload 各成功一次，UI 中的会话 `badf5da8-6d85-5f95-ae31-74423fb7dd1f` 与夹具一致，状态为 `created`。固定本机助手对同会话独立执行 loopback PUT，核对 62 字节及 SHA-256 后封存。模型未上传字节。
 - 第二回合仅使用临时连接器，complete_upload、get_attachment_target、prepare_proposal、preview_proposal 各成功一次，未调用 commit。界面展示全部附件字段、差异、警告和执行依据。表格中的提案为 `e399943b-ea07-4453-a635-ad0383795c1c` v1，摘要 `785efc6a88dcd60d270603490a15cc09d98aaab190f15d61294cdbeccbbd1ad9`。模型文字缩写了部分辅助依赖标识，用户以隔离网页的完整预览为批准依据。批准前夹具核对暂存 `ready`、正式附件和回执均为零。
 - 用户亲自在隔离网页批准，原回执的确认方式为 `local_web`。重开仓储仅有一份正式附件 `ASSET-badf5da86d855f95ae3174423fb7dd1f` 和一份原回执，原会话为 `consumed`。磁盘 62 字节与合成源逐字节一致，SHA-256 为 `023887f7b2aff5b9ec2c79756c98f36676d8817c2b743f5a35cf3eddf9c04d70`。本轮未追加桌面模型查询或实桌面重放。
-- 退出当次任务，恢复配置原始字节并刷新，列表仅见原 `miora`。随后 STOP 退出 0，旧凭据返回 401，端口关闭，临时根移除并经独立复核。WorkBuddy 原始流正式附件真实通过，Codex 该业务单案仍待验。
+- 退出当次任务，恢复配置原始字节并刷新，列表仅见原 `miora`。随后 STOP 退出 0，旧凭据返回 401，端口关闭，临时根移除并经独立复核。WorkBuddy 原始流正式附件真实通过。当轮结束时，Codex 同项业务仍待验。
 
 ### 待审查的单条 issue 删除单案（2026-11-12）
 
@@ -797,7 +804,7 @@ python workflow_pilot.py --anchor $anchor
 | --- | --- | --- | --- |
 | 工具发现、版本、全文读取 | MCP `2025-11-25`，四项只读目录，六段及原文逐字节匹配 | MCP `2025-11-25`，通用 22 项、file 附件九项，六段、EOF、摘要及 UI 原文；UI 空白未独立逐字节核对 | App Server 配置刷新及新会话、WorkBuddy 原装 CLI 发现各自已核对；按后续试点记录其实际目录与刷新 |
 | `file_id` 项目附件 | `agent_attested` 两回合通过 | `agent_attested` 两回合通过 | file-only、预览、原回执、落盘、消费和撤权均有证据；提交重放已有隔离结果 |
-| 原始流项目附件 | 首次锚点发现七项，两次桌面复用未发现，业务待验 | `local_web` 通过，用户网页批准，磁盘与原回执已复核 | Codex 显式 reload 与全新目录零模型通过，真实桌面新目录续验时查询原回执。WorkBuddy 已清理原轮，保留桌面回执工具查询未观察的事实 |
+| 原始流项目附件 | 一次性可信项目七项发现及 `local_web` 通过，临时根待清理 | `local_web` 通过，临时根已清理 | 两端用户网页批准、磁盘与原回执均已核对。两端均未追加桌面回执工具查询或实际重放 |
 | 概念图新建、更新 | 两项 `local_web` 通过 | 两项 `local_web` 通过 | 两端已有正常 `agent_attested` 新建和更新的隔离夹具，待真实新消息、首次成功响应和原回执查询 |
 | 单条、项目级联删除 | 待验 | 待验 | 固定 issue、含实际子记录/独立附件/关联图的级联夹具、浏览器及领域证据齐备，待两端真实预览、本机批准和原回执查询 |
 | 项目创建及独立访问 | 待验 | 待验 | 两端零模型预演及浏览器专项已验证创建、独立访问批准、失败及原回执查询。WorkBuddy 普通启动已有自操作交接 |
@@ -809,16 +816,16 @@ python workflow_pilot.py --anchor $anchor
 
 ### AG-142 真实桌面剩余执行顺序（2026-11-12）
 
-依据[实施方案 §13.3](AI_AGENT_LOCAL_CAPABILITIES_PLAN.md#133-真实客户端)和[实施台账](AI_AGENT_PROGRESS.md)。以下仅排剩余真实桌面轮次。两端只读全文、`file_id` 附件的 `agent_attested`、概念图新建及更新的 `local_web`，以及 WorkBuddy 原始流附件的 `local_web` 均已有真实证据。WorkBuddy 原始流的原回执已由网页和磁盘核对，该轮服务及临时库已清理，原聊天的回执工具查询未发生。将真实桌面回执查询合并到下列尚待验的 `local_web` 项；保留原始流的来源专项事实。
+依据[实施方案 §13.3](AI_AGENT_LOCAL_CAPABILITIES_PLAN.md#133-真实客户端)和[实施台账](AI_AGENT_PROGRESS.md)。以下仅排剩余真实桌面轮次。两端只读全文、`file_id` 附件的 `agent_attested`、概念图新建及更新的 `local_web`，以及原始流附件的 `local_web` 均已有真实证据。两端原始流的原回执已由网页和磁盘核对，桌面回执工具查询未发生。将真实桌面回执查询合并到下列尚待验的 `local_web` 项。Codex 原始流本轮目录清理单列。
 
 | 客户端 | 连续执行顺序 | 每轮进入条件 |
 | --- | --- | --- |
-| Codex | ① 新一次性项目的原始流附件。② 下表七项业务，按行顺序。③ 图新建、更新的正常 `agent_attested`。④ 图更新故障对照。 | 打开每轮 `desktop_project`，在该项目开启新聊天并核对信任。在 `/mcp` 核对该轮目录和继承 `workbench` 禁用，监督另核对当轮中继握手和空间。普通命令省略 `--anchor`。 |
+| Codex | ① 下表七项业务，按行顺序。② 图新建、更新的正常 `agent_attested`。③ 图更新故障对照。 | 打开每轮 `desktop_project`，在该项目开启新聊天并核对信任。在 `/mcp` 核对该轮目录和继承 `workbench` 禁用，监督另核对当轮中继握手和空间。普通命令省略 `--anchor`。 |
 | WorkBuddy | ① 下表七项业务，按行顺序。② 图新建、更新的正常 `agent_attested`。③ 图更新故障对照。 | 用户在「专家·技能·连接器 → 连接器 → 自定义连接器 → MCP 服务管理」登记当轮唯一用户级候选，打开当轮空任务目录并选择 Hy4。用户本人核对信任并处理客户端提示。候选名称、程序、参数或环境路径变化时重新核对信任、工具目录和当轮握手。此前同名项从 file 切换为 stream 参数后实际再次触发信任。 |
 
 每轮只使用当轮输出的项目、空间、连接器、信号和提示。用户同意后，监督收到实际握手才写 `discovery_file`，各项授权分别核对完整预览后写对应 `approval_file`。用户亲自发送当轮提示、核对完整候选，并在当轮隔离网页批准当前版本。发现、空间或绑定不符时停止在当前阶段。成功或中止后先退出本轮聊天和临时项目，WorkBuddy 由用户移除精确匹配的临时项并刷新、核对配置基线。监督写 `stop_file` 并核对撤权后 401、实际进程退出、端口关闭与数据根移除。若报告 `cleanup_failed`，分别登记已完成的撤权和未完成的目录清理。记录实际桌面版本、模型、MCP 协议、目录、用户确认动作及原回执；未观察的项保留缺口。
 
-#### Codex 一次性项目原始流
+#### Codex 一次性项目原始流操作备查
 
 ```powershell
 python attachment_pilot.py --client codex --source stream
@@ -829,7 +836,7 @@ python attachment_pilot.py --client codex --source stream
 3. 在 `await_stream_put` 核对同一 `upload_id`，监督用当轮 `send_file` 触发本机助手固定 PUT。用户收到 `ready_stream_preview` 才发送第二条提示，完成原会话并展示完整附件候选后停止。
 4. `await_web_approval` 核对版本、摘要和零附件零回执，用户在隔离网页独立批准。收到 `committed` 后在同一聊天发送「只用本轮连接器查询原提案 <ID> 的回执，展示原附件 ID、长度和摘要后停止。」监督核对原字节、唯一回执及 `consumed`，再按通用步骤收尾。
 
-普通启动的一次性目录和未发现时 STOP 已实测，TOML 七项、零回执、401、端口关闭及数据根移除通过。真实桌面仍须另行验证发现及业务。
+普通启动的一次性目录和未发现时 STOP 已实测，TOML 七项、零回执、401、端口关闭及数据根移除通过。真实桌面的业务、回执及清理结果见上文当轮记录。这里保留操作流程供核对。
 
 #### 两端共用的七个业务轮次
 

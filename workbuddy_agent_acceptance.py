@@ -38,6 +38,8 @@ GRAPH_PILOT_TOOLS = ('workbench_capabilities', 'workbench_list_concept_maps', 'w
 ATTACHMENT_PILOT_TOOLS = ('workbench_capabilities', 'workbench_get_file_info', 'workbench_create_upload',
                           'workbench_complete_upload', 'workbench_get_attachment_target', 'workbench_prepare_proposal',
                           'workbench_preview_proposal', 'workbench_commit_proposal', 'workbench_get_proposal')
+STREAM_PILOT_TOOLS = tuple(tool for tool in ATTACHMENT_PILOT_TOOLS
+                           if tool not in {'workbench_get_file_info', 'workbench_commit_proposal'})
 ATTACHMENT_COMMIT_GATE = 'attachment-commit.json'
 PILOT_READ_SECONDS = 1200
 WORKBUDDY_DISCOVERY_SECONDS = 1200
@@ -182,7 +184,8 @@ def relay(protocol_faults=False, tools_allowed=()):
     trace = Path(os.environ["WORKBENCH_PROBE_TRACE"])
     rejection_message = {READONLY_PILOT_TOOLS:'Tool is outside the read-only pilot allowlist',
                          GRAPH_PILOT_TOOLS:'Tool is outside the graph pilot allowlist',
-                         ATTACHMENT_PILOT_TOOLS:'Call is outside the attachment pilot scope'}.get(tools_allowed)
+                         ATTACHMENT_PILOT_TOOLS:'Call is outside the attachment pilot scope',
+                         STREAM_PILOT_TOOLS:'Call is outside the attachment pilot scope'}.get(tools_allowed)
     process = subprocess.Popen(
         [sys.executable, str(ROOT / "agent_bridge.py"), "--config", os.environ["WORKBENCH_PROBE_CONFIG"]],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -210,7 +213,7 @@ def relay(protocol_faults=False, tools_allowed=()):
                             if tools_allowed and message.get('method') == 'tools/call':
                                 params = message.get('params')
                                 blocked = not isinstance(params, dict) or params.get('name') not in tools_allowed
-                                if not blocked and tools_allowed == ATTACHMENT_PILOT_TOOLS:
+                                if not blocked and tools_allowed in (ATTACHMENT_PILOT_TOOLS, STREAM_PILOT_TOOLS):
                                     blocked = not attachment_tool_allowed(params, trace.with_name(ATTACHMENT_COMMIT_GATE))
                                 if blocked and type(message.get('id')) in {int, str}:
                                     rejection = {'jsonrpc':'2.0', 'id':message['id'], 'error':{
@@ -708,6 +711,7 @@ if __name__ == "__main__":
     relay_modes.add_argument('--relay-readonly-pilot', action='store_true', help=argparse.SUPPRESS)
     relay_modes.add_argument('--relay-graph-pilot', action='store_true', help=argparse.SUPPRESS)
     relay_modes.add_argument('--relay-attachment-pilot', action='store_true', help=argparse.SUPPRESS)
+    relay_modes.add_argument('--relay-stream-pilot', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument("--protocol-faults", action="store_true", help="Explicitly inject fixed server ping/unknown requests; no model or business writes")
     parser.add_argument("--desktop-session", action="store_true", help="Prepare temporary project files only; never launch or modify the real desktop profile")
     parser.add_argument('--readonly-pilot', choices=('codex','workbuddy'), help='Prepare a disposable AG-142 read-only project; never launch the desktop')
@@ -721,7 +725,8 @@ if __name__ == "__main__":
     tools_allowed = ()
     for enabled, profile in ((args.relay_readonly_pilot, READONLY_PILOT_TOOLS),
                              (args.relay_graph_pilot, GRAPH_PILOT_TOOLS),
-                             (args.relay_attachment_pilot, ATTACHMENT_PILOT_TOOLS)):
+                             (args.relay_attachment_pilot, ATTACHMENT_PILOT_TOOLS),
+                             (args.relay_stream_pilot, STREAM_PILOT_TOOLS)):
         if enabled:
             tools_allowed = profile
     if tools_allowed and (not args.relay or args.protocol_faults):

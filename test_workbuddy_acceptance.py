@@ -6,14 +6,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from workbuddy_agent_acceptance import (ATTACHMENT_PILOT_TOOLS, GRAPH_PILOT_TOOLS, READONLY_PILOT_TOOLS,
+from workbuddy_agent_acceptance import (ATTACHMENT_PILOT_TOOLS, GRAPH_PILOT_TOOLS, READONLY_PILOT_TOOLS, STREAM_PILOT_TOOLS,
                                        ProtocolFaultProbe, attachment_tool_allowed, installed_cli_bundle,
                                        protocol_metadata, restrict_pilot_catalog)
 
 
 class WorkBuddyMetadataTests(unittest.TestCase):
     def test_pilot_catalog_filters_tools_and_rejects_missing_or_duplicate_entries(self):
-        for profile in (READONLY_PILOT_TOOLS, GRAPH_PILOT_TOOLS, ATTACHMENT_PILOT_TOOLS):
+        for profile in (READONLY_PILOT_TOOLS, GRAPH_PILOT_TOOLS, ATTACHMENT_PILOT_TOOLS, STREAM_PILOT_TOOLS):
             with self.subTest(profile=profile):
                 allowed = [{'name':name, 'inputSchema':{'type':'object'}} for name in profile]
                 reply = {'jsonrpc':'2.0', 'id':17,

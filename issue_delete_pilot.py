@@ -29,7 +29,7 @@ ASSET = b'AG142 RETAINED ASSET\n'
 class ProposalCase:
     client_categories = ()
 
-    def binding_revision(self):
+    def binding_revision(self, proposal):
         return self.request.get('base_revision')
 
     def check_local_preview(self, review, binding):
@@ -46,7 +46,7 @@ class ProposalCase:
         if proposal['state'] != 'previewed':
             return None
         expected = {key:self.request[key] for key in ('kind', 'operation', 'request_id', 'confirmation_mode')}
-        expected.update(target_id=self.target, base_revision=self.binding_revision(),
+        expected.update(target_id=self.target, base_revision=self.binding_revision(proposal),
                         client_id=client_id, previewed_version=proposal['version'])
         if not proposal['preview_digest'] or any(proposal.get(key) != value for key, value in expected.items()):
             raise ValueError('Proposal does not match the fixed case')
@@ -164,7 +164,7 @@ class DeleteCase(DeletionCase):
         return {'receipt':receipt, 'trash_sha256':self.revision, 'retained_bytes_match':True}
 
 
-def check_local_approval(invoke, case, client_id, workspace, local):
+def check_local_approval(invoke, case, client_id, workspace, local, *, check_rejections=None):
     def call(name, args=None):
         result = invoke('workbench_' + name, args or {})
         assert not result['isError'], result
@@ -181,7 +181,10 @@ def check_local_approval(invoke, case, client_id, workspace, local):
     assert call('capabilities')['workspace_id'] == workspace
     access_evidence = case.check_tool_access(call, rejected, invoke)
     proposal = call('prepare_proposal', case.request)
-    preview = call('preview_proposal', {'proposal_id':proposal['proposal_id']})
+    query = {'proposal_id':proposal['proposal_id']}
+    if check_rejections:
+        access_evidence.update(check_rejections(query['proposal_id'], client_id, workspace, local))
+    preview = call('preview_proposal', query)
     binding = case.before_approval(client_id)
     assert binding and preview['preview_digest'] == binding['preview_digest']
     rejected('commit_proposal', {**binding, 'confirmation':{'mode':'agent_attested', 'user_confirmed':True}})
@@ -201,12 +204,14 @@ def check_local_approval(invoke, case, client_id, workspace, local):
             'preapproval_original_unchanged':True, 'other_target_denied':True, 'agent_commit_disabled':True, **access_evidence, **evidence}
 
 
-def run(check, anchor=None, case_type=DeleteCase, **case_options):
+def run(check, anchor=None, case_type=DeleteCase, *, seed=None, **case_options):
     audit = {}
     with pilot_directory(case_type.directory_prefix) as base, anchor_slot(anchor) as slot:
         cwd = slot.root if slot else base / 'desktop-project'
         if not slot:
             cwd.mkdir()
+        if seed is not None:
+            seed(Repository(base / 'data'))
         workbench = LocalWorkbench(base / 'data', base / 'private')
         info = token = case = None
         try:
@@ -289,12 +294,12 @@ def run_window(case, client_id, workspace, stop, audit):
         await_value(lambda: None, stop, deadline)
 
 
-def main(case_type=DeleteCase, description=__doc__):
+def main(case_type=DeleteCase, description=__doc__, *, seed=None):
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument('--check', action='store_true', help='Run the isolated App Server preflight without a model')
     parser.add_argument('--anchor', type=Path, help='Use an explicitly initialized Codex pilot directory')
     args = parser.parse_args()
-    run(args.check, args.anchor, case_type)
+    run(args.check, args.anchor, case_type, seed=seed)
 
 
 if __name__ == '__main__':

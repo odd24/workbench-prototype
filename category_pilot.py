@@ -16,7 +16,7 @@ from workbench.agent_security import AgentError, read_json
 from workbench.category_identity import FENCE_PATH, IDENTITY_PATH, load_category_identities, namespace_key
 from workbench.category_prepared import DOCUMENT, GRAPH, PROJECT_ASSETS, category_inventory, prepare_category, read_file
 from workbench.markdown_io import now_iso
-from workbuddy_agent_acceptance import CATEGORY_PILOT_CASE, CATEGORY_PILOT_TOOLS
+from workbuddy_agent_acceptance import CATEGORY_PILOT_CASE, CONFIGURATION_PILOT_TOOLS
 
 
 DOMAINS = {'document':DOCUMENT, 'concept-map':GRAPH, 'project-attachment':PROJECT_ASSETS}
@@ -28,7 +28,7 @@ BINARY = b'AG142 SYNTHETIC ATTACHMENT\n'
 
 class CategoryCase(ProposalCase):
     server = 'workbench_ag142_category'
-    tools = CATEGORY_PILOT_TOOLS
+    tools = CONFIGURATION_PILOT_TOOLS
     relay_flag = '--relay-category-pilot'
     directory_prefix = 'workbench-ag142-category-'
     request_prefix = 'ag142-category'
@@ -108,7 +108,7 @@ class CategoryCase(ProposalCase):
                          minimum_confirmation_mode='local_web')
         return True
 
-    def binding_revision(self):
+    def binding_revision(self, proposal):
         return self.original_revision
 
     def final_state(self):

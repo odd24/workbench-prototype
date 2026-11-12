@@ -46,9 +46,17 @@ PROJECT_PILOT_TOOLS = ('workbench_capabilities', 'workbench_list_projects', 'wor
                               'workbench_preview_proposal', 'workbench_get_proposal')
 DELETE_PILOT_CASE = 'delete-pilot-case.json'
 PROJECT_CREATE_PILOT_CASE = 'project-create-pilot-case.json'
-CATEGORY_PILOT_TOOLS = ('workbench_capabilities', 'workbench_prepare_proposal', 'workbench_preview_proposal',
+CONFIGURATION_PILOT_TOOLS = ('workbench_capabilities', 'workbench_prepare_proposal', 'workbench_preview_proposal',
                         'workbench_get_proposal')
 CATEGORY_PILOT_CASE = 'category-pilot-case.json'
+WORKFLOW_PILOT_CASE = 'workflow-pilot-case.json'
+FIXED_PROPOSAL_PILOTS = {
+    'issue deletion': (DELETE_PILOT_TOOLS, 'issue', 'delete', DELETE_PILOT_CASE),
+    'project deletion': (PROJECT_PILOT_TOOLS, 'project', 'delete', DELETE_PILOT_CASE),
+    'project creation': (PROJECT_PILOT_TOOLS, 'project', 'create', PROJECT_CREATE_PILOT_CASE),
+    'category': (CONFIGURATION_PILOT_TOOLS, 'category', 'rename', CATEGORY_PILOT_CASE),
+    'workflow': (CONFIGURATION_PILOT_TOOLS, 'workflow', 'delete_status', WORKFLOW_PILOT_CASE),
+}
 ATTACHMENT_COMMIT_GATE = 'attachment-commit.json'
 PILOT_READ_SECONDS = 1200
 WORKBUDDY_DISCOVERY_SECONDS = 1200
@@ -206,22 +214,17 @@ def fixed_proposal_tool_allowed(params, case_path, kind='issue', operation='dele
     return params.get('arguments') == case
 
 
-def relay(protocol_faults=False, tools_allowed=(), *, project_create=False):
+def relay(protocol_faults=False, tools_allowed=(), *, proposal_pilot=None):
     trace = Path(os.environ["WORKBENCH_PROBE_TRACE"])
-    rejection_message = {READONLY_PILOT_TOOLS:'Tool is outside the read-only pilot allowlist',
-                         GRAPH_PILOT_TOOLS:'Tool is outside the graph pilot allowlist',
-                         ATTACHMENT_PILOT_TOOLS:'Call is outside the attachment pilot scope',
-                         STREAM_PILOT_TOOLS:'Call is outside the attachment pilot scope',
-                         DELETE_PILOT_TOOLS:'Call is outside the issue deletion pilot scope',
-                         CATEGORY_PILOT_TOOLS:'Call is outside the category pilot scope',
-                         PROJECT_PILOT_TOOLS:('Call is outside the project creation pilot scope' if project_create
-                                                     else 'Call is outside the project deletion pilot scope')}.get(tools_allowed)
-    fixed_case = {
-        DELETE_PILOT_TOOLS:('issue', 'delete', DELETE_PILOT_CASE),
-        PROJECT_PILOT_TOOLS:('project', 'create', PROJECT_CREATE_PILOT_CASE) if project_create else
-                            ('project', 'delete', DELETE_PILOT_CASE),
-        CATEGORY_PILOT_TOOLS:('category', 'rename', CATEGORY_PILOT_CASE),
-    }.get(tools_allowed)
+    fixed_case = ()
+    if proposal_pilot:
+        tools_allowed, *fixed_case = FIXED_PROPOSAL_PILOTS[proposal_pilot]
+        rejection_message = f'Call is outside the {proposal_pilot} pilot scope'
+    else:
+        rejection_message = {READONLY_PILOT_TOOLS:'Tool is outside the read-only pilot allowlist',
+                             GRAPH_PILOT_TOOLS:'Tool is outside the graph pilot allowlist',
+                             ATTACHMENT_PILOT_TOOLS:'Call is outside the attachment pilot scope',
+                             STREAM_PILOT_TOOLS:'Call is outside the attachment pilot scope'}.get(tools_allowed)
     process = subprocess.Popen(
         [sys.executable, str(ROOT / "agent_bridge.py"), "--config", os.environ["WORKBENCH_PROBE_CONFIG"]],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -755,6 +758,7 @@ if __name__ == "__main__":
     relay_modes.add_argument('--relay-project-delete-pilot', action='store_true', help=argparse.SUPPRESS)
     relay_modes.add_argument('--relay-project-create-pilot', action='store_true', help=argparse.SUPPRESS)
     relay_modes.add_argument('--relay-category-pilot', action='store_true', help=argparse.SUPPRESS)
+    relay_modes.add_argument('--relay-workflow-pilot', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument("--protocol-faults", action="store_true", help="Explicitly inject fixed server ping/unknown requests; no model or business writes")
     parser.add_argument("--desktop-session", action="store_true", help="Prepare temporary project files only; never launch or modify the real desktop profile")
     parser.add_argument('--readonly-pilot', choices=('codex','workbuddy'), help='Prepare a disposable AG-142 read-only project; never launch the desktop')
@@ -769,16 +773,20 @@ if __name__ == "__main__":
     for enabled, profile in ((args.relay_readonly_pilot, READONLY_PILOT_TOOLS),
                              (args.relay_graph_pilot, GRAPH_PILOT_TOOLS),
                              (args.relay_attachment_pilot, ATTACHMENT_PILOT_TOOLS),
-                             (args.relay_stream_pilot, STREAM_PILOT_TOOLS),
-                             (args.relay_delete_pilot, DELETE_PILOT_TOOLS),
-                             (args.relay_category_pilot, CATEGORY_PILOT_TOOLS),
-                             ((args.relay_project_delete_pilot or args.relay_project_create_pilot), PROJECT_PILOT_TOOLS)):
+                             (args.relay_stream_pilot, STREAM_PILOT_TOOLS)):
         if enabled:
             tools_allowed = profile
-    if tools_allowed and (not args.relay or args.protocol_faults):
+    proposal_pilot = next((name for enabled, name in (
+        (args.relay_delete_pilot, 'issue deletion'),
+        (args.relay_project_delete_pilot, 'project deletion'),
+        (args.relay_project_create_pilot, 'project creation'),
+        (args.relay_category_pilot, 'category'),
+        (args.relay_workflow_pilot, 'workflow'),
+    ) if enabled), None)
+    if (tools_allowed or proposal_pilot) and (not args.relay or args.protocol_faults):
         parser.error('Pilot tool filtering requires --relay without protocol fault injection')
     if args.relay:
-        relay(args.protocol_faults, tools_allowed, project_create=args.relay_project_create_pilot)
+        relay(args.protocol_faults, tools_allowed, proposal_pilot=proposal_pilot)
     elif args.readonly_pilot:
         run_readonly_pilot(args.readonly_pilot, args.pilot_check, args.codex_project_guard)
     elif args.desktop_session:

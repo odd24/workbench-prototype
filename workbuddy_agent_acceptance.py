@@ -57,6 +57,9 @@ FIXED_PROPOSAL_PILOTS = {
     'category': (CONFIGURATION_PILOT_TOOLS, 'category', 'rename', CATEGORY_PILOT_CASE),
     'workflow': (CONFIGURATION_PILOT_TOOLS, 'workflow', 'delete_status', WORKFLOW_PILOT_CASE),
 }
+RECOVERY_PILOT_TOOLS = ('workbench_capabilities', 'workbench_get_concept_map', 'workbench_prepare_proposal',
+                        'workbench_preview_proposal', 'workbench_get_proposal', 'workbench_commit_proposal')
+RECOVERY_PILOT_CASE = 'recovery-pilot.json'
 ATTACHMENT_COMMIT_GATE = 'attachment-commit.json'
 PILOT_READ_SECONDS = 1200
 WORKBUDDY_DISCOVERY_SECONDS = 1200
@@ -214,6 +217,45 @@ def fixed_proposal_tool_allowed(params, case_path, kind='issue', operation='dele
     return params.get('arguments') == case
 
 
+def recovery_tool_allowed(params, case_path):
+    try:
+        case = read_json(case_path)
+        if not isinstance(case, dict) or type(case.get('expires_at')) is not int or time.time() >= case['expires_at']:
+            return False
+        name, arguments = params['name'], params.get('arguments')
+        phase = case['phase']
+        if phase not in {'preview', 'first', 'query', 'restart', 'replay'} or not isinstance(arguments, dict):
+            return False
+        if name == 'workbench_capabilities':
+            return arguments == {}
+        if name == 'workbench_get_concept_map':
+            return arguments == {'map_id':case['graph_id']}
+        if name == 'workbench_prepare_proposal':
+            return phase == 'preview' and arguments in case['requests']
+        if name in {'workbench_preview_proposal', 'workbench_get_proposal'}:
+            return set(arguments) == {'proposal_id'} and arguments['proposal_id'] in case['proposal_ids']
+        if name != 'workbench_commit_proposal' or phase not in {'first', 'replay'} or arguments != case['commit']:
+            return False
+        binding = case['commit']
+        if (set(binding) != {'proposal_id','version','preview_digest','confirmation'}
+                or binding['proposal_id'] != case['candidate_b'] or case['proposal_ids'][1:] != [case['candidate_b']]
+                or type(arguments['version']) is not int or arguments['version'] < 1
+                or not re.fullmatch(r'[a-f0-9]{64}', arguments['preview_digest'])
+                or arguments['confirmation'].get('mode') != 'agent_attested'
+                or arguments['confirmation'].get('user_confirmed') is not True):
+            return False
+        claim = case_path.with_name(f'recovery-{phase}.claim')
+        if phase == 'replay' and read_json(case_path.with_name('recovery-first.claim')) != binding:
+            return False
+        with claim.open('x', encoding='utf-8') as stream:
+            json.dump(binding, stream, ensure_ascii=False)
+            stream.flush()
+            os.fsync(stream.fileno())
+        return True
+    except (OSError, KeyError, TypeError, ValueError, AttributeError):
+        return False
+
+
 def relay(protocol_faults=False, tools_allowed=(), *, proposal_pilot=None):
     trace = Path(os.environ["WORKBENCH_PROBE_TRACE"])
     fixed_case = ()
@@ -224,7 +266,8 @@ def relay(protocol_faults=False, tools_allowed=(), *, proposal_pilot=None):
         rejection_message = {READONLY_PILOT_TOOLS:'Tool is outside the read-only pilot allowlist',
                              GRAPH_PILOT_TOOLS:'Tool is outside the graph pilot allowlist',
                              ATTACHMENT_PILOT_TOOLS:'Call is outside the attachment pilot scope',
-                             STREAM_PILOT_TOOLS:'Call is outside the attachment pilot scope'}.get(tools_allowed)
+                             STREAM_PILOT_TOOLS:'Call is outside the attachment pilot scope',
+                             RECOVERY_PILOT_TOOLS:'Call is outside the recovery pilot scope'}.get(tools_allowed)
     process = subprocess.Popen(
         [sys.executable, str(ROOT / "agent_bridge.py"), "--config", os.environ["WORKBENCH_PROBE_CONFIG"]],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -254,6 +297,8 @@ def relay(protocol_faults=False, tools_allowed=(), *, proposal_pilot=None):
                                 blocked = not isinstance(params, dict) or params.get('name') not in tools_allowed
                                 if not blocked and tools_allowed in (ATTACHMENT_PILOT_TOOLS, STREAM_PILOT_TOOLS):
                                     blocked = not attachment_tool_allowed(params, trace.with_name(ATTACHMENT_COMMIT_GATE))
+                                if not blocked and tools_allowed == RECOVERY_PILOT_TOOLS:
+                                    blocked = not recovery_tool_allowed(params, trace.with_name(RECOVERY_PILOT_CASE))
                                 if not blocked and fixed_case:
                                     kind, operation, case_file = fixed_case
                                     blocked = not fixed_proposal_tool_allowed(params, trace.with_name(case_file), kind, operation)
@@ -759,6 +804,7 @@ if __name__ == "__main__":
     relay_modes.add_argument('--relay-project-create-pilot', action='store_true', help=argparse.SUPPRESS)
     relay_modes.add_argument('--relay-category-pilot', action='store_true', help=argparse.SUPPRESS)
     relay_modes.add_argument('--relay-workflow-pilot', action='store_true', help=argparse.SUPPRESS)
+    relay_modes.add_argument('--relay-recovery-pilot', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument("--protocol-faults", action="store_true", help="Explicitly inject fixed server ping/unknown requests; no model or business writes")
     parser.add_argument("--desktop-session", action="store_true", help="Prepare temporary project files only; never launch or modify the real desktop profile")
     parser.add_argument('--readonly-pilot', choices=('codex','workbuddy'), help='Prepare a disposable AG-142 read-only project; never launch the desktop')
@@ -773,7 +819,8 @@ if __name__ == "__main__":
     for enabled, profile in ((args.relay_readonly_pilot, READONLY_PILOT_TOOLS),
                              (args.relay_graph_pilot, GRAPH_PILOT_TOOLS),
                              (args.relay_attachment_pilot, ATTACHMENT_PILOT_TOOLS),
-                             (args.relay_stream_pilot, STREAM_PILOT_TOOLS)):
+                             (args.relay_stream_pilot, STREAM_PILOT_TOOLS),
+                             (args.relay_recovery_pilot, RECOVERY_PILOT_TOOLS)):
         if enabled:
             tools_allowed = profile
     proposal_pilot = next((name for enabled, name in (

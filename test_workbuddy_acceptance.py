@@ -3,20 +3,22 @@
 import copy
 import json
 import tempfile
+import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from workbuddy_agent_acceptance import (ATTACHMENT_PILOT_TOOLS, CONFIGURATION_PILOT_TOOLS, DELETE_PILOT_TOOLS, GRAPH_PILOT_TOOLS,
-                                       PROJECT_PILOT_TOOLS, READONLY_PILOT_TOOLS,
+                                       PROJECT_PILOT_TOOLS, READONLY_PILOT_TOOLS, RECOVERY_PILOT_TOOLS,
                                        STREAM_PILOT_TOOLS, ProtocolFaultProbe, attachment_tool_allowed, fixed_proposal_tool_allowed,
                                        installed_cli_bundle,
-                                       protocol_metadata, restrict_pilot_catalog)
+                                       protocol_metadata, recovery_tool_allowed, restrict_pilot_catalog)
 
 
 class WorkBuddyMetadataTests(unittest.TestCase):
     def test_pilot_catalog_filters_tools_and_rejects_missing_or_duplicate_entries(self):
         for profile in (READONLY_PILOT_TOOLS, GRAPH_PILOT_TOOLS, ATTACHMENT_PILOT_TOOLS, STREAM_PILOT_TOOLS,
-                        DELETE_PILOT_TOOLS, PROJECT_PILOT_TOOLS, CONFIGURATION_PILOT_TOOLS):
+                        DELETE_PILOT_TOOLS, PROJECT_PILOT_TOOLS, CONFIGURATION_PILOT_TOOLS, RECOVERY_PILOT_TOOLS):
             with self.subTest(profile=profile):
                 allowed = [{'name':name, 'inputSchema':{'type':'object'}} for name in profile]
                 reply = {'jsonrpc':'2.0', 'id':17,
@@ -86,6 +88,41 @@ class WorkBuddyMetadataTests(unittest.TestCase):
             for change in ({'name':'other'}, {'workflow_template':'other'}, {'grant_access':True}):
                 altered = {**call, 'arguments':{**spec, 'content':{**spec['content'], **change}}}
                 self.assertFalse(fixed_proposal_tool_allowed(altered, case_path, 'project', 'create'))
+
+    def test_recovery_relay_claims_each_bound_commit_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'recovery.json'
+            approved = {'proposal_id':'B','version':1,'preview_digest':'a' * 64,
+                        'confirmation':{'mode':'agent_attested','user_confirmed':True}}
+            case = {'phase':'preview','expires_at':int(time.time()) + 60,'candidate_b':'B',
+                    'proposal_ids':['A','B'],'commit':approved}
+            call = {'name':'workbench_commit_proposal','arguments':approved}
+
+            def publish(phase):
+                path.write_text(json.dumps({**case, 'phase':phase}), encoding='utf-8')
+
+            self.assertFalse(recovery_tool_allowed(call, path))
+            publish('preview')
+            self.assertFalse(recovery_tool_allowed(call, path))
+            publish('replay')
+            self.assertFalse(recovery_tool_allowed(call, path))
+            publish('first')
+            other = {**call, 'arguments':{**approved, 'proposal_id':'A'}}
+            self.assertFalse(recovery_tool_allowed(other, path))
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                results = list(executor.map(lambda _:recovery_tool_allowed(call, path), range(2)))
+            self.assertEqual(sorted(results), [False,True])
+            for phase in ('query','restart'):
+                publish(phase)
+                self.assertFalse(recovery_tool_allowed(call, path))
+            replacement = {**approved, 'version':2}
+            path.write_text(json.dumps({**case, 'phase':'replay', 'commit':replacement}), encoding='utf-8')
+            self.assertFalse(recovery_tool_allowed({**call, 'arguments':replacement}, path))
+            publish('replay')
+            self.assertTrue(recovery_tool_allowed(call, path))
+            self.assertFalse(recovery_tool_allowed(call, path))
+            path.write_text('{', encoding='utf-8')
+            self.assertFalse(recovery_tool_allowed(call, path))
 
     def test_original_launcher_selection_preserves_full_and_supports_lite_only(self):
         with tempfile.TemporaryDirectory() as directory:

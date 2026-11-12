@@ -617,3 +617,17 @@ python -m unittest -v test_codex_pilot_anchor
 2026-11-12 首次真实 Codex 锚点发现和收尾通过。用户登记并信任验收项目，打开 `/mcp`，确认旧 `workbench` 禁用。中继 `codex-mcp-client 0.167.0-alpha.3.2` 完成五条握手记录，从 `2025-06-18` 协商至 `2025-11-25`，目录恰七项。随后启用本次精确 stream-only 本机策略并提供首条提示。收尾前未找到目标聊天、工具调用或模型回合证据，附件和回执均为零，未执行 PUT 或正式批准。
 
 窗口结束前监督发送 STOP，夹具退出 0，旧凭据 401、端口关闭、每轮数据根移除，`anchor_idle=true`。独立复核锚点仍登记，项目 TOML 仅保留空闲注释及空 `mcp_servers`，本轮数据根不存在。该轮证实真实桌面可以使用并保留受管项目，跨轮复用和 stream 业务仍待验。
+
+#### WorkBuddy 桌面附件两来源候选
+
+```powershell
+$env:PYTHONIOENCODING = 'utf-8'
+python attachment_pilot.py --client workbuddy --check
+python attachment_pilot.py --client workbuddy --source stream --check
+```
+
+安装版 WorkBuddy CLI 2.165.0 用一次性用户配置执行 `mcp get`，同一个实际候选分别完成九项 file 和七项 stream 的握手和工具发现。已安装 CLI 暂无已验证的公开直接业务调用入口，后续业务步骤由独立 raw stdio 客户端走同一受限中继和同一隔离空间。两条均验证批准前零附件零回执、正式提交或网页批准后各一份原回执和附件、磁盘字节匹配、暂存消费、重放、401、端口关闭和目录移除。file 的确认门控与 stream 的固定本机 PUT 和禁止 Agent 提交均保持原约束。以上均为零模型证据。
+
+真实桌面优先选择 file。获准后省略对应命令的 `--check`，从 `pending_discovery.config` 审查当次唯一的 `mcpServers.workbench_ag142_attachment`，含固定中继参数和两处临时环境路径。沿用已验证的 WorkBuddy V5.9.3 用户级单项方式，先核对实际配置路径、同名冲突和基线，再只增加该项。打开当次空目录，不写 Codex TOML，也不使用 Codex `--anchor`。用户确认单项和信任，按需要通过客户端刷新，监督核对当次实际九项或七项握手及空间，才创建发现信号。若已信任图连接器仍在，先确认没有可访问其他工作台数据的连接器。此前的图试点信任记录不证明本次新附件候选已受信任。
+
+用户选择 Hy4 后分别按 file 的完整预览与新消息确认，或 stream 的建会话、本机固定 PUT、完整预览与网页独立批准顺序操作。STOP 前关闭当次任务和连接器，按既有单项方案移除精确匹配对象、核对配置原字节并刷新桌面缓存，再核对旧凭据 401、端口与临时目录。真实桌面发现、工具参数传递、完整预览和用户确认尚待实测。本次隔离预演未登记真实配置或发送 Hy4 提示。

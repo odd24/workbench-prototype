@@ -1,16 +1,21 @@
-"""Isolated AG-142 Codex attachment pilot. Never starts a model turn."""
+"""Isolated AG-142 desktop attachment pilot. Never starts a model turn."""
 
 import argparse
 import hashlib
 import json
+import os
+import shutil
 import socket
+import subprocess
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from http.client import HTTPConnection
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from codex_agent_acceptance import LocalWorkbench
+from acceptance_process import ClientJob
+from codex_agent_acceptance import LocalWorkbench, RpcProcess
 from codex_pilot_anchor import anchor_slot
 from concept_map_pilot import (DISCOVERY_SECONDS, GRANT_REVIEW_SECONDS, WINDOW_SECONDS, check_app_server,
                                emit, emit_stopped, pilot_directory, project_connector, wait_for_signal)
@@ -18,7 +23,8 @@ from server import Repository
 from workbench.agent_management import client_version
 from workbench.agent_security import read_json
 from workbench.persistence import atomic_write_json
-from workbuddy_agent_acceptance import ATTACHMENT_COMMIT_GATE, ATTACHMENT_PILOT_TOOLS, STREAM_PILOT_TOOLS, pilot_discovered
+from workbuddy_agent_acceptance import (ATTACHMENT_COMMIT_GATE, ATTACHMENT_PILOT_TOOLS, STREAM_PILOT_TOOLS,
+                                       installed_cli_bundle, isolated_environment, pilot_discovered)
 
 
 SERVER = 'workbench_ag142_attachment'
@@ -123,7 +129,8 @@ def committed_evidence(repo, project_id, binding):
     return {'receipt':receipt, 'disk_sha256':SHA256, 'consumed':True}
 
 
-def check_attachment(invoke, repo, workspace, client_id, project_id, upload_args, gate, *, put=None, local=None):
+def check_attachment(invoke, repo, workspace, client_id, project_id, upload_args, gate, *,
+                     put=None, local=None, codex=True):
     def call(name, arguments):
         result = invoke('workbench_' + name, arguments)
         assert not result['isError'], result
@@ -138,7 +145,8 @@ def check_attachment(invoke, repo, workspace, client_id, project_id, upload_args
             raise AssertionError('Relay accepted an excluded attachment pilot call')
 
     assert call('capabilities', {})['workspace_id'] == workspace
-    rejected('read_file', {}, 'is disabled for MCP server')
+    outside_catalog = 'is disabled for MCP server' if codex else 'outside the attachment pilot scope'
+    rejected('read_file', {}, outside_catalog)
     rejected('prepare_proposal', {'kind':'issue', 'operation':'create', 'request_id':'denied-pilot-issue'})
     if put is None:
         meta = call('get_file_info', {'file_id':upload_args['source']['file_id']})
@@ -165,7 +173,7 @@ def check_attachment(invoke, repo, workspace, client_id, project_id, upload_args
     assert preview['content']['attachment']['sha256'] == SHA256 and preview['execution_plan']
     binding = proposal_binding(repo, project_id, client_id, upload_args)
     args = {**binding, 'confirmation':{'mode':'agent_attested', 'user_confirmed':True}}
-    rejected('commit_proposal', args, 'is disabled for MCP server' if put else 'outside the attachment pilot scope')
+    rejected('commit_proposal', args, outside_catalog if put else 'outside the attachment pilot scope')
     assert proposal_binding(repo, project_id, client_id, upload_args) == binding
     if put:
         route = 'proposals/' + binding['proposal_id']
@@ -178,7 +186,7 @@ def check_attachment(invoke, repo, workspace, client_id, project_id, upload_args
         result = local(route + '/approve', approval)
         assert result['state'] == 'completed' and local(route + '/approve', approval) == result
         receipt = result['receipt']
-        rejected('commit_proposal', args, 'is disabled for MCP server')
+        rejected('commit_proposal', args, outside_catalog)
         verified = {'fixed_stream_put':True, 'wrong_session_denied':True, 'local_web_approved':True}
     else:
         atomic_write_json(gate, binding)
@@ -212,9 +220,59 @@ def await_value(get, stop, deadline):
     return None
 
 
-def run(check, source_mode='file', anchor=None):
+@contextmanager
+def check_workbuddy(base, cwd, entry, config, catalog, token, audit):
+    install = Path(os.environ.get('LOCALAPPDATA', '')) / 'Programs' / 'WorkBuddy'
+    cli = install / 'resources' / 'app.asar.unpacked' / 'cli' / 'bin' / 'codebuddy'
+    node = shutil.which('node')
+    if not cli.is_file() or not node:
+        raise RuntimeError('Installed WorkBuddy CLI and Node are required for the isolated preflight')
+    env = isolated_environment(base)
+    if installed_cli_bundle(install) == 'lite-wb':
+        env['CODEBUDDY_FORCE_LITE_WB_BUNDLE'] = '1'
+    (base / 'config' / '.mcp.json').write_text(json.dumps(config), encoding='utf-8')
+    version = subprocess.run([node, str(cli), '--version'], cwd=cwd, env=env, capture_output=True,
+                             check=True, timeout=15).stdout.decode('utf-8').strip()
+    trace = Path(entry['env']['WORKBENCH_PROBE_TRACE'])
+    job = ClientJob()
+    try:
+        process = subprocess.Popen([node, str(cli), 'mcp', 'get', SERVER], cwd=cwd, env=env,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+        try:
+            job.assign(process)
+            stdout, stderr = process.communicate(timeout=30)
+        except BaseException:
+            job.close()
+            if process.poll() is None:
+                process.kill()
+            process.communicate(timeout=10)
+            raise
+        assert token.encode() not in stdout + stderr, 'Temporary credential appeared in installed CLI output'
+        assert process.returncode == 0 and pilot_discovered(trace, catalog), 'Installed CLI did not discover this user-level candidate'
+    finally:
+        job.close()
+    audit.update(workbuddy_cli=version, installed_cli_discovery=True, tool_count=len(catalog), model_turns=0)
+
+    # The installed CLI discovery above has no direct business-call entry.
+    # Exercise the same restricted candidate through a separate raw stdio client.
+    rpc = RpcProcess([entry['command'], *entry['args']], cwd, {**env, **entry['env']}, terminate_tree=True)
+    try:
+        assert rpc.call('initialize', {'protocolVersion':'2025-11-25', 'capabilities':{},
+                        'clientInfo':{'name':'ag142-attachment-stdio-check', 'version':'1'}})['protocolVersion'] == '2025-11-25'
+        rpc.notify('notifications/initialized')
+        assert {item['name'] for item in rpc.call('tools/list')['tools']} == set(catalog)
+        yield lambda tool, args: rpc.call('tools/call', {'name':tool, 'arguments':args})
+    finally:
+        rpc.close()
+
+
+def run(check, source_mode='file', anchor=None, client='codex'):
     audit = {}
     stream = source_mode == 'stream'
+    codex = client == 'codex'
+    if anchor is not None and not codex:
+        raise ValueError('A managed project anchor requires the Codex connector')
     with pilot_directory('workbench-ag142-attachment-') as base, anchor_slot(anchor) as slot:
         cwd = slot.root if slot else base / 'desktop-project'
         if not slot:
@@ -239,12 +297,16 @@ def run(check, source_mode='file', anchor=None):
             headers['X-Workbench-Management-Token'] = local('status')['management_token']
             trace, stop = base / 'protocol.jsonl', base / 'STOP'
             discovered, gate = base / 'DISCOVERED', base / ATTACHMENT_COMMIT_GATE
-            entry, config, catalog = project_connector(cwd, trace, info['config_file'], True, server=SERVER,
-                catalog=STREAM_PILOT_TOOLS if stream else ATTACHMENT_PILOT_TOOLS,
-                relay_flag='--relay-stream-pilot' if stream else '--relay-attachment-pilot',
-                slot=slot, port=workbench.server.server_address[1])
+            tools = STREAM_PILOT_TOOLS if stream else ATTACHMENT_PILOT_TOOLS
+            flag = '--relay-stream-pilot' if stream else '--relay-attachment-pilot'
+            entry, config, catalog = project_connector(cwd, trace, info['config_file'], codex, server=SERVER,
+                catalog=tools, relay_flag=flag, slot=slot, port=workbench.server.server_address[1])
+            if not codex:
+                entry['args'].append(flag)
+                config = {'config':{'mcpServers':{SERVER:entry}}}
+                catalog = list(tools)
             context = {'workbench_url':workbench.base_url, 'workspace_id':workspace, 'desktop_project':str(cwd),
-                       **config, 'source_mode':source_mode, 'expected_catalog':catalog,
+                       **config, 'client':client, 'source_mode':source_mode, 'expected_catalog':catalog,
                        'trace_path':str(trace), 'stop_file':str(stop), 'managed_anchor':slot is not None}
             if not check:
                 emit({'mode':'pending_discovery', **context, 'discovery_file':str(discovered), 'wait_seconds':DISCOVERY_SECONDS})
@@ -278,9 +340,11 @@ def run(check, source_mode='file', anchor=None):
                             put_stream(workbench, workspace, client_id, upload_args, upload_id, token)
 
                         if check:
-                            with check_app_server(base, cwd, entry, server=SERVER, catalog=catalog) as invoke:
+                            connection = (check_app_server(base, cwd, entry, server=SERVER, catalog=catalog) if codex
+                                          else check_workbuddy(base, cwd, entry, config['config'], catalog, token, audit))
+                            with connection as invoke:
                                 audit.update(check_attachment(invoke, repo, workspace, client_id, project_id, upload_args, gate,
-                                                              put=put if stream else None, local=local))
+                                                              put=put if stream else None, local=local, codex=codex))
                         elif stream:
                             run_stream_window(repo, project_id, client_id, upload_args, workspace, put, stop, audit)
                         else:
@@ -370,8 +434,9 @@ def report_commit(repo, project_id, binding, stop, deadline, audit):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--client', choices=('codex', 'workbuddy'), default='codex')
     parser.add_argument('--source', choices=('file', 'stream'), default='file')
     parser.add_argument('--anchor', type=Path, help='Use an explicitly initialized Codex pilot directory')
     parser.add_argument('--check', action='store_true', help='Run the isolated App Server preflight without a model')
     args = parser.parse_args()
-    run(args.check, args.source, args.anchor)
+    run(args.check, args.source, args.anchor, args.client)

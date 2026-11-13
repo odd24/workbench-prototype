@@ -1629,3 +1629,8 @@ AG-142 的独立检查已验证 App Server 只配置 `workbench_ag142` 时可以
 - 网页独立批准前零附件零回执，批准后唯一正式附件 `ASSET-eea2a4d05af956868cb53f861a5502b6`、唯一原回执、原会话 `consumed`，重开仓储后 62 字节逐字节相同。未追加模型查询或实际重放。到期退出 1，`service_stopped` 核对旧凭据拒绝、端口关闭，随后 `cleanup_failed` 为 `WinError 32`。监督独立复核根仍在，本轮未尝试自动删除。目录清理单列，AG-142 进行中，AG-143 待开始。
 
 - 独立修正原始流第二条提示，明确使用同一个项目的 `target_id` 和 `content.owner_id`，并绑定刚读到的 revision 与原 `upload_id`。普通启动提示检查、Codex 和 WorkBuddy 两条原始流 `--check`、Python/JS 语法和差异检查通过。短隔离根全量 539 项，538 项通过、1 项跳过。生产 API 与既有授权契约沿用。未重跑真实模型或操作遗留目录。
+
+### AG-142 Codex 单条删除发现窗口到期（2026-11-13）
+
+- 监督收到用户开始指令后，以全新一次性项目启动 `python -u issue_delete_pilot.py --client codex`，目标 `ISSUE-0001`，未使用锚点。发出完整当轮操作单后，20 分钟内未见协议 trace，用户未报告打开项目或完成发现。未写 `DISCOVERED`，未授予删除许可，模型回合、删除预览和网页批准均未发生。原因未证实。
+- 夹具退出 0。旧凭据被拒，原目标仍在，回收对象及回执均为零，端口关闭，临时根已移除。审计字段见[兼容记录](AGENT_CLIENT_COMPATIBILITY.md#codex-单条删除发现窗口到期2026-11-13)。Codex 单条删除真实桌面仍待验。AG-142 进行中，AG-143 待开始。

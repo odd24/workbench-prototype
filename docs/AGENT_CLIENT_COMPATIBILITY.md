@@ -707,6 +707,12 @@ python issue_delete_pilot.py --anchor $anchor
 
 独立工作树实际 App Server 的 `--check` 与带锚点普通启动的零模型程序驱动均已通过。提前发发现信号但缺完整握手时退出且无删除。普通启动对照经过完整授权预览、固定提示、批准前原件、程序化本机批准、回执和清理。真实用户网页批准与桌面模型仍待安排。
 
+#### Codex 单条删除发现窗口到期（2026-11-13）
+
+用户指示开始本轮后，监督运行 `python -u issue_delete_pilot.py --client codex`，使用全新一次性项目，未使用锚点，固定目标为 `ISSUE-0001`。监督已发送完整当轮操作单。20 分钟发现窗口内未出现当轮协议 trace，用户未报告打开项目或完成发现，客户端发现状态和未观察到握手的原因均未证实。
+
+未写入 `DISCOVERED`，未授予删除许可，未发送模型回合，未生成删除提案预览或执行网页批准。进程到期退出 0，`service_stopped` 与 `stopped` 审计记录 `revoked_credential_denied=true`、`original_present=true`、`trash_count=0`、`receipt_count=0`、`port_closed=true`，最终 `temporary_directory_removed=true`。本轮核实到期收尾，Codex 单条删除的真实桌面发现和业务仍待验。
+
 ### 待审查的 Codex 项目级联删除单案（2026-11-12）
 
 原 App Server 矩阵通过独立项目删除授权移动一个无子记录、无附件的项目。浏览器专项覆盖含子记录及独立附件的项目、独立附件勾选、完整预览和保留关联图、本机批准与恢复。领域测试覆盖缺子记录删除许可、缺独立附件批准、项目外附件引用、崩溃恢复与原回执重放。

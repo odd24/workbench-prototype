@@ -821,6 +821,10 @@ python category_pilot.py --domain document --anchor $anchor
 
 普通启动在同一个新受管目录内依次跑完三轮 App Server 程序驱动。各轮在最终所需授权批准前被拒，分别核对批准前盘态、原回执重放、另外两个域、旧凭据 401、端口、独立数据根移除及受管目录空闲。
 
+概念图分类轮次先到 `review_graph_read`，只授予当轮单图 ID 的读取许可。随后到 `review_category_rename`，只授予 `concept_map_category` 源分类的 `rename/local_web`。两份许可各有完整预览、独立 `approval_file` 和 9 分钟等待窗口，分别取得用户同意后再发各自信号。第二份完成后才输出 `ready_preview`。
+
+本机分类提案页以完整 JSON 展示受影响图的前后数据和目录配置，当前没有图形画布。核对同一图 ID、两节点及合成关系、节点坐标、布局、视口、元数据、分类目录前后顺序和授权迁移。批准后用夹具核对图、分类配置、其他两域和附件字节，再在独立查询窗口用桌面原回执取证。
+
 #### Codex 知识库分类改名真实桌面通过（2026-11-17）
 
 - 使用含 `0c4aead` 的夹具。用户先在「插件的 MCP」看到服务，随后在正确的临时项目打开查看，监督观察到实际中继握手。MCP 从 `2025-06-18` 协商为 `2025-11-25`，返回四项工具。用户查看完整许可后明确同意源分类的 `rename`，桌面 `capabilities`、`prepare_proposal`、`preview_proposal` 均成功。
@@ -1097,7 +1101,7 @@ python category_pilot.py --client workbuddy --domain project-attachment
 | `--domain` | 独立授权停点顺序 | 固定提示中的该域要求与网页核对项 |
 | --- | --- | --- |
 | `document` | `review_category_rename`，只批准源知识库分类的 `rename`。 | 展示文档 ID、完整正文和元数据的改名前后内容。网页核对原文档 ID、空相邻分类、自定义分类顺序、分类内文件排序及精确读取授权迁移。 |
-| `concept-map` | `review_graph_read` 只读当轮单图 ID，再到 `review_category_rename` 批准源图分类的 `rename`。 | 展示概念图 ID、完整节点和关系、布局、视口及元数据的改名前后内容。网页核对分类顺序、图原 ID 及原布局。 |
+| `concept-map` | `review_graph_read` 只读当轮单图 ID，再到 `review_category_rename` 批准源图分类的 `rename`，各等 9 分钟。 | 在网页完整 JSON 中核对图 ID、两节点及合成关系、坐标、布局、视口、元数据、分类顺序和授权迁移的前后内容。 |
 | `project-attachment` | `review_category_rename` 只批准该项目的源独立附件分类，再到 `review_attachment_visibility` 批准仅该项目的共同策略。 | 展示项目 ID 和独立附件的完整改名前后元数据。网页核对有序分类中的原标签、原附件 ID 和记录附件保留。共同策略限当轮项目、1 字节、1 小时、本机确认，工具目录只有上述四项。 |
 
 | 停点 | 用户本人操作 | 监督核对 |

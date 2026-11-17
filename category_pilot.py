@@ -54,7 +54,12 @@ class CategoryCase(ProposalCase):
         repo.ensure_document_category(NEIGHBOR)
         repo.save_document_sort({'category_mode':'manual', 'category_order':[NEIGHBOR, SOURCE],
                                  'file_modes':{SOURCE:'manual'}, 'file_orders':{SOURCE:[document['id']]}})
-        graph = repo.create_concept_map({'title':'AG142 原图', 'category':SOURCE, 'nodes':[{'id':'n1','text':'原节点'}]})
+        graph = repo.create_concept_map({
+            'title':'AG142 原图', 'category':SOURCE,
+            'nodes':[{'id':'n1', 'text':'原节点', 'x':100, 'y':120},
+                     {'id':'n2', 'text':'关联节点', 'x':420, 'y':220}],
+            'edges':[{'id':'edge', 'from':'n1', 'to':'n2', 'label':'合成关系'}],
+        })
         repo.ensure_concept_map_category(NEIGHBOR)
         repo.save_project_asset_categories(project, [{'name':NEIGHBOR,'tag':'空类标签'}, {'name':SOURCE,'tag':'原标签'}])
         asset = repo.add_project_asset_stream(project, 'ag142-category.txt', io.BytesIO(BINARY), len(BINARY), category=SOURCE)

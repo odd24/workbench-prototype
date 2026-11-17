@@ -1133,6 +1133,14 @@ python category_pilot.py --client workbuddy --domain project-attachment
 - 批准前零回执。用户在隔离网页独立批准 `concept_map_category` 的「AG142 原分类」改名为「AG142 新分类」。提案 `9f8d81cd-c23d-454f-b94c-272a3fd3381f` 版本 1，预览摘要 `d8985c3f1f4acb7c2cb01241ee6762aac880eb09b19c8006f127f974f5da4ff7`，`local_web` 操作 ID 为 `4f713a20f6bccc3009b7916c3e2bbdf86244c6fabca6b7b72ccb16491acfea23`。夹具重开仓储核对改名结果、唯一持久回执、其他两域和附件字节。
 - 5 分钟查询窗口内，中继未观察到桌面 `get_proposal`。北京时间 17:11:23 到期，夹具正常退出 0，旧凭据被拒、端口关闭、临时根已移除。监督已请用户移除当轮用户级临时项，尚未收到确认。桌面原回执查询证据待补。
 
+用户随后提供的桌面查询报告包含以下原始错误：
+
+```text
+Error: Tool "mcp__workbench_ag142_category__workbench_get_proposal" not found in the deferred tools index.
+```
+
+用户报告用精确工具名、服务名和关键词检索均无结果，同服务的 `capabilities` 和 `prepare_proposal` 也无法定位。中继没有收到查询，具体发生时间和原因未证实。报告中的 `draft` 和空批准字段来自批准前快照。同一提案经用户网页批准后，夹具独立核实状态为 `committed`，原持久回执存在。业务通过，桌面原回执查询仍待验，临时连接器移除仍待确认。
+
 ### WorkBuddy 工作流状态迁移用户自操作交接
 
 从包含本夹具的工作树运行。第一条用安装版 WorkBuddy CLI 在一次性配置中验证四项发现，再用原始 stdio 和程序化本机批准预演。第二条只启动隔离服务并生成唯一临时连接器候选。

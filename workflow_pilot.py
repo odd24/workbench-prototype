@@ -20,6 +20,7 @@ TEMPLATE = 'ag142-workflow'
 SOURCE_STATUS = '进行中'
 TARGET_STATUS = '已完成'
 OPERATION = 'delete_status'
+QUERY_WINDOW_SECONDS = 300
 
 
 def seed_template(repo):
@@ -226,8 +227,10 @@ class WorkflowCase(ProposalCase):
         evidence = await_value(lambda: self.after_approval(binding), stop, deadline)
         if evidence:
             audit.update(evidence)
-            emit({'mode':'committed', **evidence})
-            await_value(lambda: None, stop, deadline)
+            query_deadline = time.monotonic() + QUERY_WINDOW_SECONDS
+            emit({'mode':'committed', **evidence,
+                  'execution_expires_at':int(time.time() + QUERY_WINDOW_SECONDS)})
+            await_value(lambda: None, stop, query_deadline)
 
 
 if __name__ == '__main__':

@@ -29,6 +29,7 @@ SOURCE = 'AG142 原分类'
 DESTINATION = 'AG142 新分类'
 NEIGHBOR = 'AG142 空分类'
 BINARY = b'AG142 SYNTHETIC ATTACHMENT\n'
+QUERY_WINDOW_SECONDS = 300
 
 
 class CategoryCase(ProposalCase):
@@ -216,7 +217,10 @@ class CategoryCase(ProposalCase):
                 or any(self.snapshot(family) != snapshot for family, snapshot in self.domain_snapshots.items()
                        if family != self.family)):
             raise ValueError('Category receipt, original-domain persistence or other-domain evidence did not match')
-        self.check_grant(client_grants(self.security.clients()[self.client_id]), DESTINATION)
+        client = self.security.clients()[self.client_id]
+        self.check_grant(client_grants(client), DESTINATION)
+        if self.family == DOCUMENT and client['categories'] != [DESTINATION]:
+            raise ValueError('Document read scope did not migrate to the exact renamed category')
         self.check_retained()
         return {'receipt':receipt, 'other_domains_unchanged':True, 'attachment_bytes_unchanged':True}
 
@@ -237,8 +241,10 @@ class CategoryCase(ProposalCase):
         evidence = await_value(lambda: self.after_approval(binding), stop, deadline)
         if evidence:
             audit.update(evidence)
-            emit({'mode':'committed', **evidence})
-            await_value(lambda: None, stop, deadline)
+            query_deadline = time.monotonic() + QUERY_WINDOW_SECONDS
+            emit({'mode':'committed', **evidence,
+                  'execution_expires_at':int(time.time() + QUERY_WINDOW_SECONDS)})
+            await_value(lambda: None, stop, query_deadline)
 
 
 if __name__ == '__main__':

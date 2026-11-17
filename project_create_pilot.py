@@ -9,10 +9,14 @@ from attachment_pilot import await_value
 from concept_map_pilot import WINDOW_SECONDS, emit
 from issue_delete_pilot import ProposalCase, main
 from server import Repository
-from workbench.agent_management import clean_client
+from workbench.agent_management import clean_client, client_version, credential_lock
 from workbench.agent_security import AgentError, read_json
 from workbench.project_prepared import prepare_project
 from workbuddy_agent_acceptance import PROJECT_CREATE_PILOT_CASE, PROJECT_PILOT_TOOLS
+
+
+ACCESS_WINDOW_SECONDS = 600
+QUERY_WINDOW_SECONDS = 300
 
 
 class ProjectCreateCase(ProposalCase):
@@ -120,6 +124,29 @@ class ProjectCreateCase(ProposalCase):
             raise ValueError('Access approval changed more than the fixed project scope')
         return True
 
+    def verified_access_receipt(self, before, creation):
+        client_id = before['client_id']
+        manager = self.security.manager()
+        with credential_lock(self.security.config_dir):
+            if not self.access_applied(before):
+                return None
+            matches = []
+            for path in manager._logs():
+                operation = manager._load(path)
+                if operation.get('operation_family') == 'project_access' and operation['client_id'] == client_id:
+                    matches.append(operation)
+            if len(matches) != 1 or matches[0]['state'] != 'completed':
+                raise ValueError('Expected one completed independent project access operation')
+            [operation] = matches
+            receipt = operation['result']
+            if (receipt['proposal_id'] != creation['proposal_id'] or receipt['project_id'] != self.target
+                    or receipt['client_id'] != client_id
+                    or receipt['version'] != client_version(self.client_with_access(before))
+                    or receipt['operation_id'] != operation['operation_id']
+                    or receipt['operation_id'] == creation['approval']['operation_id']):
+                raise ValueError('Project access receipt did not match the independent scope approval')
+            return receipt
+
     def check(self, invoke, client_id, workspace, local, *, workbuddy=False):
         def call(name, args=None):
             result = invoke('workbench_' + name, args or {})
@@ -190,7 +217,7 @@ class ProjectCreateCase(ProposalCase):
         assert local(access + '/confirm', approval) == scope_receipt
         operation = local('operations/' + approval['request_id'])
         assert operation['state'] == 'completed' and operation['result'] == scope_receipt
-        assert self.access_applied(before)
+        assert self.verified_access_receipt(before, receipt) == scope_receipt
         assert [project['id'] for project in call('list_projects')['items']] == [self.target]
         assert self.created(binding) == receipt and call('get_proposal', query)['receipt'] == observed
         return {'receipt':receipt, 'access_receipt':scope_receipt, 'tool_count':len(self.tools),
@@ -221,13 +248,17 @@ class ProjectCreateCase(ProposalCase):
         before = self.without_access(client_id)
         self.check_access_preview(local(route + '/project-access/preview'), before, binding)
         audit.update(receipt=receipt, hidden_after_creation=True)
+        deadline = time.monotonic() + ACCESS_WINDOW_SECONDS
+        expires_at = int(time.time() + ACCESS_WINDOW_SECONDS)
         emit({'mode':'await_project_access_approval', **audit, 'project_id':self.target,
               'execution_expires_at':expires_at})
-        if await_value(lambda: self.access_applied(before), stop, deadline):
+        access_receipt = await_value(lambda: self.verified_access_receipt(before, receipt), stop, deadline)
+        if access_receipt:
             if self.created(binding) != receipt:
                 raise ValueError('Original receipt changed after access approval')
-            audit['only_new_project_visible'] = True
-            emit({'mode':'access_granted', **audit})
+            audit.update(only_new_project_visible=True, access_receipt=access_receipt)
+            deadline = time.monotonic() + QUERY_WINDOW_SECONDS
+            emit({'mode':'access_granted', **audit, 'execution_expires_at':int(time.time() + QUERY_WINDOW_SECONDS)})
             await_value(lambda: None, stop, deadline)
 
 

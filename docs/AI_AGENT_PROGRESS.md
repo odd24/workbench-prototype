@@ -1658,3 +1658,11 @@ AG-142 的独立检查已验证 App Server 只配置 `workbench_ag142` 时可以
 
 - 用户在排期前明确「不做项目级联删除」。取消 Codex 和 WorkBuddy 的 AG-142 真实桌面项目级联删除用例。AG-138 实现、已有隔离证据和历史交接保留。
 - 下一项改为两端项目创建和独立访问批准。现有隔离预演和交接可直接排期：创建后用桌面查询原回执并确认项目列表为空，再独立预览及批准精确项目访问，复查仅新项目可见且原创建回执一致。本次只更新文档，未开启真实窗口。AG-142 进行中，AG-143 待开始。
+
+### AG-142 Codex 项目创建部分通过及夹具分段计时（2026-11-17）
+
+- 用户确认插件 MCP 连接器，实际握手返回五项，明确同意创建许可并完成真实桌面预览。提案 `cd3af2e9-8129-43dc-8f89-3f5ad6535356` 版本 1，批准前零项目、零回执。用户在本机网页批准，夹具核对唯一项目、README、目录、排序和唯一创建回执。原聊天读回匹配的原回执，项目列表为 `items: []`。
+- 北京时间 10:57:14 当轮共用窗口到期，夹具未输出 `access_granted`。用户报告已批准访问并查询，随后贴出的两个实际桌面查询均在服务到期后返回 `service_unavailable`，未返回业务数据。缺少访问操作 ID 或批准成功页，独立访问批准及授权后查询待验。停服证据为一个项目、一份创建回执、旧凭据被拒和端口关闭。清理报 `WinError 32`，夹具退出 1，残根清理单列。完整摘要和 revision 见[兼容记录](AGENT_CLIENT_COMPATIBILITY.md#codex-项目创建和创建后空范围已验证2026-11-17)。
+- `project_create_pilot.py` 继续给创建阶段 20 分钟，验证创建后才开启独立的 10 分钟访问批准窗口，核对独立访问持久回执后再开启 5 分钟查询与收尾窗口。每阶段输出实际期限，到期或 STOP 后撤销临时凭据。生产授权、确认及数据契约沿用 AG-137。
+- 两端 `project_create_pilot.py --check` 通过。两端普通启动分段驱动以缩短计时验证跨过原创建期限后仍能单独批准访问、原回执一致、独立访问回执及仅新项目可见。Codex 主动 STOP，WorkBuddy 查询窗口到期，均核对 401、端口关闭和独立根清理。Python/JavaScript 语法和差异检查通过。本次未开启真实窗口。WorkBuddy 整项、Codex 独立访问批准及授权后查询仍待验。AG-142 进行中，AG-143 待开始。
+- `python -m unittest -q test_agent_project_creation test_workbuddy_acceptance` 26 项通过。全量 `python -m unittest -q` 运行 539 项，537 项通过、1 项跳过、1 项图授权 HTTP 用例在请求中遇到 `WinError 10053` 连接中止。单独重跑 `test_agent_concept_maps.GraphGrantHTTPTests.test_loopback_session_full_preview_explicit_approval_replay_and_revoke` 通过，全量首跑结果保留。

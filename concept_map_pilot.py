@@ -567,9 +567,9 @@ def run(check_only, codex=False, operation='create', anchor=None, confirmation_m
                 elif check_only:
                     audit.update(check_graph(base, project_dir, entry, workbench, workspace, spec, local, codex))
                 else:
-                    discovery = '查该项目是否已有图。为空时继续。'
+                    discovery = '调用 list_concept_maps，参数必须为 {}，确认列表为空后继续。'
                     if target:
-                        discovery = (f'列出已授权图，再用 get_concept_map 完整读取 {target["target_id"]}，'
+                        discovery = (f'调用 list_concept_maps，参数必须为 {{}}，再用 get_concept_map 完整读取 {target["target_id"]}，'
                                      '核对当前 revision 与下列 base_revision 相同。只把标题改为候选标题，'
                                      '其余 editable_graph 字段与固定候选一致时继续。任何差异均停止。')
                     confirmation = ('等待用户之后的新消息确认。' if attested

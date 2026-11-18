@@ -880,7 +880,7 @@ python workflow_pilot.py --anchor $anchor
 | 工具发现、版本、全文读取 | MCP `2025-11-25`，四项只读目录，六段及原文逐字节匹配 | MCP `2025-11-25`，通用 22 项、file 附件九项，六段、EOF、摘要及 UI 原文；UI 空白未独立逐字节核对 | App Server 配置刷新及新会话、WorkBuddy 原装 CLI 发现各自已核对；按后续试点记录其实际目录与刷新 |
 | `file_id` 项目附件 | `agent_attested` 两回合通过 | `agent_attested` 两回合通过 | file-only、预览、原回执、落盘、消费和撤权均有证据；提交重放已有隔离结果 |
 | 原始流项目附件 | 一次性可信项目七项发现及 `local_web` 通过，临时根待清理 | `local_web` 通过，临时根已清理 | 两端用户网页批准、磁盘与原回执均已核对。两端均未追加桌面回执工具查询或实际重放 |
-| 概念图新建、更新 | 两项 `local_web` 通过 | 两项 `local_web` 通过 | 两端已有正常 `agent_attested` 新建和更新的隔离夹具，待真实新消息、首次成功响应和原回执查询 |
+| 概念图新建、更新 | 两项 `local_web` 及新建 `agent_attested` 通过；更新确认和恢复待验 | 两项 `local_web` 通过；`agent_attested` 待验 | Codex 新建已核对真实新消息确认、首次成功响应和原回执查询；两端更新恢复及 WorkBuddy 新建待验 |
 | 单条 issue 删除 | `local_web` 及桌面原回执查询通过，临时根待清理 | `local_web` 及桌面原回执查询通过，临时根已移除 | 完整预览、独立本机批准和原回执已核对 |
 | 项目级联删除 | 用户取消桌面用例 | 用户取消桌面用例 | 2026-11-17 从 AG-142 桌面范围移除。保留 AG-138 实现及级联隔离证据 |
 | 项目创建及独立访问 | 完整通过，两次网页批准及授权前后桌面查询已核对，临时根待清理 | 通过，两次网页批准及授权前后桌面查询成功，列表内容由夹具核对，临时根已移除 | 两端零模型预演及浏览器专项已验证创建、独立访问批准、失败及原回执查询 |
@@ -946,7 +946,13 @@ python concept_map_pilot.py --client workbuddy --operation update --confirmation
 $binding | ConvertTo-Json -Compress | python -c "import json, sys; from pathlib import Path; from workbench.persistence import atomic_write_json; atomic_write_json(Path(sys.argv[1]), json.load(sys.stdin))" $signalFile
 ```
 
-两端四组新建/更新均有零模型 `--check` 与普通启动程序驱动证据。正常路径使用首次成功响应，恢复对照仍验证首响应被截断后的查询、重启及重放。真实用户新消息与桌面回执待验。
+两端四组新建/更新均有零模型 `--check` 与普通启动程序驱动证据。正常路径使用首次成功响应，恢复对照仍验证首响应被截断后的查询、重启及重放。
+
+#### Codex 概念图新建 agent_attested 真实桌面通过（2026-11-18）
+
+- 复用已登记的隔离项目，新建验收聊天 `01a1ec73-90ac-7521-b774-315adbab1d6c`，MCP 从 `2025-06-18` 协商到 `2025-11-25`，七项工具。监督按用户授权办理一次性空项目读取和新建许可，桌面 `capabilities` 空间匹配。首个 `list_concept_maps` 携带筛选被中继以 `-32602` 拒绝，明确空参数后成功返回空列表，随后沿用同一固定请求准备并完整预览。
+- 提案 `9537f7b0-efef-469b-ae73-ce64e777fb62` 版本 1，预览摘要 `aa80cfcc4c80fe590aa1cdf8051879fb41ddc3713e07b1a1b8e481e768599aaf`。用户在验收聊天亲自发送新的绑定确认消息，桌面复述绑定且未调用工具。监督核对后原子写入确认信号，再向该聊天发送一次提交与原提案查询提示。
+- 夹具核对 `first_commit_response_verified=true`、`receipt_query_matches=true`，唯一图 `CMAP-0001`、一份回执、零更新历史。revision 为 `14fd1f0e2215c4bca6b9af809f922aeadad8f9edcf8cbf34ea96739c2eea10e1`，提交时间 `2026-11-18T02:29:59.275093+00:00`。停止退出 0，旧凭据返回 401，端口关闭，临时根移除，原项目配置按摘要恢复空闲并读回。
 
 #### 两端共用的图更新故障对照
 

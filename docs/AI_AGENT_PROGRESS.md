@@ -1806,3 +1806,18 @@ AG-142 的独立检查已验证 App Server 只配置 `workbench_ag142` 时可以
 - 核查实现与计划历史范围一致：完整 ZIP 保留业务及历史原字节；知识库专用 ZIP 只收录当前所选文档和资源，对导出副本改写附件路径，未改正式 Markdown。分别验证文档相对附件及跨记录附件引用，导出前后源文件快照一致。首次夹具快照遇到在用服务锁不可读后排除该非业务锁文件；私人路径校验改用实际批准的规范路径并核对同一文件，保留原生路径边界。
 - `python extension_lifecycle_acceptance.py` 最终退出 0，既有四类型生命周期和新增混合 ZIP 均通过。必要专项 `python -m unittest -q test_document_attachments.DocumentAttachmentTests test_assets test_concept_maps test_category_changes` 共 51 项通过，Python/JS 语法及 `git diff --check` 通过。混合服务关闭后端口已核实关闭，TemporaryDirectory 正常清理。业务 API、格式和授权契约无变更，未触碰真实库/用户配置或运行真实模型。
 - 本边界可独立回滚。混合停服匹配/缺失/错配私人根恢复、停用降级、混合 API/MCP/诊断脱敏、最终全量门禁和遗留目录处理仍待后续阶段。AG-143 保持进行中。
+
+### AG-143 第二阶段停服混合恢复开工（2026-11-18）
+
+- 监督接受 `af46af4` 后派发。沿用同一混合构造及原状态，停服后串行验证完整业务加匹配私人根、缺失私人根、错配私人根副本。预计修改生命周期脚本、本台账及维护说明；必要轻量提取快照与副本核验，属于验收维护。
+- 核对业务附件、图、配置、排序、历史和 9 份已提交原回执，保持空间及凭据规则，重新读取文件源证明身份校验。缺失和错配根须按既有行为拒绝旧凭据或旧批准，失败前后比较业务和日志原字节。未决操作若遇物理身份变化，保留证据并报告。
+- 计划运行同一生命周期入口、运行时/执行恢复/文件授权相关专项、语法和差异检查。风险包括已提交回执与未决恢复的证据要求不同、NTFS 复制身份变化、缺失根合法初始化与错配格式拒绝的差异。停用降级、混合脱敏及最终全量门禁继续留后续阶段，AG-143 保持进行中。
+
+### AG-143 第二阶段停服混合恢复通过（2026-11-18）
+
+- 实际修改生命周期脚本、本台账及维护说明，未改生产实现、数据格式或 API。沿用第一阶段混合样本，关闭原服务并证实端口关闭后串行复制业务和私人根，通过 Repository/AgentRuntime 重读；本阶段恢复部分没有启动新的 HTTP 服务，不作为真实 HTTP 启动验收。
+- 匹配私人根副本保留原 workspace_id、完整客户端配置及可用原令牌，9 份持久回执及原批准查询结果一致；三处正式附件、图、Markdown/JSON 历史、配置、排序、回收索引及原提案日志全树字节保持。唯一预期差异为 Repository 初始化重写 `config/settings.json` 的本机目录，单独精确断言后比较，不归为业务修改。已批准外部源先成功完整读取，再以相同内容的新文件替换，读取返回 `source_changed`，业务和私人日志字节未变；完整备份并不包含该外部源本身。
+- 缺失私人根按既有初始化语义保留业务中的原空间 ID，但客户端为空，旧令牌返回 `unauthenticated`；原来已提交的本机批准查询仍只返回历史原回执，不代表恢复旧授权。错配副本使用可移植新空间真实私人根内容放入旧空间位置，启用和旧凭据鉴权均返回 `management_recovery_required`。两分支业务及原日志字节不变，没有新增回执，错配私人根原字节不变。
+- 未决边界由同一混合样本的串行副本产生：新鲜删除许可、完整本机预览，在原句柄已移入回收站但回执未落的 `trash_moved` 检查点注入异常，然后复制业务和匹配私人根。原生句柄证实副本 NTFS 文件 index 已改变。恢复受阻且不重建来源，保留回收对象、manifest、原字节快照、私人日志和 9 份旧回执，不新增删除回执；只允许本机目录归一及该提案状态标记 `recovery_required`，提案其余字段一致，重复恢复字节不变。该证据属于检查点异常及真实磁盘复制，不声称真实进程崩溃或可自动续办所有复制后的未决操作。
+- `python extension_lifecycle_acceptance.py` 退出 0，既有生命周期、混合 ZIP 和 `stopped_private_roots` 四项均通过。`python -m unittest -q test_agent_runtime test_agent_execution test_agent_files` 共 55 项通过；`python -m unittest -q test_agent_delete_recovery.DeleteRecoveryTests.test_completed_directory_copy_with_matching_private_config_restores_relative_source` 1 项通过。`python -m py_compile extension_lifecycle_acceptance.py server.py test_server.py`、两个入口 JS 语法和 `git diff --check` 通过。仅使用 TemporaryDirectory，未触碰真实数据、私人配置、桌面模型或历史残根。
+- 本阶段可独立回滚，AG-143 保持进行中。后续仍需同一混合基线的真实 HTTP 启动、停用降级、API/MCP/诊断脱敏及最终全量门禁；旧残根独立待办继续保留。

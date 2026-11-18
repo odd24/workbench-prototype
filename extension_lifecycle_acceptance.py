@@ -14,6 +14,7 @@ import tempfile
 import uuid
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from urllib.parse import quote, unquote
@@ -28,6 +29,183 @@ from workbench.agent_management import client_version
 from workbench.document_attachments import attachment_items, local_links
 from workbench.markdown_io import load_markdown_text
 from workbench.persistence import atomic_write_json
+from workbench.agent_delete_authorization import DeleteGrantManagement
+from workbench.agent_service import AgentService
+
+
+def tree_bytes(root):
+    """Compare durable files, excluding only the OS-held service lock."""
+    return {path.relative_to(root).as_posix(): path.read_bytes()
+            for path in root.rglob('*')
+            if path.is_file() and path.name != '.workbench-service.lock'}
+
+
+def verify_stopped_mixed_copies(base, repo, security, receipts, transport, file_id,
+                               source, secret, foreign_security):
+    """Reuse the stopped mixed fixture; never manufacture approval evidence."""
+    original_data, original_private = tree_bytes(repo.root), tree_bytes(security.config_dir.parent)
+    outcomes = {}
+    for mode in ('matching', 'missing', 'mismatched'):
+        backup = base / ('stopped-' + mode)
+        data, private = backup / 'data', backup / 'private'
+        shutil.copytree(repo.root, data)
+        if mode == 'matching':
+            shutil.copytree(security.config_dir.parent, private)
+        elif mode == 'mismatched':
+            # A real foreign registry, placed where the old workspace expects its own.
+            shutil.copytree(foreign_security.config_dir, private / security.workspace_id)
+        before_data, before_private = tree_bytes(data), tree_bytes(private)
+        restored = Repository(data)
+        # Repository initialization always updates the machine-local location preference.
+        assert read_json(data / 'config/settings.json') == {'version': 1, 'data_dir': str(data.resolve())}
+        before_data['config/settings.json'] = (data / 'config/settings.json').read_bytes()
+        assert {k: v for k, v in before_data.items() if k != 'config/settings.json'} == {
+            k: v for k, v in original_data.items() if k != 'config/settings.json'}
+        runtime = restored.agent_runtime = AgentRuntime(restored, base=private)
+        assert runtime.status()['workspace_id'] == security.workspace_id
+        if mode == 'mismatched':
+            try:
+                runtime.set_enabled(True)
+            except AgentError as error:
+                assert error.code == 'management_recovery_required', error.code
+            else:
+                raise AssertionError('Foreign private registry accepted')
+            try:
+                runtime.security().authenticate('Bearer ' + transport['token'], security.workspace_id)
+            except AgentError as error:
+                assert error.code == 'management_recovery_required', error.code
+            else:
+                raise AssertionError('Foreign registry authenticated the old client')
+            assert tree_bytes(private) == before_private
+        else:
+            runtime.set_enabled(True)
+            restored_security = runtime.security()
+            if mode == 'missing':
+                assert restored_security.clients() == {}
+                try:
+                    restored_security.authenticate('Bearer ' + transport['token'], security.workspace_id)
+                except AgentError as error:
+                    assert error.code == 'unauthenticated', error.code
+                else:
+                    raise AssertionError('Missing private root accepted an old credential')
+            else:
+                client = restored_security.authenticate('Bearer ' + transport['token'], security.workspace_id)
+                assert restored_security.clients() == security.clients()
+                info = restored.agent_service.get_file_info(client, file_id)
+                params = {'source_revision': info['source_revision'], 'offset': 0, 'length': 65536}
+                assert restored.agent_service.read_file(client, file_id, params)['body'] == secret.decode()
+                # Replacing an authorized source with identical bytes must still fail identity validation.
+                replacement = base / 'replacement-source.txt'
+                replacement.write_bytes(secret)
+                replacement.replace(source)
+                evidence = tree_bytes(data), tree_bytes(private)
+                try:
+                    restored.agent_service.read_file(client, file_id, params)
+                except AgentError as error:
+                    assert error.code == 'source_changed', error.code
+                else:
+                    raise AssertionError('Copied source identity was trusted')
+                assert (tree_bytes(data), tree_bytes(private)) == evidence
+                assert tree_bytes(private) == before_private
+            # Completed approvals are historical receipts, including when credentials are missing.
+            management = ProposalManagement(runtime)
+            for receipt in receipts:
+                assert read_json(restored.agent_proposals.receipts / (receipt['proposal_id'] + '.json')) == receipt
+                if 'approval' in receipt:
+                    action = read_json(management.directory / (receipt['approval']['operation_id'] + '.json'))
+                    result = management.action(action['request_id'])
+                    assert result['state'] == 'completed' and result['receipt'] == receipt
+        # Whole-tree equality includes attachments, configuration, ordering, graph/history,
+        # trash, proposal actions and receipts, rather than only visible current Markdown.
+        after_data = tree_bytes(data)
+        assert after_data == before_data, (mode, [
+            name for name in before_data.keys() | after_data.keys()
+            if before_data.get(name) != after_data.get(name)])
+        outcomes[mode] = True
+    outcomes['pending_copied_identity_retained'] = verify_copied_pending_delete(
+        base, repo.root, security, transport, receipts)
+    assert tree_bytes(repo.root) == original_data and tree_bytes(security.config_dir.parent) == original_private
+    return outcomes
+
+
+def verify_copied_pending_delete(base, original, security, transport, receipts):
+    """Derive a pending operation from the same mixed data, then copy its NTFS evidence."""
+    pending = base / 'pending-origin'
+    shutil.copytree(original, pending / 'data')
+    shutil.copytree(security.config_dir.parent, pending / 'private')
+    repo = Repository(pending / 'data')
+    runtime = repo.agent_runtime = AgentRuntime(repo, base=pending / 'private')
+    runtime.set_enabled(True)
+    runtime.status(session=True)
+    restored_security = runtime.security()
+    client = restored_security.authenticate('Bearer ' + transport['token'], security.workspace_id)
+    [item] = [item for item in repo.list_records() if item['type'] == 'info']
+    grants = DeleteGrantManagement(runtime)
+    review = grants.preview(client['client_id'], {
+        'workspace_id': security.workspace_id, 'expected_version': client_version(client),
+        'grants': {'schema_version': 1, 'grants': [{
+            'capability': 'items.delete', 'operations': ['delete'],
+            'resources': [{'type': 'project', 'id': item['project_id']}],
+            'minimum_confirmation_mode': 'local_web'}]}})
+    grants.approve(client['client_id'], {
+        **{k: review[k] for k in ('workspace_id', 'expected_version', 'preview_id', 'preview_digest')},
+        'approved': True, 'request_id': uuid.uuid4().hex})
+    client = restored_security.clients()[client['client_id']]
+    service = repo.agent_service
+    _, path = repo.get_record(item['id'])
+    proposal = service.prepare_proposal(client, {
+        'request_id': uuid.uuid4().hex, 'kind': 'info', 'operation': 'delete',
+        'target_id': item['id'], 'base_revision': hashlib.sha256(path.read_bytes()).hexdigest()})
+    management = ProposalManagement(runtime)
+    preview = management.preview(proposal['proposal_id'])
+
+    def stop(stage):
+        if stage == 'trash_moved':
+            raise OSError('synthetic interruption after original handle move')
+
+    with patch.object(service.store, 'checkpoint', side_effect=stop):
+        try:
+            management.approve(proposal['proposal_id'], {
+                **{k: preview[k] for k in ('workspace_id', 'version', 'preview_digest', 'preview_ticket')},
+                'request_id': uuid.uuid4().hex})
+        except AgentError:
+            pass
+        else:
+            raise AssertionError('Pending delete interruption was not reached')
+    assert not path.exists()
+    operation_id = proposal['proposal_id'] + '-1'
+    manifest_path = service.store.operations / operation_id / 'manifest.json'
+    manifest = read_json(manifest_path)
+    trash = repo.trash_dir / manifest['trash_token']
+    assert trash.is_file() and not (service.store.receipts / (proposal['proposal_id'] + '.json')).exists()
+    copied = base / 'pending-copy'
+    shutil.copytree(repo.root, copied / 'data')
+    shutil.copytree(pending / 'private', copied / 'private')
+    with LocalFileHandle(str(trash), read=True) as old_handle:
+        with LocalFileHandle(str(copied / 'data' / '.trash' / manifest['trash_token']), read=True) as new_handle:
+            assert old_handle.initial['index'] != new_handle.initial['index']
+    before = tree_bytes(copied / 'data'), tree_bytes(copied / 'private')
+    reopened = Repository(copied / 'data')
+    copied_security = AgentSecurity(reopened.root, copied / 'private')
+    copied_service = AgentService(reopened, copied_security)
+    result = copied_service.store.recover()
+    assert result['blocked'] and operation_id in result['operations']
+    assert not (reopened.root / path.relative_to(repo.root)).exists()
+    assert tree_bytes(copied / 'private') == before[1]
+    after = tree_bytes(reopened.root)
+    changed = {name for name in before[0].keys() | after.keys() if before[0].get(name) != after.get(name)}
+    # Startup can normalize the local path and mark this proposal recovery_required.
+    assert changed <= {'config/settings.json', '.agent/proposals/' + proposal['proposal_id'] + '.json'}, changed
+    proposal_name = '.agent/proposals/' + proposal['proposal_id'] + '.json'
+    expected_proposal = json.loads(before[0][proposal_name])
+    expected_proposal['state'] = 'recovery_required'
+    assert copied_service.store._load(proposal['proposal_id'], expire=False) == expected_proposal
+    assert read_json(reopened.root / 'config/settings.json') == {'version': 1, 'data_dir': str(reopened.root)}
+    for receipt in receipts:
+        assert read_json(copied_service.store.receipts / (receipt['proposal_id'] + '.json')) == receipt
+    stable = tree_bytes(reopened.root)
+    assert copied_service.store.recover()['blocked'] and tree_bytes(reopened.root) == stable
+    return True
 
 
 def run_acceptance():
@@ -301,9 +479,7 @@ def run_mixed_portable_acceptance():
             atomic_write_json(repo.root / ".workbench-export.json", {"directory": str(base)})
 
             def snapshot():
-                return {path.relative_to(repo.root).as_posix(): path.read_bytes()
-                        for path in repo.root.rglob("*")
-                        if path.is_file() and path.name != ".workbench-service.lock"}
+                return tree_bytes(repo.root)
 
             before = snapshot()
             assert any(name.startswith(".agent/receipts/") for name in before)
@@ -407,6 +583,13 @@ def run_mixed_portable_acceptance():
                 assert error.code == "not_found"
             else:
                 raise AssertionError("New portable client inherited an old file grant")
+            workbench.close()
+            stopped_port = workbench.server.server_address[1]
+            workbench = None
+            with socket.socket() as probe:
+                assert probe.connect_ex(('127.0.0.1', stopped_port)) != 0
+            stopped = verify_stopped_mixed_copies(
+                base, repo, security, receipts, original_transport, file_id, source, secret, new_security)
             return {
                 "passed": True, "business_types": ["project", "issue", "todo", "info", "document"],
                 "attachment_owners": ["project", "issue", "document"],
@@ -415,13 +598,15 @@ def run_mixed_portable_acceptance():
                 "portable_exact_bytes": True, "knowledge_copy_paths_rewritten": True,
                 "private_grants_uploads_and_secret_excluded": True,
                 "new_identity_empty_clients_old_credential_denied": True,
+                "stopped_private_roots": stopped,
                 "real_user_data_changed": False,
             }
         finally:
-            port = workbench.server.server_address[1]
-            workbench.close()
-            with socket.socket() as probe:
-                assert probe.connect_ex(("127.0.0.1", port)) != 0
+            if workbench is not None:
+                port = workbench.server.server_address[1]
+                workbench.close()
+                with socket.socket() as probe:
+                    assert probe.connect_ex(("127.0.0.1", port)) != 0
 
 
 if __name__ == "__main__":

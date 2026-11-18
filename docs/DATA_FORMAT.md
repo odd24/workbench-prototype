@@ -80,6 +80,8 @@ workbench-data/
 
 完整 ZIP 包含业务 Markdown、概念图、可移植配置、附件和历史，但排除 `.trash`、符号链接及本机路径设置。项目 ZIP 只包含该项目目录。当前没有 ZIP 一键导入；恢复完整备份时解压到新目录并以 `--data-dir` 打开。
 
+完整 ZIP 保留所收录业务文件和历史的原字节及原相对路径。知识库专用 ZIP 由 `export_documents_zip` 单独生成，在导出副本中把文档附件元数据及正文链接改写为包内 `assets/` 路径，正式文件保持原样。两种归档范围分别验证，知识库专用 ZIP 只收录所选当前文档及所引用资源。
+
 ## 内容版本与历史 API
 
 读取记录/文档返回 `revision`（磁盘字节 SHA-256），保存和历史恢复可传 `expected_revision`；旧 `file_mtime` 保留。版本字段只存在于 API，不写入 front matter。条件失败返回 409，不写正文和历史。

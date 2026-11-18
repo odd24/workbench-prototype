@@ -29,6 +29,9 @@ from workbuddy_agent_acceptance import (GRAPH_ATTESTED_CASE, GRAPH_ATTESTED_GATE
 WINDOW_SECONDS = 1200
 DISCOVERY_SECONDS = 1200
 GRANT_REVIEW_SECONDS = 540
+GRAPH_CONFIRM_SECONDS = 600
+GRAPH_COMMIT_SECONDS = 600
+GRAPH_FINISH_SECONDS = 300
 SERVER = 'workbench_ag142_graph'
 ATTESTED_SERVER = 'workbench_ag142_graph_attested'
 
@@ -291,6 +294,19 @@ class GraphAttestedCase:
                      'expires_at':int(time.time() + WINDOW_SECONDS)}
         atomic_write_json(self.case_path, self.case)
 
+    def advance_window(self, seconds):
+        if (self.stop.exists() or time.monotonic() >= self.deadline
+                or time.time() >= self.case['expires_at']):
+            raise ValueError('Graph stage expired before transition')
+        self.deadline = time.monotonic() + seconds
+        self.case = {**self.case, 'expires_at':int(time.time() + seconds)}
+        atomic_write_json(self.case_path, self.case)
+
+    def recheck_confirmation(self, binding):
+        if self.preview_binding() != binding:
+            raise ValueError('Graph confirmation no longer matches the current preview')
+        self.store._current_authorization(self.store._load(binding['proposal_id']))
+
     def unchanged(self):
         if ({path:path.read_bytes() for path in self.directory.glob('CMAP-*.json')} != self.original
                 or list(self.repo.history_dir.rglob('*.json')) or list(self.store.receipts.glob('*.json'))):
@@ -420,6 +436,9 @@ class GraphAttestedCase:
             return
         if signal.exists():
             raise ValueError('Graph confirmation signal appeared before preview review')
+        self.recheck_confirmation(binding)
+        self.advance_window(GRAPH_CONFIRM_SECONDS)
+        expires = self.case['expires_at']
         confirm = ('我已核对完整预览，明确确认以下提案的 ID、版本和摘要。'
                    '请复述绑定并等待下一条消息，此时不要调用工具。\n'
                    + json.dumps(binding, ensure_ascii=False, indent=2))
@@ -431,6 +450,9 @@ class GraphAttestedCase:
         if (value != binding or type(value.get('version')) is not int or self.preview_binding() != binding
                 or self.stop.exists() or time.monotonic() >= self.deadline):
             raise ValueError('Graph confirmation does not match the current preview')
+        self.recheck_confirmation(binding)
+        self.advance_window(GRAPH_COMMIT_SECONDS)
+        expires = self.case['expires_at']
         signal.unlink()
         atomic_write_json(self.gate, binding)
         commit = (f'只用 {ATTESTED_SERVER}，按上一条用户确认的绑定提交一次。'
@@ -440,7 +462,8 @@ class GraphAttestedCase:
         result = await_value(lambda: self.observed_result(binding), self.stop, self.deadline)
         if result:
             audit.update(result)
-            emit({'mode':'committed', **result})
+            self.advance_window(GRAPH_FINISH_SECONDS)
+            emit({'mode':'committed', **result, 'execution_expires_at':self.case['expires_at']})
             await_value(lambda: None, self.stop, self.deadline)
         elif self.case_path.with_suffix('.claim').exists():
             audit['first_response_or_query_unverified'] = True

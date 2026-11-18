@@ -96,6 +96,8 @@ WorkBuddy桌面5.9.3(d4692421)已在临时库实测四类型新建/追加/更新
 
 AG-142 隔离验收可用 `python codex_pilot_anchor.py --init <新绝对目录>` 初始化专用空项目。图和附件试点的 `--anchor` 选项可复用该目录，各轮数据及凭据仍独立。仅用于合成验收，步骤与真实桌面限制见[客户端兼容验收](docs/AGENT_CLIENT_COMPATIBILITY.md)。
 
+混合备份、停用、旧版围栏及脱敏隔离验收运行 `python extension_lifecycle_acceptance.py`；固定 NTFS 临时库、私人根和真实服务子进程均由脚本管理，不启动模型或修改用户配置。当前进度与范围见[本机能力验收](docs/AI_AGENT_LOCAL_CAPABILITIES_ACCEPTANCE.md#ag-143-兼容备份与运维验收)及[维护入口](docs/MAINTENANCE.md)。
+
 单条 issue 和项目级联删除分别使用 `python issue_delete_pilot.py --check` 和 `python project_delete_pilot.py --check`。两者均在新临时空间以零模型验证独立本机批准、原字节回收、回执和收尾。 两者均可加 `--client workbuddy`，按[单条删除交接](docs/AGENT_CLIENT_COMPATIBILITY.md#workbuddy-单条删除用户自操作交接)或[项目级联删除交接](docs/AGENT_CLIENT_COMPATIBILITY.md#workbuddy-项目级联删除用户自操作交接)选择当轮入口。
 
 项目创建使用 `python project_create_pilot.py --check` 或 `python project_create_pilot.py --client workbuddy --check`，在新临时空间验证完整排序预览、创建回执和独立的项目访问批准。WorkBuddy 普通启动和用户操作停点见[兼容验收](docs/AGENT_CLIENT_COMPATIBILITY.md#workbuddy-项目创建与独立访问用户自操作交接)。

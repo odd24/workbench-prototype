@@ -1821,3 +1821,21 @@ AG-142 的独立检查已验证 App Server 只配置 `workbench_ag142` 时可以
 - 未决边界由同一混合样本的串行副本产生：新鲜删除许可、完整本机预览，在原句柄已移入回收站但回执未落的 `trash_moved` 检查点注入异常，然后复制业务和匹配私人根。原生句柄证实副本 NTFS 文件 index 已改变。恢复受阻且不重建来源，保留回收对象、manifest、原字节快照、私人日志和 9 份旧回执，不新增删除回执；只允许本机目录归一及该提案状态标记 `recovery_required`，提案其余字段一致，重复恢复字节不变。该证据属于检查点异常及真实磁盘复制，不声称真实进程崩溃或可自动续办所有复制后的未决操作。
 - `python extension_lifecycle_acceptance.py` 退出 0，既有生命周期、混合 ZIP 和 `stopped_private_roots` 四项均通过。`python -m unittest -q test_agent_runtime test_agent_execution test_agent_files` 共 55 项通过；`python -m unittest -q test_agent_delete_recovery.DeleteRecoveryTests.test_completed_directory_copy_with_matching_private_config_restores_relative_source` 1 项通过。`python -m py_compile extension_lifecycle_acceptance.py server.py test_server.py`、两个入口 JS 语法和 `git diff --check` 通过。仅使用 TemporaryDirectory，未触碰真实数据、私人配置、桌面模型或历史残根。
 - 本阶段可独立回滚，AG-143 保持进行中。后续仍需同一混合基线的真实 HTTP 启动、停用降级、API/MCP/诊断脱敏及最终全量门禁；旧残根独立待办继续保留。
+
+### AG-143 第三阶段真实启动、停用与版本围栏开工（2026-11-18）
+
+- 监督接受 `6938e1f` 后派发。本边界沿用同一混合样本及其已生成的未决删除副本，串行启动当前 `server.py`：匹配根启用、显式停用下普通网页 API 读取和持久写入、未决对象的恢复/永久删除及业务写入保护。预计扩展生命周期入口、新增仅接受现有根的运行时验收辅助模块，并同步本台账及维护说明；不新建平行业务夹具，不改生产实现。
+- 未知执行清单、网页批准、凭据根/授权/管理日志格式分别在独立副本改变版本，再比较失败前后完整业务及私人文件字节/摘要，禁止以删除日志续办。具体异常及启动/管理/鉴权入口按实际实现记录，不把 Agent 停用描述为撤销持久授权。诊断及子进程使用固定脚本、动态 loopback、超时和有界输出，各副本串行并验证进程退出和端口关闭。
+- 已只读核实仓库现存 `9e43aa3`（2026-11-10，AG-134）可作为 AG-135 前真实旧版：凭据根仅支持 1～3、授权至 4、管理日志至 4，执行支持 Markdown 1 及正式附件 2，不含图/分类/工作流执行。拟在临时 detached worktree 使用原代码，验证它拒绝本混合新状态；再从同一混合业务的可移植副本由该旧版自行初始化和产生旧格式回执，停服备份后用同版匹配恢复。后者不是把现有新日志改写成旧日志，不宣称全版本降级或现代配置可由旧版编辑。
+- 计划运行完整生命周期入口、运行时/执行/批准/凭据专项、全部本次 Python 语法、既有 JS 入口语法及差异检查。首次遇真实生产缺陷时另登记缺陷边界，不与验收脚本混改。AG-143 保持进行中；混合脱敏、最后全量门禁及历史残根待办仍留后续阶段。
+
+### AG-143 第三阶段真实启动、停用与版本围栏通过（2026-11-18）
+
+- 实际修改 `extension_lifecycle_acceptance.py`、新增 `extension_runtime_acceptance.py`、本台账及维护说明。新模块只接收现有混合根、私人根、原回执及已验证 ZIP，沿用第二阶段生成的未决副本，不建立平行业务夹具；全部服务及副本串行。没有修改生产实现、数据格式、API 或真实用户配置，也未启动桌面模型。
+- 匹配混合副本用真实 `server.py --enable-agent` 启动，原令牌可鉴权；本机同源管理会话显式停用后 Agent 路由 404，普通 API 可读，业务/私人全树 SHA-256 映射保持。再以 `--disable-agent` 启动，静态页面及原记录/知识 API 可读，分别经普通 API 创建信息及知识、携带 revision 更新正文，再停止并重启重读，正文、结构字段及 revision 一致。原 9 份回执、全部 Agent 日志及私人文件摘要不变；停用不撤销持久凭据。
+- 同一混合样本已受阻的未决删除副本在真实停用服务下仍可读取普通业务和本机恢复报告，恢复、永久删除、孤儿清理和创建业务均返回 503；失败前后全部业务、原日志及私人文件摘要一致，未重建来源、生成回执或清理证据。
+- 六种未来格式分别在独立副本只改版本号至 99：execution_schema、批准 schema、凭据 registry、客户端 authorization、管理日志 schema、私人 transport schema。执行、批准、registry 和管理日志由实际启用启动拒绝，且确认属于 AgentError 格式/恢复围栏；单客户端 authorization 按既有语义允许服务启动，但实际鉴权及提案 POST 返回 `unsupported_schema`/503；transport 不改 registry 中的令牌鉴权，读取能力仍成功，凭据 rotate 在读取未知配置时返回 `unsupported_schema`/503。各例拒绝前后业务和私人摘要一致，不笼统声称所有未知格式都阻止普通服务启动。
+- 真实旧版固定为仓库现存 `9e43aa3`，临时 detached worktree 检查 HEAD 后执行其原有 Repository、恢复器、凭据根读取及管理 report；新执行及新凭据被拒，以此新状态启用真实旧服务也拒绝，前后全树摘要一致。批准 schema 3 本身未变，旧版已完成批准查询可以返回原回执，这属于只读历史兼容，不证明新操作可执行。初次验收断言曾把该兼容查询误当作必须拒绝，已据实际契约修正，未改生产代码。
+- 匹配旧备份从同一混合业务的可移植副本开始，由 `9e43aa3` 自行初始化私人状态并经 agent_attested 实际产生一份 Markdown 原生旧回执；停服复制业务与配对私人根，除本机 settings 路径归一外与原备份摘要一致。随后同版真实服务启用、原令牌、原提案、原回执和正文读取通过，磁盘全树摘要不变。HTTP 原回执响应按动态 origin 增加 `web_url`，已单独断言该瞬时字段及磁盘回执精确一致；初次直接比较响应与磁盘字典的断言已修正。此证据不将现代日志降版，也不宣称该旧版可编辑现代分类/工作流侧车或全部历史版本均可降级。
+- `python extension_lifecycle_acceptance.py` 最终退出 0：既有生命周期、混合 ZIP/停服恢复和新增 `runtime_boundaries` 全部通过。`python -m unittest -q test_agent_runtime test_agent_execution test_agent_web_approval test_agent_management` 共 61 项通过。`python -m py_compile extension_runtime_acceptance.py extension_lifecycle_acceptance.py server.py test_server.py`、`node --check app.js`、`node --check concept-map.js` 和 `git diff --check` 通过。子进程固定参数、不传 `--open/--replace`，动态 loopback，启动/诊断/退出分别限时，输出限制 64 KiB，各服务退出并核对端口关闭；本次旧代码 worktree 已通过 Git 移除，TemporaryDirectory 正常清理，历史残根未触碰。
+- 本阶段可独立回滚，AG-143 保持进行中。后续仅继续混合 API/MCP/诊断脱敏和最后全量门禁；历史残根独立待办保留。本阶段未发现需要单独登记和修改的生产缺陷。

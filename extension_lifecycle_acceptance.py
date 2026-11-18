@@ -31,6 +31,7 @@ from workbench.markdown_io import load_markdown_text
 from workbench.persistence import atomic_write_json
 from workbench.agent_delete_authorization import DeleteGrantManagement
 from workbench.agent_service import AgentService
+from extension_runtime_acceptance import verify_runtime_boundaries
 
 
 def tree_bytes(root):
@@ -590,6 +591,8 @@ def run_mixed_portable_acceptance():
                 assert probe.connect_ex(('127.0.0.1', stopped_port)) != 0
             stopped = verify_stopped_mixed_copies(
                 base, repo, security, receipts, original_transport, file_id, source, secret, new_security)
+            runtime_boundaries = verify_runtime_boundaries(
+                base, repo.root, security.config_dir.parent, original_transport, receipts, archive)
             return {
                 "passed": True, "business_types": ["project", "issue", "todo", "info", "document"],
                 "attachment_owners": ["project", "issue", "document"],
@@ -599,6 +602,7 @@ def run_mixed_portable_acceptance():
                 "private_grants_uploads_and_secret_excluded": True,
                 "new_identity_empty_clients_old_credential_denied": True,
                 "stopped_private_roots": stopped,
+                "runtime_boundaries": runtime_boundaries,
                 "real_user_data_changed": False,
             }
         finally:

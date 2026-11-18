@@ -32,6 +32,10 @@ from workbench.persistence import atomic_write_json
 from workbench.agent_delete_authorization import DeleteGrantManagement
 from workbench.agent_service import AgentService
 from extension_runtime_acceptance import verify_runtime_boundaries
+from extension_redaction_acceptance import (
+    PUBLIC_BODY, NONCE_SUFFIX, verify_live_redaction, verify_readonly_redaction_reports,
+    verify_unknown_error_outputs,
+)
 
 
 def tree_bytes(root):
@@ -362,7 +366,7 @@ def run_mixed_portable_acceptance():
                 return result["receipt"]
 
             for kind in ("issue", "todo", "info", "document"):
-                content = {"title": "混合 " + kind, "body": "完整正文\n\n保留引用和附件。"}
+                content = {"title": "混合 " + kind, "body": "完整正文\n\n保留引用和附件。\n\n" + PUBLIC_BODY}
                 content.update({"category": source_category} if kind == "document"
                                else {"project_id": project["id"]})
                 if kind == "info":
@@ -584,6 +588,9 @@ def run_mixed_portable_acceptance():
                 assert error.code == "not_found"
             else:
                 raise AssertionError("New portable client inherited an old file grant")
+            redaction = verify_live_redaction(
+                base, workbench, runtime, original_transport, Path(provisioned['config_file']),
+                items, graph['id'], file_id, policy['policy_id'], approved_path, secret, archive)
             workbench.close()
             stopped_port = workbench.server.server_address[1]
             workbench = None
@@ -593,6 +600,12 @@ def run_mixed_portable_acceptance():
                 base, repo, security, receipts, original_transport, file_id, source, secret, new_security)
             runtime_boundaries = verify_runtime_boundaries(
                 base, repo.root, security.config_dir.parent, original_transport, receipts, archive)
+            redaction_markers = {
+                'token': original_transport['token'], 'source_path': approved_path, 'source_body': secret,
+                'private_root': str(security.config_dir), 'nonce': 'wbdiag-' + NONCE_SUFFIX,
+                'nonce_suffix': NONCE_SUFFIX}
+            redaction['readonly_reports'] = verify_readonly_redaction_reports(base, redaction_markers)
+            redaction['unknown_errors'] = verify_unknown_error_outputs(base, original_transport, redaction_markers)
             return {
                 "passed": True, "business_types": ["project", "issue", "todo", "info", "document"],
                 "attachment_owners": ["project", "issue", "document"],
@@ -603,6 +616,7 @@ def run_mixed_portable_acceptance():
                 "new_identity_empty_clients_old_credential_denied": True,
                 "stopped_private_roots": stopped,
                 "runtime_boundaries": runtime_boundaries,
+                "mixed_redaction": redaction,
                 "real_user_data_changed": False,
             }
         finally:

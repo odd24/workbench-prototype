@@ -1839,3 +1839,21 @@ AG-142 的独立检查已验证 App Server 只配置 `workbench_ag142` 时可以
 - 匹配旧备份从同一混合业务的可移植副本开始，由 `9e43aa3` 自行初始化私人状态并经 agent_attested 实际产生一份 Markdown 原生旧回执；停服复制业务与配对私人根，除本机 settings 路径归一外与原备份摘要一致。随后同版真实服务启用、原令牌、原提案、原回执和正文读取通过，磁盘全树摘要不变。HTTP 原回执响应按动态 origin 增加 `web_url`，已单独断言该瞬时字段及磁盘回执精确一致；初次直接比较响应与磁盘字典的断言已修正。此证据不将现代日志降版，也不宣称该旧版可编辑现代分类/工作流侧车或全部历史版本均可降级。
 - `python extension_lifecycle_acceptance.py` 最终退出 0：既有生命周期、混合 ZIP/停服恢复和新增 `runtime_boundaries` 全部通过。`python -m unittest -q test_agent_runtime test_agent_execution test_agent_web_approval test_agent_management` 共 61 项通过。`python -m py_compile extension_runtime_acceptance.py extension_lifecycle_acceptance.py server.py test_server.py`、`node --check app.js`、`node --check concept-map.js` 和 `git diff --check` 通过。子进程固定参数、不传 `--open/--replace`，动态 loopback，启动/诊断/退出分别限时，输出限制 64 KiB，各服务退出并核对端口关闭；本次旧代码 worktree 已通过 Git 移除，TemporaryDirectory 正常清理，历史残根未触碰。
 - 本阶段可独立回滚，AG-143 保持进行中。后续仅继续混合 API/MCP/诊断脱敏和最后全量门禁；历史残根独立待办保留。本阶段未发现需要单独登记和修改的生产缺陷。
+
+### AG-143 第四阶段混合脱敏开工（2026-11-18）
+
+- 监督接受 `50b738e` 后派发。本边界沿用同一混合样本、真实文件/暂存秘密、原凭据及前阶段副本，核对 Agent API、实际桥接 stdout/stderr、本机固定诊断、只读恢复报告和 ZIP 中的私人标记。预计新增仅接收现有样本的脱敏验收辅助模块、扩展生命周期入口及已有有界子进程辅助函数，并同步本台账和维护说明；不改生产实现，不新建平行夹具或通用执行代理。
+- 使用真实合成令牌、实际批准源路径/私人配置路径、源秘密及固定诊断 nonce；增加独立公开正文标记，证明允许的业务字段没有被误删。仅授权文件 read_file 的 body 可包含原秘密；公开 file_id/policy_id 等不当作路径或凭据抹除，本机完整属性预览允许精确源路径。私人文件本来保存令牌、授权路径和暂存原字节，作为正向存在证据，不作为公开输出扫描对象。
+- 计划覆盖成功、错误令牌/空间、未知参数/文件、桥接未知配置、诊断失败和未知执行/批准/凭据格式的错误输出。恢复报告使用已有只读接口/函数，显式阻止 recover、cleanup、abandon 等副作用并比较字节及 mtime；私人日志只读解析。已发现 `CredentialManager.report()` 本身会调用恢复，因此本轮不把它冒充只读日志入口，也不调用它完成只读证明。
+- 计划运行完整隔离生命周期入口、MCP/诊断/提案管理/授权与静态访问专项、本次 Python 及既有入口 JS 语法、差异和私有生成物检查。若发现生产缺陷，另登记边界，不与验收混改。AG-143 保持进行中；先完成本脱敏独立提交，最后全量 Python/全部 JS 契约及最终文档门禁另接。
+
+### AG-143 第四阶段混合脱敏通过（2026-11-18）
+
+- 实际新增 `extension_redaction_acceptance.py`，修改混合生命周期入口、既有有界子进程辅助函数、本台账及维护说明。辅助函数仅增加有界 stdin 数据用于固定桥接消息，不新增一般 shell/HTTP 代理或新的业务实现。本阶段沿用原混合根、真实授权源和暂存、前阶段七份既有副本，不新建平行业务夹具；生产代码、数据/API 契约和真实用户配置未改。
+- 先正向确认私人根中存在原合成令牌、实际批准源路径和原始秘密暂存字节，再逐项扫描令牌/路径/秘密/固定 nonce 的原文、JSON 转义、正斜杠和 URL 编码形式。Agent capabilities、项目、文件授权及元数据、结构信息和完整图均不返回这些私人标记，仍保留公开 file_id/policy_id、结构字段及新增独立公开正文标记。获准文件读取的 body 与原秘密精确一致，其他元数据排除私人内容；本机同源完整属性视图精确保留批准路径，仅豁免该字段。私人配置原本保存令牌/路径、本机管理会话返回管理令牌均按各自权限，不误当成应删除的业务事实。
+- 实际 `agent_bridge.py` 固定初始化及工具调用：stdout 全部逐行 JSON-RPC、数量/ID/版本和成功/错误状态符合预期；所有 stderr 原字节一并检查，协议拒绝 trace 确有输出且没有参数值秘密。获准 read_file 的源秘密在 structuredContent 与 text 中各出现一份，其他响应、stderr 和错误均排除。API 覆盖错误令牌/空间、未知文件/参数；独立桥接配置覆盖错误令牌/空间和未来 schema，未来配置启动退出 2、stdout 空、stderr 通用错误不带路径或令牌。没有临时正式业务写入。
+- 固定本机诊断真实完成握手、工具目录及 capabilities 只读检查；另一轮注入携带路径/源秘密的 TimeoutError，报告只显示通用超时信息。成功/失败报告均排除原令牌、管理令牌和固定 nonce，终结后 nonces 为空；不将注入异常宣称为真实超时或当前聊天在线。原 ZIP CRC 通过、公开正文标记存在，所有成员和内容排除私人标记；Live 验收前后全部业务与私人摘要一致。
+- 七份既有副本的提案恢复报告以路径属性装配实际 ProposalStore/AgentRuntime，绕过 Repository 启动，显式阻止 recover/cleanup/abandon/_save，直接调用同一生产只读报告函数。已受阻副本只返回原提案/操作 ID 与 needs_review，未知执行/批准返回 evidence_error 且不泄露片段，其余私人授权格式不由提案报告判定有效。初次只提供 root 的测试装配遗漏 history_dir，已补齐真实验证所需路径属性，未修改报告器。各副本全部业务和私人文件字节及 mtime 不变；私人管理日志仅 read_json 解析，未调用会恢复的 CredentialManager.report。
+- 六份既有未来格式副本另核对实际错误输出：执行/批准/registry/管理日志拒绝启动的 stdout/stderr、authorization 鉴权 API 及 MCP、transport 凭据轮换 API。均未包含私人标记，证据摘要一致。此处实际启动的恢复预检与上条只读报告证明分开记录，不将启动行为描述成只读报告自身。
+- `python extension_lifecycle_acceptance.py` 最终退出 0，既有各阶段和新增 mixed_redaction 的全部标志通过。`python -m unittest -q test_mcp_stdio test_agent_diagnostics test_agent_proposal_management test_agent_files` 48 项通过；`python -m unittest -q test_agent_api test_security` 20 项通过，含静态白名单/链接边界。`python -m py_compile extension_redaction_acceptance.py extension_runtime_acceptance.py extension_lifecycle_acceptance.py server.py test_server.py`、两个入口 JS 语法和差异检查通过。本次桥接辅助的 stdin 及 stdout/stderr 各限 64 KiB；固定诊断沿用原有 8 秒和每流 128 KiB 门槛，诊断与子进程均有超时；相关服务和端口均关闭，TemporaryDirectory 及本次旧版 detached worktree 正常移除，未触碰历史残根、真实库或模型 turn。
+- 本阶段可独立回滚，无需生产缺陷修复。AG-143 保持进行中；最后全量 Python、全部 JS 契约/语法、显式浏览器验收（按已有入口）、静态边界、文档链接、diff/status 及私有生成物门禁由下一独立阶段接续，不提前标记最终交付完成。

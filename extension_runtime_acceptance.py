@@ -57,9 +57,10 @@ def child_options():
             'creationflags': subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0}
 
 
-def bounded_run(args, *, cwd=CODE, timeout=20):
+def bounded_run(args, *, cwd=CODE, timeout=20, input_data=None):
+    assert input_data is None or len(input_data) <= OUTPUT_LIMIT
     with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
-        result = subprocess.run(args, cwd=cwd, stdout=output, stderr=errors,
+        result = subprocess.run(args, cwd=cwd, stdout=output, stderr=errors, input=input_data,
                                 timeout=timeout, **child_options())
         assert output.tell() <= OUTPUT_LIMIT and errors.tell() <= OUTPUT_LIMIT
         output.seek(0)

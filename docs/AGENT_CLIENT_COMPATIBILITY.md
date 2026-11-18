@@ -880,7 +880,7 @@ python workflow_pilot.py --anchor $anchor
 | 工具发现、版本、全文读取 | MCP `2025-11-25`，四项只读目录，六段及原文逐字节匹配 | MCP `2025-11-25`，通用 22 项、file 附件九项，六段、EOF、摘要及 UI 原文；UI 空白未独立逐字节核对 | App Server 配置刷新及新会话、WorkBuddy 原装 CLI 发现各自已核对；按后续试点记录其实际目录与刷新 |
 | `file_id` 项目附件 | `agent_attested` 两回合通过 | `agent_attested` 两回合通过 | file-only、预览、原回执、落盘、消费和撤权均有证据；提交重放已有隔离结果 |
 | 原始流项目附件 | 一次性可信项目七项发现及 `local_web` 通过，临时根待清理 | `local_web` 通过，临时根已清理 | 两端用户网页批准、磁盘与原回执均已核对。两端均未追加桌面回执工具查询或实际重放 |
-| 概念图新建、更新 | 两项 `local_web`、新建 `agent_attested` 及更新确认和恢复通过 | 两项 `local_web` 和新建 `agent_attested` 通过；更新恢复待验，新建临时项移除待确认 | 两端新建首次提交及查询由中继核实。Codex 更新验证首响应截断后的查询、重启及原绑定重放，正常更新首次成功响应未单独验证 |
+| 概念图新建、更新 | 两项 `local_web`、新建 `agent_attested` 及更新确认和恢复通过 | 两项 `local_web` 和新建 `agent_attested` 通过；更新恢复待验，用户确认新建临时项已移除 | 两端新建首次提交及查询由中继核实。Codex 更新验证首响应截断后的查询、重启及原绑定重放，正常更新首次成功响应未单独验证 |
 | 单条 issue 删除 | `local_web` 及桌面原回执查询通过，临时根待清理 | `local_web` 及桌面原回执查询通过，临时根已移除 | 完整预览、独立本机批准和原回执已核对 |
 | 项目级联删除 | 用户取消桌面用例 | 用户取消桌面用例 | 2026-11-17 从 AG-142 桌面范围移除。保留 AG-138 实现及级联隔离证据 |
 | 项目创建及独立访问 | 完整通过，两次网页批准及授权前后桌面查询已核对，临时根待清理 | 通过，两次网页批准及授权前后桌面查询成功，列表内容由夹具核对，临时根已移除 | 两端零模型预演及浏览器专项已验证创建、独立访问批准、失败及原回执查询 |
@@ -967,6 +967,8 @@ $binding | ConvertTo-Json -Compress | python -c "import json, sys; from pathlib 
 - 独立 10 分钟提交查询窗口内，首次提交和原提案查询均成功。中继 `graph_attested_evidence` 核对实际响应及查询与持久回执一致，夹具 `first_commit_response_verified=true`、`receipt_query_matches=true`。唯一图 `CMAP-0001`、一份回执、零更新历史。revision 为 `ca6acf189836098c1d28ceb7cd91e581f8299fb14fc0109df9d8ec0289576f30`，提交时间 `2026-11-18T03:47:00.486410+00:00`。
 - 成功后独立 5 分钟收尾窗口于北京时间 11:52:04 到期，夹具正常退出 0，旧凭据被拒、端口关闭、临时根移除。用户尚未贴回最终回执文本或退出、移除临时项的确认。监督已请求移除，等待回报。
 
+用户随后明确确认已退出并移除本轮图新建临时连接器，非目标配置基线未独立核对。
+
 #### 两端共用的图更新故障对照
 
 ```powershell
@@ -1012,7 +1014,7 @@ python recovery_pilot.py --client codex --anchor $anchor
 python recovery_pilot.py --client workbuddy
 ```
 
-`python recovery_pilot.py --check --client workbuddy` 使用安装版 WorkBuddy CLI 发现同一六项候选，再用原始 stdio 运行程序驱动，配置全在一次性目录内。三条 `--check` 都不需要打开桌面。普通启动的整个执行阶段共用 `execution_expires_at`。
+`python recovery_pilot.py --check --client workbuddy` 使用安装版 WorkBuddy CLI 发现同一六项候选，再用原始 stdio 运行程序驱动，配置全在一次性目录内。三条 `--check` 都不需要打开桌面。普通启动按阶段计时：预览 20 分钟，本人确认、首次提交及查询、重启及查询、原绑定重放各 10 分钟，成功收尾 5 分钟。每阶段按实际 `execution_expires_at` 执行。切换时同步原子更新中继期限，未提交时重验绑定、权限和原图，已提交时核对同一持久回执、图及原历史。过期或 STOP 后拒绝续期。
 
 | 阶段 | 用户操作 | 监督操作和夹具停点 |
 | --- | --- | --- |

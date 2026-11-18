@@ -27,6 +27,11 @@ SERVER = 'workbench_ag142_recovery'
 CONFIRMATION = {'mode':'agent_attested', 'user_confirmed':True, 'note':'隔离协议预演的程序化确认'}
 DESKTOP_CONFIRMATION = {'mode':'agent_attested', 'user_confirmed':True}
 BINDING_KEYS = ('proposal_id','version','preview_digest')
+CONFIRM_SECONDS = 600
+COMMIT_SECONDS = 600
+RESTART_SECONDS = 600
+REPLAY_SECONDS = 600
+FINISH_SECONDS = 300
 
 
 def port_closed(port):
@@ -114,6 +119,24 @@ class RecoveryCase:
         self.deadline = time.monotonic() + WINDOW_SECONDS
         self.publish(expires_at=int(time.time()) + WINDOW_SECONDS)
 
+    def advance_window(self, seconds, *, preview=None, commit=None, result=None):
+        self.require_live_window()
+        if preview is not None:
+            self.verify_confirmation(preview, binding(preview, DESKTOP_CONFIRMATION), DESKTOP_CONFIRMATION)
+        elif commit is not None and result is not None:
+            if self.current_result(commit) != result:
+                raise ValueError('Original recovery evidence changed before stage transition')
+        else:
+            raise ValueError('Recovery stage transition requires current evidence')
+        self.require_live_window()
+        self.deadline = time.monotonic() + seconds
+        self.publish(expires_at=int(time.time() + seconds))
+
+    def require_live_window(self):
+        if (self.stop.exists() or time.monotonic() >= self.deadline
+                or time.time() >= self.state['expires_at']):
+            raise ValueError('Recovery stage expired before transition')
+
     def local(self, route, payload=None):
         request = Request(self.workbench.base_url + '/api/local/agent-management/' + route, headers=self.headers,
                           data=json.dumps(payload).encode() if payload is not None else None)
@@ -164,7 +187,7 @@ class RecoveryCase:
         denied(current, 'invalid_state')
         self.unchanged()
 
-    def arm_first(self, preview, confirmed, confirmation=CONFIRMATION):
+    def verify_confirmation(self, preview, confirmed, confirmation=CONFIRMATION):
         expected = binding(preview, confirmation)
         if confirmed != expected or self.state['phase'] != 'preview' or self.state['proposal_ids'][1:] != [expected['proposal_id']]:
             raise ValueError('Confirmation does not match the exact candidate B binding')
@@ -179,6 +202,14 @@ class RecoveryCase:
                 or proposal['preview_digest'] != expected['preview_digest']):
             raise ValueError('Candidate B preview changed before the confirmation gate')
         self.unchanged()
+        store._current_authorization(proposal)
+        return expected
+
+    def arm_first(self, preview, confirmed, confirmation=CONFIRMATION):
+        self.require_live_window()
+        expected = self.verify_confirmation(preview, confirmed, confirmation)
+        self.require_live_window()
+        key = expected['proposal_id']
         self.workbench.drop_response_path = f'/api/agent/v1/proposals/{key}/commit'
         self.publish(phase='first', commit=expected, candidate_b=key)
 
@@ -302,12 +333,14 @@ class RecoveryCase:
         self.audit.update(candidate_a_cancelled=True, stale_and_cancelled_denied=True)
         version = version_binding(b)
         approved = binding(b, DESKTOP_CONFIRMATION)
+        self.advance_window(CONFIRM_SECONDS, preview=b)
         confirm_prompt = ('我已核对完整预览，明确确认以下当前提案的 ID、版本和摘要。'
                           '本条只作确认，请复述绑定并等待下一条执行消息，此时不调用工具。\n'
                           + json.dumps(version, ensure_ascii=False, indent=2))
         if not self.phase_signal('await_user_confirmation', 'CONFIRM_B.json', expected=version, binding=version,
                                  cancelled_proposal_id=a['proposal_id'], prompt=confirm_prompt):
             return
+        self.advance_window(COMMIT_SECONDS, preview=b)
         self.arm_first(b, approved, DESKTOP_CONFIRMATION)
         emit({'mode':'ready_commit', 'execution_expires_at':self.state['expires_at'],
               'prompt':(f'只用 {SERVER}。按上一条用户确认的精确绑定提交一次。'
@@ -322,6 +355,7 @@ class RecoveryCase:
         first = self.current_result(approved)
         self.publish(phase='query')
         self.audit['lost_commit_response_queried'] = True
+        self.advance_window(RESTART_SECONDS, commit=approved, result=first)
         if not self.phase_signal('await_restart', 'RESTART', receipt=first[0]):
             return
         self.restart(slot)
@@ -335,6 +369,7 @@ class RecoveryCase:
         if self.current_result(approved) != first:
             raise ValueError('Original evidence differs after restart')
         self.audit['restart_query_matches'] = True
+        self.advance_window(REPLAY_SECONDS, commit=approved, result=first)
         if not self.phase_signal('await_replay', 'REPLAY_B.json', expected=version, binding=version):
             return
         if self.current_result(approved) != first:
@@ -349,7 +384,9 @@ class RecoveryCase:
             self.audit.update(exact_replay_matches=True, one_graph=True, one_history=True, one_receipt=True,
                               first_port_closed=True)
             self.publish(phase='query')
-            emit({'mode':'committed', 'receipt':first[0], **self.audit})
+            self.advance_window(FINISH_SECONDS, commit=approved, result=first)
+            emit({'mode':'committed', 'receipt':first[0], **self.audit,
+                  'execution_expires_at':self.state['expires_at']})
             await_value(lambda: None, self.stop, self.deadline)
 
     def check(self, invoke):
